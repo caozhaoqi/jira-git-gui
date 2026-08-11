@@ -1,0 +1,13 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# 本地数据（克隆仓库 / 下载文件 / 会话）
+store/
+*.log
+
+# OS
+.DS_Store
