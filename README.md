@@ -66,7 +66,7 @@ python main.py
 
 | `.env` 键 | 含义 | 备注 |
 | --- | --- | --- |
-| `jira_url` | Jira 基址 | 必填，如 `https://jira.hcmcloud.cn` |
+| `jira_url` | Jira 基址
 | `username` | 账号名 | PAT 克隆建议使用 PAT 所属账号 |
 | `mode` | 模式 | `pat`（默认）或 `cookie` |
 | `personal_access_token` | PAT | 兼容旧拼写 `persoanl_access_token` |
@@ -75,7 +75,7 @@ python main.py
 示例：
 
 ```ini
-jira_url=https://jira.hcmcloud.cn
+jira_url=https://jira.cn
 personal_access_token=YOUR_PAT
 cookie=JSESSIONID=...; atlassian.xsrf.token=...
 ```
@@ -133,17 +133,17 @@ PYTHONPATH=. ./venv/bin/python -m unittest discover -s tests -t .
 无 Cookie 时 `discover_repos` 直接返回空。
 
 ### 2) 集成测试（需凭据，自动跳过）
-`tests/test_integration.py` 真正访问 `jira.hcmcloud.cn` 验证「发现仓库 → 查看文件」全链路。
+`tests/test_integration.py` 真正访问 `jira..cn` 验证「发现仓库 → 查看文件」全链路。
 设置以下环境变量后才会执行（建议在本机、网络/代理可达时运行）：
 
 ```bash
-export JIRA_URL=https://jira.hcmcloud.cn
+export JIRA_URL=https://jira..cn
 export JIRA_COOKIE="JSESSIONID=...; atlassian.xsrf.token=..."
 # 可选：PAT 克隆链路
 export JIRA_PAT="<Personal Access Token>"
-export JIRA_USERNAME="hb_1150118968"
-export JIRA_REPO_ID="1032"
-export JIRA_REPO_NAME="hcm-cloud-vue"
+export JIRA_USERNAME=""
+export JIRA_REPO_ID=""
+export JIRA_REPO_NAME=""
 PYTHONPATH=. ./venv/bin/python -m unittest tests.test_integration -v
 ```
 

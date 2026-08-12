@@ -13,3 +13,7 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+tests
+tests/test_integration.py
+tests/test_config.py
+tests/test_core_parsing.py
