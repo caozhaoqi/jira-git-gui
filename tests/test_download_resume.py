@@ -238,5 +238,84 @@ class TestDownloadRepoOrchestration(unittest.TestCase):
             self.assertLess(ok, 2)
 
 
+class TestIsLikelyText(unittest.TestCase):
+    """回归：二进制 MIME 绝不能因 content-type 含 'xml' 子串被误判成文本。"""
+
+    def test_docx_openxml_content_type_is_binary(self):
+        # 真实服务器返回的 content-type（末尾还附带 ;charset=UTF-8）
+        ct = ("application/vnd.openxmlformats-officedocument"
+              ".wordprocessingml.document;charset=UTF-8")
+        # 真实 docx 头：PK\x03\x04 + 二进制（含 >=0x80 的高字节）
+        data = b"PK\x03\x04\x0a\x00\x00\x00\x00\x00\xd4\x5c\xa9\x5c" + b"\x00" * 8
+        self.assertFalse(JiraGitClient._is_likely_text(data, ct))
+
+    def test_text_plain_is_text(self):
+        self.assertTrue(
+            JiraGitClient._is_likely_text(b"hello world", "text/plain; charset=utf-8"))
+
+    def test_application_xml_is_text(self):
+        self.assertTrue(JiraGitClient._is_likely_text(b"<a>1</a>", "application/xml"))
+
+    def test_xhtml_plus_xml_is_text(self):
+        self.assertTrue(
+            JiraGitClient._is_likely_text(b"<html></html>", "application/xhtml+xml"))
+
+    def test_octet_stream_binary_invalid_utf8(self):
+        self.assertFalse(
+            JiraGitClient._is_likely_text(b"\xff\xfe\x00\x01\x02", "application/octet-stream"))
+
+    def test_charset_suffix_is_ignored(self):
+        # 即使二进制 MIME 被诡异地标了 charset，也应判为二进制
+        self.assertFalse(
+            JiraGitClient._is_likely_text(b"\x00\x01\xff", "image/png;charset=UTF-8"))
+
+
+class TestBinaryDownloadStaysBytes(unittest.TestCase):
+    """回归：二进制文件必须按字节原样落盘，不能经 UTF-8 解码写坏（U+FFFD 乱码）。"""
+
+    def setUp(self):
+        self.c = _make_client()
+        self.c._resolve_branch = lambda rid, b: b or "master"
+        self.c._resolve_head = lambda rid, b: "HEAD123"
+        self.c._fetch_browse = lambda *a, **k: mock.MagicMock(text="")
+        self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
+
+    def _fake_binary_response(self, binary: bytes, content_type: str):
+        resp = mock.MagicMock()
+        resp.status_code = 200
+        resp.content = binary
+        resp.headers = {"content-type": content_type}
+        resp.url = "https://example.com/x"
+        # 即便误用 .text 也绝不应当发生；这里模拟会损坏的字符串仅供参考
+        resp.text = binary.decode("utf-8", "replace")
+        self.c._request_with = lambda cl, u, h: resp
+        self.c.http_get = lambda u, h: resp
+
+    def test_docx_written_as_bytes_not_corrupted(self):
+        # 构造含大量 >=0x80 字节的“二进制”，必须原样落盘
+        binary = b"PK\x03\x04" + bytes(range(256)) * 10
+        ct = ("application/vnd.openxmlformats-officedocument"
+              ".wordprocessingml.document;charset=UTF-8")
+        self._fake_binary_response(binary, ct)
+
+        with tempfile.TemporaryDirectory() as d:
+            ok, fails, dest, skipped, ok_paths = self.c._download_files(
+                "895", "", d, ["f.docx"], manifest={})
+            self.assertEqual(ok, 1)
+            self.assertEqual(fails, [])
+            out = Path(dest) / "f.docx"
+            self.assertEqual(out.read_bytes(), binary,
+                             "二进制必须按字节原样落盘，不能经 UTF-8 解码写坏")
+
+    def test_png_written_as_bytes(self):
+        binary = b"\x89PNG\r\n\x1a\n" + bytes([i % 256 for i in range(500)])
+        self._fake_binary_response(binary, "image/png")
+        with tempfile.TemporaryDirectory() as d:
+            ok, _, dest, _, _ = self.c._download_files(
+                "895", "", d, ["a.png"], manifest={})
+            self.assertEqual(ok, 1)
+            self.assertEqual((Path(dest) / "a.png").read_bytes(), binary)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

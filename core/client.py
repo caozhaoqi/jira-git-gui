@@ -28,9 +28,25 @@ from core.logger import get_logger
 
 logger = get_logger("jira-git-gui")
 
-# REST 仓库列表翻页参数（Jira REST 通用 startAt/maxResults；部分 git 插件忽略则自动停止）
-REST_PAGE_SIZE = 50
-REST_MAX_PAGES = 500  # 安全上限：最多翻 500 页（25k 仓库），防止异常时死循环
+# REST 仓库列表翻页参数。
+# 经实测，Xiplink「Git Integration for Jira」6.x 的用户级全量端点
+# /rest/gitplugin/1.0/repository/all 采用 offset/limit 分页，且 limit 上限为 100
+#（limit>100 直接 400），startAt/maxResults 约定对其无效（被忽略，永远回前 100）。
+REST_PAGE_SIZE = 100   # 每页仓库数（服务端硬上限 100）
+REST_MAX_PAGES = 500  # 安全上限：最多翻 500 页（5w 仓库），防止异常时死循环
+
+# 仓库发现候选 REST 端点（按优先级）。第一个是 6.x 实测可用端点；
+# 其余为旧版/其它部署的兜底（可能 404，命中后跳过以节省请求）。
+REST_ENDPOINTS = (
+    "/rest/gitplugin/1.0/repository/all",  # 6.x 用户级全量列表（实测可用，offset/limit 分页）
+    "/rest/gitplugin/1.0/repositories",      # 旧版复数（部分实例可用）
+    "/rest/gitplugin/latest/repositories",   # latest 版本
+    "/rest/git/1.0/repository",             # 另一种旧路径
+)
+
+# HTML 全部仓库页翻页参数（Jira GIJRepositoryBrowser 标准分页：pageSize + pageIndex）
+HTML_PAGE_SIZE = 100   # 每页仓库数（与 UI 的 View:100 一致，减少总请求数）
+HTML_MAX_PAGES = 50    # 安全上限：最多翻 50 页（5000 仓库），防止异常时死循环
 
 DEFAULT_DOWNLOAD_WORKERS = 4  # 整库/批量下载默认并发数（有界线程池，避免压垮服务端）
 
@@ -51,6 +67,10 @@ _NOISE_NAMES = {"", "commits", "files", "branches", "tags", "browse", "view", "c
 
 # 这些状态码表示「请慢一点 / 暂不可用」，需要退避而非立即重试
 _BACKOFF_STATUS = {429, 503}
+
+# 这些状态码表示「该 REST 端点对当前实例/账号确实不可用」，
+# 命中后本次会话内跳过其余 REST 探测（避免每次发现仓库都白打一堆 404）。
+_REST_DEAD_STATUS = {401, 403, 404, 405, 410}
 
 
 def _should_backoff(r: "httpx.Response") -> bool:
@@ -88,10 +108,15 @@ class JiraGitClient:
         self._git_bin = shutil.which("git") or "git"
         # 初始化全局限流器为默认速率（保护服务器），UI 旋钮可热更新
         throttle.set_global_rate_limit(DEFAULT_REQUEST_QPS)
+        # 会话内缓存：REST 仓库列表端点经探测确认不可用时置位，
+        # 后续 discover_repos 直接跳过 REST，避免每次发现都白打一堆 404。
+        self._rest_unavailable: bool = False
 
     # ------------------------------------------------------------------ 配置
     def set_config(self, cfg: ConnectConfig) -> None:
         self.config = cfg
+        # 连接配置变化（服务器/账号/cookie）后，REST 可用性结论作废，需重新探测
+        self._rest_unavailable = False
 
     def set_rate_limit(self, qps: float) -> None:
         """设置对外请求速率上限（每秒请求数），热更新全局限流器。
@@ -288,7 +313,13 @@ class JiraGitClient:
             raw_fp = None
         try:
             html = self._discover_repos_html(raw_fp)
-            rest = self._discover_repos_rest(raw_fp)
+            if self._rest_unavailable:
+                # 会话内已确认 REST 端点不可用（多为 404），跳过这一轮 9 次白打，保护服务器
+                logger.info("[发现-REST] 已缓存「REST 端点不可用」，本次跳过 REST 探测（"
+                            "如需强制重试，请重新连接或重启应用）。")
+                rest: Dict[str, RepoInfo] = {}
+            else:
+                rest = self._discover_repos_rest(raw_fp)
         finally:
             if raw_fp:
                 raw_fp.close()
@@ -296,20 +327,26 @@ class JiraGitClient:
             logger.info("仓库发现原始接口响应已写入：%s（含 HTML 与各 REST 端点的状态码/响应体）",
                         raw_path)
         merged: Dict[str, RepoInfo] = {}
-        for rid, ri in rest.items():
-            merged[rid] = ri
-        for rid, ri in html.items():
-            if rid not in merged:
+        if rest:
+            # REST 为权威全量来源：以 REST 为主。HTML（AllRepositories 页）在 6.x 是 SPA 空壳，
+            # 解析出的锚点可能是噪声，因此仅用于【补全】REST 已有仓库的元信息（默认分支等），
+            # 不引入 HTML 独有项，避免污染权威列表。
+            for rid, ri in rest.items():
                 merged[rid] = ri
-            else:
-                cur = merged[rid]
-                # 优先用更完整的信息补全
+            for rid, ri in html.items():
+                cur = merged.get(rid)
+                if cur is None:
+                    continue
                 if not cur.default_branch and ri.default_branch:
                     cur.default_branch = ri.default_branch
                 if not cur.display_name and ri.display_name:
                     cur.display_name = ri.display_name
                 if not cur.clone_url and ri.clone_url:
                     cur.clone_url = ri.clone_url
+        else:
+            # REST 完全不可用（全 404 等）→ 退化到 HTML 解析结果（可能为空的兜底）
+            for rid, ri in html.items():
+                merged[rid] = ri
         if not merged:
             logger.warning("仓库发现：0 个。可能会话已过期（无仓库可见），或该账号无可见仓库，"
                            "或 REST/HTML 接口均不可用（详见原始响应文件）。")
@@ -319,100 +356,139 @@ class JiraGitClient:
         return sorted(merged.values(), key=lambda x: x.display_name.lower())
 
     def _discover_repos_html(self, raw_fp=None) -> Dict[str, RepoInfo]:
-        """解析 AllRepositories 单页 HTML，返回 repoId -> RepoInfo（含 branchName）。"""
+        """翻页遍历 AllRepositories HTML 页面，返回 repoId -> RepoInfo（含 branchName）。
+
+        Jira GIJRepositoryBrowser-AllRepositories.jspa 支持标准分页参数
+        ``pageSize``（每页条数）+ ``pageIndex``（0-based 页码），页面底部会显示
+        ``Showing 1 - 100 repositories out of 385`` 形式的总数提示。
+        本方法逐页请求、解析仓库锚点、合并去重，直到取尽全部页面。
+        """
         out: Dict[str, RepoInfo] = {}
+        base_url = self.config.jira_url.rstrip("/") + ALL_REPOS_PAGE
         try:
-            url = self.config.jira_url.rstrip("/") + ALL_REPOS_PAGE
-            r = self.http_get(url, headers=self.cookie_headers())
-            self._dump_raw(raw_fp, "HTML AllRepositories", url, r)
-            if r.status_code == 200 and "login" not in str(r.url):
-                for ri in self._parse_repo_list(r.text):
+            for page_idx in range(HTML_MAX_PAGES):
+                url = f"{base_url}?pageSize={HTML_PAGE_SIZE}&pageIndex={page_idx}"
+                r = self.http_get(url, headers=self.cookie_headers())
+                tag = f"HTML AllRepositories [page {page_idx}]"
+                self._dump_raw(raw_fp, tag, url, r)
+                if r.status_code != 200 or "login" in str(r.url):
+                    logger.warning("[发现-HTML] page=%d 状态码=%s 或跳转登录页（%s），停止翻页",
+                                   page_idx, r.status_code, r.url)
+                    break
+                page_repos = self._parse_repo_list(r.text)
+                # 本页无新增仓库 → 已到末页（服务端返回空页或重复页）
+                prev_count = len(out)
+                for ri in page_repos:
                     out[ri.repo_id] = ri
-                logger.info("[发现-HTML] 状态=%s，解析出 %d 个仓库锚点", r.status_code, len(out))
-            else:
-                logger.warning("[发现-HTML] 状态码=%s 或跳转到登录页（final url=%s），未解析出仓库",
-                               r.status_code, r.url)
+                new_count = len(out) - prev_count
+                logger.info("[发现-HTML] page=%d 状态=%s，本页 %d 个（新增 %d），累计 %d",
+                            page_idx, r.status_code, len(page_repos), new_count, len(out))
+                # 停止条件：本页解析出 0 个仓库锚点
+                if not page_repos:
+                    logger.info("[发现-HTML] page=%d 为空页，翻页结束", page_idx)
+                    break
+                # 尝试从页面文本提取 "out of N" 总数，用于提前终止
+                total_hint = self._extract_total_repos(r.text)
+                if total_hint is not None and len(out) >= total_hint:
+                    logger.info("[发现-HTML] 已累计 %d 个（>= 页面声明总数 %d），翻页结束",
+                                len(out), total_hint)
+                    break
+                # 本页不足一页大小 → 必为末页
+                if len(page_repos) < HTML_PAGE_SIZE:
+                    logger.info("[发现-HTML] page=%d 仅 %d 个 < pageSize=%d，末页",
+                                page_idx, len(page_repos), HTML_PAGE_SIZE)
+                    break
         except Exception as e:
-            logger.warning("[发现-HTML] 请求/解析异常：%s", e)
+            logger.warning("[发现-HTML] 翻页异常：%s", e)
         return out
+
+    @staticmethod
+    def _extract_total_repos(html: str) -> Optional[int]:
+        """从「Showing 1 - 100 repositories out of 385」提取仓库总数。
+
+        兼容中英文界面及不同插件版本的措辞差异。
+        """
+        m = re.search(r'out\s+of\s+(\d+)', html, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+        return None
 
     def _discover_repos_rest(self, raw_fp=None) -> Dict[str, RepoInfo]:
         """翻页遍历 git 插件 REST 仓库列表，返回 repoId -> RepoInfo（权威全量）。
 
-        为兼容不同版本/部署，依次尝试多个端点，并对每个端点尝试多种分页参数约定
-        （``startAt/maxResults``、``start/limit``、``offset/limit``）以及「无分页一次性返回全部」。
-        任一端点成功取到数据即用其清单；全程受全局限流器节流，不会打崩服务器。
-        每一步（URL / 状态码 / 响应体）都会写入原始诊断文件，便于排查「只返回 N 个」。
+        数据源要点（经实测 jira.hcmcloud.cn 的 Git Integration for Jira 6.x）：
+          - 真实可用的用户级全量端点是 ``/rest/gitplugin/1.0/repository/all``
+            （**不是** 复数的 ``/repositories``，也不是管理员的 ``/sources/repositories``）。
+          - 该端点返回信封 ``{"success":true,"total":385,"offset":0,"count":100,
+            "repositories":[...]}``，用 **offset/limit** 分页，且 limit 上限 100
+            （limit>100 直返 400）；**startAt/maxResults 约定对其无效**（被忽略）。
+          - 同一实例上复数的 ``/repositories`` 等旧路径一律 404，故仅作兜底候选。
+
+        为兼容其它版本/部署，依次尝试 ``REST_ENDPOINTS`` 中的多个端点，并对每个端点
+        依次尝试 offset/limit 与 startAt/maxResults 两种分页约定（哪种先拿到数据用哪种）。
+        全程受全局限流器节流，不会打崩服务器；每一步都写入原始诊断文件。
         """
         out: Dict[str, RepoInfo] = {}
+        saw_dead = False  # 是否探测到「端点确实不可用」（401/403/404/405 或请求异常）
         base = self.config.jira_url.rstrip("/")
-        endpoints = (
-            "/rest/gitplugin/1.0/repositories",
-            "/rest/git/1.0/repository",
-            "/rest/gitplugin/latest/repositories",
-        )
-        for ep in endpoints:
+        for ep in REST_ENDPOINTS:
             if out:
                 break
             ep_out: Dict[str, RepoInfo] = {}
-            # 1) 无分页：部分版本一次性返回全部仓库
-            try:
-                url = base + ep
-                r = self.http_get(url, headers=self.cookie_headers())
-                self._dump_raw(raw_fp, f"REST {ep} (无分页)", url, r)
-                if r.status_code == 200 and not self._looks_like_login(r):
-                    items = self._safe_json_list(r)
-                    for it in items:
-                        ri = self._parse_rest_repo_item(it)
-                        if ri and ri.repo_id:
-                            ep_out.setdefault(ri.repo_id, ri)
-                    logger.info("[发现-REST] %s 无分页：状态=%s，解析 %d 项",
-                                ep, r.status_code, len(items))
-                else:
-                    logger.warning("[发现-REST] %s 无分页：状态=%s%s", ep, r.status_code,
-                                   "（疑似登录页）" if self._looks_like_login(r) else "")
-            except Exception as e:
-                logger.warning("[发现-REST] %s 无分页异常：%s", ep, e)
-            # 2) 分页约定
-            if not ep_out:
-                conventions = [
-                    ("startAt/maxResults", lambda s, n: f"?startAt={s}&maxResults={n}"),
-                    ("start/limit", lambda s, n: f"?start={s}&limit={n}"),
-                    ("offset/limit", lambda s, n: f"?offset={s}&limit={n}"),
-                ]
-                for cname, build in conventions:
-                    if ep_out:
-                        break
-                    start = 0
-                    for _ in range(REST_MAX_PAGES):
-                        paged = base + ep + build(start, REST_PAGE_SIZE)
-                        try:
-                            r = self.http_get(paged, headers=self.cookie_headers())
-                            self._dump_raw(raw_fp, f"REST {ep} [{cname}] start={start}", paged, r)
-                            if r.status_code != 200 or self._looks_like_login(r):
-                                logger.warning("[发现-REST] %s [%s] start=%s：状态=%s%s",
-                                               ep, cname, start, r.status_code,
-                                               "（疑似登录页）" if self._looks_like_login(r) else "")
-                                break
-                            items = self._safe_json_list(r)
-                            if not items:
-                                break
-                            prev = len(ep_out)
-                            for it in items:
-                                ri = self._parse_rest_repo_item(it)
-                                if ri and ri.repo_id:
-                                    ep_out.setdefault(ri.repo_id, ri)
-                            got = len(items)
-                            # 停止条件：本页不足一页（末页），或本页无新增（服务端忽略分页）
-                            if got < REST_PAGE_SIZE or len(ep_out) == prev:
-                                break
-                            start += REST_PAGE_SIZE
-                        except Exception as e:
-                            logger.warning("[发现-REST] %s [%s] start=%s 异常：%s",
-                                           ep, cname, start, e)
+            # 分页约定：优先 offset/limit（6.x 实测），再试 startAt/maxResults（旧版兜底）
+            conventions = [
+                ("offset/limit", lambda o, n: f"?offset={o}&limit={n}"),
+                ("startAt/maxResults", lambda s, n: f"?startAt={s}&maxResults={n}"),
+            ]
+            for cname, build in conventions:
+                if ep_out:
+                    break
+                start = 0
+                for _ in range(REST_MAX_PAGES):
+                    paged = base + ep + build(start, REST_PAGE_SIZE)
+                    try:
+                        r = self.http_get(paged, headers=self.cookie_headers())
+                        self._dump_raw(raw_fp, f"REST {ep} [{cname}] {start}", paged, r)
+                        if r.status_code != 200 or self._looks_like_login(r):
+                            if r.status_code in _REST_DEAD_STATUS:
+                                saw_dead = True
+                            logger.warning("[发现-REST] %s [%s] %s：状态=%s%s",
+                                           ep, cname, start, r.status_code,
+                                           "（疑似登录页）" if self._looks_like_login(r) else "")
                             break
+                        items, total = self._normalize_rest_envelope(r)
+                        if not items:
+                            break
+                        prev = len(ep_out)
+                        for it in items:
+                            ri = self._parse_rest_repo_item(it)
+                            if ri and ri.repo_id:
+                                ep_out.setdefault(ri.repo_id, ri)
+                        got = len(items)
+                        logger.info("[发现-REST] %s [%s] 第 %d 页：本页 %d 个（新增 %d），"
+                                    "累计 %d / total=%s",
+                                    ep, cname, start // REST_PAGE_SIZE, got,
+                                    len(ep_out) - prev, len(ep_out), total)
+                        # 停止条件（任意一条命中即末页，避免死循环）：
+                        if total is not None and len(ep_out) >= total:
+                            break                       # 已取到服务端声明的总数
+                        if got < REST_PAGE_SIZE:
+                            break                       # 本页不足一页 → 末页
+                        if len(ep_out) == prev:
+                            break                       # 本页无新增 → 服务端忽略分页
+                        start += REST_PAGE_SIZE
+                    except Exception as e:
+                        saw_dead = True
+                        logger.warning("[发现-REST] %s [%s] %s 异常：%s",
+                                       ep, cname, start, e)
+                        break
             if ep_out:
                 out.update(ep_out)
+        # 全部端点都确认不可用（且拿不到任何仓库）→ 本次会话缓存该结论，后续发现跳过 REST
+        if not out and saw_dead:
+            self._rest_unavailable = True
+            logger.info("[发现-REST] 所有 REST 端点均不可用（多为 404），已缓存该结论；"
+                        "后续「发现仓库」将跳过 REST 探测以节省请求。")
         return out
 
     # ---- 原始响应诊断辅助 ----
@@ -481,6 +557,63 @@ class JiraGitClient:
         return []
 
     @staticmethod
+    def _normalize_rest_envelope(resp) -> tuple:
+        """把 REST 响应归一为 ``(items, total)``。
+
+        ``items`` 为仓库对象列表；``total`` 为服务端声明的仓库总数（无则 None）。
+        兼容：
+          - 6.x 信封：``{"success":true,"total":385,"offset":0,"count":100,
+                          "repositories":[...]}``
+          - 旧版包装：``{"repositories":[...], "total":N}``
+          - 裸数组：``[{...}, ...]``
+          - 单对象：``{"id":..,"displayName":..}``
+        """
+        try:
+            data = resp.json()
+        except Exception:
+            return [], None
+        items: list = []
+        total = None
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            for key in ("repositories", "values", "repos", "repoList"):
+                v = data.get(key)
+                if isinstance(v, list):
+                    items = v
+                    break
+            if not items and ("id" in data or "repoId" in data or data.get("displayName")):
+                items = [data]
+            tv = data.get("total")
+            if isinstance(tv, int):
+                total = tv
+        return items, total
+
+    @staticmethod
+    def _extract_clone_url(it: dict) -> str:
+        """从 REST 仓库对象里尽量提取可用的 clone URL。
+
+        6.x 的 repository/all 不直接给 cloneUrl 字段，而是把真实地址藏在
+        ``gkRepoUrl`` / ``glRepoUrl``（形如
+        ``gitkraken://...?url=https%3A%2F%2Fcode.hcmcloud.io%2Fhcm%2Fselenium.git``）
+        的 ``url`` 查询参数里。旧版则可能直接给 ``cloneUrl`` / ``url``。
+        逐一尝试，返回第一个可用的 http(s) 地址。
+        """
+        for key in ("gkRepoUrl", "glRepoUrl", "cloneUrl", "url", "remoteUrl", "sshUrl"):
+            v = it.get(key)
+            if not isinstance(v, str) or not v:
+                continue
+            # gitkraken/gitlens 类 scheme：从 ?url=ENCODED 取出真实地址
+            m = re.search(r"[?&]url=([^&]+)", v)
+            if m:
+                decoded = urllib.parse.unquote(m.group(1))
+                if decoded.startswith("http"):
+                    return decoded
+            if v.startswith("http"):
+                return v
+        return ""
+
+    @staticmethod
     def _parse_rest_repo_item(it) -> Optional[RepoInfo]:
         """从单个 REST 仓库对象构造 RepoInfo（无 id 则忽略）。
 
@@ -499,8 +632,9 @@ class JiraGitClient:
             return None
         return RepoInfo(
             repo_id=rid,
-            display_name=it.get("displayName") or it.get("name") or "",
-            clone_url=it.get("cloneUrl") or it.get("url") or "",
+            display_name=it.get("displayName") or it.get("name") or it.get("repoName") or "",
+            clone_url=JiraGitClient._extract_clone_url(it),
+            default_branch=it.get("defaultBranch") or it.get("branchName") or "",
         )
 
     @staticmethod
@@ -853,8 +987,17 @@ class JiraGitClient:
                     [self._git_bin, "-C", str(local_path), "show",
                      f"{commit_id}:{path}"],
                     capture_output=True, timeout=30)
-                if res.returncode == 0:
-                    return res.stdout.decode("utf-8", "replace"), None
+            if res.returncode == 0:
+                data = res.stdout
+                # 与 Cookie 模式一致：二进制按字节返回并给「二进制请下载」提示，
+                # 不再用 errors='replace' 把二进制预览成乱码（与 docx 二进制识别同类）。
+                if self._is_likely_text(data, ""):
+                    try:
+                        return data.decode("utf-8"), None
+                    except UnicodeDecodeError:
+                        return data, None
+                return None, (f"二进制文件（{len(data)} 字节），"
+                              f"请在文件树勾选后用「下载选中」保存到本地查看历史版本。")
                 # 该提交中文件可能已被删除（show 报错）；交 Cookie 模式兜底
             except Exception:
                 pass
@@ -1304,11 +1447,25 @@ class JiraGitClient:
             })
         return files
 
-    def _local_file_read(self, root: Path, path: str) -> str:
+    def _local_file_read(self, root: Path, path: str):
+        """读取本地克隆文件，用于 PAT 模式预览。
+
+        与 Cookie 模式一致地识别二进制：二进制按字节返回，供上层（get_file）
+        给出「二进制文件，请下载」的友好提示；文本按 UTF-8 解码返回。
+        旧实现总用 read_text(errors='replace') 返回 str，导致 get_file 的
+        isinstance(content, bytes) 判断永远失效、二进制预览显示乱码——
+        与之前 docx 二进制识别同类的问题。
+        """
         p = root / path
         if not str(p.resolve()).startswith(str(root.resolve())):
             raise ValueError("非法路径")
-        return p.read_text(encoding="utf-8", errors="replace")
+        data = p.read_bytes()
+        if self._is_likely_text(data, ""):
+            try:
+                return data.decode("utf-8")
+            except UnicodeDecodeError:
+                return data
+        return data
 
     def _cookie_file_content(self, repo_id: str, head_commit: str, path: str,
                              client: Optional["httpx.Client"] = None) -> tuple:
@@ -1342,12 +1499,22 @@ class JiraGitClient:
                     f"{repo_id}/{urllib.parse.quote(ref)}/{qpath}")
             r = _get(rest, self.cookie_headers())
             ct = (r.headers.get("content-type") or "").lower()
-            is_json_like = "json" in ct or r.content[:1] in (b"{", b"[")
+            # 仅当响应「看起来像 JSON 错误信封」时才绕过 REST 干净内容、改走 JSP
+            # 文本提取；否则（含 config.json 等以 {[ 开头的合法文本文件）直接按字节处理。
+            # 旧实现用「首字节 { 或 [」启发式，会把大量合法文本文件误判为 JSON 信封、
+            # 错误改走 JSP 提取（常提取失败），与之前 openxml 子串误判完全同类。
+            is_json_like = "json" in ct and self._looks_like_error_envelope(r.content)
             if r.status_code == 200 and not is_json_like:
                 data = r.content
                 # 文本型内容按 utf-8 写入；否则按二进制字节落盘，避免图片/压缩包被破坏
                 if self._is_likely_text(data, ct):
-                    return True, data.decode("utf-8", "replace"), ""
+                    # 严格解码：_is_likely_text 已确认是合法 UTF-8，不会丢字节；
+                    # 若极端误判导致严格解码失败，则退回字节落盘，
+                    # 绝不偷偷用 errors='replace' 把二进制写坏（曾有 docx 因此变乱码）
+                    try:
+                        return True, data.decode("utf-8"), ""
+                    except UnicodeDecodeError:
+                        return True, data, ""
                 return True, data, ""
             # 2) JSP 查看页（含 .json 等被当二进制的文件；此处只能取文本）
             jsp = (f"{self.config.jira_url.rstrip('/')}/secure/GIJViewGitFileContent.jspa"
@@ -1355,24 +1522,73 @@ class JiraGitClient:
                    f"&path={qpath}")
             r2 = _get(jsp, self.cookie_headers())
             if r2.status_code == 200:
-                from_html = self._extract_code_from_html(r2.text)
-                if from_html is not None:
-                    return True, from_html, ""
+                # JSP 仅用于文本：二进制无法从 HTML 可靠还原，跳过以避免 r2.text
+                # 把二进制按 UTF-8 解码（errors='replace'）写坏
+                if self._is_likely_text(r2.content, r2.headers.get("content-type", "")):
+                    from_html = self._extract_code_from_html(r2.text)
+                    if from_html is not None:
+                        return True, from_html, ""
         # 全失败：给出可诊断信息
         return (False, None,
                 f"无法获取文件（已尝试引用 {refs}；REST/JSP 均未返回可用正文）。"
                 f"该文件可能需用 PAT 模式克隆后下载。")
 
     @staticmethod
+    def _looks_like_error_envelope(data: bytes) -> bool:
+        """判断 REST 返回的 JSON 是否「错误信封」而非文件内容。
+
+        仅当 content-type 为 json 且内容像错误信封（success:false / errorMessage 等）
+        时，才认为它不是文件内容、需要回退到 JSP 提取。真 JSON 文本文件
+        （如 config.json）虽也以 { 开头，但不含这些错误标记，应直接按文本返回。
+        """
+        head = data[:1024].lower()
+        return (b'"success":false' in head
+                or b'"success": false' in head
+                or b'"errorcode"' in head
+                or b'"errormessage"' in head
+                or b'{"error"' in head)
+
+    @staticmethod
     def _is_likely_text(data: bytes, content_type: str) -> bool:
-        """判断是否应作为文本处理：文本型 content-type，或内容为合法 UTF-8 且无空字节。"""
-        ct = (content_type or "").lower()
-        if ct.startswith("text/") or any(k in ct for k in
-                                         ("json", "xml", "javascript", "ecmascript", "html")):
+        """判断是否应作为文本处理：文本型 content-type，或内容为合法 UTF-8 且无空字节。
+
+        注意：content-type 仅取 ``;`` 之前的主类型，避免 ``charset=UTF-8`` 等后缀干扰；
+        并对二进制 MIME（office / 压缩包 / 图片 / 音视频 等）做**显式排除**——
+        例如 ``application/vnd.openxmlformats-officedocument...`` 含子串 ``xml``，
+        绝不能靠子串匹配当成文本，否则二进制会被按 UTF-8 解码（errors='replace'）写坏。
+        设计上「拿不准一律当二进制（保留字节），绝不解码」——文本误判为二进制至多没有预览，
+        二进制误判为文本则会不可逆损坏文件。
+        """
+        ct = (content_type or "").lower().split(";")[0].strip()
+        if not ct:
+            # 无 content-type：完全依赖字节启发式
+            if not data:
+                return True
+            if b"\x00" in data[:4096]:
+                return False
+            try:
+                data.decode("utf-8")
+            except UnicodeDecodeError:
+                return False
             return True
+        # 显式二进制 MIME：强制按字节处理（落盘用 write_bytes）
+        _BINARY_MIME_PREFIXES = (
+            "application/octet-stream", "application/vnd.", "application/zip",
+            "application/gzip", "application/x-tar", "image/", "audio/", "video/",
+            "application/pdf", "application/msword", "application/mspowerpoint",
+            "application/msexcel", "application/x-ms",
+        )
+        if ct.startswith(_BINARY_MIME_PREFIXES) or "officedocument" in ct:
+            return False
+        # 已知文本 MIME（整词 / 前缀匹配，不靠子串，避免 openxmlformats 中的 'xml' 误判）
+        if (ct.startswith("text/")
+                or ct in ("application/json", "application/xml", "application/javascript",
+                          "application/ecmascript", "application/html")
+                or ct.endswith("+xml")):
+            return True
+        # 其余未知 MIME：字节启发式兜底（含空字节 / 非法 UTF-8 => 二进制）
         if not data:
             return True
-        # 无明确文本标记时，用启发式：含空字节或非法 UTF-8 视为二进制
         if b"\x00" in data[:4096]:
             return False
         try:

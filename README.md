@@ -100,18 +100,25 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 1. 工具栏「连接设置」：填写 Jira 地址、用户名，选择 PAT 或 Cookie 模式，填入对应凭据，
    以及仓库 ID / 分支 / 仓库名。点「测试连接」可就地校验。
 2. 仓库面板：若已配置 Cookie，点「发现仓库」会**翻页遍历**所有仓库并列出。逻辑：
-   - 优先解析 `GIJRepositoryBrowser-AllRepositories.jspa` 单页 HTML（可拿到 **默认分支 branchName**，
-     作为信息补全来源）；
-   - 再翻页遍历 git 插件 REST 仓库列表（`/rest/gitplugin/1.0/repositories`、`/rest/git/1.0/repository`、
-     `/rest/gitplugin/latest/repositories`，依次尝试多种分页参数约定
-     `startAt/maxResults`、`start/limit`、`offset/limit` 及「无分页一次性返回」，自动防御死循环），
-     作为**权威全量**来源，不再受单页 HTML 渲染数量限制；
-   - **排查「为什么只返回 N 个」**：每次「发现仓库」都会把两个接口的原始响应完整写入
-     `logs/discover_raw_<时间戳>.txt`（含 HTML 与各 REST 端点的 URL / 状态码 / 响应体），并在主日志
-     逐个端点打印「状态码 / 疑似登录页」。若发现数异常，先看该文件：REST 404=路径不对、401/403=权限、
-     返回登录页=会话对 REST 无效、HTML 仅 3 个且含分页链接=该页服务端分页需跟随。
-   - 两者按 repoId 合并去重（REST 提供完整清单，HTML 补全默认分支/名称）；
+   - **权威全量来源 = git 插件 REST 接口** `/rest/gitplugin/1.0/repository/all`
+     （**不是** 复数的 `/repositories`，也不是管理员的 `/sources/repositories`）：
+     返回信封 `{"success":true,"total":385,"offset":0,"count":100,"repositories":[...]}`，
+     用 **offset/limit** 翻页（`limit` 上限 100，超过即 400；`startAt/maxResults` 对该端点无效），
+     按 `total` 字段提前终止，可一次拉全所有仓库（实测 385 个）；
+     clone 地址藏在 `gkRepoUrl`/`glRepoUrl` 的 `?url=` 参数里，客户端会自动提取；
+   - 另有兜底候选端点（`/rest/gitplugin/1.0/repositories`、`/rest/gitplugin/latest/repositories`、
+     `/rest/git/1.0/repository`，各试 `offset/limit` 与 `startAt/maxResults` 两种约定）应对其它版本/部署；
+   - **HTML（AllRepositories 页）仅作信息补全/兜底**：在 6.x 中该页是 SPA 空壳，仓库列表由 JS 异步
+     加载，静态 HTML 里没有仓库锚点（只会解析出 3 个噪声锚点）。因此 **以 REST 为权威**，HTML 仅用于
+     补全 REST 已有仓库的默认分支等元信息；仅当 REST 完全不可用时才退化到 HTML；
+   - **排查「为什么只返回 N 个」**：每次「发现仓库」都会把接口原始响应完整写入
+     `logs/discover_raw_<时间戳>.txt`（含各 REST 端点的 URL / 状态码 / 响应体），并在主日志
+     逐个端点打印「状态码 / 疑似登录页」。若发现数异常，先看该文件：REST 401/403=会话对 REST 无效、
+     404=路径不对、返回登录页=会话过期、HTML 仅 3 个=该页是 SPA 空壳（应以 REST 为准）。
    - 日志会记录「HTML 解析 N 个、REST 全量 M 个、合并去重后 K 个」，便于核对是否拉全。
+   - **REST 可用性缓存**：若某次发现确认所有 REST 端点均不可用（多为 401/404），会缓存该结论，
+     **本次会话内后续「发现仓库」直接跳过 REST 探测**（只请求 HTML 兜底），
+     避免每次都白打一堆请求冲击服务器；重新连接或重启后缓存作废。
    选中某仓库后点「查看文件」（或双击）即加载其文件树；也可手动填写仓库 ID 后点「加载文件树」。
 3. 文件树：展开目录懒加载子项（分支为空时客户端会自动探测可用分支，如 master/main）；
    勾选文件「选择」列后可点「下载选中(Cookie)」。
@@ -179,6 +186,12 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
   `core.errors.UserError`，仅以 **WARNING** 级别记录且不打印 traceback，UI 仅显示
   友好文案——避免「请先选择仓库」这类提示被误记成 ERROR + 完整堆栈的日志噪音；
   其余**真正的代码缺陷**仍按 ERROR + 完整 traceback 处理，便于追溯。
+- **文件树异步安全**：目录子项懒加载的回调**只通过 path（稳定字符串）传递节点身份，
+  不再跨线程持有 `QTreeWidgetItem`**。回调触发时按 path 重新查找「活的」节点；若期间
+  切换了仓库 / 重新加载了根目录（`tree.clear()` 已销毁旧节点），查找失败则安全丢弃过期
+  结果，避免 `wrapped C/C++ object of type QTreeWidgetItem has been deleted` 崩溃。
+  另：`set_children` 设置 `loaded` 标记后会 `setData` 写回（PyQt6 的 `data()` 返回副本，
+  不写回则标记永不生效，每次展开都会重复请求）。
 
 **遇到崩溃时**：把 `logs/jira_git_gui.log` 末尾的 traceback 内容反馈即可定位。
 
@@ -207,9 +220,14 @@ PYTHONPATH=. ./venv/bin/python -m unittest discover -s tests -t .
 `set_qps` 热更新、全局单例；**429/503 退避**——识别需退避状态码、`Retry-After` 秒数优先、
 无头时指数退避（封顶 30s）。
 
-`tests/test_discover_repos.py`：REST 响应归一化（数组/包装对象/单对象）、仓库项解析（含 **id=0 边界**）；
-**翻页遍历**——按 `startAt` 翻到末页、服务端忽略分页参数时自动停止（不死循环）、空页即止；
-**合并去重**——HTML 补全默认分支 + REST 全量清单 + 发现数日志（INFO/WARNING）。
+`tests/test_discover_repos.py`：REST 信封归一化（6.x 的 `{total,repositories:[...]}` 信封 / 旧版包装 / 裸数组 / 单对象）、
+仓库项解析（含 **id=0 边界** 与从 `gkRepoUrl`/`glRepoUrl` 提取真实 clone 地址）；
+**HTML 翻页遍历**——`pageSize`/`pageIndex` 逐页取尽、`out of N` 总数提前终止、空页/末页自动停止（SPA 兜底用）；
+**REST 翻页遍历**——实测端点 `/rest/gitplugin/1.0/repository/all` 用 `offset/limit` 翻页（limit 上限 100）、
+按 `total` 提前终止、服务端忽略分页参数时自动停止（不死循环）；
+**合并去重**——REST 权威全量 + HTML 仅补全默认分支 + 发现数日志（INFO/WARNING）；
+**REST 不可用缓存**——HTML 只给 3 个 / REST 全 401·404 的真实场景回归：首次返回 3 个并缓存「REST 不可用」，
+后续发现跳过 REST 探测（退化到 HTML），`set_config` 换配置后缓存作废。
 
 ### 2) 集成测试（需凭据，自动跳过）
 `tests/test_integration.py` 真正访问 Jira 验证「发现仓库 → 查看文件 → 下载」全链路。

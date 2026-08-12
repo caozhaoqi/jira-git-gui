@@ -226,13 +226,19 @@ class MainWindow(QMainWindow):
             self._log("文件树为空（未能确定可用分支或该仓库无可见文件）。")
 
     @safe_slot
-    def _set_children(self, item, entries):
+    def _set_children(self, path, entries):
+        # 回调时再按 path 重新解析「活的」节点引用。
+        # 若在请求期间切换了仓库 / 重新加载了根目录（tree.clear() 已销毁旧节点），
+        # 这里查不到节点，直接丢弃过期结果，避免访问已销毁的 QTreeWidgetItem 崩溃。
+        item = self.tree_panel.find_item_by_path(path)
+        if item is None:
+            return
         self.tree_panel.set_children(item, entries)
 
-    def _load_children(self, item, path):
+    def _load_children(self, path):
         self._spawn(
             self.client.list_level, path,
-            on_finished=lambda entries: self._set_children(item, entries),
+            on_finished=lambda entries: self._set_children(path, entries),
             on_error=lambda m: self._log(f"加载子目录失败 {path}：{m}"),
         )
 

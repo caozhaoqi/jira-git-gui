@@ -12,8 +12,11 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 class TreePanel(QWidget):
     requestRoot = pyqtSignal()
-    requestChildren = pyqtSignal(object, str)  # (QTreeWidgetItem, path)
-    fileActivated = pyqtSignal(str)            # path
+    # 只传 path（稳定字符串），绝不把 QTreeWidgetItem 跨异步边界传递：
+    # 节点可能在请求未返回时被 tree.clear() 销毁，闭包持有已销毁对象会抛
+    # "wrapped C/C++ object of type QTreeWidgetItem has been deleted"。
+    requestChildren = pyqtSignal(str)  # path
+    fileActivated = pyqtSignal(str)    # path
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -31,6 +34,26 @@ class TreePanel(QWidget):
     def clear(self) -> None:
         self.tree.clear()
 
+    def find_item_by_path(self, path):
+        """按 path 在整棵树中查找节点，返回活的 QTreeWidgetItem；找不到返回 None。
+
+        用于在异步回调（目录子项加载完成后）里「重新解析」节点引用，而非持有
+        一个可能在请求期间被 tree.clear() 销毁的 QTreeWidgetItem。
+        """
+
+        def walk(item):
+            for i in range(item.childCount()):
+                c = item.child(i)
+                d = c.data(0, Qt.ItemDataRole.UserRole)
+                if isinstance(d, dict) and d.get("path") == path:
+                    return c
+                found = walk(c)
+                if found is not None:
+                    return found
+            return None
+
+        return walk(self.tree.invisibleRootItem())
+
     def set_root_entries(self, entries) -> None:
         self.tree.clear()
         for e in entries:
@@ -41,6 +64,10 @@ class TreePanel(QWidget):
         d = parent_item.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(d, dict):
             d["loaded"] = True
+            # 注意：PyQt6 的 item.data() 返回 UserRole 对象的「副本」，
+            # 直接 d["loaded"]=True 不会写回，必须再 setData 一次，否则 loaded 标记永不生效，
+            # 导致每次展开都重新发起请求（既浪费，又会放大异步竞态）。
+            parent_item.setData(0, Qt.ItemDataRole.UserRole, d)
         if not entries:
             parent_item.setExpanded(False)
             return
@@ -87,7 +114,7 @@ class TreePanel(QWidget):
             return
         item.takeChildren()
         item.addChild(QTreeWidgetItem(["（加载中…", "", ""]))
-        self.requestChildren.emit(item, d["path"])
+        self.requestChildren.emit(d["path"])
 
     def _on_clicked(self, item, column):
         d = item.data(0, Qt.ItemDataRole.UserRole)
