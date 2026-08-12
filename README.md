@@ -1,109 +1,68 @@
-# Jira Git 插件通用拉取工具（GUI）
+# Jira Git 通用拉取工具（PyQt 桌面版）
 
-一个本地运行的图形化工具，用于从 **Jira Git Integration 插件**（`GIJBrowseGit.jspa` 等）托管的仓库里
-**浏览文件树、查看/下载源码、克隆整个仓库**。
-
-适用于：公司内网 Jira + BigBrassBand「Git Integration for Jira」插件场景，普通 Jira 账号密码 / 会话
-无法直接 `git clone`（插件要求 PAT），但你有浏览器登录态或 Personal Access Token 的情况。
-
----
-
-## 架构
-
-单进程 **FastAPI** 后端同时托管前端网页，浏览器打开 `http://localhost:8787` 即用，零前端构建、跨平台。
-后端代理所有 Jira 请求，规避浏览器 CORS 与鉴权难题，并对代理下的偶发 SSL 抖动做了重试。
-
-```
-jira-git-gui/
-├── server.py          # FastAPI 后端 + 静态托管 + 全部 /api 接口
-├── index.html         # 单页前端（原生 JS + 内联 CSS，浅色卡片式）
-├── requirements.txt   # fastapi / uvicorn / httpx
-├── store/             # 本地数据（已被 .gitignore 忽略）
-│   ├── repos/<repoId>/     # PAT 模式 git clone 落盘处
-│   └── downloads/<repoId>/ # Cookie 模式下载落盘处
-└── venv/              # 虚拟环境（忽略）
-```
-
----
+针对 Jira Git Integration 插件（Xiplink / BigBrassBand）的通用桌面客户端。纯 Python +
+PyQt6，无需浏览器，所有网络请求在后台线程执行，界面不卡顿。
 
 ## 两种模式
 
-| 能力 | PAT 模式 (`git clone`) | Cookie 模式 (Web 抓取) |
-|---|---|---|
-| 浏览文件树（含子目录，懒加载） | ✅ 本地读，秒开 | ⚠️ 仅根目录层（插件子目录内容纯前端 AJAX，无服务端列表接口） |
-| 读取/预览文件 | ✅ 全量 | ⚠️ 仅根目录文件（`.json` 走 JSP 提取） |
-| 下载文件到本地 | ✅ 全量 | ⚠️ 仅根目录文件 |
-| 完整 git 历史 | ✅ | ❌ |
+| 模式 | 认证 | 能力 | 局限 |
+| --- | --- | --- | --- |
+| **PAT 模式** | Personal Access Token | `git clone` 全量拉取（含嵌套文件），本地浏览/预览 | 需要该账号名下有效 PAT 与仓库名 |
+| **Cookie 模式** | `JSESSIONID` 会话 | 浏览文件树、预览根目录文件、批量下载根目录文件 | 插件子目录列表 / 正文走前端 AJAX，无服务端接口，嵌套文件无法获取 |
 
-> **结论**：PAT 模式是「全量」主路径；Cookie 模式适合「只有浏览器登录态、没有 PAT」时快速看一眼根目录配置
-> （README、package.json、Dockerfile、webpack 配置等）。嵌套源码请用 PAT 模式克隆。
+> Cookie 模式下子目录点开可能为空，属已知限制；要拿全量请改用 PAT 模式克隆。
 
----
+## 项目结构
 
-## 使用步骤
+```
+jira-git-gui/
+├── main.py                 # 入口：创建 QApplication + MainWindow
+├── core/                   # 核心逻辑层（无 GUI 依赖，可独立测试）
+│   ├── constants.py        # 目录 / 代理 / 超时
+│   ├── models.py           # ConnectConfig / RepoInfo / TreeEntry
+│   └── client.py           # JiraGitClient：connect / discover / list_level / get_file / clone / download
+├── gui/                    # 界面层（PyQt6 组件）
+│   ├── main_window.py      # 布局 + 信号绑定 + 异步任务编排
+│   ├── connect_dialog.py   # 连接设置（地址/账号/模式/PAT/Cookie/仓库）
+│   ├── repo_panel.py       # 发现仓库 / 手动指定仓库
+│   ├── tree_panel.py       # 懒加载文件树（QTreeWidget）
+│   ├── preview_panel.py    # 代码预览
+│   └── log_panel.py        # 日志
+├── workers/                # 异步任务层
+│   └── tasks.py            # 通用 QThread Worker（自动注入 on_log 回调）
+├── store/                  # 运行期产物（git 克隆 / 下载，已 gitignore）
+└── requirements.txt
+```
 
-1. **安装依赖**
-   ```bash
-   python3 -m venv venv
-   ./venv/bin/pip install -r requirements.txt
-   ```
+依赖方向：`gui → workers → core`，`core` 不反向依赖 GUI，便于单独复用与测试。
 
-2. **启动**
-   ```bash
-   ./venv/bin/python server.py
-   # 打开 http://localhost:8787
-   ```
+## 运行
 
-3. **填连接信息**
-   - Jira 基址，如 `https://jira.hcmcloud.cn`
-   - 用户名
-   - 鉴权模式：
-     - **PAT**：填入 Personal Access Token（在 Jira 个人设置 → Personal Access Tokens 创建，**用你的登录账号创建**）
-     - **Cookie**：填入浏览器里的 `JSESSIONID=...; atlassian.xsrf.token=...`（F12 → Application → Cookies 复制）
-   - 点「测试连接」
+```bash
+# 1. 创建并激活虚拟环境
+python3 -m venv venv
+source venv/bin/activate
 
-4. **选仓库**
-   - 填 `repoId`（插件仓库数字 ID，如 `1032`）、分支（如 `cherry-pick-36e0626c`）
-   - PAT 模式还需仓库名（`cloneUrl` 里的那一段，如 `hcm_cloud`，Cookie 模式可点「自动探测」）
+# 2. 安装依赖
+pip install -r requirements.txt
 
-5. **浏览 / 拉取**
-   - 「加载文件树」→ 树形展开目录、点文件预览
-   - PAT 模式点「PAT 克隆」全量拉到 `store/repos/<repoId>/`
-   - 勾选文件 → 「下载所选」存到 `store/downloads/<repoId>/`
+# 3. 启动
+python main.py
+```
 
----
+## 使用流程
 
-## 接口一览
+1. 工具栏「连接设置」：填写 Jira 地址、用户名，选择 PAT 或 Cookie 模式，填入对应凭据，
+   以及仓库 ID / 分支 / 仓库名。点「测试连接」可就地校验。
+2. 仓库面板：若已配置 Cookie，可点「发现仓库」列出可读仓库并双击加载；或手动填写
+   仓库 ID 后点「加载文件树」。
+3. 文件树：展开目录懒加载子项；勾选文件「选择」列后可点「下载选中(Cookie)」。
+4. 点击文件节点在右侧预览正文。
+5. PAT 模式点「克隆仓库(PAT)」全量 clone 到 `store/repos/<repoId>/`，随后以本地模式浏览。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/api/connect` | 存凭据 + 测连通，返回 `{cookieOk, patProvided, repoDefaults}` |
-| GET  | `/api/status` | 当前会话状态 |
-| GET  | `/api/repos`   | 尝试发现仓库列表（多数部署无此 REST，回退手动 repoId） |
-| GET  | `/api/tree?path=` | 单层目录列表（懒加载，前端展开时按需请求子层） |
-| GET  | `/api/file?path=` | 文件正文（PAT 读本地 / Cookie 抓 Web） |
-| POST | `/api/clone`  | PAT 克隆到 `store/repos/<repoId>/` |
-| POST | `/api/download` | Cookie 模式批量下载所选文件 |
+## 已知约束
 
----
-
-## 已知限制 / 排错
-
-- **必须用 PAT 才能 `git clone`**：Jira 登录密码 / 会话 cookie 对 git smart-HTTP 端点无效
-  （返回 401/403，多次失败还会触发验证码锁）。PAT 要在**当前登录账号**下创建。
-- **PAT 账号不匹配**：若 PAT 前缀 base64 解码出的账号 ID 与你填的用户名不同，克隆会失败，
-  后端会尝试用 PAT 内嵌账号 ID 作为 git 用户名再试一次；仍失败请确认 PAT 归属与有效性。
-- **Cookie 模式子目录为空**：插件对子目录文件列表只走前端 AJAX，无服务端接口，故 Cookie 模式
-  只能浏览根层、读取根文件。需要嵌套源码请用 PAT 克隆。
-- **代理环境**：后端会读取 `HTTPS_PROXY/HTTP_PROXY` 环境变量走代理；每次请求新建客户端并自带重试，
-  以对抗代理偶发的 `SSL UNEXPECTED_EOF`。
-- **会话过期**：`JSESSIONID` 有时效，过期后 Cookie 模式失效，重新从浏览器复制新的即可。
-
----
-
-## 技术备注（踩坑记录）
-
-- 插件 git 端点 `https://<host>/git/<repoId>/<repoName>.git` 仅认 PAT（Basic）；`/` 在令牌里需编码为 `%2F`。
-- 文件查看接口：`/secure/GIJBrowseGit.jspa`（树）、`/secure/GIJViewGitFileContent.jspa?revision=&repoId=&path=`（内容）、
-  REST 裸文件 `/rest/gitplugin/1.0/files/<repoId>/<revision>/<path>`（仅根文本文件，不支持多级路径）。
-- `ns.repoInfo.lastCommit.name` 含分支 HEAD commit；`ns.data.files` 为当前目录条目（仅根目录服务端渲染）。
+- 当前提供的 PAT 若与登录账号不匹配（base64 前缀解出的账号 ≠ 登录账号），克隆会被 Jira 拒绝，
+  需在该账号名下重新生成 PAT。
+- Cookie 模式仅能获取根目录文件；子目录文件无服务端接口，需用 PAT 克隆。
+- 运行时凭据仅存于内存，不写入磁盘；`store/` 已 gitignore。
