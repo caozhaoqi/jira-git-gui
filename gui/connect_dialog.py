@@ -6,7 +6,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from core.client import JiraGitClient
+from core.logger import get_logger
 from core.models import ConnectConfig
+from core.safe import safe_slot
 from workers.tasks import Worker
 
 
@@ -14,6 +16,8 @@ class ConnectDialog(QDialog):
     def __init__(self, client: JiraGitClient, parent=None):
         super().__init__(parent)
         self.client = client
+        self._log = get_logger()
+        self._workers: list = []
         self.setWindowTitle("连接设置")
         self.resize(540, 420)
 
@@ -112,19 +116,27 @@ class ConnectDialog(QDialog):
             self.branch.text().strip(),
         )
 
+    @safe_slot
     def _test(self):
         self._apply()
-        self.status.setText("测试中…")
+        self._log.info("【测试连接】开始：url=%s mode=%s repoId=%s",
+                       self.client.config.jira_url, self.client.config.mode,
+                       self.client.repo_id or "(空)")
+        self.status.setText("测试中…（PAT 模式会触发真实克隆，可能耗时）")
         self.btn_test.setEnabled(False)
         w = Worker(self.client.connect)
-        w.finished.connect(self._on_test_done)
-        w.error.connect(lambda m: self.status.setText(f"错误：{m}"))
-        w.finished.connect(lambda *_: self.btn_test.setEnabled(True))
+        w.result.connect(self._on_test_done)
+        w.error.connect(self._on_test_error)
+        w.result.connect(lambda *_: self.btn_test.setEnabled(True))
+        # 保留引用直到线程结束，避免局部变量被 GC 导致 QThread 运行中析构崩溃
+        self._workers.append(w)
+        w.finished.connect(lambda: self._workers.remove(w))
         w.finished.connect(w.deleteLater)
-        w.error.connect(w.deleteLater)
         w.start()
 
+    @safe_slot
     def _on_test_done(self, res: dict):
+        self._log.info("【测试连接】返回：%s", res)
         parts = []
         parts.append("Cookie ✓" if res.get("cookieOk") else "Cookie ✗")
         if res.get("patTest"):
@@ -137,6 +149,14 @@ class ConnectDialog(QDialog):
             parts.append(res["note"])
         self.status.setText(" | ".join(parts))
 
+    @safe_slot
+    def _on_test_error(self, tb_text: str):
+        # error 信号携带的是完整 traceback；UI 只显示首行，全文已写入日志文件
+        first_line = tb_text.strip().splitlines()[-1] if tb_text.strip() else "未知错误"
+        self.status.setText(f"错误：{first_line}（完整堆栈见日志文件）")
+        self._log.error("【测试连接】异常：\n%s", tb_text)
+
+    @safe_slot
     def _ok(self):
         self._apply()
         self.accept()

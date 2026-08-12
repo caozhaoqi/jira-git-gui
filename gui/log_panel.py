@@ -11,7 +11,7 @@ class LogPanel(QWidget):
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(3000)
-        self.text.setStyleSheet("font-family: Menlo, Monaco, Consolas, monospace; font-size: 11px;")
+        self.text.setStyleSheet("font-family: Menlo, Monaco, 'Courier New', monospace; font-size: 11px;")
         layout.addWidget(self.text)
 
     def append(self, msg: str) -> None:

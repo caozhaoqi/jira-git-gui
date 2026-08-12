@@ -5,7 +5,11 @@ venv/
 # 运行期产物（克隆仓库 / 下载文件，含可能的敏感内容）
 store/
 
+# 运行期日志（含完整 traceback，不入库）
+logs/
+
 # Python 缓存
 __pycache__/
 *.pyc
 *.pyo
+.env

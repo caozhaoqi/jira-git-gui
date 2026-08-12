@@ -14,7 +14,12 @@ class PreviewPanel(QWidget):
         layout.addWidget(self.title)
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
-        self.text.setFont(QFont("Menlo, Monaco, Consolas, monospace", 11))
+        # 注意：QFont 第一个参数是「单个字体族名」，不能传 CSS 逗号列表，
+        # 否则会解析成一个不存在的字体族并在渲染时崩溃。正确做法用 setFamilies 列表回退。
+        mono = QFont()
+        mono.setFamilies(["Menlo", "Monaco", "Courier New", "monospace"])
+        mono.setPointSize(11)
+        self.text.setFont(mono)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self.text)
 

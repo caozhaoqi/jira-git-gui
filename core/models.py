@@ -19,6 +19,7 @@ class RepoInfo:
     repo_id: str = ""
     display_name: str = ""
     clone_url: str = ""
+    default_branch: str = ""  # 从 AllRepositories 页面 repoId 链接里解析到的 branchName
 
 
 @dataclass
