@@ -53,16 +53,24 @@ jira-git-gui/
 ## 运行
 
 ```bash
-# 1. 创建并激活虚拟环境
+# 1. 创建并激活虚拟环境（已存在 venv 可跳过）
 python3 -m venv venv
 source venv/bin/activate
 
 # 2. 安装依赖
 pip install -r requirements.txt
 
-# 3. 启动
-python main.py
+# 3. 启动（任选其一）
+./venv/bin/python main.py     # 直接用项目 venv
+python3 main.py              # 任意 python 亦可：main.py 会自动切到 venv
+./run.sh                     # 一键启动脚本（macOS / Linux）
+open run.command             # macOS 双击启动
 ```
+
+> **启动自愈**：`main.py` 顶部内置 venv 自检——若当前解释器缺少 `PyQt6`，
+> 会自动 `re-exec` 到项目自带的 `venv` 解释器再启动。因此用系统 `python3`
+> 直接跑也不会再出现 `ModuleNotFoundError: No module named 'PyQt6'`。
+> 若 venv 本身缺失 PyQt6，请先执行上面的第 2 步安装依赖。
 
 ## 配置文件（`.env`）
 
@@ -101,10 +109,30 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
    支持断点续传、进度条、取消、有界并发（默认 4 线程）。再次点击同一仓库会从断点继续。
 6. PAT 模式点「克隆仓库(PAT)」全量 clone 到 `store/repos/<repoId>/`，随后以本地模式浏览。
    「测试连接」中的 PAT 校验已改为 `git ls-remote` 秒级验证（不再触发完整 clone）。
-7. **查看提交记录**（右侧「提交记录」标签页）：在输入框填入 Jira issue 单号（如 `TST-234`）
-   后点「查询」，即可列出该 issue 关联的全部提交（SHA / 作者 / 时间 / 提交说明）；
-   选中某条提交会在下方显示其改动文件清单（路径 / 变更类型 / 增删行数）。也可留空 issue，
-   尝试按当前仓库拉取（部分私有部署不开放按仓库列全量提交的接口，届时会有提示）。
+7. **查看提交记录**（右侧「提交记录」标签页）：提供两种模式（顶部「模式」下拉切换）——
+   - **按 Issue 查询**：填入 Jira issue 单号（如 `TST-234`）后点「查询」，列出该 issue
+     关联的全部提交（SHA / 作者 / 时间 / 提交说明）；选中某条会在下方显示改动文件清单
+     （路径 / 变更类型 / 增删行数）。也可留空，尝试按当前仓库拉取（部分私有部署不开放
+     按仓库列全量提交的接口，届时会有提示）。
+   - **本地 Git 仓库**：对**已通过 PAT 模式克隆**到 `store/repos/<repoId>/` 的仓库，直接跑
+     `git log` 拿到**完整提交历史**（不依赖 Jira REST）。未克隆时会有提示，请先点「克隆仓库(PAT)」。
+   - **点文件看历史版本**：选中提交后，右侧「变更文件」列表中**单击任一文件**，会在「文件预览」
+     标签页打开该文件在**此提交时的历史内容**（本地克隆走 `git show <sha>:<path>`；否则用
+     commit SHA 作 ref 调 Cookie 文件接口）。
+8. **下载并发数可调**（工具栏「并发」数字框，1–16，默认 4）：批量/整库下载会按此并发数
+   用有界线程池并行抓取，兼顾速度与稳定性；断点续传 / 进度 / 取消不受影响。
+   - **批量下载复用单个 HTTP 客户端**：整库下载（数百~数千文件）只在批量开始时创建
+     一个 `httpx.Client`（带代理/重试）并在线程池内共享，避免每文件重复 TCP/TLS 握手，
+     大批量下载耗时显著下降。
+   - **HEAD commit 缓存**：`(repo_id, branch) -> HEAD` 按键值缓存，重复读取文件 /
+     同一批量内不重复解析，减少「分支自动探测 + 取 HEAD」的冗余请求。
+   - **状态栏实时同步分支**：文件树自动探测到分支、下载/预览解析到分支后，底部状态栏
+     立即刷新，不再停留在「(默认)」。
+   - **请求速率限流（保护服务器）**：工具栏新增「速率」数字框（1–50 请求/秒，默认 6）。
+     所有经 `http_get` / `_request_with` 的对外请求都先经过模块级**令牌桶限流**
+     （`core/throttle.py`），无论下载并发开多大，对 Jira 服务器的稳态请求速率都被钳住，
+     避免整库递归抓取（数千文件）把对方打崩。遇到 `429`/`503` 还会读取 `Retry-After`
+     头做长退避。限流速率可运行时热更新，并实时显示在状态栏。
 
 ### 界面布局
 
@@ -136,6 +164,10 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 - **槽函数保护**：所有信号槽用 `core/safe.py` 的 `@safe_slot` 包裹，槽内异常被捕获并记录，
   不会抛回 Qt 事件循环导致进程退出。
 - **后台任务**：`Worker` 在异常时不仅 `error` 信号上抛，还会把完整堆栈写入日志文件。
+  其中**用户可预期的提示**（缺配置、会话过期、未选仓库、功能不支持等）被归类为
+  `core.errors.UserError`，仅以 **WARNING** 级别记录且不打印 traceback，UI 仅显示
+  友好文案——避免「请先选择仓库」这类提示被误记成 ERROR + 完整堆栈的日志噪音；
+  其余**真正的代码缺陷**仍按 ERROR + 完整 traceback 处理，便于追溯。
 
 **遇到崩溃时**：把 `logs/jira_git_gui.log` 末尾的 traceback 内容反馈即可定位。
 
@@ -154,7 +186,15 @@ PYTHONPATH=. ./venv/bin/python -m unittest discover -s tests -t .
 进度计数、取消中途停止。
 
 `tests/test_client_optimizations.py`：二进制文件按字节落盘、分支探测缓存、PAT 轻量连通测试
-（`git ls-remote` 成功/被拒/缺用户名）、并行下载并发与取消、`max_workers=1` 退化为串行。
+（`git ls-remote` 成功/被拒/缺用户名）、并行下载并发与取消、`max_workers=1` 退化为串行、
+**整批下载只创建并复用单个 HTTP 客户端**、**HEAD commit 缓存命中**。
+
+`tests/test_worker.py`：Worker 透传 `max_workers`/自定义 kwargs；**错误分级**——`UserError`
+只上抛纯消息（不带 traceback），真实异常仍带完整 traceback。
+
+`tests/test_throttle.py`：令牌桶限流节奏（`qps`/`burst` 钳制稳态速率）、`burst` 允许短促突发、
+`set_qps` 热更新、全局单例；**429/503 退避**——识别需退避状态码、`Retry-After` 秒数优先、
+无头时指数退避（封顶 30s）。
 
 ### 2) 集成测试（需凭据，自动跳过）
 `tests/test_integration.py` 真正访问 Jira 验证「发现仓库 → 查看文件 → 下载」全链路。

@@ -12,6 +12,7 @@ for _d in (STORE, REPOS_DIR, DOWNLOAD_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 HTTP_TIMEOUT = 40  # 单次 HTTP 请求超时（秒）
+DEFAULT_REQUEST_QPS = 6  # 默认对外请求速率上限（每秒），保护 Jira 服务器不被打崩
 
 
 def detect_proxy() -> str:

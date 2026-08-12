@@ -39,7 +39,7 @@ class TestBinaryDownload(unittest.TestCase):
 
     def test_text_file_written_as_text(self):
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, "hello world", ""))
+            lambda rid, head, path, client=None: (True, "hello world", ""))
         with tempfile.TemporaryDirectory() as d:
             ok, fails, dest, skipped, _ = self.c._download_files(
                 "895", "", d, ["a.txt"], manifest={})
@@ -49,7 +49,7 @@ class TestBinaryDownload(unittest.TestCase):
     def test_binary_file_written_as_bytes(self):
         png = bytes([0x89, 0x50, 0x4E, 0x47, 0x00, 0x00, 0x01, 0x00])
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, png, ""))
+            lambda rid, head, path, client=None: (True, png, ""))
         with tempfile.TemporaryDirectory() as d:
             ok, fails, dest, skipped, _ = self.c._download_files(
                 "895", "", d, ["img.png"], manifest={})
@@ -60,14 +60,14 @@ class TestBinaryDownload(unittest.TestCase):
     def test_get_file_returns_note_for_binary(self):
         png = bytes([0x89, 0x50, 0x4E, 0x47, 0x00])
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, png, ""))
+            lambda rid, head, path, client=None: (True, png, ""))
         content, err = self.c.get_file("img.png")
         self.assertIsNone(content)
         self.assertIn("二进制", err)
 
     def test_get_file_returns_text(self):
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, "print('hi')", ""))
+            lambda rid, head, path, client=None: (True, "print('hi')", ""))
         content, err = self.c.get_file("x.py")
         self.assertEqual(content, "print('hi')")
         self.assertIsNone(err)
@@ -152,7 +152,7 @@ class TestParallelDownload(unittest.TestCase):
     def test_parallel_runs_concurrently(self):
         state = {"active": 0, "max": 0}
 
-        def slow(rid, head, path):
+        def slow(rid, head, path, client=None):
             # 在“网络耗时”期间保持 active 计数，便于观测并发窗口
             state["active"] += 1
             state["max"] = max(state["max"], state["active"])
@@ -173,7 +173,7 @@ class TestParallelDownload(unittest.TestCase):
     def test_parallel_cancel_stops(self):
         state = {"n": 0}
 
-        def counting(rid, head, path):
+        def counting(rid, head, path, client=None):
             import time
             time.sleep(0.02)  # 模拟网络耗时，使取消有机会在中途介入
             state["n"] += 1
@@ -193,7 +193,7 @@ class TestParallelDownload(unittest.TestCase):
     def test_serial_when_max_workers_one(self):
         order = []
 
-        def counting(rid, head, path):
+        def counting(rid, head, path, client=None):
             order.append(path)
             return (True, f"data-{path}", "")
 
@@ -203,6 +203,65 @@ class TestParallelDownload(unittest.TestCase):
                 "895", "", d, [f"f{i}.txt" for i in range(6)],
                 manifest={}, max_workers=1)
             self.assertEqual(ok, 6)
+
+
+class TestDownloadClientReuse(unittest.TestCase):
+    """守护优化：整批下载只创建并复用【一个】httpx 客户端，而非每文件新建。"""
+    def setUp(self):
+        self.c = _make_client()
+        self.c._resolve_branch = lambda rid, b: b or "master"
+        fake_resp = mock.MagicMock()
+        fake_resp.text = ""
+        self.c._fetch_browse = lambda *a, **k: fake_resp
+        self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
+        self.c._list_dir = lambda rid, branch, path="": [
+            TreeEntry(f"f{i}.txt", f"f{i}.txt", "file", 1, False) for i in range(5)
+        ]
+        self.seen = []
+        self.c._cookie_file_content = (
+            lambda rid, head, path, client=None:
+                (self.seen.append(client) or (True, "x", ""))
+        )
+
+    def test_single_client_per_batch(self):
+        made = {"n": 0}
+        fake_client = object()
+
+        def make():
+            made["n"] += 1
+            return fake_client
+
+        self.c._make_client = make
+        with tempfile.TemporaryDirectory() as d:
+            self.c._download_files(
+                "895", "", d, [f"f{i}.txt" for i in range(5)],
+                manifest={}, max_workers=4)
+        self.assertEqual(made["n"], 1)  # 整批只建一个 client
+        self.assertTrue(all(c is fake_client for c in self.seen))  # 全部复用
+
+
+class TestHeadCache(unittest.TestCase):
+    """守护优化：(repo_id, branch) -> HEAD commit 缓存，避免重复解析。"""
+    def test_resolve_head_caches_and_cleared_on_repo_switch(self):
+        c = _make_client()
+        c.set_repo("895", "repo", "master")
+        calls = {"n": 0}
+
+        def fake_browse(rid, branch, path=""):
+            calls["n"] += 1
+            r = mock.MagicMock()
+            r.text = ""
+            return r
+
+        c._fetch_browse = fake_browse
+        c._parse_repo_info = lambda *a, **k: {"headCommit": "abc123"}
+        self.assertEqual(c._resolve_head("895", "master"), "abc123")
+        self.assertEqual(c._resolve_head("895", "master"), "abc123")
+        self.assertEqual(calls["n"], 1)  # 命中缓存后不再 browse
+        # 切换仓库清空缓存
+        c.set_repo("1022", "other", "")
+        c._resolve_head("1022", "")
+        self.assertEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":

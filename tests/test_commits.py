@@ -10,6 +10,8 @@
 import unittest
 from unittest import mock
 
+from core.errors import UserError
+
 from core.client import JiraGitClient
 from core.models import Commit
 
@@ -84,14 +86,14 @@ class TestGetCommits(unittest.TestCase):
     def test_login_page_raises(self, http_get):
         http_get.return_value = _Resp(status=200, json_data={"commits": []},
                                       url="http://jira/login.jsp?permissionViolation=true")
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(UserError):
             self.c.get_commits("TST-1")
 
     # ---- 4) 非 200 -> 抛错 ----
     @mock.patch.object(JiraGitClient, "http_get")
     def test_non_200_raises(self, http_get):
         http_get.return_value = _Resp(status=403, json_data={})
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(UserError):
             self.c.get_commits("TST-1")
 
     # ---- 5) 空 commits -> 空列表 ----
@@ -105,18 +107,18 @@ class TestGetCommits(unittest.TestCase):
     @mock.patch.object(JiraGitClient, "http_get")
     def test_repo_best_effort_unsupported(self, http_get):
         http_get.return_value = _Resp(status=404, json_data={})
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(UserError) as ctx:
             self.c.get_commits(None, repo_id="895")
         self.assertIn("issue", str(ctx.exception))
 
     # ---- 7) 无 cookie / 无输入 -> 抛错 ----
     def test_no_cookie_raises(self):
         c = JiraGitClient()  # 空配置
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(UserError):
             c.get_commits("TST-1")
 
     def test_no_input_raises(self):
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(UserError):
             self.c.get_commits(None, repo_id="", branch=None)
 
     # ---- 8) _parse_commit 字段映射 ----

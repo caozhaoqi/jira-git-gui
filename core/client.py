@@ -20,8 +20,10 @@ from typing import Callable, List, Optional
 
 import httpx
 
-from .constants import PROXY_URL, HTTP_TIMEOUT, REPOS_DIR, DOWNLOAD_DIR
+from .constants import PROXY_URL, HTTP_TIMEOUT, REPOS_DIR, DOWNLOAD_DIR, DEFAULT_REQUEST_QPS
+from .errors import UserError
 from .models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
+from . import throttle
 
 DEFAULT_DOWNLOAD_WORKERS = 4  # 整库/批量下载默认并发数（有界线程池，避免压垮服务端）
 
@@ -40,6 +42,33 @@ _REPO_ANCHOR_RE = re.compile(
 # 名称明显不是仓库名的噪声锚点，解析时跳过
 _NOISE_NAMES = {"", "commits", "files", "branches", "tags", "browse", "view", "clone"}
 
+# 这些状态码表示「请慢一点 / 暂不可用」，需要退避而非立即重试
+_BACKOFF_STATUS = {429, 503}
+
+
+def _should_backoff(r: "httpx.Response") -> bool:
+    """判断该响应是否需要退避重试（限流/服务暂不可用）。"""
+    return r.status_code in _BACKOFF_STATUS
+
+
+def _backoff_for(r: "httpx.Response", attempt: int) -> None:
+    """根据 Retry-After 头（或指数退避）休眠，避免持续冲击被限流的服务器。"""
+    ra = (r.headers.get("Retry-After") or "").strip()
+    wait = None
+    if ra.isdigit():
+        wait = int(ra)
+    else:
+        try:
+            import email.utils
+            dt = email.utils.parsedate_to_datetime(ra)
+            if dt:
+                wait = max(0, (dt.timestamp() - time.time()))
+        except Exception:
+            wait = None
+    if wait is None:
+        wait = min(30.0, 2.0 * (attempt + 1))  # 指数退避，封顶 30s
+    time.sleep(wait)
+
 
 class JiraGitClient:
     def __init__(self) -> None:
@@ -48,11 +77,21 @@ class JiraGitClient:
         self.repo_name: str = ""
         self.branch: str = ""
         self._branch_cache: dict = {}  # repo_id -> 已探测到的可用分支（避免重复探测）
+        self._head_cache: dict = {}    # (repo_id, branch) -> HEAD commit（避免重复解析）
         self._git_bin = shutil.which("git") or "git"
+        # 初始化全局限流器为默认速率（保护服务器），UI 旋钮可热更新
+        throttle.set_global_rate_limit(DEFAULT_REQUEST_QPS)
 
     # ------------------------------------------------------------------ 配置
     def set_config(self, cfg: ConnectConfig) -> None:
         self.config = cfg
+
+    def set_rate_limit(self, qps: float) -> None:
+        """设置对外请求速率上限（每秒请求数），热更新全局限流器。
+
+        用于 UI 旋钮：调小可更温和地对待 Jira 服务器，调大可加速抓取。
+        """
+        throttle.set_global_rate_limit(float(qps))
 
     def set_repo(self, repo_id: str, repo_name: str = "", branch: str = "") -> None:
         self.repo_id = str(repo_id)
@@ -61,6 +100,7 @@ class JiraGitClient:
         if branch:
             self.branch = branch
         self._branch_cache.clear()  # 切换仓库后丢弃旧分支探测结果
+        self._head_cache.clear()
 
     @staticmethod
     def host_of(url: str) -> str:
@@ -72,10 +112,16 @@ class JiraGitClient:
     @staticmethod
     def http_get(url: str, headers: Optional[dict] = None, retries: int = 5) -> httpx.Response:
         """带重试的 GET：每次请求新建客户端（无连接池复用），专门对抗代理偶发的
-        SSL UNEXPECTED_EOF / 连接重置；失败自动退避重试。"""
+        SSL UNEXPECTED_EOF / 连接重置；失败自动退避重试。
+
+        发请求前先经全局令牌桶限流（``throttle.acquire``），确保无论并发多大，
+        对 Jira 服务器的稳态请求速率都被钳住，避免把对方打崩。遇到 429/503 时
+        读取 ``Retry-After`` 头做长退避。
+        """
         last = None
         for attempt in range(retries):
             try:
+                throttle.acquire()
                 with httpx.Client(
                     timeout=HTTP_TIMEOUT,
                     follow_redirects=True,
@@ -83,7 +129,53 @@ class JiraGitClient:
                     verify=False,
                     headers={"User-Agent": "jira-git-gui/1.0"},
                 ) as client:
-                    return client.get(url, headers=headers or {})
+                    r = client.get(url, headers=headers or {})
+                if _should_backoff(r):
+                    _backoff_for(r, attempt)
+                    last = httpx.HTTPStatusError(
+                        f"服务器限流/暂不可用：{r.status_code}",
+                        request=r.request, response=r)
+                    continue
+                return r
+            except (httpx.TransportError, httpx.HTTPError) as e:
+                last = e
+                time.sleep(0.6 * (attempt + 1))
+        raise last if last else httpx.TransportError("unknown httpx error")
+
+    def _make_client(self) -> "httpx.Client":
+        """为批量请求创建可复用的 httpx 客户端（带代理 / 重试参数）。
+
+        与 ``http_get`` 的「每次新建」不同，下载整库时会复用同一个客户端，避免
+        每文件重复 TCP/TLS 握手，显著降低大批量下载的耗时。客户端是线程安全的，
+        可在 ThreadPoolExecutor 的多个工作线程间共享。
+        """
+        return httpx.Client(
+            timeout=HTTP_TIMEOUT,
+            follow_redirects=True,
+            proxy=PROXY_URL or None,
+            verify=False,
+            headers={"User-Agent": "jira-git-gui/1.0"},
+        )
+
+    @staticmethod
+    def _request_with(client: "httpx.Client", url: str,
+                      headers: Optional[dict] = None, retries: int = 5) -> httpx.Response:
+        """用给定（共享）客户端发带重试的 GET，重试语义与 ``http_get`` 一致。
+
+        同样经全局令牌桶限流，并对 429/503 做 ``Retry-After`` 退避。
+        """
+        last = None
+        for attempt in range(retries):
+            try:
+                throttle.acquire()
+                r = client.get(url, headers=headers or {})
+                if _should_backoff(r):
+                    _backoff_for(r, attempt)
+                    last = httpx.HTTPStatusError(
+                        f"服务器限流/暂不可用：{r.status_code}",
+                        request=r.request, response=r)
+                    continue
+                return r
             except (httpx.TransportError, httpx.HTTPError) as e:
                 last = e
                 time.sleep(0.6 * (attempt + 1))
@@ -239,9 +331,9 @@ class JiraGitClient:
             root = REPOS_DIR / str(self.repo_id)
             return self._list_level_local(root, path)
         if not self.config.cookie:
-            raise RuntimeError("Cookie 模式未配置会话")
+            raise UserError("Cookie 模式未配置会话")
         if not self.repo_id:
-            raise RuntimeError("缺少 repoId，请先在连接或仓库面板中指定")
+            raise UserError("缺少 repoId，请先在连接或仓库面板中指定")
         return self._list_level_cookie(self.repo_id, self.branch, path)
 
     # ----------------------------------------------------- 分支自动探测
@@ -286,6 +378,23 @@ class JiraGitClient:
                     break
         self._branch_cache[cache_key] = resolved
         return resolved  # 回退给上层报错，而不是静默空树
+
+    def _resolve_head(self, repo_id: str, branch: str) -> Optional[str]:
+        """返回当前分支的 HEAD commit（带缓存）。
+
+        ``_cookie_file_content`` 取文件需要 HEAD commit 作引用；每次文件读取都
+        重新 ``_fetch_browse`` 解析 ``ns.repoInfo`` 开销不小，故按 (repo_id, branch)
+        缓存，重复读取文件 / 下载批量内只解析一次。
+        """
+        key = (str(repo_id), branch)
+        if key in self._head_cache:
+            return self._head_cache[key]
+        r = self._fetch_browse(repo_id, branch, "")
+        info = self._parse_repo_info(r.text)
+        head = info.get("headCommit")
+        if head:
+            self._head_cache[key] = head
+        return head
 
 
     def _list_level_cookie(self, repo_id: str, branch: str, path: str = "") -> List[TreeEntry]:
@@ -350,7 +459,7 @@ class JiraGitClient:
         """
         cookie = self.cookie_headers()
         if not cookie:
-            raise RuntimeError("查看提交记录需要 Cookie 模式（会话）。请在连接设置中填入会话 Cookie。")
+            raise UserError("查看提交记录需要 Cookie 模式（会话）。请在连接设置中填入会话 Cookie。")
         base = self.config.jira_url.rstrip("/")
 
         if issue_key:
@@ -360,13 +469,13 @@ class JiraGitClient:
                 url += "?showFiles=true"
             r = self.http_get(url, headers=cookie)
             if self._is_login_page(r) or r.status_code != 200:
-                raise RuntimeError(
+                raise UserError(
                     "提交查询失败：会话可能已过期，或对该 issue 无读取权限。"
                     "请重新登录后在连接设置中更新 Cookie。")
             try:
                 data = r.json()
             except Exception:
-                raise RuntimeError("提交查询返回非 JSON（可能会话过期或接口变更）。")
+                raise UserError("提交查询返回非 JSON（可能会话过期或接口变更）。")
             commits = (data.get("commits")
                        or (data.get("data") or {}).get("commits") or [])
             return [self._parse_commit(c) for c in commits[:limit]]
@@ -389,13 +498,82 @@ class JiraGitClient:
                         return [self._parse_commit(c) for c in commits[:limit]]
                 except Exception:
                     pass
-            raise RuntimeError(
+            raise UserError(
                 "该 Jira 实例不提供『按仓库列全量提交』接口"
                 "（Jira Git 插件的提交以 issue 关联组织）。\n"
                 "请在提交记录面板输入 Jira issue 单号（如 TST-234）后查询，"
                 "即可看到该 issue 关联的全部提交与改动文件。")
-        raise RuntimeError(
+        raise UserError(
             "请先在仓库面板选择/指定仓库，或在提交记录面板输入 Jira issue 单号（如 TST-234）。")
+
+    # --------------------------------------------------- 本地 Git 全量提交历史
+    def get_local_commits(self, repo_id: str, branch: str = "",
+                         limit: int = 50) -> List[Commit]:
+        """本地 Git 模式：对已克隆到本地的仓库直接跑 ``git log``，拿到完整提交历史。
+
+        不走 Jira REST（Jira Git 插件的 commits 以 issue 关联组织，无“按仓库全量
+        git log”公开接口）；前提是仓库已通过 PAT 模式克隆到 ``store/repos/<repoId>/``。
+        返回 ``List[Commit]``（含每条改动的 files：path / changeType）。
+        """
+        local_path = REPOS_DIR / str(repo_id)
+        if not local_path.exists():
+            raise UserError(
+                "本地 Git 模式需要该仓库已克隆到本地（请先用 PAT 模式点「克隆仓库」）。\n"
+                f"当前未找到本地克隆：{local_path}")
+        cmd = [self._git_bin, "-C", str(local_path), "log",
+               "--pretty=format:%x1e%H%x1f%an%x1f%ae%x1f%ad%x1f%s",
+               "--date=iso", "-n", str(int(limit)), "--name-status"]
+        if branch:
+            cmd.append(branch)
+        try:
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except Exception as ex:
+            raise RuntimeError(f"git log 执行失败：{ex}")
+        if res.returncode != 0:
+            raise RuntimeError("git log 失败：" + (res.stderr.strip() or "未知错误"))
+        commits = self._parse_git_log(res.stdout)
+        if not commits:
+            raise UserError("该仓库本地 git log 为空（可能是浅克隆 --depth 1，历史被截断）。")
+        return commits
+
+    @staticmethod
+    def _parse_git_log(out: str) -> List[Commit]:
+        """解析 ``git log --name-status`` 输出（commit 以 \\x1e 分隔，字段以 \\x1f 分隔）。
+
+        每个 commit 块：第 1 行为 header 字段(H/an/ae/ad/s)，其后为 name-status 行
+        （``M\\tpath`` / ``A\\tpath`` / ``R100\\told\\tnew`` 等）。
+        """
+        commits: List[Commit] = []
+        for block in out.split("\x1e"):
+            if not block.strip():
+                continue
+            lines = block.split("\n")
+            header = lines[0].split("\x1f")
+            if len(header) < 5:
+                continue
+            cid, author, _email, date, message = header[:5]
+            files: List[CommitFile] = []
+            for ln in lines[1:]:
+                ln = ln.rstrip("\r")
+                if not ln.strip():
+                    continue
+                parts = ln.split("\t")
+                ct = re.sub(r"\d+$", "", parts[0].strip())  # "R100" -> "R"
+                if len(parts) < 2:
+                    continue
+                fpath = parts[-1]  # R 会有 old\tnew，取 new 路径
+                files.append(CommitFile(path=fpath, change_type=ct))
+            commits.append(Commit(
+                commit_id=cid,
+                display_id=cid[:8],
+                author=author,
+                date=date,
+                message=message,
+                branch="",
+                repository_name="",
+                files=files,
+            ))
+        return commits
 
     @staticmethod
     def _parse_commit(c: dict) -> Commit:
@@ -442,9 +620,7 @@ class JiraGitClient:
             return None, "Cookie 未配置"
         branch = self._resolve_branch(self.repo_id, self.branch)
         self.branch = branch
-        r = self._fetch_browse(self.repo_id, branch, "")
-        info = self._parse_repo_info(r.text)
-        head = info.get("headCommit")
+        head = self._resolve_head(self.repo_id, branch)
         if not head:
             return None, "无法获取分支 HEAD commit"
         ok, content, note = self._cookie_file_content(self.repo_id, head, path)
@@ -453,6 +629,36 @@ class JiraGitClient:
         if isinstance(content, (bytes, bytearray)):
             return None, (f"二进制文件（{len(content)} 字节），"
                           f"请在文件树勾选后用「下载选中」保存到本地查看。")
+        return content, None
+
+    def get_file_at_commit(self, repo_id: str, commit_id: str, path: str) -> tuple:
+        """查看某次提交中某文件的【历史版本】内容（文本）。
+
+        - 若该仓库已在本地克隆（PAT 模式），用 ``git show <sha>:<path>`` 直接取；
+        - 否则走 Cookie 模式，用 commit SHA 作为 ref 调文件接口
+          （插件 REST ``/files/{repo}/{sha}/{path}`` 支持任意 commit 引用）。
+        返回 (content, error)；二进制文件返回 (None, 提示)。
+        """
+        local_path = REPOS_DIR / str(repo_id)
+        if local_path.exists():
+            try:
+                res = subprocess.run(
+                    [self._git_bin, "-C", str(local_path), "show",
+                     f"{commit_id}:{path}"],
+                    capture_output=True, timeout=30)
+                if res.returncode == 0:
+                    return res.stdout.decode("utf-8", "replace"), None
+                # 该提交中文件可能已被删除（show 报错）；交 Cookie 模式兜底
+            except Exception:
+                pass
+        if not self.config.cookie:
+            return None, "未找到本地克隆，且未配置 Cookie，无法查看历史文件。"
+        ok, content, note = self._cookie_file_content(repo_id, commit_id, path)
+        if not ok:
+            return None, note
+        if isinstance(content, (bytes, bytearray)):
+            return None, (f"二进制文件（{len(content)} 字节），"
+                          f"请在文件树勾选后用「下载选中」保存到本地查看历史版本。")
         return content, None
 
     # ----------------------------------------------------------- git 克隆
@@ -691,9 +897,7 @@ class JiraGitClient:
 
         branch = self._resolve_branch(repo_id, branch)
         self.branch = branch
-        r0 = self._fetch_browse(repo_id, branch, "")
-        info = self._parse_repo_info(r0.text)
-        head = info.get("headCommit")
+        head = self._resolve_head(repo_id, branch)
         if not head:
             return 0, [{"path": "(root)", "reason": "无法获取分支 HEAD commit"}], \
                    str(dest_root), 0, []
@@ -729,7 +933,8 @@ class JiraGitClient:
             """在子线程中抓取单文件并落盘，返回 (path, 'ok'|'fail', size|reason)。"""
             if should_cancel and should_cancel():
                 return None  # 取消标记
-            ok, content, note = self._cookie_file_content(repo_id, head, path)
+            ok, content, note = self._cookie_file_content(
+                repo_id, head, path, client=client)
             if not ok or content is None:
                 return (path, "fail", note)
             target = dest_root / path
@@ -745,36 +950,43 @@ class JiraGitClient:
             return (path, "ok", sz)
 
         workers = max(1, int(max_workers))
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = [ex.submit(_fetch_one, p) for p in todo]
-            try:
-                for fut in as_completed(futures):
-                    # 取消：丢弃尚未开始的子任务；但已完成的仍计入，保证计数与磁盘一致
-                    if should_cancel and should_cancel():
+        client = self._make_client()
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [ex.submit(_fetch_one, p) for p in todo]
+                try:
+                    for fut in as_completed(futures):
+                        # 取消：丢弃尚未开始的子任务；但已完成的仍计入，保证计数与磁盘一致
+                        if should_cancel and should_cancel():
+                            try:
+                                ex.shutdown(wait=False, cancel_futures=True)
+                            except Exception:
+                                pass
                         try:
-                            ex.shutdown(wait=False, cancel_futures=True)
-                        except Exception:
-                            pass
-                    try:
-                        res = fut.result()
-                    except CancelledError:
-                        continue  # 被取消的待处理任务，无贡献
-                    if res is None:  # 任务在取消后才启动，主动返回 None
-                        continue
-                    path, status, payload = res
-                    if status == "ok":
-                        ok_count += 1
-                        ok_paths.append(path)
-                        if manifest is not None:
-                            manifest[path] = payload  # 即时记入，中断可续
-                    else:
-                        fail_list.append({"path": path, "reason": payload})
-                    done += 1
-                    if on_progress:
-                        on_progress(done, total, path)
-            finally:
-                # 确保线程池一定关闭（取消或未取消都执行）
-                ex.shutdown(wait=False, cancel_futures=True)
+                            res = fut.result()
+                        except CancelledError:
+                            continue  # 被取消的待处理任务，无贡献
+                        if res is None:  # 任务在取消后才启动，主动返回 None
+                            continue
+                        path, status, payload = res
+                        if status == "ok":
+                            ok_count += 1
+                            ok_paths.append(path)
+                            if manifest is not None:
+                                manifest[path] = payload  # 即时记入，中断可续
+                        else:
+                            fail_list.append({"path": path, "reason": payload})
+                        done += 1
+                        if on_progress:
+                            on_progress(done, total, path)
+                finally:
+                    # 确保线程池一定关闭（取消或未取消都执行）
+                    ex.shutdown(wait=False, cancel_futures=True)
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
         if manifest is not None:
             self._save_manifest(dest_root, manifest)
@@ -891,13 +1103,17 @@ class JiraGitClient:
             raise ValueError("非法路径")
         return p.read_text(encoding="utf-8", errors="replace")
 
-    def _cookie_file_content(self, repo_id: str, head_commit: str, path: str) -> tuple:
+    def _cookie_file_content(self, repo_id: str, head_commit: str, path: str,
+                             client: Optional["httpx.Client"] = None) -> tuple:
         """返回 (ok, content, note)。
 
         ``content`` 可能是 ``str``（文本文件）或 ``bytes``（二进制文件）。
         依次尝试：commit SHA -> 分支名 作为引用；REST 裸接口 -> JSP 查看页。
         根目录与嵌套子目录文件均可（插件接口本身支持任意 path，
         旧版“仅根目录”限制已移除）。
+
+        ``client`` 可选：批量下载时传入共享的 httpx 客户端（线程安全，可复用），
+        避免每文件新建客户端；不传则回退到 ``http_get``（每次新建，适合单请求）。
         """
         # 引用优先级：HEAD commit SHA 优先，失败再用分支名（某些仓库 lastCommit 取不到）
         refs = []
@@ -908,13 +1124,16 @@ class JiraGitClient:
         if not refs:
             return False, None, "缺少可用的引用（commit/分支），无法定位文件"
 
+        _get = (lambda u, h: self._request_with(client, u, h)) if client is not None \
+            else (lambda u, h: self.http_get(u, h))
+
         # 路径保留字面斜杠（插件接口以 / 划分目录层级，quote 会把 / 变成 %2F 导致 404）
         qpath = urllib.parse.quote(path, safe="/")
         for ref in refs:
             # 1) REST 裸接口（文本 / 二进制文件，含嵌套路径）
             rest = (f"{self.config.jira_url.rstrip('/')}/rest/gitplugin/1.0/files/"
                     f"{repo_id}/{urllib.parse.quote(ref)}/{qpath}")
-            r = self.http_get(rest, headers=self.cookie_headers())
+            r = _get(rest, self.cookie_headers())
             ct = (r.headers.get("content-type") or "").lower()
             is_json_like = "json" in ct or r.content[:1] in (b"{", b"[")
             if r.status_code == 200 and not is_json_like:
@@ -927,7 +1146,7 @@ class JiraGitClient:
             jsp = (f"{self.config.jira_url.rstrip('/')}/secure/GIJViewGitFileContent.jspa"
                    f"?revision={urllib.parse.quote(ref)}&repoId={repo_id}"
                    f"&path={qpath}")
-            r2 = self.http_get(jsp, headers=self.cookie_headers())
+            r2 = _get(jsp, self.cookie_headers())
             if r2.status_code == 200:
                 from_html = self._extract_code_from_html(r2.text)
                 if from_html is not None:

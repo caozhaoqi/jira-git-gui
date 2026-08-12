@@ -10,11 +10,12 @@ import sys
 from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR, Qt
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QToolBar, QLabel, QProgressBar, QPushButton,
-    QTabWidget, QStatusBar,
+    QTabWidget, QStatusBar, QSpinBox,
 )
 
-from core.client import JiraGitClient
+from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS
 from core.config import load_config
+from core.constants import DEFAULT_REQUEST_QPS
 from core.constants import PROXY_URL, DOWNLOAD_DIR
 from core.logger import LogBridge, get_logger, set_log_bridge
 from core.safe import safe_slot
@@ -98,6 +99,30 @@ class MainWindow(QMainWindow):
         self.act_clearlog = tb.addAction("清空日志")
         self.act_clearlog.triggered.connect(self.log_panel.clear)
 
+        # —— 下载并发数（UI 可调）——
+        tb.addWidget(QLabel("并发"))
+        self._max_workers = DEFAULT_DOWNLOAD_WORKERS
+        self._concurrency = QSpinBox()
+        self._concurrency.setRange(1, 16)
+        self._concurrency.setValue(self._max_workers)
+        self._concurrency.setSuffix(" 线程")
+        self._concurrency.setFixedWidth(74)
+        self._concurrency.valueChanged.connect(self._on_concurrency_changed)
+        tb.addWidget(self._concurrency)
+
+        # —— 请求速率（QPS，UI 可调，保护服务器）——
+        tb.addWidget(QLabel("速率"))
+        self._qps = DEFAULT_REQUEST_QPS
+        self._rate = QSpinBox()
+        self._rate.setRange(1, 50)
+        self._rate.setValue(self._qps)
+        self._rate.setSuffix(" 请求/秒")
+        self._rate.setFixedWidth(92)
+        self._rate.setToolTip("对 Jira 服务器的稳态请求速率上限；调小更温和，调大更快。"
+                              "批量下载的并发线程再多，总速率也被它钳住，避免打崩服务器。")
+        self._rate.valueChanged.connect(self._on_rate_changed)
+        tb.addWidget(self._rate)
+
         # —— 下载进度区（进度条 + 百分比标签 + 取消按钮）——
         self._progress_label = QLabel("")
         self._progress = QProgressBar()
@@ -120,6 +145,7 @@ class MainWindow(QMainWindow):
         self.tree_panel.requestChildren.connect(self._load_children)
         self.tree_panel.fileActivated.connect(self._open_file)
         self.commit_panel.queryRequested.connect(self._on_query_commits)
+        self.commit_panel.fileViewRequested.connect(self._on_file_at_commit)
 
         self._log_startup_banner()
         self._log("就绪。先点「连接设置」配置 Jira 地址 / 账号 / 模式，再在仓库面板选择或指定仓库。")
@@ -146,8 +172,8 @@ class MainWindow(QMainWindow):
         self._logger.info("=" * 60)
 
     def _spawn(self, fn, *args, on_finished=None, on_error=None, on_log=None,
-               on_progress=None):
-        w = Worker(fn, *args)
+               on_progress=None, **kwargs):
+        w = Worker(fn, *args, **kwargs)
         if on_finished:
             w.result.connect(on_finished)
         if on_error:
@@ -192,6 +218,8 @@ class MainWindow(QMainWindow):
     @safe_slot
     def _on_root_loaded(self, entries):
         self.tree_panel.set_root_entries(entries)
+        # 分支可能在 list_level 内被自动探测确定，同步状态栏（避免仍显示「(默认)」）
+        self._update_status()
         if self.client.branch:
             self._log(f"已用分支「{self.client.branch}」加载文件树，共 {len(entries)} 项。")
         else:
@@ -227,17 +255,65 @@ class MainWindow(QMainWindow):
             self._log(f"读取文件失败 {path}: {err}")
         else:
             self.preview_panel.set_content(content, path)
+        # get_file 内部可能自动探测分支，刷新状态栏
+        self._update_status()
 
     # ----------------------------------------------------------- 提交记录
     @safe_slot
-    def _on_query_commits(self, issue_key: str):
+    def _on_query_commits(self, issue_key: str, local_mode: bool):
         self.commit_panel.set_querying(True)
-        self._log(f"查询提交记录：issue={issue_key or '(按当前仓库 best-effort)'}")
+        if local_mode:
+            if not self.client.repo_id:
+                self.commit_panel.set_querying(False)
+                self.commit_panel.set_error(
+                    "本地 Git 模式需要先在仓库面板选择/指定一个仓库，"
+                    "且该仓库已通过 PAT 模式克隆到本地。")
+                self._log("本地 Git 查询：未指定仓库，已取消。")
+                return
+            self._log(f"查询本地 Git 提交：repo={self.client.repo_id}"
+                      f" branch={self.client.branch or '(默认)'}")
+            self._spawn(
+                self.client.get_local_commits, self.client.repo_id, self.client.branch,
+                on_finished=lambda commits: self._on_commits_loaded(commits, "(本地 git log)"),
+                on_error=lambda m: self._on_commits_error(m),
+            )
+        else:
+            if not issue_key and not self.client.repo_id:
+                self.commit_panel.set_querying(False)
+                self.commit_panel.set_error(
+                    "请先在仓库面板选择/指定一个仓库，或在上方填入 Jira issue 单号"
+                    "（如 TST-234）后再查询。")
+                self._log("提交查询：未指定仓库也未填 issue，已取消。")
+                return
+            self._log(f"查询提交记录：issue={issue_key or '(按当前仓库 best-effort)'}")
+            self._spawn(
+                self.client.get_commits, issue_key, self.client.repo_id, self.client.branch,
+                on_finished=lambda commits: self._on_commits_loaded(commits, issue_key),
+                on_error=lambda m: self._on_commits_error(m),
+            )
+
+    @safe_slot
+    def _on_file_at_commit(self, commit_id: str, path: str):
+        """在预览标签页展示某次提交中某文件的历史版本。"""
+        self.tabs.setCurrentWidget(self.preview_panel)
+        self.preview_panel.set_loading(f"{path} @ {commit_id[:8]}")
+        self._log(f"查看历史版本：commit {commit_id[:8]} 的 {path}")
         self._spawn(
-            self.client.get_commits, issue_key, self.client.repo_id, self.client.branch,
-            on_finished=lambda commits: self._on_commits_loaded(commits, issue_key),
-            on_error=lambda m: self._on_commits_error(m),
+            self.client.get_file_at_commit, self.client.repo_id, commit_id, path,
+            on_finished=lambda res: self._on_history_file(res, path, commit_id),
+            on_error=lambda m: self.preview_panel.set_error(m),
         )
+
+    @safe_slot
+    def _on_history_file(self, res, path: str, commit_id: str):
+        content, err = res
+        if err:
+            self.preview_panel.set_error(err)
+            self._log(f"查看历史文件失败 {path}: {err}")
+        else:
+            self.preview_panel.set_content(
+                content, f"{path}  (commit {commit_id[:8]})")
+        self._update_status()
 
     @safe_slot
     def _on_commits_loaded(self, commits, issue_key):
@@ -249,8 +325,20 @@ class MainWindow(QMainWindow):
     @safe_slot
     def _on_commits_error(self, m: str):
         self.commit_panel.set_querying(False)
-        self.commit_panel.set_error(m)
-        self._log(f"提交查询失败：{m}")
+        # Worker 抛来的 m 是完整 traceback，这里只提取最后一段异常信息作为友好提示，
+        # 不再把整段堆栈甩到面板（例如：请先在仓库面板选择/指定仓库…）。
+        friendly = m
+        if "Traceback" in m:
+            lines = [ln.strip() for ln in m.strip().splitlines() if ln.strip()]
+            picked = None
+            for ln in reversed(lines):
+                if "Error" in ln or "Exception" in ln:
+                    picked = ln.split(":", 1)[-1].strip()
+                    if picked:
+                        break
+            friendly = picked or (lines[-1] if lines else m)
+        self.commit_panel.set_error(friendly)
+        self._log(f"提交查询失败：{friendly}")
 
     # ----------------------------------------------------------- 状态栏
     def _update_status(self) -> None:
@@ -261,7 +349,7 @@ class MainWindow(QMainWindow):
         pat_ok = "已配置" if self.client.config.pat else "未配置"
         self.statusBar().showMessage(
             f"模式 {mode} | 仓库 {rid} | 分支 {br} | "
-            f"Cookie {cookie_ok} | PAT {pat_ok}")
+            f"Cookie {cookie_ok} | PAT {pat_ok} | 速率 {self._qps}/秒")
 
 
     # ----------------------------------------------------------- 克隆 / 下载
@@ -294,6 +382,18 @@ class MainWindow(QMainWindow):
             self._load_root()
 
     @safe_slot
+    def _on_concurrency_changed(self, v: int) -> None:
+        self._max_workers = int(v)
+        self._log(f"下载并发数已设为 {self._max_workers}")
+
+    @safe_slot
+    def _on_rate_changed(self, v: int) -> None:
+        self._qps = int(v)
+        self.client.set_rate_limit(self._qps)
+        self._update_status()
+        self._log(f"请求速率上限已设为 {self._qps} 请求/秒")
+
+    @safe_slot
     def _download(self):
         if not self.client.config.cookie:
             self._log("下载功能仅 Cookie 模式可用。请在连接设置中填入会话 Cookie。")
@@ -302,10 +402,11 @@ class MainWindow(QMainWindow):
         if not paths:
             self._log("未勾选任何文件。请在文件树「选择」列勾选要下载的文件。")
             return
-        self._log(f"开始下载 {len(paths)} 个文件（支持断点续传）…")
+        self._log(f"开始下载 {len(paths)} 个文件（并发 {self._max_workers}，支持断点续传）…")
         self._begin_progress()
         self._dl_worker = self._spawn(
             self.client.download, paths,
+            max_workers=self._max_workers,
             on_finished=self._on_download_done,
             on_error=lambda m: self._log(f"下载异常：{m}"),
             on_log=self._log,
@@ -315,6 +416,7 @@ class MainWindow(QMainWindow):
     @safe_slot
     def _on_download_done(self, res):
         ok_list, fail_list, dest, skipped = res
+        self._update_status()  # 下载期内可能自动探测了分支
         self._end_progress()
         self._log(f"下载完成：成功 {len(ok_list)}（其中跳过已存在 {skipped}），"
                   f"失败 {len(fail_list)}。")
@@ -331,10 +433,11 @@ class MainWindow(QMainWindow):
         if not self.client.repo_id:
             self._log("请先指定/选择一个仓库，再点「下载整个仓库(Cookie)」。")
             return
-        self._log(f"开始递归下载整个仓库 {self.client.repo_id}（Cookie 模式，支持断点续传）…")
+        self._log(f"开始递归下载整个仓库 {self.client.repo_id}（Cookie 模式，并发 {self._max_workers}，支持断点续传）…")
         self._begin_progress()
         self._dl_worker = self._spawn(
             self.client.download_repo, self.client.repo_id, self.client.branch,
+            max_workers=self._max_workers,
             on_finished=self._on_download_repo_done,
             on_error=lambda m: self._log(f"整库下载异常：{m}"),
             on_log=self._log,
@@ -344,6 +447,7 @@ class MainWindow(QMainWindow):
     @safe_slot
     def _on_download_repo_done(self, res):
         ok_count, fail_list, dest, skipped = res
+        self._update_status()  # 下载期内可能自动探测了分支
         self._end_progress()
         self._log(f"整库下载结束：新增 {ok_count} 个，跳过已存在 {skipped} 个，"
                   f"失败 {len(fail_list)} 个。")

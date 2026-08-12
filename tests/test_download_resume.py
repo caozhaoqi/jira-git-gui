@@ -106,7 +106,7 @@ class TestDownloadFiles(unittest.TestCase):
     def _fake_content(self, contents):
         # contents: dict path -> text
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, contents.get(path, ""), "")
+            lambda rid, head, path, client=None: (True, contents.get(path, ""), "")
         )
 
     def test_download_writes_files_and_manifest(self):
@@ -139,7 +139,7 @@ class TestDownloadFiles(unittest.TestCase):
         self._fake_list(files_by_dir)
         contents = {"README.md": "hello"}
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, contents.get(path, ""), "")
+            lambda rid, head, path, client=None: (True, contents.get(path, ""), "")
         )
 
         with tempfile.TemporaryDirectory() as d:
@@ -172,7 +172,7 @@ class TestDownloadFiles(unittest.TestCase):
             return state["n"] >= 1
 
         orig = self.c._cookie_file_content
-        def counting(rid, head, path):
+        def counting(rid, head, path, client=None):
             state["n"] += 1
             return orig(rid, head, path)
 
@@ -204,7 +204,7 @@ class TestDownloadRepoOrchestration(unittest.TestCase):
         }
         self.c._list_dir = lambda rid, branch, path="": self.tree.get(path, [])
         self.c._cookie_file_content = (
-            lambda rid, head, path: (True, f"content-of-{path}", "")
+            lambda rid, head, path, client=None: (True, f"content-of-{path}", "")
         )
 
     def test_download_repo_progress_and_counts(self):
@@ -225,7 +225,7 @@ class TestDownloadRepoOrchestration(unittest.TestCase):
         state = {"n": 0}
         orig = self.c._cookie_file_content
 
-        def counting(rid, head, path):
+        def counting(rid, head, path, client=None):
             state["n"] += 1
             return orig(rid, head, path)
 

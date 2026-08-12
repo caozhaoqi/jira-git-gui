@@ -1,12 +1,38 @@
 #!/usr/bin/env python3
 """Jira Git 通用拉取工具 —— PyQt6 桌面版入口。
 
-运行：
-    ./venv/bin/python main.py
-或（已激活 venv）：
-    python main.py
+运行（任选其一）：
+    ./venv/bin/python main.py        # 直接用项目 venv
+    python3 main.py                  # 任意 python 亦可，main.py 会自动切到 venv
+    ./run.sh                         # 一键启动脚本（macOS / Linux）
+    open run.command                 # macOS 双击启动
 """
+import os
 import sys
+
+
+def _ensure_venv_python():
+    """若当前解释器缺少 PyQt6，自动 re-exec 到项目 venv 的解释器。
+
+    这样无论用哪个 python 启动 main.py，都不会因缺依赖而启动失败
+    （典型场景：用系统 python 直接跑，报 ModuleNotFoundError: No module named 'PyQt6'）。
+    若连 venv 都没有，则保持原样启动，由后续 import 给出清晰报错。
+    """
+    try:
+        import PyQt6  # noqa: F401
+        return
+    except ModuleNotFoundError:
+        pass
+    here = os.path.dirname(os.path.abspath(__file__))
+    my_exe = os.path.abspath(sys.executable)
+    for name in ("venv", ".venv"):
+        for sub in ("bin/python", "Scripts/python.exe"):
+            cand = os.path.join(here, name, sub)
+            if os.path.exists(cand) and os.path.abspath(cand) != my_exe:
+                os.execv(cand, [cand, __file__, *sys.argv[1:]])
+
+
+_ensure_venv_python()
 
 # 在任何 import / Qt 初始化之前就打开 faulthandler，
 # 万一发生 C 级段错误（segmentation fault），能把回溯写到日志文件，便于定位。

@@ -18,6 +18,7 @@ import traceback
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from core.errors import UserError
 from core.logger import get_logger
 
 
@@ -52,6 +53,13 @@ class Worker(QThread):
                 pass
             result = self._fn(*self._args, **self._kwargs)
             self.result.emit(result)
+        except UserError as e:
+            # 用户可预期的操作提示（缺配置 / 会话过期 / 输入不合法等）：
+            # 以 WARNING 记录且不带 traceback，并把纯消息文本上抛给 UI，避免日志噪音。
+            logger.warning(
+                "用户操作提示（%s）：%s",
+                getattr(self._fn, "__qualname__", str(self._fn)), e)
+            self.error.emit(str(e))
         except Exception:
             # 关键：记录完整堆栈，并随 error 信号一并上抛，便于追溯「闪退」根因
             tb = traceback.format_exc()
