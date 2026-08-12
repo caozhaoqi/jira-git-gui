@@ -16,7 +16,7 @@ import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import httpx
 
@@ -24,6 +24,13 @@ from .constants import PROXY_URL, HTTP_TIMEOUT, REPOS_DIR, DOWNLOAD_DIR, DEFAULT
 from .errors import UserError
 from .models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
 from . import throttle
+from core.logger import get_logger
+
+logger = get_logger("jira-git-gui")
+
+# REST 仓库列表翻页参数（Jira REST 通用 startAt/maxResults；部分 git 插件忽略则自动停止）
+REST_PAGE_SIZE = 50
+REST_MAX_PAGES = 500  # 安全上限：最多翻 500 页（25k 仓库），防止异常时死循环
 
 DEFAULT_DOWNLOAD_WORKERS = 4  # 整库/批量下载默认并发数（有界线程池，避免压垮服务端）
 
@@ -257,44 +264,244 @@ class JiraGitClient:
 
     # ----------------------------------------------------- 仓库发现（Cookie）
     def discover_repos(self) -> List[RepoInfo]:
-        """发现全部仓库（Cookie 模式）。
+        """发现【全部】仓库（Cookie 模式），翻页遍历、合并且记录发现数。
 
-        优先解析 GIJRepositoryBrowser-AllRepositories.jspa 页面（用户指定的入口），
-        该页面列出所有仓库并带 repoId 链接；若页面解析为空，再回退到 REST 接口。
+        数据源：
+        1. ``AllRepositories`` HTML 页面（单页解析，可能受页面分页限制，但能从链接里拿到
+           ``branchName`` 默认分支）——作为**信息补全**来源。
+        2. git 插件 REST 接口，按多种分页参数约定**翻页遍历**直到取尽——
+           作为**权威全量**来源，不再受单页 HTML 渲染数量限制。
+
+        每次发现都会把两个接口的原始响应完整写入 ``logs/discover_raw_<时间戳>.txt``，
+        并在主日志逐个端点打印「状态码 / 内容类型 / 疑似登录页」，便于排查
+        「为什么只返回 N 个」类问题（REST 404 / 返回登录页 / JSON 结构不匹配等）。
         """
-        out: List[RepoInfo] = []
         if not self.config.cookie:
-            return out
-        # 1) 优先：AllRepositories 页面解析
+            return []
+        # 原始响应诊断：写入独立文件，避免污染主日志
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        raw_path = Path("logs") / f"discover_raw_{ts}.txt"
+        try:
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_fp = raw_path.open("w", encoding="utf-8")
+        except Exception:
+            raw_fp = None
+        try:
+            html = self._discover_repos_html(raw_fp)
+            rest = self._discover_repos_rest(raw_fp)
+        finally:
+            if raw_fp:
+                raw_fp.close()
+        if raw_path.exists():
+            logger.info("仓库发现原始接口响应已写入：%s（含 HTML 与各 REST 端点的状态码/响应体）",
+                        raw_path)
+        merged: Dict[str, RepoInfo] = {}
+        for rid, ri in rest.items():
+            merged[rid] = ri
+        for rid, ri in html.items():
+            if rid not in merged:
+                merged[rid] = ri
+            else:
+                cur = merged[rid]
+                # 优先用更完整的信息补全
+                if not cur.default_branch and ri.default_branch:
+                    cur.default_branch = ri.default_branch
+                if not cur.display_name and ri.display_name:
+                    cur.display_name = ri.display_name
+                if not cur.clone_url and ri.clone_url:
+                    cur.clone_url = ri.clone_url
+        if not merged:
+            logger.warning("仓库发现：0 个。可能会话已过期（无仓库可见），或该账号无可见仓库，"
+                           "或 REST/HTML 接口均不可用（详见原始响应文件）。")
+        else:
+            logger.info("仓库发现完成：HTML 页面解析 %d 个，REST 全量遍历 %d 个，"
+                        "合并去重后共 %d 个。", len(html), len(rest), len(merged))
+        return sorted(merged.values(), key=lambda x: x.display_name.lower())
+
+    def _discover_repos_html(self, raw_fp=None) -> Dict[str, RepoInfo]:
+        """解析 AllRepositories 单页 HTML，返回 repoId -> RepoInfo（含 branchName）。"""
+        out: Dict[str, RepoInfo] = {}
         try:
             url = self.config.jira_url.rstrip("/") + ALL_REPOS_PAGE
             r = self.http_get(url, headers=self.cookie_headers())
+            self._dump_raw(raw_fp, "HTML AllRepositories", url, r)
             if r.status_code == 200 and "login" not in str(r.url):
-                out = self._parse_repo_list(r.text)
+                for ri in self._parse_repo_list(r.text):
+                    out[ri.repo_id] = ri
+                logger.info("[发现-HTML] 状态=%s，解析出 %d 个仓库锚点", r.status_code, len(out))
+            else:
+                logger.warning("[发现-HTML] 状态码=%s 或跳转到登录页（final url=%s），未解析出仓库",
+                               r.status_code, r.url)
+        except Exception as e:
+            logger.warning("[发现-HTML] 请求/解析异常：%s", e)
+        return out
+
+    def _discover_repos_rest(self, raw_fp=None) -> Dict[str, RepoInfo]:
+        """翻页遍历 git 插件 REST 仓库列表，返回 repoId -> RepoInfo（权威全量）。
+
+        为兼容不同版本/部署，依次尝试多个端点，并对每个端点尝试多种分页参数约定
+        （``startAt/maxResults``、``start/limit``、``offset/limit``）以及「无分页一次性返回全部」。
+        任一端点成功取到数据即用其清单；全程受全局限流器节流，不会打崩服务器。
+        每一步（URL / 状态码 / 响应体）都会写入原始诊断文件，便于排查「只返回 N 个」。
+        """
+        out: Dict[str, RepoInfo] = {}
+        base = self.config.jira_url.rstrip("/")
+        endpoints = (
+            "/rest/gitplugin/1.0/repositories",
+            "/rest/git/1.0/repository",
+            "/rest/gitplugin/latest/repositories",
+        )
+        for ep in endpoints:
+            if out:
+                break
+            ep_out: Dict[str, RepoInfo] = {}
+            # 1) 无分页：部分版本一次性返回全部仓库
+            try:
+                url = base + ep
+                r = self.http_get(url, headers=self.cookie_headers())
+                self._dump_raw(raw_fp, f"REST {ep} (无分页)", url, r)
+                if r.status_code == 200 and not self._looks_like_login(r):
+                    items = self._safe_json_list(r)
+                    for it in items:
+                        ri = self._parse_rest_repo_item(it)
+                        if ri and ri.repo_id:
+                            ep_out.setdefault(ri.repo_id, ri)
+                    logger.info("[发现-REST] %s 无分页：状态=%s，解析 %d 项",
+                                ep, r.status_code, len(items))
+                else:
+                    logger.warning("[发现-REST] %s 无分页：状态=%s%s", ep, r.status_code,
+                                   "（疑似登录页）" if self._looks_like_login(r) else "")
+            except Exception as e:
+                logger.warning("[发现-REST] %s 无分页异常：%s", ep, e)
+            # 2) 分页约定
+            if not ep_out:
+                conventions = [
+                    ("startAt/maxResults", lambda s, n: f"?startAt={s}&maxResults={n}"),
+                    ("start/limit", lambda s, n: f"?start={s}&limit={n}"),
+                    ("offset/limit", lambda s, n: f"?offset={s}&limit={n}"),
+                ]
+                for cname, build in conventions:
+                    if ep_out:
+                        break
+                    start = 0
+                    for _ in range(REST_MAX_PAGES):
+                        paged = base + ep + build(start, REST_PAGE_SIZE)
+                        try:
+                            r = self.http_get(paged, headers=self.cookie_headers())
+                            self._dump_raw(raw_fp, f"REST {ep} [{cname}] start={start}", paged, r)
+                            if r.status_code != 200 or self._looks_like_login(r):
+                                logger.warning("[发现-REST] %s [%s] start=%s：状态=%s%s",
+                                               ep, cname, start, r.status_code,
+                                               "（疑似登录页）" if self._looks_like_login(r) else "")
+                                break
+                            items = self._safe_json_list(r)
+                            if not items:
+                                break
+                            prev = len(ep_out)
+                            for it in items:
+                                ri = self._parse_rest_repo_item(it)
+                                if ri and ri.repo_id:
+                                    ep_out.setdefault(ri.repo_id, ri)
+                            got = len(items)
+                            # 停止条件：本页不足一页（末页），或本页无新增（服务端忽略分页）
+                            if got < REST_PAGE_SIZE or len(ep_out) == prev:
+                                break
+                            start += REST_PAGE_SIZE
+                        except Exception as e:
+                            logger.warning("[发现-REST] %s [%s] start=%s 异常：%s",
+                                           ep, cname, start, e)
+                            break
+            if ep_out:
+                out.update(ep_out)
+        return out
+
+    # ---- 原始响应诊断辅助 ----
+    @staticmethod
+    def _dump_raw(fp, tag: str, url: str, resp, max_body: int = 200000) -> None:
+        """把单次 HTTP 响应的原始信息追加写入诊断文件（不影响主流程）。"""
+        if fp is None:
+            return
+        try:
+            try:
+                body = resp.text
+            except Exception:
+                body = "<unreadable body>"
+            try:
+                ct = resp.headers.get("content-type", "")
+            except Exception:
+                ct = ""
+            fp.write(f"\n===== {tag} =====\n")
+            fp.write(f"URL: {url}\n")
+            fp.write(f"STATUS: {getattr(resp, 'status_code', '?')}\n")
+            fp.write(f"FINAL_URL: {getattr(resp, 'url', '?')}\n")
+            fp.write(f"CONTENT-TYPE: {ct}\n")
+            fp.write(f"BODY-LEN: {len(body)}\n")
+            fp.write("----- BODY (truncated) -----\n")
+            fp.write(body[:max_body])
+            fp.write("\n")
+            fp.flush()
         except Exception:
             pass
-        # 2) 兜底：REST 接口
-        if not out:
-            for ep in ("/rest/gitplugin/1.0/repositories", "/rest/git/1.0/repository"):
-                try:
-                    r = self.http_get(self.config.jira_url.rstrip("/") + ep,
-                                      headers=self.cookie_headers())
-                    if r.status_code == 200:
-                        try:
-                            data = r.json()
-                            for it in data:
-                                out.append(RepoInfo(
-                                    repo_id=str(it.get("id") or it.get("repoId") or ""),
-                                    display_name=it.get("displayName") or it.get("name") or "",
-                                    clone_url=it.get("cloneUrl") or it.get("url") or "",
-                                ))
-                        except Exception:
-                            pass
-                        if out:
-                            break
-                except Exception:
-                    pass
-        return out
+
+    @staticmethod
+    def _looks_like_login(resp) -> bool:
+        """粗略判断响应是否为登录页（会话失效时 Jira 会把 REST 重定向到登录页）。"""
+        try:
+            if "login" in str(getattr(resp, "url", "")).lower():
+                return True
+            ct = (resp.headers.get("content-type") or "").lower()
+            if "html" in ct:
+                txt = (resp.text or "")[:2000].lower()
+                if "login" in txt or "j_security_check" in txt or "os_password" in txt:
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _safe_json_list(self, resp) -> list:
+        """把响应体安全解析为仓库对象列表（解析失败返回空列表，不抛异常）。"""
+        try:
+            data = resp.json()
+        except Exception:
+            return []
+        return self._normalize_rest_list(data)
+
+    @staticmethod
+    def _normalize_rest_list(data) -> list:
+        """把 REST 响应归一为仓库对象列表（兼容数组 / 包装对象 / 单对象）。"""
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for key in ("repositories", "values", "repos", "repoList"):
+                v = data.get(key)
+                if isinstance(v, list):
+                    return v
+            if "id" in data or "repoId" in data or data.get("displayName"):
+                return [data]
+        return []
+
+    @staticmethod
+    def _parse_rest_repo_item(it) -> Optional[RepoInfo]:
+        """从单个 REST 仓库对象构造 RepoInfo（无 id 则忽略）。
+
+        注意：``id`` 可能是合法的数字 0，必须用 ``is None`` 判断而非真值，
+        否则 ``0 or ...`` 会把 id=0 当成缺失而丢弃。
+        """
+        if not isinstance(it, dict):
+            return None
+        rid = it.get("id")
+        if rid is None:
+            rid = it.get("repoId")
+        if rid is None:
+            return None
+        rid = str(rid)
+        if not rid:
+            return None
+        return RepoInfo(
+            repo_id=rid,
+            display_name=it.get("displayName") or it.get("name") or "",
+            clone_url=it.get("cloneUrl") or it.get("url") or "",
+        )
 
     @staticmethod
     def _strip_tags(s: str) -> str:

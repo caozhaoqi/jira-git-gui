@@ -99,9 +99,20 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 
 1. 工具栏「连接设置」：填写 Jira 地址、用户名，选择 PAT 或 Cookie 模式，填入对应凭据，
    以及仓库 ID / 分支 / 仓库名。点「测试连接」可就地校验。
-2. 仓库面板：若已配置 Cookie，点「发现仓库」会访问 `GIJRepositoryBrowser-AllRepositories.jspa`
-   页面，解析出所有仓库的 **repoId / 名称 / 默认分支** 并列出；选中某仓库后点「查看文件」
-   （或双击）即加载其文件树；也可手动填写仓库 ID 后点「加载文件树」。
+2. 仓库面板：若已配置 Cookie，点「发现仓库」会**翻页遍历**所有仓库并列出。逻辑：
+   - 优先解析 `GIJRepositoryBrowser-AllRepositories.jspa` 单页 HTML（可拿到 **默认分支 branchName**，
+     作为信息补全来源）；
+   - 再翻页遍历 git 插件 REST 仓库列表（`/rest/gitplugin/1.0/repositories`、`/rest/git/1.0/repository`、
+     `/rest/gitplugin/latest/repositories`，依次尝试多种分页参数约定
+     `startAt/maxResults`、`start/limit`、`offset/limit` 及「无分页一次性返回」，自动防御死循环），
+     作为**权威全量**来源，不再受单页 HTML 渲染数量限制；
+   - **排查「为什么只返回 N 个」**：每次「发现仓库」都会把两个接口的原始响应完整写入
+     `logs/discover_raw_<时间戳>.txt`（含 HTML 与各 REST 端点的 URL / 状态码 / 响应体），并在主日志
+     逐个端点打印「状态码 / 疑似登录页」。若发现数异常，先看该文件：REST 404=路径不对、401/403=权限、
+     返回登录页=会话对 REST 无效、HTML 仅 3 个且含分页链接=该页服务端分页需跟随。
+   - 两者按 repoId 合并去重（REST 提供完整清单，HTML 补全默认分支/名称）；
+   - 日志会记录「HTML 解析 N 个、REST 全量 M 个、合并去重后 K 个」，便于核对是否拉全。
+   选中某仓库后点「查看文件」（或双击）即加载其文件树；也可手动填写仓库 ID 后点「加载文件树」。
 3. 文件树：展开目录懒加载子项（分支为空时客户端会自动探测可用分支，如 master/main）；
    勾选文件「选择」列后可点「下载选中(Cookie)」。
 4. 点击文件节点在右侧预览正文（文本文件；二进制文件会提示用「下载」保存到本地查看）。
@@ -195,6 +206,10 @@ PYTHONPATH=. ./venv/bin/python -m unittest discover -s tests -t .
 `tests/test_throttle.py`：令牌桶限流节奏（`qps`/`burst` 钳制稳态速率）、`burst` 允许短促突发、
 `set_qps` 热更新、全局单例；**429/503 退避**——识别需退避状态码、`Retry-After` 秒数优先、
 无头时指数退避（封顶 30s）。
+
+`tests/test_discover_repos.py`：REST 响应归一化（数组/包装对象/单对象）、仓库项解析（含 **id=0 边界**）；
+**翻页遍历**——按 `startAt` 翻到末页、服务端忽略分页参数时自动停止（不死循环）、空页即止；
+**合并去重**——HTML 补全默认分支 + REST 全量清单 + 发现数日志（INFO/WARNING）。
 
 ### 2) 集成测试（需凭据，自动跳过）
 `tests/test_integration.py` 真正访问 Jira 验证「发现仓库 → 查看文件 → 下载」全链路。
