@@ -9,12 +9,13 @@ import sys
 
 from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR, Qt
 from PyQt6.QtWidgets import (
-    QMainWindow, QSplitter, QToolBar,
+    QMainWindow, QSplitter, QToolBar, QLabel, QProgressBar, QPushButton,
+    QTabWidget, QStatusBar,
 )
 
 from core.client import JiraGitClient
 from core.config import load_config
-from core.constants import PROXY_URL
+from core.constants import PROXY_URL, DOWNLOAD_DIR
 from core.logger import LogBridge, get_logger, set_log_bridge
 from core.safe import safe_slot
 from gui.connect_dialog import ConnectDialog
@@ -22,6 +23,7 @@ from gui.log_panel import LogPanel
 from gui.preview_panel import PreviewPanel
 from gui.repo_panel import RepoPanel
 from gui.tree_panel import TreePanel
+from gui.commit_panel import CommitPanel
 from workers.tasks import Worker
 
 
@@ -47,6 +49,7 @@ class MainWindow(QMainWindow):
         self.repo_panel = RepoPanel(self.client, self)
         self.tree_panel = TreePanel()
         self.preview_panel = PreviewPanel()
+        self.commit_panel = CommitPanel(self.client, self)
 
         # —— 日志桥：把核心日志转发到 UI 面板（必须在最早完成）——
         self._bridge = LogBridge()
@@ -64,10 +67,13 @@ class MainWindow(QMainWindow):
         left.setStretchFactor(1, 1)
 
         right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(self.preview_panel)
-        right.addWidget(self.log_panel)
-        right.setStretchFactor(0, 3)
-        right.setStretchFactor(1, 1)
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(self.preview_panel, "文件预览")
+        self.tabs.addTab(self.commit_panel, "提交记录")
+        self.tabs.addTab(self.log_panel, "日志")
+        right.addWidget(self.tabs)
+        right.setStretchFactor(0, 1)
 
         main = QSplitter(Qt.Orientation.Horizontal)
         main.addWidget(left)
@@ -87,19 +93,42 @@ class MainWindow(QMainWindow):
         self.act_download.triggered.connect(self._download)
         self.act_download_all = tb.addAction("下载整个仓库(Cookie)")
         self.act_download_all.triggered.connect(self._download_all)
+        self.act_clear_resume = tb.addAction("清空断点")
+        self.act_clear_resume.triggered.connect(self._clear_resume)
         self.act_clearlog = tb.addAction("清空日志")
         self.act_clearlog.triggered.connect(self.log_panel.clear)
+
+        # —— 下载进度区（进度条 + 百分比标签 + 取消按钮）——
+        self._progress_label = QLabel("")
+        self._progress = QProgressBar()
+        self._progress.setMinimum(0)
+        self._progress.setMaximum(0)        # 先以“不确定”模式显示
+        self._progress.setFixedWidth(240)
+        self._progress.setTextVisible(True)
+        self._btn_cancel = QPushButton("取消")
+        self._btn_cancel.setFixedWidth(56)
+        self._btn_cancel.setVisible(False)
+        self._btn_cancel.clicked.connect(self._cancel_download)
+        tb.addWidget(self._progress_label)
+        tb.addWidget(self._progress)
+        tb.addWidget(self._btn_cancel)
+        self._dl_worker = None
 
         # 信号
         self.repo_panel.repoSelected.connect(self._on_repo_selected)
         self.tree_panel.requestRoot.connect(self._load_root)
         self.tree_panel.requestChildren.connect(self._load_children)
         self.tree_panel.fileActivated.connect(self._open_file)
+        self.commit_panel.queryRequested.connect(self._on_query_commits)
 
         self._log_startup_banner()
         self._log("就绪。先点「连接设置」配置 Jira 地址 / 账号 / 模式，再在仓库面板选择或指定仓库。")
         self._log(f"当前模式：{self.client.config.mode.upper()}；代理："
                   f"{'已探测 ' + PROXY_URL if PROXY_URL else '无'}")
+
+        # 状态栏：实时反映 模式 / 当前仓库 / 分支 / 连接状态
+        self.setStatusBar(QStatusBar())
+        self._update_status()
 
     # ----------------------------------------------------------- 工具
     def _log(self, msg: str) -> None:
@@ -116,7 +145,8 @@ class MainWindow(QMainWindow):
         self._logger.info("日志文件   : 见 logs/jira_git_gui.log")
         self._logger.info("=" * 60)
 
-    def _spawn(self, fn, *args, on_finished=None, on_error=None, on_log=None):
+    def _spawn(self, fn, *args, on_finished=None, on_error=None, on_log=None,
+               on_progress=None):
         w = Worker(fn, *args)
         if on_finished:
             w.result.connect(on_finished)
@@ -124,6 +154,8 @@ class MainWindow(QMainWindow):
             w.error.connect(on_error)
         if on_log:
             w.log.connect(on_log)
+        if on_progress:
+            w.progress.connect(on_progress)
         # 保留引用直到线程彻底结束；内置 finished 触发后删除，避免“Destroyed while running”
         self._workers.append(w)
         w.finished.connect(lambda: self._workers.remove(w))
@@ -134,11 +166,13 @@ class MainWindow(QMainWindow):
     @safe_slot
     def _open_connect(self):
         self.connect_dialog.exec()
+        self._update_status()
 
     # ----------------------------------------------------------- 仓库 / 树
     @safe_slot
     def _on_repo_selected(self, rid, rname, branch):
         self.client.set_repo(rid, rname, branch)
+        self._update_status()
         self._log(f"已选择仓库 id={rid} name={rname or '(待探测)'} branch={branch or '(默认)'}")
         self._load_root()
 
@@ -194,6 +228,42 @@ class MainWindow(QMainWindow):
         else:
             self.preview_panel.set_content(content, path)
 
+    # ----------------------------------------------------------- 提交记录
+    @safe_slot
+    def _on_query_commits(self, issue_key: str):
+        self.commit_panel.set_querying(True)
+        self._log(f"查询提交记录：issue={issue_key or '(按当前仓库 best-effort)'}")
+        self._spawn(
+            self.client.get_commits, issue_key, self.client.repo_id, self.client.branch,
+            on_finished=lambda commits: self._on_commits_loaded(commits, issue_key),
+            on_error=lambda m: self._on_commits_error(m),
+        )
+
+    @safe_slot
+    def _on_commits_loaded(self, commits, issue_key):
+        self.commit_panel.set_querying(False)
+        self.commit_panel.set_commits(commits)
+        self._log(f"提交记录：共 {len(commits)} 条"
+                  + (f"（issue {issue_key}）" if issue_key else "（仓库 best-effort）"))
+
+    @safe_slot
+    def _on_commits_error(self, m: str):
+        self.commit_panel.set_querying(False)
+        self.commit_panel.set_error(m)
+        self._log(f"提交查询失败：{m}")
+
+    # ----------------------------------------------------------- 状态栏
+    def _update_status(self) -> None:
+        mode = self.client.config.mode.upper()
+        rid = self.client.repo_id or "-"
+        br = self.client.branch or "(默认)"
+        cookie_ok = "已配置" if self.client.config.cookie else "未配置"
+        pat_ok = "已配置" if self.client.config.pat else "未配置"
+        self.statusBar().showMessage(
+            f"模式 {mode} | 仓库 {rid} | 分支 {br} | "
+            f"Cookie {cookie_ok} | PAT {pat_ok}")
+
+
     # ----------------------------------------------------------- 克隆 / 下载
     @safe_slot
     def _clone(self):
@@ -230,20 +300,24 @@ class MainWindow(QMainWindow):
             return
         paths = self.tree_panel.collect_checked()
         if not paths:
-            self._log("未勾选任何文件。请在文件树「选择」列勾选要下载的文件（仅根目录文件支持）。")
+            self._log("未勾选任何文件。请在文件树「选择」列勾选要下载的文件。")
             return
-        self._log(f"开始下载 {len(paths)} 个文件…")
-        self._spawn(
+        self._log(f"开始下载 {len(paths)} 个文件（支持断点续传）…")
+        self._begin_progress()
+        self._dl_worker = self._spawn(
             self.client.download, paths,
             on_finished=self._on_download_done,
             on_error=lambda m: self._log(f"下载异常：{m}"),
             on_log=self._log,
+            on_progress=self._on_progress,
         )
 
     @safe_slot
     def _on_download_done(self, res):
-        ok_list, fail_list, dest = res
-        self._log(f"下载完成：成功 {len(ok_list)}，失败 {len(fail_list)}。")
+        ok_list, fail_list, dest, skipped = res
+        self._end_progress()
+        self._log(f"下载完成：成功 {len(ok_list)}（其中跳过已存在 {skipped}），"
+                  f"失败 {len(fail_list)}。")
         for f in fail_list:
             self._log(f"  ✗ {f['path']}: {f['reason']}")
         if ok_list:
@@ -257,21 +331,75 @@ class MainWindow(QMainWindow):
         if not self.client.repo_id:
             self._log("请先指定/选择一个仓库，再点「下载整个仓库(Cookie)」。")
             return
-        self._log(f"开始递归下载整个仓库 {self.client.repo_id}（Cookie 模式）…")
-        self._spawn(
+        self._log(f"开始递归下载整个仓库 {self.client.repo_id}（Cookie 模式，支持断点续传）…")
+        self._begin_progress()
+        self._dl_worker = self._spawn(
             self.client.download_repo, self.client.repo_id, self.client.branch,
             on_finished=self._on_download_repo_done,
             on_error=lambda m: self._log(f"整库下载异常：{m}"),
             on_log=self._log,
+            on_progress=self._on_progress,
         )
 
     @safe_slot
     def _on_download_repo_done(self, res):
-        ok_count, fail_list, dest = res
-        self._log(f"整库下载结束：成功 {ok_count} 个文件，失败 {len(fail_list)} 个。")
+        ok_count, fail_list, dest, skipped = res
+        self._end_progress()
+        self._log(f"整库下载结束：新增 {ok_count} 个，跳过已存在 {skipped} 个，"
+                  f"失败 {len(fail_list)} 个。")
         for f in fail_list[:20]:
             self._log(f"  ✗ {f['path']}: {f['reason']}")
         if fail_list:
-            self._log(f"  （失败项共 {len(fail_list)} 个，仅显示前 20）")
-        if ok_count:
-            self._log(f"已保存到：{dest}")
+            self._log(f"  （失败项共 {len(fail_list)} 个，仅显示前 20；"
+                      f"再次点击可继续，失败项会被重试）")
+        if ok_count or skipped:
+            self._log(f"已保存到：{dest}（断点续传清单：{dest}/"
+                      f"{JiraGitClient._MANIFEST_NAME}）")
+
+    # ----------------------------------------------------- 进度条 / 取消 / 断点
+    def _begin_progress(self) -> None:
+        self._progress.setMaximum(0)   # 不确定模式，待总数确定后切换
+        self._progress.setValue(0)
+        self._progress_label.setText("准备中…")
+        self._btn_cancel.setVisible(True)
+
+    def _on_progress(self, done: int, total: int, path: str) -> None:
+        if total and total > 0:
+            self._progress.setMaximum(total)
+            self._progress.setValue(done)
+            pct = done * 100 // total
+            self._progress_label.setText(f"{done}/{total} ({pct}%)")
+        else:
+            self._progress.setMaximum(0)
+            self._progress_label.setText(f"已处理 {done} …")
+        # 不再为每个文件写一行日志（整库几百文件会刷屏）；进度条已实时反映，
+        # 仅失败项与汇总在 done 回调里记录。
+
+    def _end_progress(self) -> None:
+        self._btn_cancel.setVisible(False)
+        self._progress.setMaximum(1)
+        self._progress.setValue(1)
+        self._progress_label.setText("完成")
+        self._dl_worker = None
+
+    @safe_slot
+    def _cancel_download(self):
+        if self._dl_worker:
+            self._dl_worker.cancel()
+            self._log("已请求取消下载，将在当前文件处理完后停止"
+                      "（断点续传：再次点击同一仓库即可从断点继续）。")
+
+    @safe_slot
+    def _clear_resume(self):
+        if not self.client.repo_id:
+            self._log("请先选择仓库，再清空断点。")
+            return
+        mp = DOWNLOAD_DIR / str(self.client.repo_id) / JiraGitClient._MANIFEST_NAME
+        if mp.exists():
+            try:
+                mp.unlink()
+                self._log(f"已清空断点续传清单：{mp}（下次下载将重新拉取全部文件）")
+            except Exception as ex:
+                self._log(f"清空断点失败：{ex}")
+        else:
+            self._log("当前没有断点续传清单（无需清空）。")

@@ -1,6 +1,6 @@
 """数据模型。"""
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import List, Optional
 
 
 @dataclass
@@ -30,3 +30,25 @@ class TreeEntry:
     type: str              # "dir" | "file"
     size: Optional[int] = None
     has_children: bool = False
+
+
+@dataclass
+class CommitFile:
+    """某次提交涉及的一个文件变更。"""
+    path: str = ""
+    change_type: str = ""      # MODIFIED / ADDED / DELETED / RENAMED ...
+    lines_added: int = 0
+    lines_removed: int = 0
+
+
+@dataclass
+class Commit:
+    """一条提交记录（来源：Jira Git 插件 issues/{key}/commits）。"""
+    commit_id: str = ""
+    display_id: str = ""       # 短 SHA（前 8 位），用于紧凑展示
+    author: str = ""
+    date: str = ""
+    message: str = ""
+    branch: str = ""
+    repository_name: str = ""
+    files: List[CommitFile] = field(default_factory=list)

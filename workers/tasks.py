@@ -26,21 +26,28 @@ class Worker(QThread):
     result = pyqtSignal(object)
     error = pyqtSignal(str)
     log = pyqtSignal(str)
+    progress = pyqtSignal(int, int, str)  # (已处理, 总数, 当前路径)
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__()
         self._fn = fn
         self._args = args
         self._kwargs = kwargs
+        self._cancel_requested = False
 
     def run(self):
         logger = get_logger()
         try:
-            # 若目标函数接受 on_log，自动注入日志回调
+            # 若目标函数接受以下回调，自动注入对应信号 / 取消钩子
             try:
                 sig = inspect.signature(self._fn)
-                if "on_log" in sig.parameters:
+                params = sig.parameters
+                if "on_log" in params:
                     self._kwargs.setdefault("on_log", self.log.emit)
+                if "on_progress" in params:
+                    self._kwargs.setdefault("on_progress", self.progress.emit)
+                if "should_cancel" in params:
+                    self._kwargs.setdefault("should_cancel", self._should_cancel)
             except (ValueError, TypeError):
                 pass
             result = self._fn(*self._args, **self._kwargs)
@@ -52,3 +59,10 @@ class Worker(QThread):
                 "后台任务异常（%s）:\n%s",
                 getattr(self._fn, "__qualname__", str(self._fn)), tb)
             self.error.emit(tb)
+
+    def cancel(self) -> None:
+        """请求取消当前任务（任务函数在合适时机检查 should_cancel 后退出）。"""
+        self._cancel_requested = True
+
+    def _should_cancel(self) -> bool:
+        return self._cancel_requested

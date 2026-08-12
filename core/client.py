@@ -14,13 +14,16 @@ import shutil
 import subprocess
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
 from pathlib import Path
 from typing import Callable, List, Optional
 
 import httpx
 
 from .constants import PROXY_URL, HTTP_TIMEOUT, REPOS_DIR, DOWNLOAD_DIR
-from .models import ConnectConfig, RepoInfo, TreeEntry
+from .models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
+
+DEFAULT_DOWNLOAD_WORKERS = 4  # 整库/批量下载默认并发数（有界线程池，避免压垮服务端）
 
 # 全部仓库浏览页（HTML）：列出所有仓库，每个仓库是一个指向
 # GIJBrowseGit.jspa?repoId=XXX&branchName=YYY 的链接。
@@ -44,6 +47,7 @@ class JiraGitClient:
         self.repo_id: str = ""
         self.repo_name: str = ""
         self.branch: str = ""
+        self._branch_cache: dict = {}  # repo_id -> 已探测到的可用分支（避免重复探测）
         self._git_bin = shutil.which("git") or "git"
 
     # ------------------------------------------------------------------ 配置
@@ -56,6 +60,7 @@ class JiraGitClient:
             self.repo_name = repo_name
         if branch:
             self.branch = branch
+        self._branch_cache.clear()  # 切换仓库后丢弃旧分支探测结果
 
     @staticmethod
     def host_of(url: str) -> str:
@@ -153,9 +158,8 @@ class JiraGitClient:
             except Exception as ex:
                 result["note"] = f"cookie 探测异常：{ex}"
         if self.config.pat and self.repo_id and self.repo_name:
-            ok, msg, _ = self.clone_repo(
-                self.repo_id, self.repo_name, "", self.config.pat,
-                self.config.username)
+            # 轻量连通测试：用 git ls-remote 秒级验证，不再触发完整 clone（旧实现会卡 300s）
+            ok, msg = self._pat_test_quick(self.config.pat, self.config.username)
             result["patTest"] = {"ok": ok, "msg": msg}
         return result
 
@@ -264,16 +268,24 @@ class JiraGitClient:
         """返回可用于浏览的分支；空串表示都失败。
 
         优先用给定 branch；若其 browse 无树（空 branch 会被踢登录、或分支不存在），
-        则按候选列表试探，取第一个能返回 ns.data 的分支。
+        则按候选列表试探，取第一个能返回 ns.data 的分支。结果按 repo_id 缓存，
+        避免每次列目录/读文件都重复探测 7 个候选分支（每次都发 HTTP）。
         """
+        cache_key = str(repo_id)
+        if cache_key in self._branch_cache:
+            return self._branch_cache[cache_key]
+        resolved = branch
         if branch and self._browse_has_tree(repo_id, branch):
-            return branch
-        for cand in self._BRANCH_CANDIDATES:
-            if cand == branch:
-                continue
-            if self._browse_has_tree(repo_id, cand):
-                return cand
-        return branch  # 回退给上层报错，而不是静默空树
+            resolved = branch
+        else:
+            for cand in self._BRANCH_CANDIDATES:
+                if cand == branch:
+                    continue
+                if self._browse_has_tree(repo_id, cand):
+                    resolved = cand
+                    break
+        self._branch_cache[cache_key] = resolved
+        return resolved  # 回退给上层报错，而不是静默空树
 
 
     def _list_level_cookie(self, repo_id: str, branch: str, path: str = "") -> List[TreeEntry]:
@@ -319,12 +331,111 @@ class JiraGitClient:
                                      it.stat().st_size, False))
         return out
 
+    # ----------------------------------------------------------- 提交记录
+    def get_commits(self, issue_key: Optional[str] = None,
+                    repo_id: Optional[str] = None,
+                    branch: Optional[str] = None,
+                    show_files: bool = True,
+                    limit: int = 50) -> List[Commit]:
+        """拉取提交记录（Jira Git 插件的 commits 以 Jira issue 关联组织）。
+
+        - 提供 ``issue_key``：走官方 REST ``/rest/gitplugin/1.0/issues/{key}/commits``，
+          最可靠；``show_files=True`` 时每条 commit 还带改动文件清单
+          （path / changeType / linesAdded / linesRemoved）。
+        - 仅提供 ``repo_id``（best-effort）：尝试 ``/rest/gitplugin/1.0/commits?repoId=``，
+          该端点并非所有私有部署都开放；不支持时给出友好提示，引导改用 issue 查询。
+        - 两者都未提供：抛出说明。
+
+        返回 ``List[Commit]``，按接口返回顺序（通常最新在前）。
+        """
+        cookie = self.cookie_headers()
+        if not cookie:
+            raise RuntimeError("查看提交记录需要 Cookie 模式（会话）。请在连接设置中填入会话 Cookie。")
+        base = self.config.jira_url.rstrip("/")
+
+        if issue_key:
+            url = (f"{base}/rest/gitplugin/1.0/issues/"
+                   f"{urllib.parse.quote(issue_key.strip())}/commits")
+            if show_files:
+                url += "?showFiles=true"
+            r = self.http_get(url, headers=cookie)
+            if self._is_login_page(r) or r.status_code != 200:
+                raise RuntimeError(
+                    "提交查询失败：会话可能已过期，或对该 issue 无读取权限。"
+                    "请重新登录后在连接设置中更新 Cookie。")
+            try:
+                data = r.json()
+            except Exception:
+                raise RuntimeError("提交查询返回非 JSON（可能会话过期或接口变更）。")
+            commits = (data.get("commits")
+                       or (data.get("data") or {}).get("commits") or [])
+            return [self._parse_commit(c) for c in commits[:limit]]
+
+        # best-effort：按仓库列提交（并非所有部署都支持）
+        rid = repo_id or self.repo_id
+        if rid:
+            url = f"{base}/rest/gitplugin/1.0/commits?repoId={urllib.parse.quote(str(rid))}"
+            if branch:
+                url += f"&branchName={urllib.parse.quote(branch)}"
+            if show_files:
+                url += "&showFiles=true"
+            r = self.http_get(url, headers=cookie)
+            if r.status_code == 200 and not self._is_login_page(r):
+                try:
+                    data = r.json()
+                    commits = (data.get("commits")
+                               or (data.get("data") or {}).get("commits") or [])
+                    if commits:
+                        return [self._parse_commit(c) for c in commits[:limit]]
+                except Exception:
+                    pass
+            raise RuntimeError(
+                "该 Jira 实例不提供『按仓库列全量提交』接口"
+                "（Jira Git 插件的提交以 issue 关联组织）。\n"
+                "请在提交记录面板输入 Jira issue 单号（如 TST-234）后查询，"
+                "即可看到该 issue 关联的全部提交与改动文件。")
+        raise RuntimeError(
+            "请先在仓库面板选择/指定仓库，或在提交记录面板输入 Jira issue 单号（如 TST-234）。")
+
+    @staticmethod
+    def _parse_commit(c: dict) -> Commit:
+        cid = c.get("commitId") or c.get("id") or ""
+        files: List[CommitFile] = []
+        for f in (c.get("files") or []):
+            files.append(CommitFile(
+                path=f.get("path") or "",
+                change_type=f.get("changeType") or f.get("type") or "",
+                lines_added=f.get("linesAdded") or f.get("lines_added") or 0,
+                lines_removed=f.get("linesRemoved") or f.get("lines_removed") or 0,
+            ))
+        branches = c.get("branches") or []
+        branch = c.get("branch") or (branches[0] if branches else "")
+        repo = c.get("repository") or {}
+        repo_name = repo.get("name") if isinstance(repo, dict) else ""
+        return Commit(
+            commit_id=cid,
+            display_id=cid[:8] if cid else "",
+            author=(c.get("author") or "").strip(),
+            date=c.get("date") or c.get("authorTimestamp") or "",
+            message=(c.get("message") or "").strip(),
+            branch=branch,
+            repository_name=repo_name,
+            files=files,
+        )
+
     # ------------------------------------------------------------- 文件正文
     def get_file(self, path: str) -> tuple:
-        """返回 (content, error)。content 为 None 时 error 有值。"""
+        """返回 (content, error)。content 为 None 时 error 有值。
+
+        二进制文件（图片/压缩包等）在 Cookie 模式下无法预览，返回提示，
+        引导用户用「下载选中」保存到本地查看。
+        """
         if self.config.mode == "pat" and (REPOS_DIR / str(self.repo_id)).exists():
             try:
-                return self._local_file_read(REPOS_DIR / str(self.repo_id), path), None
+                content = self._local_file_read(REPOS_DIR / str(self.repo_id), path)
+                if isinstance(content, (bytes, bytearray)):
+                    return None, "二进制文件，请在文件树勾选后用「下载选中」保存到本地查看。"
+                return content, None
             except Exception as ex:
                 return None, str(ex)
         if not self.config.cookie:
@@ -337,7 +448,12 @@ class JiraGitClient:
         if not head:
             return None, "无法获取分支 HEAD commit"
         ok, content, note = self._cookie_file_content(self.repo_id, head, path)
-        return (content, None) if ok else (None, note)
+        if not ok:
+            return None, note
+        if isinstance(content, (bytes, bytearray)):
+            return None, (f"二进制文件（{len(content)} 字节），"
+                          f"请在文件树勾选后用「下载选中」保存到本地查看。")
+        return content, None
 
     # ----------------------------------------------------------- git 克隆
     @staticmethod
@@ -418,67 +534,160 @@ class JiraGitClient:
 
         # 诊断：是否被踢到登录页 / 权限被拒（凭据送达后被服务器拒绝）
         if auth_rejected:
-            acct = self.b64_prefix_account(pat) or username
-            tried = "完整 PAT" + (" + 内嵌密钥" if secret else "")
-            diag = ("认证被服务器拒绝（凭据无效，或该账号无此仓库克隆权限）。\n"
-                    f"（已分别用「{tried}」两种方式尝试验证，均被拒绝。）\n"
-                    "请确认：\n"
-                    "  ① PAT 有效且未过期 / 未吊销；\n"
-                    f"  ② 该 PAT 所属账号（{acct}）对仓库 {repo_id}/{repo_name} 有浏览/克隆权限；\n"
-                    "  ③ 必要时在 Jira 重新生成 PAT（克隆范围）。\n"
-                    "可先用终端手动验证，以排除是 GUI 问题：\n"
-                    f"  git clone https://{acct}:<PAT>@{host}/git/{repo_id}/{repo_name}.git")
-            return False, diag, None
+            return False, self._pat_diag(pat, username), None
         return False, f"克隆失败：{last_err}", None
+
+    # ----------------------------------------------------- PAT 诊断 / 轻量连通测试
+    def _pat_diag(self, pat: str, username: str) -> str:
+        """构造 PAT 认证被拒时的诊断信息（克隆与快速测试共用）。"""
+        acct = self.b64_prefix_account(pat) or username
+        secret = self._pat_secret(pat)
+        tried = "完整 PAT" + (" + 内嵌密钥" if secret else "")
+        host = self.host_of(self.config.jira_url)
+        return ("认证被服务器拒绝（凭据无效，或该账号无此仓库克隆权限）。\n"
+                f"（已分别用「{tried}」两种方式尝试验证，均被拒绝。）\n"
+                "请确认：\n"
+                "  ① PAT 有效且未过期 / 未吊销；\n"
+                f"  ② 该 PAT 所属账号（{acct}）对仓库 {self.repo_id}/{self.repo_name} 有浏览/克隆权限；\n"
+                "  ③ 必要时在 Jira 重新生成 PAT（克隆范围）。\n"
+                "可先用终端手动验证，以排除是 GUI 问题：\n"
+                f"  git ls-remote https://{acct}:<PAT>@{host}/git/{self.repo_id}/{self.repo_name}.git")
+
+    def _pat_test_quick(self, pat: str, username: str) -> tuple:
+        """用 ``git ls-remote --heads`` 秒级验证 PAT 能否访问指定仓库（不克隆、不下载）。
+
+        相比完整 ``git clone``（最长 300s 且会拉取大量对象），速度快且鉴权失败立即返回诊断。
+        返回 (ok, msg)。
+        """
+        host = self.host_of(self.config.jira_url)
+        users = self._clone_user_candidates(pat, username)
+        if not users:
+            return False, ("缺少可用的 username（PAT 未内嵌账号且未配置用户名）。"
+                           "请在「连接设置」填写用户名后重试。")
+        passwords = [urllib.parse.quote(pat, safe="")]
+        secret = self._pat_secret(pat)
+        if secret:
+            passwords.append(urllib.parse.quote(secret, safe=""))
+        ident = f"{self.repo_id}/{self.repo_name}"
+        for pw in passwords:
+            for user in users:
+                url = f"https://{user}:{pw}@{host}/git/{ident}.git"
+                try:
+                    res = subprocess.run(
+                        [self._git_bin, "ls-remote", "--heads", url],
+                        capture_output=True, text=True, timeout=30)
+                except subprocess.TimeoutExpired:
+                    return False, "PAT 探测超时（ls-remote 无响应）"
+                except Exception as ex:
+                    return False, f"PAT 探测异常：{ex}"
+                combined = (res.stderr or "") + "\n" + (res.stdout or "")
+                if res.returncode == 0:
+                    n = len([l for l in res.stdout.splitlines() if l.strip()])
+                    return True, f"PAT 认证通过（用户 {user}，远端分支数 {n}）"
+                if any(k in combined for k in (
+                        "permissionViolation", "Authentication failed", "401",
+                        "Invalid username or password", "fatal: Authentication",
+                        "fatal: unable to access")):
+                    return False, self._pat_diag(pat, username)
+        return False, "PAT 认证失败（ls-remote 未返回有效结果，请检查仓库 ID / 名称）。"
+
+    # ------------------------------------------------------ 断点续传清单
+    _MANIFEST_NAME = ".jira_git_manifest.json"
+
+    def _manifest_path(self, dest_root) -> Path:
+        return Path(dest_root) / self._MANIFEST_NAME
+
+    def _load_manifest(self, dest_root) -> dict:
+        """载入断点续传清单：{path: size}。已存在且大小一致的文件可跳过。"""
+        import json
+        p = self._manifest_path(dest_root)
+        try:
+            if p.exists():
+                return dict(json.loads(p.read_text(encoding="utf-8")).get("files", {}))
+        except Exception:
+            pass
+        return {}
+
+    def _save_manifest(self, dest_root, manifest: dict) -> None:
+        """即时落盘断点续传清单，确保中断后再次运行能跳过已完成文件。"""
+        import json
+        p = self._manifest_path(dest_root)
+        try:
+            p.write_text(json.dumps({"files": manifest}, ensure_ascii=False),
+                         encoding="utf-8")
+        except Exception:
+            pass
 
     # ------------------------------------------------------- Cookie 批量下载
     def download(self, paths: List[str],
-                 on_log: Optional[Callable[[str], None]] = None) -> tuple:
+                 on_log: Optional[Callable[[str], None]] = None,
+                 on_progress: Optional[Callable[[int, int, str], None]] = None,
+                 should_cancel: Optional[Callable[[], bool]] = None,
+                 max_workers: int = DEFAULT_DOWNLOAD_WORKERS) -> tuple:
         """Cookie 模式：批量下载所选文件到 downloads/<repoId>/ 保持目录结构。
-        返回 (ok_list, fail_list, dest)。"""
-        def log(m):
-            if on_log:
-                on_log(m)
 
-        if not self.config.cookie:
-            return [], [{"path": p, "reason": "Cookie 未配置"} for p in paths], None
-        branch = self._resolve_branch(self.repo_id, self.branch)
-        self.branch = branch
-        r = self._fetch_browse(self.repo_id, branch, "")
-        info = self._parse_repo_info(r.text)
-        head = info.get("headCommit")
-        if not head:
-            return [], [{"path": p, "reason": "无法获取分支 HEAD commit"} for p in paths], None
-
-        dest_root = DOWNLOAD_DIR / str(self.repo_id)
-        dest_root.mkdir(parents=True, exist_ok=True)
-        ok_list, fail_list = [], []
-        for p in paths:
-            ok, content, note = self._cookie_file_content(self.repo_id, head, p)
-            if ok and content is not None:
-                target = dest_root / p
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content, encoding="utf-8")
-                ok_list.append(p)
-                log(f"已下载 {p}")
-            else:
-                fail_list.append({"path": p, "reason": note})
-        return ok_list, fail_list, str(dest_root)
-
-    # --------------------------------------------------- Cookie 递归下载整库
-    def download_repo(self, repo_id: str, branch: str, dest_root: Optional[str] = None,
-                      on_log: Optional[Callable[[str], None]] = None) -> tuple:
-        """Cookie 模式：递归遍历整棵文件树并下载所有文件，保持目录结构。
-
-        返回 (ok_count, fail_list, dest)。适用于没有 PAT 克隆权限时，
-        用会话 Cookie 把仓库“整棵”抓回本地。
+        支持断点续传（已存在且大小一致的同路径文件自动跳过）、进度回调与取消、
+        有界并发下载（max_workers）。返回 (ok_paths, fail_list, dest, skipped)。
         """
         def log(m):
             if on_log:
                 on_log(m)
 
         if not self.config.cookie:
-            return 0, [{"path": "(root)", "reason": "Cookie 未配置"}], None
+            return [], [{"path": p, "reason": "Cookie 未配置"} for p in paths], None, 0
+        if not self.repo_id:
+            return [], [{"path": p, "reason": "未指定仓库"} for p in paths], None, 0
+
+        dest_root = DOWNLOAD_DIR / str(self.repo_id)
+        dest_root.mkdir(parents=True, exist_ok=True)
+        manifest = self._load_manifest(dest_root)
+        _, fail_list, dest, skipped, ok_paths = self._download_files(
+            self.repo_id, self.branch, dest_root, paths,
+            on_progress, should_cancel, manifest, max_workers)
+        self._save_manifest(dest_root, manifest)
+        return ok_paths, fail_list, dest, skipped
+
+    # --------------------------------------------------- Cookie 递归下载整库
+    def _walk_all_files(self, repo_id: str, branch: str,
+                        should_cancel: Optional[Callable[[], bool]] = None) -> List[str]:
+        """DFS 枚举整棵文件树，返回全部【文件】相对路径（不含目录）。"""
+        branch = self._resolve_branch(repo_id, branch)
+        self.branch = branch
+        out: List[str] = []
+        stack = [""]
+        while stack:
+            if should_cancel and should_cancel():
+                break
+            cur = stack.pop()
+            try:
+                entries = self._list_dir(repo_id, branch, cur)
+            except Exception:
+                # 个别目录列取失败不阻断整体，交由后续下载阶段记录
+                continue
+            for e in entries:
+                if e.type == "dir":
+                    stack.append(e.path)
+                else:
+                    out.append(e.path)
+        return out
+
+    def _download_files(self, repo_id: str, branch: str, dest_root,
+                        file_paths: List[str],
+                        on_progress: Optional[Callable[[int, int, str], None]] = None,
+                        should_cancel: Optional[Callable[[], bool]] = None,
+                        manifest: Optional[dict] = None,
+                        max_workers: int = DEFAULT_DOWNLOAD_WORKERS) -> tuple:
+        """执行一批文件的下载（供 download / download_repo 复用）。
+
+        带断点续传（manifest 中已存在且大小一致的文件跳过）、进度回调、可取消，
+        并用有界线程池并行抓取+落盘以加速整库下载。
+        返回 (ok_count, fail_list, dest, skipped, ok_paths)。
+        """
+        dest_root = Path(dest_root)
+        dest_root.mkdir(parents=True, exist_ok=True)
+        total = len(file_paths)
+        if total == 0:
+            return 0, [], str(dest_root), 0, []
 
         branch = self._resolve_branch(repo_id, branch)
         self.branch = branch
@@ -486,38 +695,130 @@ class JiraGitClient:
         info = self._parse_repo_info(r0.text)
         head = info.get("headCommit")
         if not head:
-            return 0, [{"path": "(root)", "reason": "无法获取分支 HEAD commit"}], None
+            return 0, [{"path": "(root)", "reason": "无法获取分支 HEAD commit"}], \
+                   str(dest_root), 0, []
+
+        ok_count = 0
+        skipped = 0
+        fail_list = []
+        ok_paths = []
+        done = 0
+
+        # 断点续传预筛：已存在且大小一致的同路径文件直接跳过（不占网络）
+        todo: List[str] = []
+        for path in file_paths:
+            if manifest is not None and path in manifest:
+                target = dest_root / path
+                if target.exists():
+                    try:
+                        if manifest[path] and target.stat().st_size == manifest[path]:
+                            skipped += 1
+                            done += 1
+                            ok_paths.append(path)
+                            if on_progress:
+                                on_progress(done, total, path)
+                            continue
+                    except OSError:
+                        pass
+            todo.append(path)
+
+        if not todo:
+            return 0, [], str(dest_root), skipped, ok_paths
+
+        def _fetch_one(path):
+            """在子线程中抓取单文件并落盘，返回 (path, 'ok'|'fail', size|reason)。"""
+            if should_cancel and should_cancel():
+                return None  # 取消标记
+            ok, content, note = self._cookie_file_content(repo_id, head, path)
+            if not ok or content is None:
+                return (path, "fail", note)
+            target = dest_root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if isinstance(content, (bytes, bytearray)):
+                    target.write_bytes(bytes(content))
+                else:
+                    target.write_text(content, encoding="utf-8")
+                sz = target.stat().st_size
+            except OSError as e:
+                return (path, "fail", f"写入失败：{e}")
+            return (path, "ok", sz)
+
+        workers = max(1, int(max_workers))
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_fetch_one, p) for p in todo]
+            try:
+                for fut in as_completed(futures):
+                    # 取消：丢弃尚未开始的子任务；但已完成的仍计入，保证计数与磁盘一致
+                    if should_cancel and should_cancel():
+                        try:
+                            ex.shutdown(wait=False, cancel_futures=True)
+                        except Exception:
+                            pass
+                    try:
+                        res = fut.result()
+                    except CancelledError:
+                        continue  # 被取消的待处理任务，无贡献
+                    if res is None:  # 任务在取消后才启动，主动返回 None
+                        continue
+                    path, status, payload = res
+                    if status == "ok":
+                        ok_count += 1
+                        ok_paths.append(path)
+                        if manifest is not None:
+                            manifest[path] = payload  # 即时记入，中断可续
+                    else:
+                        fail_list.append({"path": path, "reason": payload})
+                    done += 1
+                    if on_progress:
+                        on_progress(done, total, path)
+            finally:
+                # 确保线程池一定关闭（取消或未取消都执行）
+                ex.shutdown(wait=False, cancel_futures=True)
+
+        if manifest is not None:
+            self._save_manifest(dest_root, manifest)
+        return ok_count, fail_list, str(dest_root), skipped, ok_paths
+
+    def download_repo(self, repo_id: str, branch: str, dest_root: Optional[str] = None,
+                      on_log: Optional[Callable[[str], None]] = None,
+                      on_progress: Optional[Callable[[int, int, str], None]] = None,
+                      should_cancel: Optional[Callable[[], bool]] = None,
+                      max_workers: int = DEFAULT_DOWNLOAD_WORKERS) -> tuple:
+        """Cookie 模式：递归遍历整棵文件树并下载所有文件，保持目录结构。
+
+        支持断点续传（已下载文件自动跳过）、进度回调与取消。适用于没有 PAT
+        克隆权限时，用会话 Cookie 把仓库“整棵”抓回本地；中途中断后再次点击
+        同一仓库即可从断点继续。
+        返回 (ok_count, fail_list, dest, skipped)。
+        """
+        def log(m):
+            if on_log:
+                on_log(m)
+
+        if not self.config.cookie:
+            return 0, [{"path": "(root)", "reason": "Cookie 未配置"}], None, 0
 
         dest_root = Path(dest_root) if dest_root else (DOWNLOAD_DIR / str(repo_id))
         dest_root.mkdir(parents=True, exist_ok=True)
 
-        ok_count = 0
-        fail_list = []
-        # 用显式栈做 DFS（避免深目录递归爆栈）
-        stack = [""]
-        while stack:
-            cur = stack.pop()
-            try:
-                entries = self._list_dir(repo_id, branch, cur)
-            except Exception as ex:
-                fail_list.append({"path": cur or "(root)", "reason": f"列目录失败：{ex}"})
-                continue
-            for e in entries:
-                if e.type == "dir":
-                    stack.append(e.path)
-                    continue
-                ok, content, note = self._cookie_file_content(repo_id, head, e.path)
-                if ok and content is not None:
-                    target = dest_root / e.path
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(content, encoding="utf-8")
-                    ok_count += 1
-                    if ok_count % 25 == 0:
-                        log(f"已下载 {ok_count} 个文件…")
-                else:
-                    fail_list.append({"path": e.path, "reason": note})
-        log(f"递归下载完成：成功 {ok_count} 个，失败 {len(fail_list)} 个。")
-        return ok_count, fail_list, str(dest_root)
+        log("枚举整棵文件树（准备阶段）…")
+        file_paths = self._walk_all_files(repo_id, branch, should_cancel)
+        if not file_paths:
+            return 0, [{"path": "(root)",
+                        "reason": "未能枚举到任何文件（分支浏览失败或被拦截）"}], \
+                   str(dest_root), 0
+        log(f"枚举到 {len(file_paths)} 个文件，开始下载"
+            f"（断点续传：已存在的文件将自动跳过）…")
+
+        manifest = self._load_manifest(dest_root)
+        ok_count, fail_list, dest, skipped, _ = self._download_files(
+            repo_id, branch, dest_root, file_paths,
+            on_progress, should_cancel, manifest, max_workers)
+        self._save_manifest(dest_root, manifest)
+        log(f"递归下载结束：新增 {ok_count} 个，跳过已存在 {skipped} 个，"
+            f"失败 {len(fail_list)} 个。")
+        return ok_count, fail_list, dest, skipped
 
     # ------------------------------------------------------ 底层抓取与解析
     def _fetch_browse(self, repo_id: str, branch: str = "", path: str = "") -> httpx.Response:
@@ -593,6 +894,7 @@ class JiraGitClient:
     def _cookie_file_content(self, repo_id: str, head_commit: str, path: str) -> tuple:
         """返回 (ok, content, note)。
 
+        ``content`` 可能是 ``str``（文本文件）或 ``bytes``（二进制文件）。
         依次尝试：commit SHA -> 分支名 作为引用；REST 裸接口 -> JSP 查看页。
         根目录与嵌套子目录文件均可（插件接口本身支持任意 path，
         旧版“仅根目录”限制已移除）。
@@ -609,15 +911,19 @@ class JiraGitClient:
         # 路径保留字面斜杠（插件接口以 / 划分目录层级，quote 会把 / 变成 %2F 导致 404）
         qpath = urllib.parse.quote(path, safe="/")
         for ref in refs:
-            # 1) REST 裸接口（文本文件，含嵌套路径）
+            # 1) REST 裸接口（文本 / 二进制文件，含嵌套路径）
             rest = (f"{self.config.jira_url.rstrip('/')}/rest/gitplugin/1.0/files/"
                     f"{repo_id}/{urllib.parse.quote(ref)}/{qpath}")
             r = self.http_get(rest, headers=self.cookie_headers())
-            ct = r.headers.get("content-type", "")
-            if r.status_code == 200 and "json" not in ct.lower() and \
-                    not r.text.lstrip().startswith(("{", "[")):
-                return True, r.text, ""
-            # 2) JSP 查看页（含 .json 等被当二进制的文件）
+            ct = (r.headers.get("content-type") or "").lower()
+            is_json_like = "json" in ct or r.content[:1] in (b"{", b"[")
+            if r.status_code == 200 and not is_json_like:
+                data = r.content
+                # 文本型内容按 utf-8 写入；否则按二进制字节落盘，避免图片/压缩包被破坏
+                if self._is_likely_text(data, ct):
+                    return True, data.decode("utf-8", "replace"), ""
+                return True, data, ""
+            # 2) JSP 查看页（含 .json 等被当二进制的文件；此处只能取文本）
             jsp = (f"{self.config.jira_url.rstrip('/')}/secure/GIJViewGitFileContent.jspa"
                    f"?revision={urllib.parse.quote(ref)}&repoId={repo_id}"
                    f"&path={qpath}")
@@ -630,6 +936,24 @@ class JiraGitClient:
         return (False, None,
                 f"无法获取文件（已尝试引用 {refs}；REST/JSP 均未返回可用正文）。"
                 f"该文件可能需用 PAT 模式克隆后下载。")
+
+    @staticmethod
+    def _is_likely_text(data: bytes, content_type: str) -> bool:
+        """判断是否应作为文本处理：文本型 content-type，或内容为合法 UTF-8 且无空字节。"""
+        ct = (content_type or "").lower()
+        if ct.startswith("text/") or any(k in ct for k in
+                                         ("json", "xml", "javascript", "ecmascript", "html")):
+            return True
+        if not data:
+            return True
+        # 无明确文本标记时，用启发式：含空字节或非法 UTF-8 视为二进制
+        if b"\x00" in data[:4096]:
+            return False
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+        return True
 
     @staticmethod
     def _extract_code_from_html(html_text: str):

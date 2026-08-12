@@ -8,9 +8,10 @@ PyQt6，无需浏览器，所有网络请求在后台线程执行，界面不卡
 | 模式 | 认证 | 能力 | 局限 |
 | --- | --- | --- | --- |
 | **PAT 模式** | Personal Access Token | `git clone` 全量拉取（含嵌套文件），本地浏览/预览 | 需要该账号名下有效 PAT 与仓库名 |
-| **Cookie 模式** | `JSESSIONID` 会话 | 浏览文件树、预览根目录文件、批量下载根目录文件 | 插件子目录列表 / 正文走前端 AJAX，无服务端接口，嵌套文件无法获取 |
+| **Cookie 模式** | `JSESSIONID` 会话 | 浏览文件树（懒加载）、预览文本文件、批量/递归下载整库（含嵌套文件与二进制）、断点续传、并行下载 | 二进制文件仅支持「下载」到本地，不支持直接预览；依赖会话 Cookie 有效 |
 
-> Cookie 模式下子目录点开可能为空，属已知限制；要拿全量请改用 PAT 模式克隆。
+> Cookie 模式已支持**递归整库下载**（插件接口本身支持任意 path，含子目录与嵌套文件），
+> 不再受「仅根目录」限制。断点续传 + 有界并发（默认 4 线程）让整库抓取可续、可取消、更快。
 
 ## 项目结构
 
@@ -31,19 +32,23 @@ jira-git-gui/
 │   └── log_panel.py        # 日志
 ├── workers/                # 异步任务层
 │   └── tasks.py            # 通用 QThread Worker（自动注入 on_log 回调；异常输出完整 traceback）
-├── tests/                  # 测试（先单测后集成）
-│   ├── test_core_parsing.py  # 单元测试：页面解析 / 工具函数（不联网）
-│   ├── test_config.py        # 单元测试：.env 解析 / 配置映射（不联网）
+├── tests/                  # 测试（先单测后集成，已纳入版本控制）
+│   ├── test_download_resume.py    # 单元测试：断点续传 / 进度 / 取消（不联网）
+│   ├── test_client_optimizations.py # 单元测试：二进制下载 / 分支缓存 / PAT 轻量测试 / 并行下载
 │   └── test_integration.py   # 集成测试：真实访问 jira（需凭据，无则自动跳过）
 ├── core/                   # 核心逻辑层（含统一日志中枢 logger.py / 槽异常保护 safe.py）
 │   ├── logger.py           # 文件轮转日志 + LogBridge(UI 桥) + 全局异常钩子
 │   └── safe.py             # safe_slot 装饰器：拦截槽函数异常，防止界面闪退
 ├── store/                  # 运行期产物（git 克隆 / 下载，已 gitignore）
 ├── logs/                   # 运行期日志（含完整 traceback，已 gitignore）
+├── server.py               # 备选「Web 版」后端（FastAPI）——非主路径，桌面端以 main.py 为准
 └── requirements.txt
 ```
 
 依赖方向：`gui → workers → core`，`core` 不反向依赖 GUI，便于单独复用与测试。
+
+> **关于 `server.py`**：早期曾以 FastAPI 提供一个 Web 版后端，与桌面端逻辑重复。当前主路径是
+> PyQt6 桌面端（`main.py`）。`server.py` 仅作备选保留，不再随桌面端维护，请勿混用。
 
 ## 运行
 
@@ -89,15 +94,33 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 2. 仓库面板：若已配置 Cookie，点「发现仓库」会访问 `GIJRepositoryBrowser-AllRepositories.jspa`
    页面，解析出所有仓库的 **repoId / 名称 / 默认分支** 并列出；选中某仓库后点「查看文件」
    （或双击）即加载其文件树；也可手动填写仓库 ID 后点「加载文件树」。
-3. 文件树：展开目录懒加载子项；勾选文件「选择」列后可点「下载选中(Cookie)」。
-4. 点击文件节点在右侧预览正文。
-5. PAT 模式点「克隆仓库(PAT)」全量 clone 到 `store/repos/<repoId>/`，随后以本地模式浏览。
+3. 文件树：展开目录懒加载子项（分支为空时客户端会自动探测可用分支，如 master/main）；
+   勾选文件「选择」列后可点「下载选中(Cookie)」。
+4. 点击文件节点在右侧预览正文（文本文件；二进制文件会提示用「下载」保存到本地查看）。
+5. 工具栏「下载整个仓库(Cookie)」会**递归遍历整棵文件树**并下载所有文件，保持目录结构；
+   支持断点续传、进度条、取消、有界并发（默认 4 线程）。再次点击同一仓库会从断点继续。
+6. PAT 模式点「克隆仓库(PAT)」全量 clone 到 `store/repos/<repoId>/`，随后以本地模式浏览。
+   「测试连接」中的 PAT 校验已改为 `git ls-remote` 秒级验证（不再触发完整 clone）。
+7. **查看提交记录**（右侧「提交记录」标签页）：在输入框填入 Jira issue 单号（如 `TST-234`）
+   后点「查询」，即可列出该 issue 关联的全部提交（SHA / 作者 / 时间 / 提交说明）；
+   选中某条提交会在下方显示其改动文件清单（路径 / 变更类型 / 增删行数）。也可留空 issue，
+   尝试按当前仓库拉取（部分私有部署不开放按仓库列全量提交的接口，届时会有提示）。
+
+### 界面布局
+
+主窗口采用「左树右栏」结构：
+
+- **左侧**：上方仓库面板（发现/指定仓库），下方文件树（懒加载、可勾选下载）。
+- **右侧标签页**：`文件预览` / `提交记录` / `日志`。底部状态栏实时显示
+  当前 模式 / 仓库 / 分支 / Cookie·PAT 配置状态。
 
 ## 已知约束
 
 - 当前提供的 PAT 若与登录账号不匹配（base64 前缀解出的账号 ≠ 登录账号），克隆会被 Jira 拒绝，
   需在该账号名下重新生成 PAT。
-- Cookie 模式仅能获取根目录文件；子目录文件无服务端接口，需用 PAT 克隆。
+- Cookie 模式下载的二进制文件按字节原样落盘；但预览仅支持文本，二进制需在本地用其他工具打开。
+- HTTP 请求默认 `verify=False`（企业内网经代理时绕过证书校验）；若需严格校验，可在
+  `core/client.py` 的 `http_get` 中启用 `verify=True`。
 - 运行时凭据仅存于内存，不写入磁盘；`store/` 已 gitignore。
 
 ## 日志与崩溃追溯
@@ -127,17 +150,18 @@ PYTHONPATH=. ./venv/bin/python -m unittest discover -s tests -t .
 ```
 
 ### 1) 单元测试（离线、必跑）
-`tests/test_core_parsing.py`：覆盖 `AllRepositories` 页面解析（repoId/名称/默认分支、
-噪声锚点过滤、重复 id 取最长名）、`_strip_tags`、`b64_prefix_account`、`encode_pat`、
-`host_of`、`_parse_repo_info`（含嵌套 `lastCommit`）、`_parse_tree_files`，以及
-无 Cookie 时 `discover_repos` 直接返回空。
+`tests/test_download_resume.py`：断点续传清单读写、整树枚举、批量下载落盘、续传跳过不请求网络、
+进度计数、取消中途停止。
+
+`tests/test_client_optimizations.py`：二进制文件按字节落盘、分支探测缓存、PAT 轻量连通测试
+（`git ls-remote` 成功/被拒/缺用户名）、并行下载并发与取消、`max_workers=1` 退化为串行。
 
 ### 2) 集成测试（需凭据，自动跳过）
-`tests/test_integration.py` 真正访问 `jira..cn` 验证「发现仓库 → 查看文件」全链路。
+`tests/test_integration.py` 真正访问 Jira 验证「发现仓库 → 查看文件 → 下载」全链路。
 设置以下环境变量后才会执行（建议在本机、网络/代理可达时运行）：
 
 ```bash
-export JIRA_URL=https://jira..cn
+export JIRA_URL=https://jira.example.com
 export JIRA_COOKIE="JSESSIONID=...; atlassian.xsrf.token=..."
 # 可选：PAT 克隆链路
 export JIRA_PAT="<Personal Access Token>"
