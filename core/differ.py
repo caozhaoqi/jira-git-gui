@@ -181,6 +181,7 @@ def scan_remote_parallel(
     client,
     max_workers: int = 3,
     on_progress: Optional[Callable[[int, int], None]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> dict[str, dict]:
     """并行扫描远程仓库（低并发 + SSL 重试）。
 
@@ -188,6 +189,7 @@ def scan_remote_parallel(
         client: 已选中仓库的 JiraGitClient
         max_workers: 并发线程数
         on_progress: 进度回调 (scanned_files, pending_dirs)
+        should_cancel: 外部取消回调（网络看门狗/用户取消）
 
     Returns:
         {relative_path: {size}}
@@ -199,6 +201,8 @@ def scan_remote_parallel(
 
     def _list_with_retry(c, p, retries=3):
         for attempt in range(retries):
+            if should_cancel and should_cancel():
+                raise RuntimeError("任务已取消")
             try:
                 return c.list_level(p)
             except Exception:
@@ -209,11 +213,16 @@ def scan_remote_parallel(
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         while pending_dirs:
+            if should_cancel and should_cancel():
+                _log.warning("扫描已取消（网络中断或用户主动取消）")
+                break
             batch = pending_dirs[:]
             pending_dirs.clear()
             futures = {pool.submit(_list_with_retry, client, d): d for d in batch}
 
             for fut in as_completed(futures):
+                if should_cancel and should_cancel():
+                    break
                 dir_path = futures[fut]
                 try:
                     entries = fut.result()
@@ -244,6 +253,7 @@ def scan_remote_cached(
     tree_ttl: int = 3600,
     on_progress: Optional[Callable[[int, int], None]] = None,
     use_cache: bool = True,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> dict[str, dict]:
     """缓存优先的远程扫描。
 
@@ -258,6 +268,7 @@ def scan_remote_cached(
         tree_ttl: 文件树缓存有效期（秒）
         on_progress: 进度回调
         use_cache: 是否启用缓存
+        should_cancel: 外部取消回调
 
     Returns:
         {relative_path: {size}}
@@ -272,7 +283,9 @@ def scan_remote_cached(
 
     # 未命中，并行扫描
     _log.info("缓存未命中，开始并行扫描远程文件树…")
-    result = scan_remote_parallel(client, max_workers=max_workers, on_progress=on_progress)
+    result = scan_remote_parallel(client, max_workers=max_workers,
+                                   on_progress=on_progress,
+                                   should_cancel=should_cancel)
 
     if use_cache and result:
         cache.set(namespace, cache_key, result)
@@ -399,39 +412,54 @@ def file_diff(local_path: str, remote_content: str) -> str:
 # --------------------------------------------------------------------------- #
 #  合并
 # --------------------------------------------------------------------------- #
+def _force_writable(path: Path) -> None:
+    """尝试清除 quarantine 属性并修改权限为可写（文件或目录）。"""
+    import subprocess
+    # 清除 quarantine（macOS 隔离属性，会阻止写入）
+    try:
+        subprocess.run(["xattr", "-d", "com.apple.quarantine", str(path)],
+                       capture_output=True, timeout=5)
+    except Exception:
+        pass
+    # 修改权限为可读写
+    try:
+        os.chmod(path, 0o777 if path.is_dir() else 0o666)
+    except (OSError, PermissionError):
+        pass
+
+
 def merge_to_local(local_dir: str, rel_path: str, remote_content: str) -> bool:
-    """将远程文件内容写入本地路径。"""
+    """将远程文件内容写入本地路径。
+
+    直接覆盖写入；失败时尝试 chmod 后重试，不使用 subprocess（避免沙箱限制）。
+    """
     target = Path(local_dir) / rel_path
+    content = remote_content or ""
+    is_bytes = isinstance(content, bytes)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        _write_file(target, remote_content or "")
+        _write_file(target, content, is_bytes)
         return True
     except (OSError, PermissionError) as e:
-        # macOS quarantine 可能阻止写入，尝试清除后重试
-        if "Operation not permitted" in str(e):
-            try:
-                import subprocess
-                subprocess.run(["xattr", "-d", "com.apple.quarantine", str(target)],
-                               capture_output=True, timeout=5)
-                os.chmod(target, 0o666)
-                _write_file(target, remote_content or "")
-                return True
-            except Exception:
-                pass
-        _log.error("合并文件 %s 失败: %s", rel_path, e)
-        return False
-
-
-def _write_file(target: Path, content: str) -> None:
-    """写入文件内容（先删后写，避免 quarantine/只读等问题）。"""
-    if target.exists():
+        # 尝试 chmod 后重试（不调用 subprocess，避免触发沙箱）
         try:
-            target.unlink()
-        except (OSError, PermissionError):
-            os.chmod(target, 0o666)
-            target.unlink()
-    with open(target, "w", encoding="utf-8") as f:
-        f.write(content)
+            if target.exists():
+                os.chmod(target, 0o666)
+            _write_file(target, content, is_bytes)
+            return True
+        except (OSError, PermissionError) as e2:
+            _log.error("合并文件 %s 失败: %s", rel_path, e2)
+            return False
+
+
+def _write_file(target: Path, content, is_bytes: bool = False) -> None:
+    """写入文件内容（直接覆盖，避免删除带来的权限问题）。"""
+    if is_bytes:
+        with open(target, "wb") as f:
+            f.write(content)
+    else:
+        with open(target, "w", encoding="utf-8") as f:
+            f.write(content)
 
 
 def merge_to_local_bytes(local_dir: str, rel_path: str, remote_bytes: bytes) -> bool:

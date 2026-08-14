@@ -140,9 +140,142 @@ function connectSSE() {
 
   state.sse.addEventListener('ping', () => {});
 
+  // ===== 差异扫描进度 =====
+  state.sse.addEventListener('scan_stage', e => {
+    const d = JSON.parse(e.data);
+    setDiffProgress({ visible: true, mode: 'indeterminate', stage: d.message, detail: '' });
+    clearDiffErrors();
+  });
+  state.sse.addEventListener('scan_progress', e => {
+    const d = JSON.parse(e.data);
+    setDiffProgress({
+      visible: true, mode: 'indeterminate',
+      stage: '扫描远程文件…',
+      detail: d.message || `已扫描 ${d.done} 个文件`,
+    });
+  });
+  state.sse.addEventListener('scan_done', e => {
+    const d = JSON.parse(e.data);
+    const sum = d.summary || {};
+    setDiffProgress({
+      mode: 'done', stage: '扫描完成',
+      detail: sum.total != null ? `共 ${sum.total} 个文件` : '',
+    });
+    // 成功完成后延迟隐藏进度条（保留几秒供用户确认）
+    clearTimeout(diffDoneTimer);
+    diffDoneTimer = setTimeout(() => {
+      setDiffProgress({ visible: false });
+    }, 4000);
+  });
+  state.sse.addEventListener('scan_error', e => {
+    const d = JSON.parse(e.data);
+    clearTimeout(diffDoneTimer);
+    setDiffProgress({ visible: true, mode: 'error', stage: '扫描失败', detail: '' });
+    addDiffError(d.message || '未知错误');
+  });
+
+  // ===== 批量合并进度 =====
+  state.sse.addEventListener('merge_start', e => {
+    const d = JSON.parse(e.data);
+    setDiffProgress({
+      visible: true, mode: 'determinate', pct: 0,
+      stage: `合并中 (0/${d.total})`,
+      detail: `共 ${d.total} 个文件`,
+    });
+    clearDiffErrors();
+  });
+  state.sse.addEventListener('merge_progress', e => {
+    const d = JSON.parse(e.data);
+    setDiffProgress({
+      mode: 'determinate', pct: d.pct,
+      stage: `合并中 (${d.done}/${d.total})`,
+      detail: (d.ok ? '✓ ' : '✗ ') + d.path,
+    });
+    if (!d.ok && d.error) addDiffError(`${d.path}：${d.error}`);
+  });
+  state.sse.addEventListener('merge_done', e => {
+    const d = JSON.parse(e.data);
+    setDiffProgress({
+      mode: d.fail_count > 0 ? 'error' : 'done',
+      stage: d.fail_count > 0 ? `合并完成（${d.fail_count} 个失败）` : '合并完成',
+      detail: `成功 ${d.ok_count}，失败 ${d.fail_count}`,
+    });
+  });
+
+  // ===== 网络看门狗告警 =====
+  state.sse.addEventListener('network_warning', e => {
+    const d = JSON.parse(e.data);
+    const box = document.getElementById('network-warning');
+    box.textContent = '⚠ ' + (d.message || '网络中断');
+    box.style.display = '';
+    box.className = 'network-warning ' + (d.level || 'error');
+    log(d.message || '网络中断，任务已自动停止', 'error');
+    // 5 秒后自动隐藏（若手动未关闭）
+    clearTimeout(window.__netWarnTimer);
+    window.__netWarnTimer = setTimeout(() => {
+      box.style.display = 'none';
+    }, 10000);
+  });
+
   state.sse.onerror = () => {
     setTimeout(() => connectSSE(), 2000);
   };
+}
+
+// ===== 差异进度条控制 =====
+function setDiffProgress(opts) {
+  const wrap = document.getElementById('diff-progress');
+  const stageEl = document.getElementById('diff-progress-stage');
+  const detailEl = document.getElementById('diff-progress-detail');
+  const bar = document.getElementById('diff-progress-bar');
+  const fill = bar.querySelector('.diff-progress-fill');
+  const pctEl = document.getElementById('diff-progress-pct');
+  const row = stageEl.parentElement;
+
+  if (opts.visible === false) { wrap.style.display = 'none'; return; }
+  if (opts.visible === true) wrap.style.display = '';
+
+  if (opts.stage !== undefined) stageEl.textContent = opts.stage;
+  if (opts.detail !== undefined) detailEl.textContent = opts.detail;
+
+  // 重置状态类
+  row.classList.remove('done', 'error');
+  bar.classList.remove('indeterminate', 'done', 'error');
+
+  if (opts.mode === 'indeterminate') {
+    bar.classList.add('indeterminate');
+    pctEl.textContent = '';
+  } else if (opts.mode === 'done') {
+    row.classList.add('done');
+    bar.classList.add('done');
+    fill.style.width = '100%';
+    pctEl.textContent = '100%';
+  } else if (opts.mode === 'error') {
+    row.classList.add('error');
+    bar.classList.add('error');
+    fill.style.width = '100%';
+    pctEl.textContent = '';
+  } else if (opts.mode === 'determinate') {
+    const pct = Math.max(0, Math.min(100, opts.pct || 0));
+    fill.style.width = pct + '%';
+    pctEl.textContent = pct + '%';
+  }
+}
+
+function addDiffError(msg) {
+  const box = document.getElementById('diff-error-box');
+  box.style.display = '';
+  const line = document.createElement('div');
+  line.className = 'err-line';
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearDiffErrors() {
+  const box = document.getElementById('diff-error-box');
+  box.innerHTML = '';
+  box.style.display = 'none';
 }
 
 // ===== 进度条 =====
@@ -745,6 +878,7 @@ const diffState = {
   selectedPath: '',
   localDir: '',
 };
+let diffDoneTimer = null;
 
 async function scanDiff() {
   const localDir = document.getElementById('diff-local-dir').value.trim();
@@ -754,8 +888,18 @@ async function scanDiff() {
   const btn = document.getElementById('btn-diff-scan');
   btn.disabled = true;
   btn.textContent = '扫描中…';
+
+  // 立即显示进度条并重置状态（不等首个 SSE 事件）
+  clearTimeout(diffDoneTimer);
+  setDiffProgress({
+    visible: true, mode: 'indeterminate',
+    stage: '准备中…', detail: '',
+  });
+  clearDiffErrors();
+
   document.getElementById('diff-summary').textContent = '正在扫描本地和远程…';
   document.getElementById('diff-list').innerHTML = '<div class="empty-hint">扫描中…大仓库可能需要较长时间</div>';
+  document.getElementById('btn-diff-merge-all').style.display = 'none';
 
   try {
     const res = await apiPost('/api/diff/scan', { local_dir: localDir, repo_name: state.selectedRepo.display_name || '' });
@@ -776,6 +920,10 @@ async function scanDiff() {
   } catch (ex) {
     document.getElementById('diff-summary').textContent = `扫描失败：${ex.message}`;
     document.getElementById('diff-list').innerHTML = `<div class="empty-hint">扫描失败：${esc(ex.message)}</div>`;
+    // 进度条置为错误态；若 SSE scan_error 未展示则补充到错误框
+    setDiffProgress({ mode: 'error', stage: '扫描失败', detail: '' });
+    const errBox = document.getElementById('diff-error-box');
+    if (!errBox.children.length) addDiffError(ex.message);
     log(`差异扫描失败：${ex.message}`, 'error');
   } finally {
     btn.disabled = false;

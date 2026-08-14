@@ -31,7 +31,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS
+from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS, NetworkWatchdog
 from core.config import load_config, load_session, save_session, clear_session, get_session_path
 from core.constants import DEFAULT_REQUEST_QPS, DOWNLOAD_DIR
 from core.models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
@@ -65,6 +65,23 @@ logger = get_logger()
 # SSE 事件总线：所有连接的客户端共享一个广播队列
 _event_subscribers: list[asyncio.Queue] = []
 _event_lock = threading.Lock()
+# 主事件循环引用：供工作线程通过 call_soon_threadsafe 安全唤醒循环
+_main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+@app.on_event("startup")
+async def _capture_loop():
+    """捕获主事件循环，供 _broadcast 跨线程安全调度。"""
+    global _main_loop
+    _main_loop = asyncio.get_running_loop()
+
+
+def _enqueue_event(q: asyncio.Queue, item: dict) -> None:
+    """在事件循环线程中执行入队（唤醒 await q.get() 的消费者）。"""
+    try:
+        q.put_nowait(item)
+    except asyncio.QueueFull:
+        pass
 
 # 当前下载任务取消标志
 _download_cancel = threading.Event()
@@ -73,12 +90,30 @@ _task_status = {"running": False, "type": None}
 
 
 def _broadcast(event: str, data: Any) -> None:
-    """向所有 SSE 订阅者推送事件（线程安全）。"""
+    """向所有 SSE 订阅者推送事件（跨线程安全）。
+
+    长任务（clone/download/scan）在工作线程中调用本函数。直接调用
+    asyncio.Queue.put_nowait 会经由 loop.call_soon 唤醒消费者，但
+    call_soon 不会写 self-pipe，无法唤醒正阻塞在 select() 的事件循环，
+    导致进度事件被延迟到任务结束或 15s 心跳才送达。改用
+    call_soon_threadsafe 把入队操作调度回循环线程，可立即唤醒消费者。
+    """
     msg = json.dumps(data, ensure_ascii=False, default=str)
+    item = {"event": event, "data": msg}
     with _event_lock:
-        for q in _event_subscribers:
+        subs = list(_event_subscribers)
+    loop = _main_loop
+    for q in subs:
+        if loop is not None and loop.is_running():
             try:
-                q.put_nowait({"event": event, "data": msg})
+                loop.call_soon_threadsafe(_enqueue_event, q, item)
+            except RuntimeError:
+                # 循环已关闭，忽略
+                pass
+        else:
+            # 事件循环尚未就绪（理论上仅主循环线程内调用可达）
+            try:
+                q.put_nowait(item)
             except asyncio.QueueFull:
                 pass
 
@@ -92,6 +127,33 @@ def _progress_callback(done: int, total: int, path: str) -> None:
     """client 回调：把进度推送到 SSE。"""
     pct = (done * 100 // total) if total > 0 else 0
     _broadcast("progress", {"done": done, "total": total, "pct": pct, "path": path})
+
+
+def _make_should_cancel(user_cancel: threading.Event,
+                        watchdog: NetworkWatchdog,
+                        task_label: str = "任务"):
+    """合成 should_cancel 回调：同时响应用户取消和网络看门狗触发。
+
+    当看门狗首次触发时，额外广播 ``network_warning`` SSE 事件以通知前端。
+    """
+    _warned = threading.Event()
+
+    def should_cancel() -> bool:
+        if user_cancel.is_set():
+            return True
+        if watchdog.should_abort():
+            if not _warned.is_set():
+                _warned.set()
+                _broadcast("network_warning", {
+                    "level": "error",
+                    "message": f"网络中断：{task_label} 因连续网络失败自动停止（{watchdog.reason}）",
+                    "failure_count": watchdog.failure_count,
+                })
+                logger.warning("网络看门狗触发：%s", watchdog.reason)
+            return True
+        return False
+
+    return should_cancel
 
 
 # --------------------------------------------------------------------------- #
@@ -313,6 +375,9 @@ async def api_download(req: DownloadReq):
         raise HTTPException(400, "未勾选任何文件")
 
     _download_cancel.clear()
+    watchdog = NetworkWatchdog(threshold=5)
+    client._watchdog = watchdog
+    should_cancel = _make_should_cancel(_download_cancel, watchdog, "下载")
 
     def _do_download():
         _task_status["running"] = True
@@ -323,7 +388,7 @@ async def api_download(req: DownloadReq):
                 max_workers=req.max_workers,
                 on_log=_log_callback,
                 on_progress=_progress_callback,
-                should_cancel=_download_cancel.is_set,
+                should_cancel=should_cancel,
             )
             _broadcast("download_done", {
                 "ok_count": len(ok_list),
@@ -339,6 +404,7 @@ async def api_download(req: DownloadReq):
             })
             logger.error("下载异常", exc_info=True)
         finally:
+            client._watchdog = None
             _task_status["running"] = False
             _task_status["type"] = None
 
@@ -356,6 +422,9 @@ async def api_download_repo(req: DownloadRepoReq):
         raise HTTPException(400, "请先指定仓库")
 
     _download_cancel.clear()
+    watchdog = NetworkWatchdog(threshold=5)
+    client._watchdog = watchdog
+    should_cancel = _make_should_cancel(_download_cancel, watchdog, "整库下载")
 
     def _do_download():
         _task_status["running"] = True
@@ -366,7 +435,7 @@ async def api_download_repo(req: DownloadRepoReq):
                 max_workers=req.max_workers,
                 on_log=_log_callback,
                 on_progress=_progress_callback,
-                should_cancel=_download_cancel.is_set,
+                should_cancel=should_cancel,
             )
             _broadcast("download_done", {
                 "ok_count": ok_count,
@@ -383,6 +452,7 @@ async def api_download_repo(req: DownloadRepoReq):
             })
             logger.error("整库下载异常", exc_info=True)
         finally:
+            client._watchdog = None
             _task_status["running"] = False
             _task_status["type"] = None
 
@@ -491,28 +561,78 @@ class MergeReq(_BM):
 
 @app.post("/api/diff/scan")
 async def api_diff_scan(req: DiffScanReq):
-    """扫描本地目录和远程仓库，返回差异列表（缓存优先）。"""
+    """扫描本地目录和远程仓库，返回差异列表（缓存优先）。
+
+    扫描过程通过 SSE 推送进度：
+    - scan_stage: 阶段切换 {stage, message, ...}
+    - scan_progress: 远程扫描进度 {done, total, pct, message}
+    - scan_done: 扫描完成 {summary}
+    - scan_error: 扫描出错 {message}
+    - network_warning: 网络中断自动停止 {level, message}
+    """
     import os
     if not os.path.isdir(req.local_dir):
+        _broadcast("scan_error", {"message": f"本地目录不存在：{req.local_dir}"})
         raise HTTPException(400, f"本地目录不存在：{req.local_dir}")
     if not client.repo_id:
+        _broadcast("scan_error", {"message": "请先选择远程仓库"})
         raise HTTPException(400, "请先选择远程仓库")
 
     namespace = str(client.repo_id)
 
-    # 在后台线程执行扫描（缓存优先）
-    def _scan():
-        local_files = _differ.scan_local_cached(req.local_dir, use_cache=req.use_cache)
-        remote_files = _differ.scan_remote_cached(
-            client, namespace,
-            max_workers=3,
-            tree_ttl=3600,
-            use_cache=req.use_cache,
-        )
-        result = _differ.compute_diff(local_files, remote_files)
-        return result
+    # 创建网络看门狗，绑定到客户端供底层请求使用
+    scan_cancel = threading.Event()
+    watchdog = NetworkWatchdog(threshold=5)
+    client._watchdog = watchdog
+    should_cancel = _make_should_cancel(scan_cancel, watchdog, "差异扫描")
 
-    result = await asyncio.to_thread(_scan)
+    # 在后台线程执行扫描（缓存优先），通过回调推送 SSE 进度
+    def _scan():
+        try:
+            # 阶段 1：本地扫描
+            _broadcast("scan_stage", {"stage": "local", "message": "正在扫描本地文件…"})
+            local_files = _differ.scan_local_cached(req.local_dir, use_cache=req.use_cache)
+            _broadcast("scan_stage", {
+                "stage": "remote", "message": "正在扫描远程文件…",
+                "local_count": len(local_files),
+            })
+
+            # 阶段 2：远程扫描（带进度回调 + 看门狗）
+            def _on_remote_progress(scanned, pending):
+                _broadcast("scan_progress", {
+                    "done": scanned,
+                    "total": 0,  # 远程文件总数预先未知
+                    "pct": 0,
+                    "pending_dirs": pending,
+                    "message": f"已扫描 {scanned} 个文件，{pending} 个目录待扫",
+                })
+
+            remote_files = _differ.scan_remote_cached(
+                client, namespace,
+                max_workers=3,
+                tree_ttl=3600,
+                on_progress=_on_remote_progress,
+                use_cache=req.use_cache,
+                should_cancel=should_cancel,
+            )
+            _broadcast("scan_stage", {
+                "stage": "diff", "message": "正在计算差异…",
+                "local_count": len(local_files),
+                "remote_count": len(remote_files),
+            })
+
+            # 阶段 3：差异计算
+            result = _differ.compute_diff(local_files, remote_files)
+            _broadcast("scan_done", {"summary": result.summary()})
+            return result
+        finally:
+            client._watchdog = None
+
+    try:
+        result = await asyncio.to_thread(_scan)
+    except Exception as ex:
+        _broadcast("scan_error", {"message": str(ex)})
+        raise HTTPException(500, f"扫描失败：{ex}")
 
     # 返回摘要 + 条目列表（排除 same 以减少传输量）
     entries = [
@@ -577,20 +697,61 @@ async def api_diff_merge(req: MergeReq):
 
 @app.post("/api/diff/merge-batch")
 async def api_diff_merge_batch(reqs: list[MergeReq]):
-    """批量合并多个文件（缓存优先）。"""
+    """批量合并多个文件（缓存优先，并行抓取 + 写入）。
+
+    通过 SSE 推送合并进度：
+    - merge_start: {total}
+    - merge_progress: {done, total, pct, path, ok, error?}
+    - merge_done: {ok_count, fail_count, fails: [{path, error}]}
+
+    并发策略：用 asyncio.Semaphore 限制同时进行的远程抓取（默认 6），
+    避免一次性提交数百个请求把 Jira 服务器压垮。每完成一个文件即推送进度。
+    """
     namespace = str(client.repo_id) if client.repo_id else "default"
-    results = []
-    for req in reqs:
-        try:
-            remote_content = await asyncio.to_thread(
-                _differ.get_file_cached,
-                client, namespace, req.path,
-                86400, req.use_cache,
-            )
-            ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
-            results.append({"path": req.path, "ok": ok})
-        except Exception as ex:
-            results.append({"path": req.path, "ok": False, "error": str(ex)})
+    total = len(reqs)
+    _broadcast("merge_start", {"total": total})
+
+    sem = asyncio.Semaphore(6)  # 并发上限
+    done_counter = 0
+    counter_lock = asyncio.Lock()
+
+    async def _merge_one(req: MergeReq):
+        nonlocal done_counter
+        err = None
+        ok = False
+        async with sem:
+            try:
+                remote_content = await asyncio.to_thread(
+                    _differ.get_file_cached,
+                    client, namespace, req.path,
+                    86400, req.use_cache,
+                )
+                ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
+            except Exception as ex:
+                ok = False
+                err = str(ex)
+        if not ok and err is None:
+            err = "写入失败（可能权限不足）"
+        # 原子递增计数器并推送进度
+        async with counter_lock:
+            done_counter += 1
+            cur = done_counter
+        _broadcast("merge_progress", {
+            "done": cur,
+            "total": total,
+            "pct": (cur * 100 // total) if total > 0 else 100,
+            "path": req.path,
+            "ok": ok,
+            "error": err,
+        })
+        return {"path": req.path, "ok": ok, "error": err}
+
+    results = await asyncio.gather(*[_merge_one(r) for r in reqs])
+    ok_count = sum(1 for r in results if r["ok"])
+    fail_count = total - ok_count
+    fails = [{"path": r["path"], "error": r["error"]}
+             for r in results if not r["ok"]][:50]
+    _broadcast("merge_done", {"ok_count": ok_count, "fail_count": fail_count, "fails": fails})
     return {"results": results}
 
 

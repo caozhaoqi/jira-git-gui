@@ -400,6 +400,121 @@ body {
 .diff-summary .badge-modified { color: var(--warning); font-weight: 600; }
 .diff-summary .badge-local { color: var(--primary); font-weight: 600; }
 .diff-summary .badge-remote { color: var(--success, #16a34a); font-weight: 600; }
+
+/* 扫描/合并进度条 */
+.diff-progress {
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.diff-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.diff-progress-stage {
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.diff-progress-stage::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: diff-pulse 1s ease-in-out infinite;
+}
+@keyframes diff-pulse {
+  0%, 100% { opacity: .4; }
+  50% { opacity: 1; }
+}
+.diff-progress-row.done .diff-progress-stage::before {
+  background: var(--success, #16a34a);
+  animation: none;
+  opacity: 1;
+}
+.diff-progress-row.error .diff-progress-stage::before {
+  background: var(--danger, #dc2626);
+  animation: none;
+  opacity: 1;
+}
+.diff-progress-detail {
+  color: var(--text-sec);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diff-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.diff-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width .25s ease;
+}
+/* 不确定模式：远程扫描总数未知时用流动动画 */
+.diff-progress-bar.indeterminate .diff-progress-fill {
+  width: 30%;
+  background: linear-gradient(90deg, transparent, var(--primary), transparent);
+  background-size: 200% 100%;
+  animation: diff-slide 1.2s linear infinite;
+}
+@keyframes diff-slide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.diff-progress-bar.done .diff-progress-fill {
+  width: 100%;
+  background: var(--success, #16a34a);
+}
+.diff-progress-bar.error .diff-progress-fill {
+  width: 100%;
+  background: var(--danger, #dc2626);
+}
+.diff-progress-pct {
+  font-size: 12px;
+  color: var(--text-sec);
+  min-width: 42px;
+  text-align: right;
+}
+.diff-error-box {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(220,38,38,.08);
+  border: 1px solid rgba(220,38,38,.3);
+  border-radius: 4px;
+  color: #991b1b;
+  font-size: 12px;
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff-error-box .err-line {
+  padding: 1px 0;
+}
+
 .diff-layout {
   display: flex;
   gap: 8px;
@@ -551,3 +666,30 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-hint); }
+
+/* ===== 网络告警横幅 ===== */
+.network-warning {
+  padding: 10px 16px;
+  background: #fef2f2;
+  border-bottom: 2px solid var(--danger, #dc2626);
+  color: #991b1b;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  animation: warn-slide .3s ease-out;
+  user-select: none;
+}
+.network-warning.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border-bottom-color: var(--danger, #dc2626);
+}
+.network-warning.warning {
+  background: #fffbeb;
+  color: #92400e;
+  border-bottom-color: var(--warning, #d97706);
+}
+@keyframes warn-slide {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}

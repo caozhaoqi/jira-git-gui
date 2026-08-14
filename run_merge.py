@@ -68,10 +68,15 @@ def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl, use
     # 扫描远程（缓存优先 + 并行）
     t1 = time.time()
     p(f"   扫描远程文件（{scan_workers}线程+重试+缓存）…")
+
+    def _on_progress(scanned, pending):
+        p(f"     远程扫描进度: {scanned} 文件, {pending} 目录待扫")
+
     remote_files = scan_remote_cached(
         client, namespace,
         max_workers=scan_workers,
         tree_ttl=tree_ttl,
+        on_progress=_on_progress,
         use_cache=use_cache,
     )
     p(f"   ✓ 远程: {len(remote_files)} 个文件 ({time.time()-t1:.1f}s)")

@@ -38,6 +38,10 @@
     </div>
   </header>
 
+  <!-- 网络告警横幅（默认隐藏，SSE network_warning 事件触发显示） -->
+  <div id="network-warning" class="network-warning" style="display:none;"
+       onclick="this.style.display='none'">⚠ 网络中断</div>
+
   <!-- 主体布局 -->
   <main class="main-layout">
     <!-- 左侧：仓库面板 + 文件树 -->
@@ -127,6 +131,17 @@
             <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
             <span id="diff-summary" class="diff-summary"></span>
             <button id="btn-diff-merge-all" class="btn btn-sm" style="margin-left:auto;display:none">全部合并到本地</button>
+          </div>
+          <div id="diff-progress" class="diff-progress" style="display:none">
+            <div class="diff-progress-row">
+              <span id="diff-progress-stage" class="diff-progress-stage">准备中…</span>
+              <span id="diff-progress-detail" class="diff-progress-detail"></span>
+            </div>
+            <div class="diff-progress-bar-wrap">
+              <div id="diff-progress-bar" class="diff-progress-bar"><div class="diff-progress-fill"></div></div>
+              <span id="diff-progress-pct" class="diff-progress-pct"></span>
+            </div>
+            <div id="diff-error-box" class="diff-error-box" style="display:none"></div>
           </div>
           <div class="diff-layout">
             <div id="diff-list" class="diff-list">

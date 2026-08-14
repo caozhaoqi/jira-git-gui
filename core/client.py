@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import subprocess
+import threading
 import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed, CancelledError
@@ -97,6 +98,82 @@ def _backoff_for(r: "httpx.Response", attempt: int) -> None:
     time.sleep(wait)
 
 
+class NetworkWatchdog:
+    """监控网络请求失败次数，在连续失败超过阈值后触发自动取消。
+
+    设计目标：
+    - 当网络长时间中断时（如断网 1 分钟以上），自动停止正在进行的
+      扫描/下载/克隆任务，而不是让每个请求都超时重试（40s*5次）后放弃。
+    - 任何一次成功的请求都会重置计数器，保证瞬时网络抖动不会误判。
+    - 线程安全：所有方法通过 _lock 保护，可在任意工作线程中调用。
+
+    使用方式：
+        watchdog = NetworkWatchdog(threshold=5)
+        # 将 watchdog.should_abort 嵌入 should_cancel 回调
+        # 在 http_get 失败时调用 watchdog.notify_failure(err)
+        # 在 http_get 成功时调用 watchdog.notify_success()
+    """
+
+    def __init__(self, threshold: int = 5, window: float = 60.0):
+        self._threshold = threshold       # 连续失败多少次后判定网络不可用
+        self._window = window             # 失败记录的有效期（秒），过期后自动重置
+        self._failures = 0
+        self._last_failure_time = 0.0
+        self._down = False
+        self._reason = ""
+        self._lock = threading.Lock()
+
+    def notify_failure(self, error_msg: str = "") -> None:
+        """记录一次传输层失败（超时/连接拒绝/DNS 失败等）。"""
+        with self._lock:
+            self._failures += 1
+            self._last_failure_time = time.time()
+            if self._failures >= self._threshold:
+                self._down = True
+                self._reason = f"网络连续失败 {self._failures} 次（最近错误：{error_msg[:120]}）"
+
+    def notify_success(self) -> None:
+        """请求成功后调用，重置失败计数。"""
+        with self._lock:
+            self._failures = 0
+            self._down = False
+            self._reason = ""
+
+    def should_abort(self) -> bool:
+        """检查网络是否已判定为不可用。
+
+        若失败记录已超过 window 有效期（可能网络已恢复），自动重置。
+        """
+        with self._lock:
+            if self._down and (time.time() - self._last_failure_time) > self._window:
+                self._down = False
+                self._failures = 0
+                return False
+            return self._down
+
+    @property
+    def down(self) -> bool:
+        with self._lock:
+            return self._down
+
+    @property
+    def reason(self) -> str:
+        with self._lock:
+            return self._reason
+
+    @property
+    def failure_count(self) -> int:
+        with self._lock:
+            return self._failures
+
+    def reset(self) -> None:
+        """手动重置（例如用户重新连接后）。"""
+        with self._lock:
+            self._failures = 0
+            self._down = False
+            self._reason = ""
+
+
 class JiraGitClient:
     def __init__(self) -> None:
         self.config = ConnectConfig()
@@ -111,6 +188,8 @@ class JiraGitClient:
         # 会话内缓存：REST 仓库列表端点经探测确认不可用时置位，
         # 后续 discover_repos 直接跳过 REST，避免每次发现都白打一堆 404。
         self._rest_unavailable: bool = False
+        # 网络看门狗：批量操作期间监控网络健康度。由后端在任务启动前设置。
+        self._watchdog: Optional[NetworkWatchdog] = None
 
     # ------------------------------------------------------------------ 配置
     def set_config(self, cfg: ConnectConfig) -> None:
@@ -142,16 +221,24 @@ class JiraGitClient:
 
     # ------------------------------------------------------------------ 网络
     @staticmethod
-    def http_get(url: str, headers: Optional[dict] = None, retries: int = 5) -> httpx.Response:
+    def http_get(url: str, headers: Optional[dict] = None,
+                 retries: int = 5,
+                 watchdog: Optional["NetworkWatchdog"] = None) -> httpx.Response:
         """带重试的 GET：每次请求新建客户端（无连接池复用），专门对抗代理偶发的
         SSL UNEXPECTED_EOF / 连接重置；失败自动退避重试。
 
         发请求前先经全局令牌桶限流（``throttle.acquire``），确保无论并发多大，
         对 Jira 服务器的稳态请求速率都被钳住，避免把对方打崩。遇到 429/503 时
         读取 ``Retry-After`` 头做长退避。
+
+        可选的 watchdog 用于网络连续性监控：连续传输层失败达到阈值时提前中止，
+        避免断网状态下每个请求都白白耗尽 retries 次超时。
         """
         last = None
         for attempt in range(retries):
+            if watchdog and watchdog.should_abort():
+                raise httpx.TransportError(
+                    f"网络已中断，自动停止请求（连续失败 {watchdog.failure_count} 次）")
             try:
                 throttle.acquire()
                 with httpx.Client(
@@ -168,9 +255,13 @@ class JiraGitClient:
                         f"服务器限流/暂不可用：{r.status_code}",
                         request=r.request, response=r)
                     continue
+                if watchdog:
+                    watchdog.notify_success()
                 return r
             except (httpx.TransportError, httpx.HTTPError) as e:
                 last = e
+                if watchdog:
+                    watchdog.notify_failure(str(e))
                 time.sleep(0.6 * (attempt + 1))
         raise last if last else httpx.TransportError("unknown httpx error")
 
@@ -191,13 +282,19 @@ class JiraGitClient:
 
     @staticmethod
     def _request_with(client: "httpx.Client", url: str,
-                      headers: Optional[dict] = None, retries: int = 5) -> httpx.Response:
+                      headers: Optional[dict] = None,
+                      retries: int = 5,
+                      watchdog: Optional["NetworkWatchdog"] = None) -> httpx.Response:
         """用给定（共享）客户端发带重试的 GET，重试语义与 ``http_get`` 一致。
 
         同样经全局令牌桶限流，并对 429/503 做 ``Retry-After`` 退避。
+        可选 watchdog 用于网络连续性监控（见 ``http_get``）。
         """
         last = None
         for attempt in range(retries):
+            if watchdog and watchdog.should_abort():
+                raise httpx.TransportError(
+                    f"网络已中断，自动停止请求（连续失败 {watchdog.failure_count} 次）")
             try:
                 throttle.acquire()
                 r = client.get(url, headers=headers or {})
@@ -207,9 +304,13 @@ class JiraGitClient:
                         f"服务器限流/暂不可用：{r.status_code}",
                         request=r.request, response=r)
                     continue
+                if watchdog:
+                    watchdog.notify_success()
                 return r
             except (httpx.TransportError, httpx.HTTPError) as e:
                 last = e
+                if watchdog:
+                    watchdog.notify_failure(str(e))
                 time.sleep(0.6 * (attempt + 1))
         raise last if last else httpx.TransportError("unknown httpx error")
 
@@ -1386,7 +1487,8 @@ class JiraGitClient:
         url = (f"{self.config.jira_url.rstrip('/')}/secure/GIJBrowseGit.jspa"
                f"?repoId={repo_id}&branchName={urllib.parse.quote(branch)}"
                f"&tagName=&commitId=&path={urllib.parse.quote(path)}")
-        return self.http_get(url, headers=self.cookie_headers())
+        return self.http_get(url, headers=self.cookie_headers(),
+                             watchdog=self._watchdog)
 
     def _parse_repo_info(self, html: str) -> dict:
         """从 ns.repoInfo 解析 displayName(仓库名) 与 lastCommit.name(分支 HEAD)。
@@ -1487,8 +1589,9 @@ class JiraGitClient:
         if not refs:
             return False, None, "缺少可用的引用（commit/分支），无法定位文件"
 
-        _get = (lambda u, h: self._request_with(client, u, h)) if client is not None \
-            else (lambda u, h: self.http_get(u, h))
+        _get = (lambda u, h: self._request_with(client, u, h, watchdog=self._watchdog)) \
+            if client is not None \
+            else (lambda u, h: self.http_get(u, h, watchdog=self._watchdog))
 
         # 路径保留字面斜杠（插件接口以 / 划分目录层级，quote 会把 / 变成 %2F 导致 404）
         qpath = urllib.parse.quote(path, safe="/")
