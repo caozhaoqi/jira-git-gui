@@ -7,7 +7,30 @@
 数据获取由 MainWindow 通过 Worker 完成，再把结果回调到这里。
 """
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QLabel, QApplication, QStyle, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+)
+
+
+# 文件类型配色（浅色 / 深色），用于文件名着色，便于快速区分。
+_CATEGORY_COLORS = {
+    "light": {
+        "code": "#2563eb", "config": "#d97706", "docs": "#16a34a",
+        "data": "#7c3aed", "other": None,
+    },
+    "dark": {
+        "code": "#4f8cff", "config": "#fbbf24", "docs": "#4ade80",
+        "data": "#c084fc", "other": None,
+    },
+}
+
+_CODE_EXT = {"py", "js", "jsx", "ts", "tsx", "java", "go", "c", "cpp", "h", "hpp",
+             "rs", "sh", "php", "rb", "kt", "scala", "lua", "r", "pl", "m", "css"}
+_CONFIG_EXT = {"json", "yaml", "yml", "toml", "ini", "env", "xml", "conf", "cfg",
+               "properties", "lock", "gitignore"}
+_DOCS_EXT = {"md", "txt", "rst", "doc", "docx", "pdf", "rtf"}
+_DATA_EXT = {"csv", "tsv", "sql", "xlsx", "parquet", "db", "sqlite", "xls"}
 
 
 class TreePanel(QWidget):
@@ -104,6 +127,18 @@ class TreePanel(QWidget):
         it = QTreeWidgetItem([entry.name, size, ""])
         it.setData(0, Qt.ItemDataRole.UserRole,
                    {"path": entry.path, "type": entry.type, "loaded": False})
+        # 图标：目录 / 文件用系统风格图标，跨平台一致
+        style = QApplication.style()
+        if style is not None:
+            if entry.type == "dir":
+                icon = style.standardIcon(QStyle.StandardPixmap.SP_DirClosedIcon)
+            else:
+                icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+            it.setIcon(0, icon)
+        # 文件名按类型着色（主题感知）
+        color = self._color_for(self._category(entry.name))
+        if color is not None:
+            it.setForeground(0, color)
         if entry.type == "dir":
             # 放一个占位子项，使目录显示展开箭头（懒加载）
             it.addChild(QTreeWidgetItem(["（加载中…", "", ""]))
@@ -111,6 +146,26 @@ class TreePanel(QWidget):
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(2, Qt.CheckState.Unchecked)
         return it
+
+    @staticmethod
+    def _category(name: str) -> str:
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext in _CODE_EXT:
+            return "code"
+        if ext in _CONFIG_EXT:
+            return "config"
+        if ext in _DOCS_EXT:
+            return "docs"
+        if ext in _DATA_EXT:
+            return "data"
+        return "other"
+
+    @staticmethod
+    def _color_for(category: str):
+        app = QApplication.instance()
+        theme = (app.property("theme") if app else None) or "light"
+        hexv = _CATEGORY_COLORS.get(theme, _CATEGORY_COLORS["light"]).get(category)
+        return QColor(hexv) if hexv else None
 
     def _on_expanded(self, item):
         d = item.data(0, Qt.ItemDataRole.UserRole)

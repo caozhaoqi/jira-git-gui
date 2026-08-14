@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import QApplication
 from core.logger import LOG_PATH, get_logger, install_global_hooks
 from gui.main_window import MainWindow
 from gui.styles import apply_global_style
+from PyQt6.QtCore import QSettings
 
 
 def main():
@@ -57,8 +58,9 @@ def main():
     app.setApplicationName("Jira Git 通用拉取工具")
     app.setOrganizationName("jira-git-gui")
 
-    # 应用全局 QSS 样式
-    apply_global_style(app)
+    # 应用全局 QSS 样式（读取上次保存的主题，缺省浅色）
+    _theme = QSettings("jira-git-gui", "JiraGitGUI").value("theme", "light")
+    apply_global_style(app, _theme)
 
     win = MainWindow()
     win.show()

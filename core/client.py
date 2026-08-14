@@ -1490,20 +1490,19 @@ class JiraGitClient:
         return self.http_get(url, headers=self.cookie_headers(),
                              watchdog=self._watchdog)
 
-    def _parse_repo_info(self, html: str) -> dict:
-        """从 ns.repoInfo 解析 displayName(仓库名) 与 lastCommit.name(分支 HEAD)。
+    @staticmethod
+    def _extract_balanced_json(html: str, prefix: str) -> dict:
+        """从 ``prefix = {...}`` 中提取配平括号内的完整 JSON 对象并解析。
 
-        使用括号配平扫描，避免旧的 ``(\\{.*?\\});`` 正则遇到嵌套 lastCommit 对象时
-        误截断 JSON 导致解析失败。
+        用于 ns.repoInfo / ns.data 等内联 JSON：用括号深度配平替代脆弱正则
+        ``(\\{.*?\\});``，避免大 HTML 上的回溯 / 误截断（ReDoS 风险）。
         """
-        info: dict = {}
-        m = re.search(r'ns\.repoInfo\s*=\s*', html, re.S)
+        m = re.search(re.escape(prefix) + r"\s*=\s*", html, re.S)
         if not m:
-            return info
-        # 从首个 { 起做括号配平，截出完整 JSON 对象
+            return {}
         start = html.find("{", m.end())
         if start == -1:
-            return info
+            return {}
         depth = 0
         end = -1
         for i in range(start, len(html)):
@@ -1516,11 +1515,16 @@ class JiraGitClient:
                     end = i + 1
                     break
         if end == -1:
-            return info
+            return {}
         try:
-            d = json.loads(html[start:end])
+            return json.loads(html[start:end])
         except Exception:
-            return info
+            return {}
+
+    def _parse_repo_info(self, html: str) -> dict:
+        """从 ns.repoInfo 解析 displayName(仓库名) 与 lastCommit.name(分支 HEAD)。"""
+        info: dict = {}
+        d = self._extract_balanced_json(html, "ns.repoInfo")
         info["displayName"] = d.get("displayName")
         info["repoId"] = d.get("id") or d.get("repoId")
         lc = d.get("lastCommit") or {}
@@ -1531,15 +1535,9 @@ class JiraGitClient:
         return info
 
     def _parse_tree_files(self, html: str) -> list:
-        """从 ns.data.files 解析当前目录条目。"""
+        """从 ns.data.files 解析当前目录条目（括号配平，健壮，防 ReDoS）。"""
         files: list = []
-        m = re.search(r'ns\.data\s*=\s*(\{.*?\});', html, re.S)
-        if not m:
-            return files
-        try:
-            d = json.loads(m.group(1))
-        except Exception:
-            return files
+        d = self._extract_balanced_json(html, "ns.data")
         for f in d.get("files", []):
             files.append({
                 "path": f.get("path"),

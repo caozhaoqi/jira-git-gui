@@ -396,22 +396,26 @@ def compute_diff(local_files: dict, remote_files: dict) -> DiffResult:
 #  单文件 diff
 # --------------------------------------------------------------------------- #
 def file_diff(local_path: str, remote_content: str) -> str:
-    """生成 unified diff 文本。"""
+    """生成 unified diff 文本。
+
+    修复：keepends=False + lineterm='\\n'，确保控制行（---/+++/@@）有换行符，
+    不会和内容行粘在一起。
+    """
     try:
         with open(local_path, "r", encoding="utf-8", errors="replace") as f:
             local_content = f.read()
     except (OSError, FileNotFoundError):
         local_content = ""
 
-    local_lines = local_content.splitlines(keepends=True)
-    remote_lines = (remote_content or "").splitlines(keepends=True)
+    local_lines = local_content.splitlines(keepends=False)
+    remote_lines = (remote_content or "").splitlines(keepends=False)
 
     diff = difflib.unified_diff(
         local_lines,
         remote_lines,
         fromfile=f"a/{os.path.basename(local_path)}",
         tofile=f"b/{os.path.basename(local_path)}",
-        lineterm="",
+        lineterm="\n",
     )
     return "".join(diff)
 

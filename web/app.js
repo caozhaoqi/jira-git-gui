@@ -83,6 +83,14 @@ function updateStatus() {
     ];
     document.getElementById('status-text').textContent = parts.join(' | ');
 
+    // 状态指示点：凭证已配置 = 绿，否则 = 黄
+    const dot = document.getElementById('status-dot');
+    if (dot) {
+      const ok = s.cookie_set || s.pat_set;
+      dot.className = 'status-dot ' + (ok ? 'ok' : 'warn');
+      dot.title = ok ? '后端已连接，凭证已配置' : '后端未配置凭证';
+    }
+
     // 同步连接弹窗的值
     if (s.jira_url) document.getElementById('cfg-url').value = s.jira_url;
     if (s.username) document.getElementById('cfg-user').value = s.username;
@@ -125,6 +133,7 @@ function connectSSE() {
     if (d.ok) {
       log(`本地路径：${d.path}`);
       loadTree('');
+      switchTab('tree');
     }
     hideProgress();
   });
@@ -143,11 +152,13 @@ function connectSSE() {
   // ===== 差异扫描进度 =====
   state.sse.addEventListener('scan_stage', e => {
     const d = JSON.parse(e.data);
+    clearTimeout(diffDoneTimer);  // 新阶段开始，取消之前 scan_done 的自动隐藏
     setDiffProgress({ visible: true, mode: 'indeterminate', stage: d.message, detail: '' });
     clearDiffErrors();
   });
   state.sse.addEventListener('scan_progress', e => {
     const d = JSON.parse(e.data);
+    clearTimeout(diffDoneTimer);  // 扫描进行中，确保不被旧定时器隐藏
     setDiffProgress({
       visible: true, mode: 'indeterminate',
       stage: '扫描远程文件…',
@@ -169,7 +180,7 @@ function connectSSE() {
   });
   state.sse.addEventListener('scan_error', e => {
     const d = JSON.parse(e.data);
-    clearTimeout(diffDoneTimer);
+    clearTimeout(diffDoneTimer);  // 出错时不自动隐藏，让用户看清错误
     setDiffProgress({ visible: true, mode: 'error', stage: '扫描失败', detail: '' });
     addDiffError(d.message || '未知错误');
   });
@@ -177,6 +188,7 @@ function connectSSE() {
   // ===== 批量合并进度 =====
   state.sse.addEventListener('merge_start', e => {
     const d = JSON.parse(e.data);
+    clearTimeout(diffDoneTimer);  // 合并开始，取消 scan_done 的自动隐藏
     setDiffProgress({
       visible: true, mode: 'determinate', pct: 0,
       stage: `合并中 (0/${d.total})`,
@@ -186,6 +198,7 @@ function connectSSE() {
   });
   state.sse.addEventListener('merge_progress', e => {
     const d = JSON.parse(e.data);
+    clearTimeout(diffDoneTimer);  // 合并进行中，确保不被旧定时器隐藏
     setDiffProgress({
       mode: 'determinate', pct: d.pct,
       stage: `合并中 (${d.done}/${d.total})`,
@@ -205,6 +218,11 @@ function connectSSE() {
       stage: d.fail_count > 0 ? `合并完成（${d.fail_count} 个失败）` : '合并完成',
       detail: `成功 ${d.ok_count}，失败 ${d.fail_count}`,
     });
+    // 合并完成后也延迟隐藏，与 scan_done 行为一致
+    clearTimeout(diffDoneTimer);
+    diffDoneTimer = setTimeout(() => {
+      setDiffProgress({ visible: false });
+    }, 5000);
   });
 
   // ===== 网络看门狗告警 =====
@@ -470,6 +488,7 @@ async function openRepo(r, el) {
   updateStatus();
   log(`已选择仓库 id=${r.repo_id} name=${r.display_name} branch=${branch || '(默认)'}`);
   loadTree('');
+  switchTab('tree');
 }
 
 async function viewFiles() {
@@ -491,6 +510,7 @@ async function loadTreeManual() {
   updateStatus();
   log(`已手动指定仓库 id=${rid}`);
   loadTree('');
+  switchTab('tree');
 }
 
 // ===== 文件树 =====
@@ -836,12 +856,28 @@ function fmtSize(n) {
   return `${(n / 1048576).toFixed(1)} M`;
 }
 
+// ===== 主题切换（浅色 / 深色） =====
+function applyTheme(theme) {
+  const body = document.body;
+  if (theme === 'dark') body.classList.add('dark');
+  else body.classList.remove('dark');
+  const btn = document.getElementById('btn-theme');
+  if (btn) btn.textContent = theme === 'dark' ? '☀ 主题' : '🌓 主题';
+}
+function toggleTheme() {
+  const cur = document.body.classList.contains('dark') ? 'dark' : 'light';
+  const next = cur === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  try { localStorage.setItem('jgg-theme', next); } catch (_) {}
+}
+
 // ===== 事件绑定 =====
 document.getElementById('btn-connect').onclick = openConnectModal;
 document.getElementById('connect-close').onclick = closeConnectModal;
 document.getElementById('btn-connect-cancel').onclick = closeConnectModal;
 document.getElementById('btn-test-connect').onclick = testConnect;
 document.getElementById('btn-connect-ok').onclick = applyConnect;
+document.getElementById('btn-theme').onclick = toggleTheme;
 document.querySelectorAll('input[name="mode"]').forEach(r => r.onchange = onModeChange);
 
 document.getElementById('btn-discover').onclick = discoverRepos;
@@ -857,6 +893,10 @@ document.getElementById('repo-search').addEventListener('input', onRepoSearch);
 document.getElementById('btn-diff-scan').onclick = scanDiff;
 document.getElementById('btn-diff-merge-one').onclick = mergeOne;
 document.getElementById('btn-diff-merge-all').onclick = mergeAll;
+document.getElementById('chk-show-same').onchange = (e) => {
+  diffState.showSame = e.target.checked;
+  renderDiffList();
+};
 
 document.getElementById('btn-clone').onclick = cloneRepo;
 document.getElementById('btn-download').onclick = downloadSelected;
@@ -882,6 +922,7 @@ const diffState = {
   entries: [],
   selectedPath: '',
   localDir: '',
+  showSame: false,  // 默认隐藏相同文件
 };
 let diffDoneTimer = null;
 
@@ -952,12 +993,15 @@ const DIFF_LABELS = {
 
 function renderDiffList() {
   const el = document.getElementById('diff-list');
-  if (!diffState.entries.length) {
-    el.innerHTML = '<div class="empty-hint">无差异（本地与远程完全一致）</div>';
+  const visible = diffState.entries.filter(e => diffState.showSame || e.status !== 'same');
+  if (!visible.length) {
+    el.innerHTML = diffState.entries.length
+      ? '<div class="empty-hint">无差异文件（所有文件相同；可勾选「显示相同」查看）</div>'
+      : '<div class="empty-hint">无差异（本地与远程完全一致）</div>';
     return;
   }
   el.innerHTML = '';
-  diffState.entries.forEach(e => {
+  visible.forEach(e => {
     const item = document.createElement('div');
     item.className = 'diff-item';
     item.innerHTML = `<span class="diff-icon">${DIFF_ICONS[e.status] || '?'}</span><span class="diff-path" title="${esc(e.path)}">${esc(e.path)}</span>`;
@@ -977,8 +1021,11 @@ async function openDiffFile(path, itemEl) {
 
   try {
     const res = await apiPost('/api/diff/file', { local_dir: diffState.localDir, path });
-    document.getElementById('diff-file-title').textContent = `${path}  (${DIFF_LABELS[diffState.entries.find(e => e.path === path)?.status] || ''})`;
-    renderDiffContent(res.diff || '(无差异)');
+    const entry = diffState.entries.find(e => e.path === path);
+    const status = entry?.status || '';
+    document.getElementById('diff-file-title').textContent =
+      `${path}  (${DIFF_LABELS[status] || status})`;
+    renderDiffContent(res, status);
     document.getElementById('btn-diff-merge-one').style.display = '';
   } catch (ex) {
     document.getElementById('diff-file-title').textContent = '错误';
@@ -986,28 +1033,140 @@ async function openDiffFile(path, itemEl) {
   }
 }
 
-function renderDiffContent(diffText) {
+/**
+ * GitHub 风格 diff 渲染。
+ *
+ * 策略：
+ * 1. 有 unified diff → 渲染行号 + 绿/红背景的 +/- 行
+ * 2. diff 为空但文件标记为 modified → 内容实际相同（行尾/编码差异），
+ *    显示提示"内容相同（可能仅行尾/编码差异）"
+ * 3. diff 为空且文件相同 → 显示"内容完全相同"
+ * 4. 只有本地/只有远程 → 显示单侧内容
+ */
+function renderDiffContent(res, status) {
   const el = document.getElementById('diff-content');
   el.innerHTML = '';
+  const diffText = res.diff || '';
+  const local = res.local_content || '';
+  const remote = res.remote_content || '';
+
+  // 没有 diff 文本的情况
   if (!diffText) {
-    el.innerHTML = '<div class="empty-hint">（无差异）</div>';
+    if (status === 'modified') {
+      // 标记为 modified 但 unified_diff 为空 → 内容实际相同（行尾/编码差异）
+      const hint = document.createElement('div');
+      hint.className = 'diff-info-hint';
+      hint.innerHTML = '内容实际相同（可能仅行尾符 / 编码差异）<br>本地大小 ' +
+        (local.length) + ' 字符，远程大小 ' + (remote.length) + ' 字符';
+      el.appendChild(hint);
+      // 仍然显示内容供用户确认
+      _renderSideBySide(el, local, remote);
+      return;
+    }
+    if (status === 'local_only') {
+      el.innerHTML = '<div class="empty-hint">仅本地存在，远程无此文件</div>';
+      _renderPlain(el, local, 'local');
+      return;
+    }
+    if (status === 'remote_only') {
+      el.innerHTML = '<div class="empty-hint">仅远程存在，本地无此文件（新增）</div>';
+      _renderPlain(el, remote, 'remote');
+      return;
+    }
+    el.innerHTML = '<div class="empty-hint">内容完全相同</div>';
     return;
   }
+
+  // 有 unified diff → GitHub 风格渲染
+  _renderUnifiedDiff(el, diffText);
+}
+
+/** 渲染 GitHub 风格 unified diff（带行号 + 绿/红行） */
+function _renderUnifiedDiff(el, diffText) {
   const lines = diffText.split('\n');
+  const tbl = document.createElement('table');
+  tbl.className = 'diff-table';
+  let oldNo = 0, newNo = 0;
+
   for (const line of lines) {
-    const div = document.createElement('div');
-    if (line.startsWith('+++') || line.startsWith('---')) {
-      div.className = 'diff-line-hunk';
-    } else if (line.startsWith('@@')) {
-      div.className = 'diff-line-hunk';
+    if (!line) continue;
+    const tr = document.createElement('tr');
+
+    let type = 'ctx';
+    let oldCell = '', newCell = '', content = line;
+
+    if (line.startsWith('@@')) {
+      type = 'hunk';
+      // @@ -oldStart,oldCount +newStart,newCount @@
+      const m = line.match(/@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+      if (m) { oldNo = parseInt(m[1]) - 1; newNo = parseInt(m[2]) - 1; }
+    } else if (line.startsWith('+++') || line.startsWith('---')) {
+      type = 'header';
     } else if (line.startsWith('+')) {
-      div.className = 'diff-line-add';
+      type = 'add'; newNo++;
+      content = line.substring(1);
+      newCell = newNo;
     } else if (line.startsWith('-')) {
-      div.className = 'diff-line-del';
+      type = 'del'; oldNo++;
+      content = line.substring(1);
+      oldCell = oldNo;
+    } else if (line.startsWith(' ')) {
+      type = 'ctx'; oldNo++; newNo++;
+      content = line.substring(1);
+      oldCell = oldNo; newCell = newNo;
     }
-    div.textContent = line;
-    el.appendChild(div);
+
+    tr.className = 'diff-row diff-' + type;
+    tr.innerHTML =
+      '<td class="diff-ln">' + oldCell + '</td>' +
+      '<td class="diff-ln">' + newCell + '</td>' +
+      '<td class="diff-sign">' +
+        (type === 'add' ? '+' : type === 'del' ? '-' : '') + '</td>' +
+      '<td class="diff-code">' + _escapeHtml(content) + '</td>';
+    tbl.appendChild(tr);
   }
+  el.appendChild(tbl);
+}
+
+/** 侧并排显示本地/远程内容（内容相同时的对比） */
+function _renderSideBySide(el, local, remote) {
+  const wrap = document.createElement('div');
+  wrap.className = 'diff-sidebyside';
+  const localLines = local.split('\n');
+  const remoteLines = remote.split('\n');
+  const maxLines = Math.max(localLines.length, remoteLines.length);
+
+  const tbl = document.createElement('table');
+  tbl.className = 'diff-table diff-sidebyside-table';
+  for (let i = 0; i < maxLines; i++) {
+    const tr = document.createElement('tr');
+    const l = localLines[i] ?? '';
+    const r = remoteLines[i] ?? '';
+    const same = l === r;
+    tr.className = 'diff-row ' + (same ? 'diff-ctx' : 'diff-changed');
+    tr.innerHTML =
+      '<td class="diff-ln">' + (i + 1) + '</td>' +
+      '<td class="diff-code">' + _escapeHtml(l) + '</td>' +
+      '<td class="diff-ln">' + (i + 1) + '</td>' +
+      '<td class="diff-code">' + _escapeHtml(r) + '</td>';
+    tbl.appendChild(tr);
+  }
+  wrap.appendChild(tbl);
+  el.appendChild(wrap);
+}
+
+/** 渲染单侧纯文本 */
+function _renderPlain(el, content, side) {
+  const pre = document.createElement('pre');
+  pre.className = 'diff-plain diff-plain-' + side;
+  pre.textContent = content;
+  el.appendChild(pre);
+}
+
+function _escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
 async function mergeOne() {
@@ -1066,6 +1225,13 @@ async function mergeAll() {
 
 // ===== 初始化 =====
 log('应用就绪。先点「连接设置」配置 Jira 地址 / 账号 / 模式，再在仓库面板选择或指定仓库。');
+
+// 应用已保存的主题偏好（localStorage 持久化）
+try {
+  const saved = localStorage.getItem('jgg-theme');
+  if (saved) applyTheme(saved);
+} catch (_) {}
+
 updateStatus();
 connectSSE();
 

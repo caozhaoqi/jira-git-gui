@@ -7,10 +7,10 @@
 """
 import sys
 
-from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR, Qt
+from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR, Qt, QSettings
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QToolBar, QLabel, QProgressBar, QPushButton,
-    QTabWidget, QStatusBar, QSpinBox, QWidget, QHBoxLayout,
+    QTabWidget, QStatusBar, QSpinBox, QWidget, QHBoxLayout, QApplication,
 )
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS
@@ -19,6 +19,7 @@ from core.constants import DEFAULT_REQUEST_QPS
 from core.constants import PROXY_URL, DOWNLOAD_DIR
 from core.logger import LogBridge, get_logger, set_log_bridge
 from core.safe import safe_slot
+from gui.styles import apply_global_style
 from gui.connect_dialog import ConnectDialog
 from gui.log_panel import LogPanel
 from gui.preview_panel import PreviewPanel
@@ -143,6 +144,12 @@ class MainWindow(QMainWindow):
                               "批量下载的并发线程再多，总速率也被它钳住，避免打崩服务器。")
         self._rate.valueChanged.connect(self._on_rate_changed)
         tb.addWidget(self._rate)
+        tb.addSeparator()
+
+        # 主题切换（浅色 / 深色）
+        _cur_theme = (QApplication.instance().property("theme") or "light")
+        self._btn_theme = tb.addAction("☀ 主题" if _cur_theme == "dark" else "🌓 主题")
+        self._btn_theme.triggered.connect(self._toggle_theme)
 
         # 弹性间隔
         spacer = QWidget()
@@ -384,6 +391,28 @@ class MainWindow(QMainWindow):
             f"模式 {mode} | 仓库 {rid} | 分支 {br} | "
             f"Cookie {cookie_ok} | PAT {pat_ok} | 速率 {self._qps}/秒")
 
+
+    # ----------------------------------------------------------- 主题切换
+    @safe_slot
+    def _toggle_theme(self) -> None:
+        app = QApplication.instance()
+        cur = (app.property("theme") if app else None) or "light"
+        new = "dark" if cur == "light" else "light"
+        apply_global_style(app, new)
+        if app is not None:
+            app.setProperty("theme", new)
+        try:
+            QSettings("jira-git-gui", "JiraGitGUI").setValue("theme", new)
+        except Exception:
+            pass
+        self._btn_theme.setText("☀ 主题" if new == "dark" else "🌓 主题")
+        # 刷新代码高亮配色（高亮器按主题属性取色）
+        try:
+            hl = getattr(self.preview_panel, "_highlighter", None)
+            if hl is not None:
+                hl.set_theme(new)
+        except Exception:
+            pass
 
     # ----------------------------------------------------------- 克隆 / 下载
     @safe_slot

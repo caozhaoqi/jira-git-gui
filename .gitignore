@@ -27,3 +27,6 @@ tests/.pytest_cache/
 # Electron
 electron/node_modules/
 electron/package-lock.json
+
+deliverables/
+.workbuddy/

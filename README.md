@@ -1,7 +1,11 @@
-# Jira Git 通用拉取工具（PyQt 桌面版）
+# Jira Git 通用拉取工具
 
-针对 Jira Git Integration 插件（Xiplink / BigBrassBand）的通用桌面客户端。纯 Python +
-PyQt6，无需浏览器，所有网络请求在后台线程执行，界面不卡顿。
+针对 Jira Git Integration 插件（Xiplink / BigBrassBand）的通用桌面客户端。提供两种桌面形态：
+
+- **PyQt 桌面版**（`main.py`）：纯 Python + PyQt6，无需浏览器，所有网络请求在后台线程执行，界面不卡顿。
+- **Electron 桌面端**（`electron/`）：以 Electron 加载同一套 Web 前端（`web/`），跨平台打包，UI 特性见下文「Electron 桌面端」。
+
+> 两套前端共用同一 Python 后端（`api/server.py`，默认端口 8787），能力完全一致。
 
 ## 两种模式
 
@@ -41,7 +45,14 @@ jira-git-gui/
 │   └── safe.py             # safe_slot 装饰器：拦截槽函数异常，防止界面闪退
 ├── store/                  # 运行期产物（git 克隆 / 下载，已 gitignore）
 ├── logs/                   # 运行期日志（含完整 traceback，已 gitignore）
-├── server.py               # 备选「Web 版」后端（FastAPI）——非主路径，桌面端以 main.py 为准
+├── server.py               # FastAPI 后端（Electron / Web 前端共用，默认端口 8787）
+├── electron/               # Electron 桌面端
+│   ├── main.js             # 主进程：拉起 Python 后端并承载 BrowserWindow
+│   └── preload.js          # 渲染进程桥接（日志上报等）
+├── web/                    # Web 前端（Electron / 浏览器通用，零框架依赖）
+│   ├── index.html          # 页面结构（标签页 + 弹窗）
+│   ├── styles.css          # 设计系统（浅色 / 深色双主题）
+│   └── app.js              # 前端逻辑（REST + SSE）
 └── requirements.txt
 ```
 
@@ -71,6 +82,48 @@ open run.command             # macOS 双击启动
 > 会自动 `re-exec` 到项目自带的 `venv` 解释器再启动。因此用系统 `python3`
 > 直接跑也不会再出现 `ModuleNotFoundError: No module named 'PyQt6'`。
 > 若 venv 本身缺失 PyQt6，请先执行上面的第 2 步安装依赖。
+
+## Electron 桌面端
+
+以 Electron 打包的独立桌面应用：主进程（`electron/main.js`）负责拉起 Python 后端
+（`api/server.py`，端口 8787）并承载一个 `BrowserWindow`，窗口内加载 `web/` 下的前端页面。
+后端就绪失败会弹窗提示并退出，避免白屏。
+
+### 启动
+
+```bash
+cd electron
+npm install        # 仅首次，安装 electron
+npm start          # 启动（自动拉起 Python 后端并打开窗口，1280×800）
+npm run dev        # 开发模式（自动打开 DevTools）
+```
+
+> 若本机 `npm`/Electron 下载受阻，也可直接以任意浏览器访问 `http://127.0.0.1:8787/`
+> （先在项目根目录启动后端：`PYTHONPATH=. ./venv/bin/python -m api.server`），
+> 前端（`web/`）与 Electron 内加载的是同一套页面。
+
+### 界面特性
+
+- **浅色 / 深色双主题**：工具栏「🌓 主题」一键切换，偏好经 `localStorage` 持久化，下次启动自动恢复。
+- **品牌头**：工具栏左侧显示应用标识（🌿）+ 名称「Jira Git GUI」，与裸网页区分。
+- **实时状态点**：底部状态栏左侧指示点——绿=凭证已配置 / 黄=未配置，后端状态一目了然。
+- **视觉打磨**：主按钮渐变、列表项 hover 微抬升、卡片柔和阴影、GitHub 风格 diff 表格，整体更现代统一。
+- **标签页布局**：仓库 / 文件树 / 文件预览 / 提交记录 / 差异对比 / 日志，与 PyQt 版功能等价。
+
+### 目录结构
+
+```
+electron/
+├── main.js       # 主进程：Python 后端生命周期 + BrowserWindow + 日志桥接
+├── preload.js    # 暴露 window.electronAPI（日志上报等，contextIsolation 隔离）
+└── package.json  # name / version / start|dev 脚本
+web/
+├── index.html    # 结构（工具栏、标签页、连接设置弹窗）
+├── styles.css    # 设计系统：CSS 变量驱动，含 body.dark 深色覆盖
+└── app.js        # 逻辑：REST 调用 + SSE 日志/进度 + 纯 vanilla JS
+```
+
+---
 
 ## 配置文件（`.env`）
 

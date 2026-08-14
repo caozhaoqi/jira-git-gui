@@ -1,27 +1,60 @@
 # -*- coding: utf-8 -*-
-"""全局 QSS 样式表 —— 统一视觉风格。
+"""全局 QSS 样式表 —— 统一视觉风格，支持浅色 / 深色双主题。
 
 设计参考：VS Code / GitHub Desktop / Sourcetree
-配色方案：浅灰底 + 蓝色强调色，扁平化设计
+浅色：灰底 + 蓝色强调色，扁平化；深色：VS Code Dark 风格。
 """
 from PyQt6.QtGui import QFont, QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
-# —— 配色常量 ——
-COLOR_BG          = "#f5f6f8"   # 主背景
-COLOR_SURFACE     = "#ffffff"   # 卡片/面板背景
-COLOR_BORDER      = "#dfe1e6"   # 分隔线/边框
-COLOR_TEXT        = "#172b4d"   # 主文字
-COLOR_TEXT_SEC    = "#6b7280"   # 次要文字
-COLOR_TEXT_HINT   = "#9ca3af"   # 占位符
-COLOR_PRIMARY     = "#2563eb"   # 强调色（按钮、选中）
-COLOR_PRIMARY_HOV = "#1d4ed8"   # 强调色悬停
-COLOR_PRIMARY_BG  = "#eff6ff"   # 强调色浅底
-COLOR_DANGER      = "#dc2626"   # 危险/错误
-COLOR_SUCCESS     = "#16a34a"   # 成功
-COLOR_WARNING     = "#d97706"   # 警告
+# —— 配色方案（浅色 = 原版；深色 = VS Code Dark 风格）——
+PALETTES = {
+    "light": {
+        "COLOR_BG": "#f5f6f8",
+        "COLOR_SURFACE": "#ffffff",
+        "COLOR_BORDER": "#dfe1e6",
+        "COLOR_TEXT": "#172b4d",
+        "COLOR_TEXT_SEC": "#6b7280",
+        "COLOR_TEXT_HINT": "#9ca3af",
+        "COLOR_PRIMARY": "#2563eb",
+        "COLOR_PRIMARY_HOV": "#1d4ed8",
+        "COLOR_PRIMARY_BG": "#eff6ff",
+        "COLOR_DANGER": "#dc2626",
+        "COLOR_SUCCESS": "#16a34a",
+        "COLOR_WARNING": "#d97706",
+    },
+    "dark": {
+        "COLOR_BG": "#1e1e2e",
+        "COLOR_SURFACE": "#262637",
+        "COLOR_BORDER": "#3a3a4d",
+        "COLOR_TEXT": "#e4e4e7",
+        "COLOR_TEXT_SEC": "#a1a1aa",
+        "COLOR_TEXT_HINT": "#71717a",
+        "COLOR_PRIMARY": "#4f8cff",
+        "COLOR_PRIMARY_HOV": "#3b7ce0",
+        "COLOR_PRIMARY_BG": "#16314f",
+        "COLOR_DANGER": "#f87171",
+        "COLOR_SUCCESS": "#4ade80",
+        "COLOR_WARNING": "#fbbf24",
+    },
+}
 
-QSS = f"""
+
+def _build_qss(p: dict) -> str:
+    COLOR_BG = p["COLOR_BG"]
+    COLOR_SURFACE = p["COLOR_SURFACE"]
+    COLOR_BORDER = p["COLOR_BORDER"]
+    COLOR_TEXT = p["COLOR_TEXT"]
+    COLOR_TEXT_SEC = p["COLOR_TEXT_SEC"]
+    COLOR_TEXT_HINT = p["COLOR_TEXT_HINT"]
+    COLOR_PRIMARY = p["COLOR_PRIMARY"]
+    COLOR_PRIMARY_HOV = p["COLOR_PRIMARY_HOV"]
+    COLOR_PRIMARY_BG = p["COLOR_PRIMARY_BG"]
+    COLOR_DANGER = p["COLOR_DANGER"]
+    COLOR_SUCCESS = p["COLOR_SUCCESS"]
+    COLOR_WARNING = p["COLOR_WARNING"]
+
+    return f"""
 /* ===== 全局 ===== */
 QWidget {{
     background-color: {COLOR_BG};
@@ -340,9 +373,19 @@ QLabel#hint {{
 """
 
 
-def apply_global_style(app: QApplication) -> None:
-    """应用全局 QSS 样式并设置默认字体。"""
-    app.setStyleSheet(QSS)
+QSS_LIGHT = _build_qss(PALETTES["light"])
+QSS_DARK = _build_qss(PALETTES["dark"])
+THEMES = {"light": QSS_LIGHT, "dark": QSS_DARK}
+
+
+def apply_global_style(app: QApplication, theme: str = "light") -> None:
+    """应用全局 QSS 样式并设置默认字体与当前主题标记。
+
+    ``theme`` 写入 ``app`` 的 dynamic property（"theme"），供树面板配色、
+    代码高亮器等读取，实现主题感知。
+    """
+    app.setStyleSheet(THEMES.get(theme, QSS_LIGHT))
+    app.setProperty("theme", theme)
 
     # 默认字体
     font = QFont()

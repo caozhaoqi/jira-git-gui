@@ -288,8 +288,8 @@ class TestBinaryDownloadStaysBytes(unittest.TestCase):
         resp.url = "https://example.com/x"
         # 即便误用 .text 也绝不应当发生；这里模拟会损坏的字符串仅供参考
         resp.text = binary.decode("utf-8", "replace")
-        self.c._request_with = lambda cl, u, h: resp
-        self.c.http_get = lambda u, h: resp
+        self.c._request_with = lambda cl, u, h, **k: resp
+        self.c.http_get = lambda u, h, **k: resp
 
     def test_docx_written_as_bytes_not_corrupted(self):
         # 构造含大量 >=0x80 字节的“二进制”，必须原样落盘
