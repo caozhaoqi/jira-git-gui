@@ -5,7 +5,9 @@
 - 不引入 python-dotenv 依赖，自带最小解析器（KEY=VALUE，忽略空行与 # 注释，去引号）。
 - 兼容多种键名别名，并容忍 .env 拼写误差（如 persoanl_access_token）。
 - 真实环境变量（大写键名）优先级高于 .env 文件，便于 CI / 临时覆盖。
+- Cookie 额外持久化到用户目录 ~/.jira_git_gui/session.json，启动自动读取。
 """
+import json
 import os
 from pathlib import Path
 from typing import Optional, Tuple
@@ -14,6 +16,9 @@ from .models import ConnectConfig
 
 # 项目根目录 = <root>/core/config.py 的上两级
 _BASE = Path(__file__).resolve().parent.parent
+
+# Cookie / 会话持久化文件（存项目根目录，避免沙箱权限问题）
+_SESSION_FILE = _BASE / ".session.json"
 
 
 def _parse_env_file(path: Path) -> dict:
@@ -77,3 +82,39 @@ def load_config(project_root: Optional[Path] = None) -> Tuple[ConnectConfig, boo
             if n in os.environ and os.environ[n] != "":
                 env[n] = os.environ[n]
     return build_config(env), True, str(env_path)
+
+
+# --------------------------------------------------------------------------- #
+#  Cookie / 会话持久化
+# --------------------------------------------------------------------------- #
+def save_session(cookie: str, jira_url: str = "", username: str = "") -> None:
+    """把 cookie 等会话信息保存到 .session.json。"""
+    try:
+        data = {"cookie": cookie, "jira_url": jira_url, "username": username}
+        _SESSION_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_session() -> dict:
+    """从 ~/.jira_git_gui/session.json 读取会话；不存在返回空 dict。"""
+    try:
+        if _SESSION_FILE.exists():
+            return json.loads(_SESSION_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def clear_session() -> None:
+    """删除会话文件。"""
+    try:
+        if _SESSION_FILE.exists():
+            _SESSION_FILE.unlink()
+    except Exception:
+        pass
+
+
+def get_session_path() -> str:
+    """返回会话文件路径（供 UI 提示用户）。"""
+    return str(_SESSION_FILE)

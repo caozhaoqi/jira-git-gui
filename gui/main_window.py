@@ -10,11 +10,11 @@ import sys
 from PyQt6.QtCore import QT_VERSION_STR, PYQT_VERSION_STR, Qt
 from PyQt6.QtWidgets import (
     QMainWindow, QSplitter, QToolBar, QLabel, QProgressBar, QPushButton,
-    QTabWidget, QStatusBar, QSpinBox,
+    QTabWidget, QStatusBar, QSpinBox, QWidget, QHBoxLayout,
 )
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS
-from core.config import load_config
+from core.config import load_config, load_session, save_session, clear_session
 from core.constants import DEFAULT_REQUEST_QPS
 from core.constants import PROXY_URL, DOWNLOAD_DIR
 from core.logger import LogBridge, get_logger, set_log_bridge
@@ -38,8 +38,17 @@ class MainWindow(QMainWindow):
         _cfg, self._env_loaded, self._env_path = load_config()
         if self._env_loaded:
             self.client.set_config(_cfg)
+        # 从 session.json 读取上次保存的 Cookie（优先级高于 .env）
+        _sess = load_session()
+        if _sess.get("cookie"):
+            self.client.config.cookie = _sess["cookie"]
+            if _sess.get("jira_url") and not self.client.config.jira_url:
+                self.client.config.jira_url = _sess["jira_url"]
+            if _sess.get("username") and not self.client.config.username:
+                self.client.config.username = _sess["username"]
         self.setWindowTitle("Jira Git 通用拉取工具")
-        self.resize(1120, 740)
+        self.resize(1280, 800)
+        self.setMinimumSize(900, 600)
 
         # 持有活动 worker 引用，避免局部变量被 GC 导致 QThread 在运行中析构而崩（SIGABRT）
         self._workers: list = []
@@ -60,12 +69,13 @@ class MainWindow(QMainWindow):
         if self._env_loaded:
             self._log(f"{self._env_path} 有配置文件默认用配置文件")
 
-        # 布局：左(仓库+树) | 右(预览+日志)
+        # 布局：左(仓库+树) | 右(预览/提交/日志)
         left = QSplitter(Qt.Orientation.Vertical)
         left.addWidget(self.repo_panel)
         left.addWidget(self.tree_panel)
         left.setStretchFactor(0, 0)
         left.setStretchFactor(1, 1)
+        left.setSizes([260, 500])
 
         right = QSplitter(Qt.Orientation.Vertical)
         self.tabs = QTabWidget()
@@ -79,25 +89,36 @@ class MainWindow(QMainWindow):
         main = QSplitter(Qt.Orientation.Horizontal)
         main.addWidget(left)
         main.addWidget(right)
-        main.setStretchFactor(0, 1)
-        main.setStretchFactor(1, 1)
+        main.setStretchFactor(0, 2)
+        main.setStretchFactor(1, 3)
+        main.setSizes([480, 800])
         self.setCentralWidget(main)
 
         # 工具栏
         tb = QToolBar("主操作", self)
+        tb.setMovable(False)
         self.addToolBar(tb)
+
+        # 连接设置
         self.act_connect = tb.addAction("连接设置")
         self.act_connect.triggered.connect(self._open_connect)
-        self.act_clone = tb.addAction("克隆仓库(PAT)")
+        tb.addSeparator()
+
+        # 克隆 / 下载
+        self.act_clone = tb.addAction("克隆仓库 (PAT)")
         self.act_clone.triggered.connect(self._clone)
-        self.act_download = tb.addAction("下载选中(Cookie)")
+        self.act_download = tb.addAction("下载选中 (Cookie)")
         self.act_download.triggered.connect(self._download)
-        self.act_download_all = tb.addAction("下载整个仓库(Cookie)")
+        self.act_download_all = tb.addAction("下载整个仓库 (Cookie)")
         self.act_download_all.triggered.connect(self._download_all)
+        tb.addSeparator()
+
+        # 维护操作
         self.act_clear_resume = tb.addAction("清空断点")
         self.act_clear_resume.triggered.connect(self._clear_resume)
         self.act_clearlog = tb.addAction("清空日志")
         self.act_clearlog.triggered.connect(self.log_panel.clear)
+        tb.addSeparator()
 
         # —— 下载并发数（UI 可调）——
         tb.addWidget(QLabel("并发"))
@@ -106,7 +127,7 @@ class MainWindow(QMainWindow):
         self._concurrency.setRange(1, 16)
         self._concurrency.setValue(self._max_workers)
         self._concurrency.setSuffix(" 线程")
-        self._concurrency.setFixedWidth(74)
+        self._concurrency.setFixedWidth(86)
         self._concurrency.valueChanged.connect(self._on_concurrency_changed)
         tb.addWidget(self._concurrency)
 
@@ -117,18 +138,24 @@ class MainWindow(QMainWindow):
         self._rate.setRange(1, 50)
         self._rate.setValue(self._qps)
         self._rate.setSuffix(" 请求/秒")
-        self._rate.setFixedWidth(92)
+        self._rate.setFixedWidth(104)
         self._rate.setToolTip("对 Jira 服务器的稳态请求速率上限；调小更温和，调大更快。"
                               "批量下载的并发线程再多，总速率也被它钳住，避免打崩服务器。")
         self._rate.valueChanged.connect(self._on_rate_changed)
         tb.addWidget(self._rate)
 
+        # 弹性间隔
+        spacer = QWidget()
+        spacer.setFixedWidth(12)
+        tb.addWidget(spacer)
+
         # —— 下载进度区（进度条 + 百分比标签 + 取消按钮）——
         self._progress_label = QLabel("")
+        self._progress_label.setStyleSheet("color: #6b7280; font-size: 12px;")
         self._progress = QProgressBar()
         self._progress.setMinimum(0)
         self._progress.setMaximum(0)        # 先以“不确定”模式显示
-        self._progress.setFixedWidth(240)
+        self._progress.setFixedWidth(220)
         self._progress.setTextVisible(True)
         self._btn_cancel = QPushButton("取消")
         self._btn_cancel.setFixedWidth(56)

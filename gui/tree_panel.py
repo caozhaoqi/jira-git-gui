@@ -7,7 +7,7 @@
 数据获取由 MainWindow 通过 Worker 完成，再把结果回调到这里。
 """
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 
 class TreePanel(QWidget):
@@ -21,11 +21,17 @@ class TreePanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(8, 8, 8, 8)
+        title = QLabel("文件浏览器")
+        title.setObjectName("section-title")
+        layout.addWidget(title)
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["名称", "大小", "选择"])
-        self.tree.setColumnWidth(0, 260)
-        self.tree.setColumnWidth(1, 90)
+        self.tree.setColumnWidth(0, 280)
+        self.tree.setColumnWidth(1, 80)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setSortingEnabled(False)
+        self.tree.setMinimumHeight(200)
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemClicked.connect(self._on_clicked)
         layout.addWidget(self.tree)

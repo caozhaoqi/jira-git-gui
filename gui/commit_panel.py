@@ -30,12 +30,13 @@ class CommitPanel(QWidget):
         self._commits: list = []
         self._selected_commit = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(6)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
 
         hint = QLabel("查看提交记录：选「按 Issue 查询」输入 Jira 单号（如 TST-234）；"
                       "或选「本地 Git 仓库」查看已克隆仓库的完整 git log。")
         hint.setWordWrap(True)
+        hint.setObjectName("hint")
         hint.setStyleSheet("color: #6b7280; font-size: 11px;")
         layout.addWidget(hint)
 
@@ -56,6 +57,7 @@ class CommitPanel(QWidget):
         self.input.returnPressed.connect(self._on_query)
         rl.addWidget(self.input, 1)
         self.btn = QPushButton("查询")
+        self.btn.setObjectName("primary")
         self.btn.clicked.connect(self._on_query)
         rl.addWidget(self.btn)
         layout.addWidget(row)
@@ -63,6 +65,7 @@ class CommitPanel(QWidget):
         # 左：提交列表；右：详情(上) + 变更文件(下)
         split = QSplitter(Qt.Orientation.Horizontal)
         self.list = QListWidget()
+        self.list.setMinimumHeight(150)
         self.list.itemSelectionChanged.connect(self._on_selected)
         split.addWidget(self.list)
 
@@ -70,16 +73,17 @@ class CommitPanel(QWidget):
         self.detail = QPlainTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setStyleSheet(
-            "font-family: Menlo, Monaco, 'Courier New', monospace; font-size: 11px;")
+            "font-family: Menlo, Monaco, 'Courier New', monospace; font-size: 12px;")
         right.addWidget(self.detail)
         self.files = QListWidget()
+        self.files.setMinimumHeight(100)
         self.files.itemClicked.connect(self._on_file_clicked)
         right.addWidget(self.files)
         right.setStretchFactor(0, 3)
         right.setStretchFactor(1, 2)
         split.addWidget(right)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 4)
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 3)
         layout.addWidget(split, 1)
 
     # ----------------------------------------------------------- 对外接口

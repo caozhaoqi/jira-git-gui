@@ -47,6 +47,7 @@ from PyQt6.QtWidgets import QApplication
 
 from core.logger import LOG_PATH, get_logger, install_global_hooks
 from gui.main_window import MainWindow
+from gui.styles import apply_global_style
 
 
 def main():
@@ -55,6 +56,9 @@ def main():
     install_global_hooks()
     app.setApplicationName("Jira Git 通用拉取工具")
     app.setOrganizationName("jira-git-gui")
+
+    # 应用全局 QSS 样式
+    apply_global_style(app)
 
     win = MainWindow()
     win.show()

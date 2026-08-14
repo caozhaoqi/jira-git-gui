@@ -1,0 +1,492 @@
+/* ===== 配色变量 ===== */
+:root {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --border: #dfe1e6;
+  --text: #172b4d;
+  --text-sec: #6b7280;
+  --text-hint: #9ca3af;
+  --primary: #2563eb;
+  --primary-hov: #1d4ed8;
+  --primary-bg: #eff6ff;
+  --danger: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+  --font-mono: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace;
+  --font-sans: -apple-system, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', 'PingFang SC', sans-serif;
+}
+
+/* ===== 全局 ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ===== 工具栏 ===== */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.toolbar-group { display: flex; align-items: center; gap: 4px; }
+.toolbar-divider { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+.toolbar-spacer { flex: 1; }
+.toolbar label { color: var(--text-sec); font-size: 12px; margin-left: 8px; margin-right: 2px; }
+
+/* ===== 按钮 ===== */
+.btn {
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--primary); background: var(--primary-bg); }
+.btn:active { background: var(--border); }
+.btn:disabled { color: var(--text-hint); cursor: default; }
+.btn:disabled:hover { border-color: var(--border); background: var(--surface); }
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 500;
+}
+.btn-primary:hover { background: var(--primary-hov); border-color: var(--primary-hov); }
+.btn-sm { padding: 3px 10px; font-size: 12px; }
+.btn-block { width: 100%; }
+
+/* ===== 输入框 ===== */
+.input, .select, .textarea, .spin {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color .15s;
+}
+.input:focus, .select:focus, .textarea:focus, .spin:focus { border-color: var(--primary); }
+.textarea { width: 100%; min-height: 60px; resize: vertical; font-family: var(--font-mono); }
+.spin { width: 80px; }
+
+/* ===== 进度条 ===== */
+.progress-label { color: var(--text-sec); font-size: 12px; }
+.progress-bar {
+  width: 200px; height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.progress-bar::-webkit-progress-bar {
+  background: var(--bg);
+  border-radius: 3px;
+}
+.progress-bar::-webkit-progress-value {
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width .3s;
+}
+
+/* ===== 主体布局 ===== */
+.main-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--border);
+}
+
+/* 左侧面板 */
+.left-panel {
+  width: 40%;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  overflow: hidden;
+}
+.repo-panel {
+  padding: 8px;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tree-panel {
+  padding: 8px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 右侧面板 */
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* ===== 面板头部 ===== */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.hint {
+  color: var(--text-sec);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+/* ===== 仓库列表 ===== */
+.repo-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  min-height: 100px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.repo-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .15s;
+}
+.repo-item:hover { background: var(--primary-bg); }
+.repo-item.selected { background: var(--primary); color: #fff; }
+.repo-item .repo-name { font-weight: 500; }
+.repo-item .repo-meta { font-size: 11px; color: var(--text-hint); }
+.repo-item.selected .repo-meta { color: rgba(255,255,255,.7); }
+
+.btn-row { display: flex; gap: 6px; }
+
+/* ===== 手动指定 ===== */
+.manual-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
+}
+.manual-group summary {
+  font-weight: 500;
+  color: var(--text-sec);
+  cursor: pointer;
+  padding: 2px 0;
+}
+.form-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.form-rows label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-sec); }
+
+/* ===== 文件树 ===== */
+.tree-container {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow-y: auto;
+}
+.tree-node {
+  padding: 2px 0;
+  user-select: none;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background .15s;
+  white-space: nowrap;
+}
+.tree-row:hover { background: var(--primary-bg); }
+.tree-row.selected { background: var(--primary); color: #fff; }
+.tree-toggle {
+  width: 16px;
+  display: inline-block;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-sec);
+}
+.tree-row.selected .tree-toggle { color: rgba(255,255,255,.7); }
+.tree-icon { width: 18px; text-align: center; }
+.tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.tree-size { color: var(--text-hint); font-size: 11px; margin-left: 8px; }
+.tree-row.selected .tree-size { color: rgba(255,255,255,.6); }
+.tree-checkbox { margin-left: 4px; }
+.tree-children { margin-left: 18px; }
+.tree-loading { color: var(--text-hint); font-size: 12px; padding: 4px 24px; }
+
+/* ===== 标签页 ===== */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.tab {
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-sec);
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+}
+.tab:hover { background: var(--primary-bg); color: var(--text); }
+.tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 500;
+}
+.tab-content { flex: 1; overflow: hidden; display: flex; }
+.tab-pane { display: none; flex: 1; flex-direction: column; overflow: hidden; padding: 8px; }
+.tab-pane.active { display: flex; }
+
+/* ===== 代码预览 ===== */
+.code-block {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre;
+  color: var(--text);
+}
+
+/* ===== 日志 ===== */
+.log-block {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--text-sec);
+}
+.log-line { padding: 1px 0; }
+.log-line.error { color: var(--danger); }
+.log-line.warning { color: var(--warning); }
+
+/* ===== 提交记录 ===== */
+.commit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.commit-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+.commit-layout {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  overflow: hidden;
+}
+.commit-list {
+  width: 35%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow-y: auto;
+  min-width: 200px;
+}
+.commit-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--bg);
+  transition: background .15s;
+}
+.commit-item:hover { background: var(--primary-bg); }
+.commit-item.selected { background: var(--primary); color: #fff; }
+.commit-item .commit-msg { font-weight: 500; font-size: 12px; }
+.commit-item .commit-meta { font-size: 11px; color: var(--text-hint); }
+.commit-item.selected .commit-meta { color: rgba(255,255,255,.7); }
+.commit-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+.commit-detail-text {
+  flex: 3;
+  min-height: 100px;
+}
+.commit-files {
+  flex: 2;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow-y: auto;
+  min-height: 80px;
+}
+.commit-file-item {
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: background .15s;
+}
+.commit-file-item:hover { background: var(--primary-bg); }
+.commit-file-item .change-badge {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+  font-weight: 600;
+  margin-right: 4px;
+}
+.change-A, .change-ADDED { color: var(--success); }
+.change-M, .change-MODIFIED { color: var(--warning); }
+.change-D, .change-DELETED { color: var(--danger); }
+
+/* ===== 状态栏 ===== */
+.status-bar {
+  padding: 4px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  color: var(--text-sec);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+/* ===== 空状态 ===== */
+.empty-hint {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-hint);
+  font-size: 12px;
+}
+
+/* ===== 弹窗 ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  background: var(--bg);
+  border-radius: 12px;
+  width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,.15);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-header h2 { font-size: 16px; font-weight: 600; }
+.modal-close {
+  border: none;
+  background: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-sec);
+  line-height: 1;
+}
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.modal-footer {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+
+/* ===== 表单组 ===== */
+.form-group {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface);
+}
+.form-group legend {
+  font-weight: 500;
+  color: var(--text-sec);
+  padding: 0 4px;
+  font-size: 13px;
+}
+.form-group label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-sec);
+}
+.radio-row { display: flex; gap: 16px; padding-top: 4px; }
+.radio-row label { flex-direction: row; align-items: center; gap: 4px; }
+.connect-status {
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-sec);
+  min-height: 36px;
+}
+
+/* ===== 滚动条 ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-hint); }

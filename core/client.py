@@ -987,18 +987,17 @@ class JiraGitClient:
                     [self._git_bin, "-C", str(local_path), "show",
                      f"{commit_id}:{path}"],
                     capture_output=True, timeout=30)
-            if res.returncode == 0:
-                data = res.stdout
-                # 与 Cookie 模式一致：二进制按字节返回并给「二进制请下载」提示，
-                # 不再用 errors='replace' 把二进制预览成乱码（与 docx 二进制识别同类）。
-                if self._is_likely_text(data, ""):
-                    try:
-                        return data.decode("utf-8"), None
-                    except UnicodeDecodeError:
-                        return data, None
-                return None, (f"二进制文件（{len(data)} 字节），"
-                              f"请在文件树勾选后用「下载选中」保存到本地查看历史版本。")
-                # 该提交中文件可能已被删除（show 报错）；交 Cookie 模式兜底
+                if res.returncode == 0:
+                    data = res.stdout
+                    # 与 Cookie 模式一致：二进制按字节返回并给「二进制请下载」提示，
+                    # 不再用 errors='replace' 把二进制预览成乱码（与 docx 二进制识别同类）。
+                    if self._is_likely_text(data, ""):
+                        try:
+                            return data.decode("utf-8"), None
+                        except UnicodeDecodeError:
+                            return data, None
+                    return None, (f"二进制文件（{len(data)} 字节），"
+                                  f"请在文件树勾选后用「下载选中」保存到本地查看历史版本。")
             except Exception:
                 pass
         if not self.config.cookie:

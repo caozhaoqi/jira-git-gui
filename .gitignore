@@ -13,7 +13,12 @@ __pycache__/
 *.pyc
 *.pyo
 .env
+.session.json
 
 # 测试：保留单测随仓库提交；含密钥的集成测试单独忽略
 tests/test_integration.py
 tests/.pytest_cache/
+
+# Electron
+electron/node_modules/
+electron/package-lock.json
