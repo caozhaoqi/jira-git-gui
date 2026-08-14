@@ -118,3 +118,45 @@ def clear_session() -> None:
 def get_session_path() -> str:
     """返回会话文件路径（供 UI 提示用户）。"""
     return str(_SESSION_FILE)
+
+
+# --------------------------------------------------------------------------- #
+#  合并功能：仓库映射配置（优先从 .env 加载，避免硬编码敏感信息）
+# --------------------------------------------------------------------------- #
+def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
+    """从 .env 读取合并功能的仓库映射与参数。
+
+    返回:
+        {
+            "repo_map": {远程仓库名: 本地目录},
+            "scan_workers": int,
+            "tree_ttl": int,
+            "file_ttl": int,
+        }
+    """
+    root = Path(project_root) if project_root else _BASE
+    env_path = root / ".env"
+    env = _parse_env_file(env_path) if env_path.exists() else {}
+
+    repo_map: "dict[str, str]" = {}
+    for key, val in env.items():
+        if key.startswith("MERGE_REPO_") and "|" in val:
+            # 格式：<远程仓库名>|<本地绝对路径>
+            name, _, local_dir = val.partition("|")
+            name = name.strip()
+            local_dir = local_dir.strip()
+            if name and local_dir:
+                repo_map[name] = local_dir
+
+    def _int(key: str, default: int) -> int:
+        try:
+            return int(env.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "repo_map": repo_map,
+        "scan_workers": _int("MERGE_SCAN_WORKERS", 3),
+        "tree_ttl": _int("MERGE_CACHE_TREE_TTL", 3600),
+        "file_ttl": _int("MERGE_CACHE_FILE_TTL", 86400),
+    }

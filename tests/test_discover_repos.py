@@ -230,16 +230,16 @@ class TestRestRepositoryAllEnvelope(unittest.TestCase):
         # 模拟真实 item：clone url 藏在 gkRepoUrl 的 ?url= 参数里
         item = {
             "id": 736,
-            "displayName": "hcm_selenium",
-            "group": "hcm",
+            "displayName": "demo_selenium",
+            "group": "demo",
             "integrationType": "GITLAB_SERVER",
-            "gkRepoUrl": "gitkraken://repolink/abc?url=https%3A%2F%2Fcode.hcmcloud.io%2Fhcm%2Fselenium.git",
-            "glRepoUrl": "vscode://x?url=https%3A%2F%2Fcode.hcmcloud.io%2Fhcm%2Fselenium.git",
+            "gkRepoUrl": "gitkraken://repolink/abc?url=https%3A%2F%2Fcode.example.io%2Fdemo%2Fselenium.git",
+            "glRepoUrl": "vscode://x?url=https%3A%2F%2Fcode.example.io%2Fdemo%2Fselenium.git",
         }
         ri = JiraGitClient._parse_rest_repo_item(item)
         self.assertEqual(ri.repo_id, "736")
-        self.assertEqual(ri.display_name, "hcm_selenium")
-        self.assertEqual(ri.clone_url, "https://code.hcmcloud.io/hcm/selenium.git")
+        self.assertEqual(ri.display_name, "demo_selenium")
+        self.assertEqual(ri.clone_url, "https://code.example.io/demo/selenium.git")
 
     def test_normalize_envelope_returns_total(self):
         class _R:

@@ -715,6 +715,10 @@ document.getElementById('repo-search').addEventListener('input', onRepoSearch);
   const el = document.getElementById(id);
   if (el) el.addEventListener('keydown', e => { if (e.key === 'Enter') loadTreeManual(); });
 });
+// 差异对比
+document.getElementById('btn-diff-scan').onclick = scanDiff;
+document.getElementById('btn-diff-merge-one').onclick = mergeOne;
+document.getElementById('btn-diff-merge-all').onclick = mergeAll;
 
 document.getElementById('btn-clone').onclick = cloneRepo;
 document.getElementById('btn-download').onclick = downloadSelected;
@@ -734,6 +738,178 @@ document.getElementById('commit-issue').addEventListener('keydown', e => {
 document.getElementById('commit-mode').onchange = onCommitModeChange;
 
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+
+// ===== 差异对比 =====
+const diffState = {
+  entries: [],
+  selectedPath: '',
+  localDir: '',
+};
+
+async function scanDiff() {
+  const localDir = document.getElementById('diff-local-dir').value.trim();
+  if (!localDir) { log('请输入本地目录路径', 'warning'); return; }
+  if (!state.selectedRepo) { log('请先选择远程仓库', 'warning'); return; }
+
+  const btn = document.getElementById('btn-diff-scan');
+  btn.disabled = true;
+  btn.textContent = '扫描中…';
+  document.getElementById('diff-summary').textContent = '正在扫描本地和远程…';
+  document.getElementById('diff-list').innerHTML = '<div class="empty-hint">扫描中…大仓库可能需要较长时间</div>';
+
+  try {
+    const res = await apiPost('/api/diff/scan', { local_dir: localDir, repo_name: state.selectedRepo.display_name || '' });
+    diffState.entries = res.entries || [];
+    diffState.localDir = localDir;
+
+    const s = res.summary;
+    document.getElementById('diff-summary').innerHTML =
+      `共 ${s.total} 个文件 | ` +
+      `<span class="badge-modified">修改 ${s.modified}</span> · ` +
+      `<span class="badge-local">仅本地 ${s.local_only}</span> · ` +
+      `<span class="badge-remote">仅远程 ${s.remote_only}</span> · 相同 ${s.same}`;
+
+    renderDiffList();
+    const mergeAllBtn = document.getElementById('btn-diff-merge-all');
+    mergeAllBtn.style.display = diffState.entries.length > 0 ? '' : 'none';
+    log(`差异扫描完成：共 ${s.total} 个文件，修改 ${s.modified}，仅本地 ${s.local_only}，仅远程 ${s.remote_only}`);
+  } catch (ex) {
+    document.getElementById('diff-summary').textContent = `扫描失败：${ex.message}`;
+    document.getElementById('diff-list').innerHTML = `<div class="empty-hint">扫描失败：${esc(ex.message)}</div>`;
+    log(`差异扫描失败：${ex.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '扫描差异';
+  }
+}
+
+const DIFF_ICONS = {
+  modified: '✎',
+  local_only: '←',
+  remote_only: '→',
+  same: '=',
+};
+
+const DIFF_LABELS = {
+  modified: '已修改',
+  local_only: '仅本地',
+  remote_only: '仅远程',
+  same: '相同',
+};
+
+function renderDiffList() {
+  const el = document.getElementById('diff-list');
+  if (!diffState.entries.length) {
+    el.innerHTML = '<div class="empty-hint">无差异（本地与远程完全一致）</div>';
+    return;
+  }
+  el.innerHTML = '';
+  diffState.entries.forEach(e => {
+    const item = document.createElement('div');
+    item.className = 'diff-item';
+    item.innerHTML = `<span class="diff-icon">${DIFF_ICONS[e.status] || '?'}</span><span class="diff-path" title="${esc(e.path)}">${esc(e.path)}</span>`;
+    item.onclick = () => openDiffFile(e.path, item);
+    el.appendChild(item);
+  });
+}
+
+async function openDiffFile(path, itemEl) {
+  diffState.selectedPath = path;
+  document.querySelectorAll('.diff-item').forEach(el => el.classList.remove('selected'));
+  if (itemEl) itemEl.classList.add('selected');
+
+  document.getElementById('diff-file-title').textContent = `加载中 · ${path}`;
+  document.getElementById('diff-content').innerHTML = '<div class="empty-hint">加载中…</div>';
+  document.getElementById('btn-diff-merge-one').style.display = 'none';
+
+  try {
+    const res = await apiPost('/api/diff/file', { local_dir: diffState.localDir, path });
+    document.getElementById('diff-file-title').textContent = `${path}  (${DIFF_LABELS[diffState.entries.find(e => e.path === path)?.status] || ''})`;
+    renderDiffContent(res.diff || '(无差异)');
+    document.getElementById('btn-diff-merge-one').style.display = '';
+  } catch (ex) {
+    document.getElementById('diff-file-title').textContent = '错误';
+    document.getElementById('diff-content').textContent = ex.message;
+  }
+}
+
+function renderDiffContent(diffText) {
+  const el = document.getElementById('diff-content');
+  el.innerHTML = '';
+  if (!diffText) {
+    el.innerHTML = '<div class="empty-hint">（无差异）</div>';
+    return;
+  }
+  const lines = diffText.split('\n');
+  for (const line of lines) {
+    const div = document.createElement('div');
+    if (line.startsWith('+++') || line.startsWith('---')) {
+      div.className = 'diff-line-hunk';
+    } else if (line.startsWith('@@')) {
+      div.className = 'diff-line-hunk';
+    } else if (line.startsWith('+')) {
+      div.className = 'diff-line-add';
+    } else if (line.startsWith('-')) {
+      div.className = 'diff-line-del';
+    }
+    div.textContent = line;
+    el.appendChild(div);
+  }
+}
+
+async function mergeOne() {
+  if (!diffState.selectedPath) return;
+  const path = diffState.selectedPath;
+  const btn = document.getElementById('btn-diff-merge-one');
+  btn.disabled = true;
+  btn.textContent = '合并中…';
+  try {
+    const res = await apiPost('/api/diff/merge', { local_dir: diffState.localDir, path });
+    if (res.ok) {
+      log(`已合并到本地：${path}`);
+      // 从列表中移除
+      diffState.entries = diffState.entries.filter(e => e.path !== path);
+      renderDiffList();
+      document.getElementById('diff-content').innerHTML = '<div class="empty-hint">已合并 ✓</div>';
+      document.getElementById('btn-diff-merge-one').style.display = 'none';
+      document.getElementById('diff-file-title').textContent = '已合并';
+    } else {
+      log(`合并失败：${path}`, 'error');
+    }
+  } catch (ex) {
+    log(`合并失败：${ex.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '合并到本地';
+  }
+}
+
+async function mergeAll() {
+  const entries = diffState.entries.filter(e => e.status === 'modified' || e.status === 'remote_only');
+  if (!entries.length) { log('没有需要合并的文件', 'warning'); return; }
+  const btn = document.getElementById('btn-diff-merge-all');
+  btn.disabled = true;
+  btn.textContent = `合并中 (0/${entries.length})…`;
+  log(`开始批量合并 ${entries.length} 个文件…`);
+  try {
+    const reqs = entries.map(e => ({ local_dir: diffState.localDir, path: e.path }));
+    const res = await apiPost('/api/diff/merge-batch', reqs);
+    const okCount = (res.results || []).filter(r => r.ok).length;
+    const failCount = (res.results || []).length - okCount;
+    log(`批量合并完成：成功 ${okCount}，失败 ${failCount}`);
+    // 从列表中移除成功的
+    const okPaths = new Set((res.results || []).filter(r => r.ok).map(r => r.path));
+    diffState.entries = diffState.entries.filter(e => !okPaths.has(e.path));
+    renderDiffList();
+    // 更新摘要
+    document.getElementById('diff-summary').textContent = `合并完成：成功 ${okCount}，失败 ${failCount}`;
+  } catch (ex) {
+    log(`批量合并失败：${ex.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '全部合并到本地';
+  }
+}
 
 // ===== 初始化 =====
 log('应用就绪。先点「连接设置」配置 Jira 地址 / 账号 / 模式，再在仓库面板选择或指定仓库。');

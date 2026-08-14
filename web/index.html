@@ -81,6 +81,7 @@
       <nav class="tabs">
         <button class="tab active" data-tab="preview">文件预览</button>
         <button class="tab" data-tab="commits">提交记录</button>
+        <button class="tab" data-tab="diff">差异对比</button>
         <button class="tab" data-tab="logs">日志</button>
       </nav>
       <div class="tab-content">
@@ -113,6 +114,30 @@
             <div class="commit-detail">
               <pre id="commit-detail-text" class="code-block commit-detail-text"></pre>
               <div id="commit-files" class="commit-files"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 差异对比 -->
+        <div id="tab-diff" class="tab-pane">
+          <div class="diff-toolbar">
+            <label>本地目录
+              <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:300px">
+            </label>
+            <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
+            <span id="diff-summary" class="diff-summary"></span>
+            <button id="btn-diff-merge-all" class="btn btn-sm" style="margin-left:auto;display:none">全部合并到本地</button>
+          </div>
+          <div class="diff-layout">
+            <div id="diff-list" class="diff-list">
+              <div class="empty-hint">输入本地目录路径，点击「扫描差异」开始对比</div>
+            </div>
+            <div class="diff-viewer">
+              <div class="panel-header">
+                <h2 id="diff-file-title" class="section-title">选择左侧文件查看差异</h2>
+                <button id="btn-diff-merge-one" class="btn btn-sm btn-primary" style="display:none">合并到本地</button>
+              </div>
+              <pre id="diff-content" class="code-block diff-content"></pre>
             </div>
           </div>
         </div>

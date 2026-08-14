@@ -416,7 +416,7 @@ class JiraGitClient:
     def _discover_repos_rest(self, raw_fp=None) -> Dict[str, RepoInfo]:
         """翻页遍历 git 插件 REST 仓库列表，返回 repoId -> RepoInfo（权威全量）。
 
-        数据源要点（经实测 jira.hcmcloud.cn 的 Git Integration for Jira 6.x）：
+        数据源要点（经实测目标 Jira 实例的 Git Integration for Jira 6.x）：
           - 真实可用的用户级全量端点是 ``/rest/gitplugin/1.0/repository/all``
             （**不是** 复数的 ``/repositories``，也不是管理员的 ``/sources/repositories``）。
           - 该端点返回信封 ``{"success":true,"total":385,"offset":0,"count":100,
@@ -595,7 +595,7 @@ class JiraGitClient:
 
         6.x 的 repository/all 不直接给 cloneUrl 字段，而是把真实地址藏在
         ``gkRepoUrl`` / ``glRepoUrl``（形如
-        ``gitkraken://...?url=https%3A%2F%2Fcode.hcmcloud.io%2Fhcm%2Fselenium.git``）
+        ``gitkraken://...?url=https%3A%2F%2Fcode.example.io%2Fgroup%2Frepo.git``）
         的 ``url`` 查询参数里。旧版则可能直接给 ``cloneUrl`` / ``url``。
         逐一尝试，返回第一个可用的 http(s) 地址。
         """

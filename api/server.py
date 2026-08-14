@@ -467,6 +467,193 @@ async def api_clear_resume():
 
 
 # --------------------------------------------------------------------------- #
+#  差异对比 & 合并（集成缓存）
+# --------------------------------------------------------------------------- #
+from core import differ as _differ
+from core import cache as _cache
+from core import sync_history as _history
+from pydantic import BaseModel as _BM
+
+class DiffScanReq(_BM):
+    local_dir: str
+    repo_name: str = ""
+    use_cache: bool = True
+
+class DiffFileReq(_BM):
+    local_dir: str
+    path: str
+    use_cache: bool = True
+
+class MergeReq(_BM):
+    local_dir: str
+    path: str
+    use_cache: bool = True
+
+@app.post("/api/diff/scan")
+async def api_diff_scan(req: DiffScanReq):
+    """扫描本地目录和远程仓库，返回差异列表（缓存优先）。"""
+    import os
+    if not os.path.isdir(req.local_dir):
+        raise HTTPException(400, f"本地目录不存在：{req.local_dir}")
+    if not client.repo_id:
+        raise HTTPException(400, "请先选择远程仓库")
+
+    namespace = str(client.repo_id)
+
+    # 在后台线程执行扫描（缓存优先）
+    def _scan():
+        local_files = _differ.scan_local_cached(req.local_dir, use_cache=req.use_cache)
+        remote_files = _differ.scan_remote_cached(
+            client, namespace,
+            max_workers=3,
+            tree_ttl=3600,
+            use_cache=req.use_cache,
+        )
+        result = _differ.compute_diff(local_files, remote_files)
+        return result
+
+    result = await asyncio.to_thread(_scan)
+
+    # 返回摘要 + 条目列表（排除 same 以减少传输量）
+    entries = [
+        {
+            "path": e.path,
+            "status": e.status.value,
+            "local_size": e.local_size,
+            "remote_size": e.remote_size,
+        }
+        for e in result.entries
+        if e.status != _differ.DiffStatus.SAME
+    ]
+
+    return {
+        "summary": result.summary(),
+        "entries": entries,
+        "cached": req.use_cache,
+    }
+
+
+@app.post("/api/diff/file")
+async def api_diff_file(req: DiffFileReq):
+    """获取单个文件的 unified diff（远程内容缓存优先）。"""
+    import os
+    local_path = os.path.join(req.local_dir, req.path)
+    if not os.path.isfile(local_path):
+        local_content = ""
+    else:
+        local_content = Path(local_path).read_text(encoding="utf-8", errors="replace")
+
+    namespace = str(client.repo_id) if client.repo_id else "default"
+    remote_content = await asyncio.to_thread(
+        _differ.get_file_cached,
+        client, namespace, req.path,
+        86400, req.use_cache,
+    )
+
+    diff_text = _differ.file_diff(local_path, remote_content or "")
+
+    return {
+        "path": req.path,
+        "diff": diff_text,
+        "local_content": local_content,
+        "remote_content": remote_content or "",
+        "cached": req.use_cache,
+    }
+
+
+@app.post("/api/diff/merge")
+async def api_diff_merge(req: MergeReq):
+    """将远程文件合并到本地（远程内容缓存优先）。"""
+    namespace = str(client.repo_id) if client.repo_id else "default"
+    remote_content = await asyncio.to_thread(
+        _differ.get_file_cached,
+        client, namespace, req.path,
+        86400, req.use_cache,
+    )
+
+    ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
+    return {"ok": ok, "path": req.path}
+
+
+@app.post("/api/diff/merge-batch")
+async def api_diff_merge_batch(reqs: list[MergeReq]):
+    """批量合并多个文件（缓存优先）。"""
+    namespace = str(client.repo_id) if client.repo_id else "default"
+    results = []
+    for req in reqs:
+        try:
+            remote_content = await asyncio.to_thread(
+                _differ.get_file_cached,
+                client, namespace, req.path,
+                86400, req.use_cache,
+            )
+            ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
+            results.append({"path": req.path, "ok": ok})
+        except Exception as ex:
+            results.append({"path": req.path, "ok": False, "error": str(ex)})
+    return {"results": results}
+
+
+@app.post("/api/diff/invalidate")
+async def api_diff_invalidate():
+    """使当前仓库的缓存失效（强制下次重新拉取）。"""
+    if not client.repo_id:
+        raise HTTPException(400, "请先选择仓库")
+    n = _cache.invalidate(str(client.repo_id))
+    return {"ok": True, "cleared": n}
+
+
+# --------------------------------------------------------------------------- #
+#  缓存管理
+# --------------------------------------------------------------------------- #
+@app.get("/api/cache/info")
+async def api_cache_info():
+    """获取缓存统计信息。"""
+    return _cache.cache_info()
+
+
+@app.delete("/api/cache")
+async def api_cache_clear(namespace: str = ""):
+    """清空缓存（可指定命名空间）。"""
+    if namespace:
+        n = _cache.invalidate(namespace)
+    else:
+        n = _cache.clear_all()
+    return {"ok": True, "cleared": n}
+
+
+# --------------------------------------------------------------------------- #
+#  同步历史（类 git log）
+# --------------------------------------------------------------------------- #
+@app.get("/api/sync-history")
+async def api_sync_history_list(limit: int = 50, date: str = ""):
+    """列出同步历史（类 git log）。"""
+    return {"entries": _history.list_history(limit=limit, date_str=date or None)}
+
+
+@app.get("/api/sync-history/stats")
+async def api_sync_history_stats():
+    """同步统计信息。"""
+    return _history.stats()
+
+
+@app.get("/api/sync-history/{commit_id}")
+async def api_sync_history_show(commit_id: str):
+    """查看某次同步详情（类 git show）。"""
+    entry = _history.show(commit_id)
+    if not entry:
+        raise HTTPException(404, "未找到该同步记录")
+    return entry
+
+
+@app.delete("/api/sync-history")
+async def api_sync_history_clear(date: str = ""):
+    """清空同步历史（可指定日期）。"""
+    n = _history.clear(date_str=date or None)
+    return {"ok": True, "cleared": n}
+
+
+# --------------------------------------------------------------------------- #
 #  SSE 事件流
 # --------------------------------------------------------------------------- #
 @app.get("/api/events")

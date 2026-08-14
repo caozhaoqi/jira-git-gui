@@ -15,6 +15,11 @@ __pycache__/
 .env
 .session.json
 
+# 运行期缓存（含拉取的文件树/内容，可能含敏感信息）
+cache/
+# 同步历史记录（含本地路径等，不入库）
+sync_history/
+
 # 测试：保留单测随仓库提交；含密钥的集成测试单独忽略
 tests/test_integration.py
 tests/.pytest_cache/
