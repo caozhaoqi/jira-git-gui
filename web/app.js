@@ -191,6 +191,11 @@ function connectSSE() {
       stage: `合并中 (${d.done}/${d.total})`,
       detail: (d.ok ? '✓ ' : '✗ ') + d.path,
     });
+    // 实时更新「全部合并」按钮文字，让用户看到完成数
+    const mergeBtn = document.getElementById('btn-diff-merge-all');
+    if (mergeBtn && mergeBtn.disabled) {
+      mergeBtn.textContent = `合并中 (${d.done}/${d.total})…`;
+    }
     if (!d.ok && d.error) addDiffError(`${d.path}：${d.error}`);
   });
   state.sse.addEventListener('merge_done', e => {

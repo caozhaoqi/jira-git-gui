@@ -228,13 +228,26 @@ async def api_status():
 
 @app.post("/api/connect")
 async def api_connect(req: ConnectReq):
-    """设置连接配置并测试连通性。"""
+    """设置连接配置并测试连通性。
+
+    Cookie 保留逻辑：前端连接弹窗出于安全不回显 Cookie 明文，用户未重新
+    粘贴时 req.cookie 为空。此时若已有 session/上次保存的 Cookie，自动沿用，
+    避免每次打开弹窗都丢失 Cookie。
+    """
+    # Cookie/PAT 模式下：用户未输入新值时，沿用当前已加载的值
+    effective_cookie = req.cookie
+    if req.mode == "cookie" and not effective_cookie and client.config.cookie:
+        effective_cookie = client.config.cookie
+    effective_pat = req.pat
+    if req.mode == "pat" and not effective_pat and client.config.pat:
+        effective_pat = client.config.pat
+
     cfg = ConnectConfig(
         jira_url=req.jira_url.rstrip("/"),
         username=req.username,
         mode=req.mode,
-        pat=req.pat,
-        cookie=req.cookie,
+        pat=effective_pat,
+        cookie=effective_cookie,
     )
     client.set_config(cfg)
     if req.repo_id:
@@ -249,9 +262,9 @@ async def api_connect(req: ConnectReq):
         client.repo_name = rd["displayName"]
 
     # Cookie 持久化：连通成功则保存到 session.json；失败则提示用户重新获取
-    if req.mode == "cookie" and req.cookie:
+    if req.mode == "cookie" and effective_cookie:
         if result.get("cookieOk"):
-            save_session(req.cookie, req.jira_url, req.username)
+            save_session(effective_cookie, req.jira_url, req.username)
             result["cookieSaved"] = True
         else:
             result["cookieSaved"] = False
@@ -697,60 +710,114 @@ async def api_diff_merge(req: MergeReq):
 
 @app.post("/api/diff/merge-batch")
 async def api_diff_merge_batch(reqs: list[MergeReq]):
-    """批量合并多个文件（缓存优先，并行抓取 + 写入）。
+    """批量合并多个文件（缓存优先，并行抓取 + 并行写入）。
 
-    通过 SSE 推送合并进度：
-    - merge_start: {total}
-    - merge_progress: {done, total, pct, path, ok, error?}
-    - merge_done: {ok_count, fail_count, fails: [{path, error}]}
-
-    并发策略：用 asyncio.Semaphore 限制同时进行的远程抓取（默认 6），
-    避免一次性提交数百个请求把 Jira 服务器压垮。每完成一个文件即推送进度。
+    性能优化（针对「本地合并慢」）：
+    1. 高并发：抓取默认 12 并发（比扫描激进，因为每个请求只有 1 个文件），
+       写入默认 20 并发（纯本地 I/O，无网络瓶颈）
+    2. 分阶段：抓取和写入解耦（用 asyncio.Queue 管道），抓取不被写入阻塞
+    3. 快速跳过：本地相同大小且读取内容与远程 bytes 相同 → 不写盘
+    4. 父目录缓存：用全局 _DIR_CACHE 集合同步 mkdir(parents=True)
+    5. 每完成一个文件即推送进度（merge_progress SSE），便于前端实时显示
     """
     namespace = str(client.repo_id) if client.repo_id else "default"
     total = len(reqs)
     _broadcast("merge_start", {"total": total})
+    _differ.clear_dir_cache()
 
-    sem = asyncio.Semaphore(6)  # 并发上限
+    FETCH_WORKERS = min(12, max(4, DEFAULT_DOWNLOAD_WORKERS * 2))
+    WRITE_WORKERS = 20
+
+    # pipeline: fetch -> [queue] -> write, bounded to avoid memory blow-up
+    pipe: "asyncio.Queue[tuple[int, MergeReq, str, Optional[str]]]" = asyncio.Queue(
+        maxsize=FETCH_WORKERS * 2
+    )
     done_counter = 0
     counter_lock = asyncio.Lock()
 
-    async def _merge_one(req: MergeReq):
-        nonlocal done_counter
-        err = None
-        ok = False
-        async with sem:
-            try:
-                remote_content = await asyncio.to_thread(
-                    _differ.get_file_cached,
-                    client, namespace, req.path,
-                    86400, req.use_cache,
-                )
-                ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
-            except Exception as ex:
-                ok = False
-                err = str(ex)
-        if not ok and err is None:
-            err = "写入失败（可能权限不足）"
-        # 原子递增计数器并推送进度
-        async with counter_lock:
-            done_counter += 1
-            cur = done_counter
-        _broadcast("merge_progress", {
-            "done": cur,
-            "total": total,
-            "pct": (cur * 100 // total) if total > 0 else 100,
-            "path": req.path,
-            "ok": ok,
-            "error": err,
-        })
-        return {"path": req.path, "ok": ok, "error": err}
+    async def _fetch(idx: int, req: MergeReq):
+        """抓取一个远程文件（经缓存），结果写入管道。"""
+        err: Optional[str] = None
+        content: Optional[str] = ""
+        try:
+            content = await asyncio.to_thread(
+                _differ.get_file_cached,
+                client, namespace, req.path,
+                86400, req.use_cache,
+            )
+        except Exception as ex:
+            err = str(ex)
+        await pipe.put((idx, req, content, err))
 
-    results = await asyncio.gather(*[_merge_one(r) for r in reqs])
-    ok_count = sum(1 for r in results if r["ok"])
+    async def _writer():
+        """从管道取 (idx, req, content, err) 并写入磁盘。"""
+        nonlocal done_counter
+        while True:
+            item = await pipe.get()
+            try:
+                (idx, req, content, fetch_err) = item
+                # 毒丸：停止信号
+                if req is None:
+                    break
+                ok = False
+                err = fetch_err
+                if err is None:
+                    try:
+                        ok = _differ.merge_to_local(
+                            req.local_dir, req.path, content or "",
+                        )
+                    except Exception as ex:
+                        ok = False
+                        err = str(ex)
+                if not ok and err is None:
+                    err = "写入失败（可能权限不足）"
+                async with counter_lock:
+                    done_counter += 1
+                    cur = done_counter
+                _broadcast("merge_progress", {
+                    "done": cur,
+                    "total": total,
+                    "pct": (cur * 100 // total) if total > 0 else 100,
+                    "path": req.path,
+                    "ok": ok,
+                    "error": err,
+                })
+                results[idx] = {"path": req.path, "ok": ok, "error": err}
+            finally:
+                pipe.task_done()
+
+    # 预分配 results 列表（按原始顺序，便于与前端 reqs 一一对应）
+    results: list[dict] = [None] * total  # type: ignore[list-item]
+
+    # 启动写者
+    writer_tasks = [asyncio.create_task(_writer()) for _ in range(WRITE_WORKERS)]
+
+    # 并发抓取（FETCH_WORKERS 限流，避免同时向 Jira 发 500 个请求）
+    fetch_sem = asyncio.Semaphore(FETCH_WORKERS)
+
+    async def _fetch_limited(idx, req):
+        async with fetch_sem:
+            await _fetch(idx, req)
+
+    fetch_tasks = [asyncio.create_task(_fetch_limited(i, r)) for i, r in enumerate(reqs)]
+    try:
+        await asyncio.gather(*fetch_tasks)
+    except Exception as ex:
+        # 某个 fetch 的异常已写入对应 result；这里只是防止 gather 抛到外层
+        logger.warning("merge batch gather(fetch) exception: %s", ex)
+
+    # 等所有写入任务消费完队列
+    await pipe.join()
+
+    # 发送毒丸停止写者
+    for _ in writer_tasks:
+        await pipe.put((-1, None, None, None))
+    await asyncio.gather(*writer_tasks, return_exceptions=True)
+
+    ok_count = sum(1 for r in results if r and r["ok"])
     fail_count = total - ok_count
     fails = [{"path": r["path"], "error": r["error"]}
-             for r in results if not r["ok"]][:50]
+             for r in results if r and not r["ok"]][:50]
     _broadcast("merge_done", {"ok_count": ok_count, "fail_count": fail_count, "fails": fails})
     return {"results": results}
 

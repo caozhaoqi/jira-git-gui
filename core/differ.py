@@ -23,6 +23,13 @@ from .logger import get_logger
 
 _log = get_logger()
 
+# 合并时已确认存在的父目录集合，避免每个文件都 mkdir(parents=True)
+_DIR_CACHE: set[str] = set()
+
+def clear_dir_cache() -> None:
+    """清空父目录缓存（建议每个批量合并任务开始前调用一次）。"""
+    _DIR_CACHE.clear()
+
 # 扫描时跳过的目录名
 SKIP_DIRS = {
     ".git", ".svn", ".hg", "node_modules", ".venv", "venv", "__pycache__",
@@ -431,20 +438,45 @@ def _force_writable(path: Path) -> None:
 def merge_to_local(local_dir: str, rel_path: str, remote_content: str) -> bool:
     """将远程文件内容写入本地路径。
 
-    直接覆盖写入；失败时尝试 chmod 后重试，不使用 subprocess（避免沙箱限制）。
+    优化：
+    1. 仅当本地文件内容不同时才写入（避免无意义刷盘、mtime 变更）
+    2. 已创建过的父目录放入集合，避免每个文件都 mkdir(parents=True)
+    3. 写入失败再 chmod 重试（不依赖子进程，避免沙箱）
     """
     target = Path(local_dir) / rel_path
     content = remote_content or ""
     is_bytes = isinstance(content, bytes)
+    # 快速跳过：文件存在且内容完全相同 → 视为成功，直接返回
+    if target.exists() and target.is_file():
+        try:
+            if is_bytes:
+                with open(target, "rb") as f:
+                    if f.read() == content:
+                        return True
+            else:
+                with open(target, "r", encoding="utf-8", errors="replace") as f:
+                    if f.read() == content:
+                        return True
+        except OSError:
+            pass
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        parent = target.parent
+        # 缓存已存在的父目录，避免每个文件都 mkdir(parents=True)（会产生 N 次 stat）
+        key = str(parent)
+        if key not in _DIR_CACHE:
+            parent.mkdir(parents=True, exist_ok=True)
+            _DIR_CACHE.add(key)
         _write_file(target, content, is_bytes)
         return True
     except (OSError, PermissionError) as e:
-        # 尝试 chmod 后重试（不调用 subprocess，避免触发沙箱）
         try:
             if target.exists():
                 os.chmod(target, 0o666)
+            parent = target.parent
+            key = str(parent)
+            if key not in _DIR_CACHE:
+                parent.mkdir(parents=True, exist_ok=True)
+                _DIR_CACHE.add(key)
             _write_file(target, content, is_bytes)
             return True
         except (OSError, PermissionError) as e2:
