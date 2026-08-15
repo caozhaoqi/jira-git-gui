@@ -1,144 +1,192 @@
-# Jira Git 通用拉取工具
+# Jira Git Universal Pull Tool
 
-针对 Jira Git Integration 插件（Xiplink / BigBrassBand）的通用桌面客户端。提供两种桌面形态：
+> 📘 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
-- **PyQt 桌面版**（`main.py`）：纯 Python + PyQt6，无需浏览器，所有网络请求在后台线程执行，界面不卡顿。
-- **Electron 桌面端**（`electron/`）：以 Electron 加载同一套 Web 前端（`web/`），跨平台打包，UI 特性见下文「Electron 桌面端」。
+A general-purpose desktop client for the Jira Git Integration plugin (Xiplink / BigBrassBand). It ships in two desktop flavors:
 
-> 两套前端共用同一 Python 后端（`api/server.py`，默认端口 8787），能力完全一致。
+- **PyQt6 desktop app** (`main.py`): pure Python + PyQt6, no browser required; all network requests run on background threads so the UI never freezes.
+- **Electron / Web desktop app** (`electron/` + `web/`): Electron loads the same Web frontend for cross-platform packaging; you can also just open it in a browser against the local backend. UI features are detailed below under "Electron / Web Desktop App".
 
-## 两种模式
+> Both frontends share the same Python backend (`api/server.py`, default port 8787) and are feature-equivalent.
 
-| 模式 | 认证 | 能力 | 局限 |
+## Features
+
+- **Dual frontend / dual mode**: choose the native PyQt6 desktop app or the Electron + Web app; switch freely between PAT (full `git clone`) and Cookie (web fetch / recursive download) authentication.
+- **Unified design system**: the Web frontend uses a CSS-variable-driven light / dark dual theme, with a branded header, live status dot, and GitHub-style diff tables — modern and consistent.
+- **High-performance engine**: incremental scanning (~2.7×), set-based diffing, parallel merging (~8×), and O(1) file-tree indexing; a global token-bucket rate limiter with a UI-adjustable rate.
+- **Smart diff**: automatically detects CRLF / LF line-ending and whitespace-only differences (classified as "line-ending diff" rather than "modified"); structured files such as JSON / JSONC / XML are auto-formatted and expanded in the diff view, so even single-line minified files become readable line by line.
+- **Resume-able downloads with bounded concurrency**: Cookie mode supports recursive whole-repo downloads (including nested files and binaries) with resume, cancellation, and a default of 4 concurrent threads.
+
+## Two Modes
+
+| Mode | Auth | Capabilities | Limits |
 | --- | --- | --- | --- |
-| **PAT 模式** | Personal Access Token | `git clone` 全量拉取（含嵌套文件），本地浏览/预览 | 需要该账号名下有效 PAT 与仓库名 |
-| **Cookie 模式** | `JSESSIONID` 会话 | 浏览文件树（懒加载）、预览文本文件、批量/递归下载整库（含嵌套文件与二进制）、断点续传、并行下载 | 二进制文件仅支持「下载」到本地，不支持直接预览；依赖会话 Cookie 有效 |
+| **PAT mode** | Personal Access Token | `git clone` full pull (incl. nested files), local browse / preview | Requires a valid PAT and repo name under that account |
+| **Cookie mode** | `JSESSIONID` session | Browse file tree (lazy), preview text files, batch / recursive download of whole repo (incl. nested files & binaries), resume, parallel download | Binaries can only be "downloaded" locally, not previewed; depends on a valid session cookie |
 
-> Cookie 模式已支持**递归整库下载**（插件接口本身支持任意 path，含子目录与嵌套文件），
-> 不再受「仅根目录」限制。断点续传 + 有界并发（默认 4 线程）让整库抓取可续、可取消、更快。
+> Cookie mode already supports **recursive whole-repo downloads** (the plugin API itself accepts any path, including subdirs and nested files),
+> no longer limited to "root only". Resume + bounded concurrency (default 4 threads) make whole-repo fetching resumable, cancelable, and faster.
 
-## 项目结构
+## Project Structure
 
 ```
 jira-git-gui/
-├── main.py                 # 入口：创建 QApplication + MainWindow
-├── core/                   # 核心逻辑层（无 GUI 依赖，可独立测试）
-│   ├── constants.py        # 目录 / 代理 / 超时
-│   ├── models.py           # ConnectConfig / RepoInfo / TreeEntry
-│   ├── config.py           # 从 .env 自动载入默认连接配置
-│   └── client.py           # JiraGitClient：connect / discover / list_level / get_file / clone / download
-├── gui/                    # 界面层（PyQt6 组件）
-│   ├── main_window.py      # 布局 + 信号绑定 + 异步任务编排
-│   ├── connect_dialog.py   # 连接设置（地址/账号/模式/PAT/Cookie/仓库）
-│   ├── repo_panel.py       # 发现仓库 / 手动指定仓库
-│   ├── tree_panel.py       # 懒加载文件树（QTreeWidget）
-│   ├── preview_panel.py    # 代码预览
-│   └── log_panel.py        # 日志
-├── workers/                # 异步任务层
-│   └── tasks.py            # 通用 QThread Worker（自动注入 on_log 回调；异常输出完整 traceback）
-├── tests/                  # 测试（先单测后集成，已纳入版本控制）
-│   ├── test_download_resume.py    # 单元测试：断点续传 / 进度 / 取消（不联网）
-│   ├── test_client_optimizations.py # 单元测试：二进制下载 / 分支缓存 / PAT 轻量测试 / 并行下载
-│   └── test_integration.py   # 集成测试：真实访问 jira（需凭据，无则自动跳过）
-├── core/                   # 核心逻辑层（含统一日志中枢 logger.py / 槽异常保护 safe.py）
-│   ├── logger.py           # 文件轮转日志 + LogBridge(UI 桥) + 全局异常钩子
-│   └── safe.py             # safe_slot 装饰器：拦截槽函数异常，防止界面闪退
-├── store/                  # 运行期产物（git 克隆 / 下载，已 gitignore）
-├── logs/                   # 运行期日志（含完整 traceback，已 gitignore）
-├── server.py               # FastAPI 后端（Electron / Web 前端共用，默认端口 8787）
-├── electron/               # Electron 桌面端
-│   ├── main.js             # 主进程：拉起 Python 后端并承载 BrowserWindow
-│   └── preload.js          # 渲染进程桥接（日志上报等）
-├── web/                    # Web 前端（Electron / 浏览器通用，零框架依赖）
-│   ├── index.html          # 页面结构（标签页 + 弹窗）
-│   ├── styles.css          # 设计系统（浅色 / 深色双主题）
-│   └── app.js              # 前端逻辑（REST + SSE）
-└── requirements.txt
+├── main.py                 # Entry: creates QApplication + MainWindow (PyQt6 desktop app)
+├── run_merge.py            # CLI: merge remote repos' latest code into local (cache-first + sync history)
+├── server.py               # ⚠️ Legacy monolithic backend (DEPRECATED, do not use; main path is api/server.py)
+├── requirements.txt        # PyQt6 / httpx / fastapi / uvicorn
+├── core/                   # Core logic layer (no GUI dependency, independently testable)
+│   ├── app_paths.py        # Runtime writable dirs (relocates to ~/.jira-git-gui when frozen)
+│   ├── constants.py        # Directories / proxy / timeouts
+│   ├── models.py           # ConnectConfig / RepoInfo / TreeEntry / DiffResult
+│   ├── config.py           # Auto-load default connection config from .env
+│   ├── client.py           # JiraGitClient: connect / discover / list_level / get_file / clone / download
+│   ├── cache.py            # Remote tree / content JSON cache (lock-guarded, avoids re-fetch)
+│   ├── differ.py           # Diffing: compute_diff / scan_local / merge_to_local / file_diff / canonical_text
+│   ├── throttle.py         # Global token-bucket rate limiter (DEFAULT_REQUEST_QPS)
+│   ├── sync_history.py     # Sync history (git-log-like)
+│   ├── logger.py           # Rotating file log + LogBridge (UI bridge) + global excepthook (PyQt6 lazy-loaded)
+│   ├── safe.py             # safe_slot decorator: catches slot exceptions, prevents UI crashes
+│   └── errors.py           # Unified exception types
+├── gui/                    # UI layer (PyQt6 widgets)
+│   ├── main_window.py      # Layout + signal binding + async task orchestration
+│   ├── connect_dialog.py   # Connection settings (url / account / mode / PAT / Cookie / repo)
+│   ├── repo_panel.py       # Discover repos / specify repo manually
+│   ├── tree_panel.py       # Lazy file tree (O(1) index)
+│   ├── preview_panel.py    # Code preview
+│   ├── diff_panel.py       # Diff view (zero-dependency syntax highlight)
+│   ├── highlighter.py      # Zero-dependency syntax highlighter (QSyntaxHighlighter)
+│   ├── styles.py           # Light / dark dual-theme QSS
+│   ├── commit_panel.py     # Commit history
+│   └── log_panel.py        # Logs
+├── workers/                # Async task layer
+│   └── tasks.py            # Generic QThread Worker (auto on_log callback; full traceback on error)
+├── api/                    # Backend shared by Web / Electron
+│   └── server.py           # FastAPI: REST + SSE, default port 8787 (main path)
+├── electron/               # Electron desktop app
+│   ├── main.js             # Main process: Python backend lifecycle + BrowserWindow + log bridge
+│   ├── preload.js          # Exposes window.electronAPI (contextIsolation isolated)
+│   └── package.json        # name / version / start|dev|dist scripts + electron-builder config
+├── web/                    # Web frontend (shared by Electron / browser, zero framework deps)
+│   ├── index.html          # Page structure (toolbar + tabs + connection dialog)
+│   ├── styles.css          # Design system (CSS variables, light / dark dual theme)
+│   └── app.js              # Frontend logic (REST + SSE, pure vanilla JS)
+├── build/                  # PyInstaller specs (gui / backend)
+├── tests/                  # Unit tests (unit before integration, version-controlled)
+├── store/                  # Runtime artifacts (git clone / downloads, gitignored)
+├── logs/                   # Runtime logs (full traceback, gitignored)
+└── docs/
+    └── PACKAGING.md        # Packaging & cross-platform release details
 ```
 
-依赖方向：`gui → workers → core`，`core` 不反向依赖 GUI，便于单独复用与测试。
+Dependency direction: `gui → workers → core`; `core` does not depend back on GUI, so it can be reused and tested in isolation.
 
-> **关于 `server.py`**：早期曾以 FastAPI 提供一个 Web 版后端，与桌面端逻辑重复。当前主路径是
-> PyQt6 桌面端（`main.py`）。`server.py` 仅作备选保留，不再随桌面端维护，请勿混用。
+## Running
 
-## 运行
+### PyQt6 desktop app
 
 ```bash
-# 1. 创建并激活虚拟环境（已存在 venv 可跳过）
+# 1. Create and activate a venv (skip if venv already exists)
 python3 -m venv venv
 source venv/bin/activate
 
-# 2. 安装依赖
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. 启动（任选其一）
-./venv/bin/python main.py     # 直接用项目 venv
-python3 main.py              # 任意 python 亦可：main.py 会自动切到 venv
-./run.sh                     # 一键启动脚本（macOS / Linux）
-open run.command             # macOS 双击启动
+# 3. Launch (any one)
+./venv/bin/python main.py     # directly with project venv
+python3 main.py              # any python works: main.py auto-switches to venv
+./run.sh                     # one-click launcher (macOS / Linux)
 ```
 
-> **启动自愈**：`main.py` 顶部内置 venv 自检——若当前解释器缺少 `PyQt6`，
-> 会自动 `re-exec` 到项目自带的 `venv` 解释器再启动。因此用系统 `python3`
-> 直接跑也不会再出现 `ModuleNotFoundError: No module named 'PyQt6'`。
-> 若 venv 本身缺失 PyQt6，请先执行上面的第 2 步安装依赖。
+> **Self-healing launch**: `main.py` has a built-in venv self-check at the top — if the current interpreter lacks `PyQt6`,
+> it auto `re-exec`s into the project's own `venv` interpreter before starting. So running with system `python3`
+> will no longer raise `ModuleNotFoundError: No module named 'PyQt6'`.
+> If the venv itself is missing PyQt6, install dependencies via step 2 above first.
 
-## Electron 桌面端
+### Web / Electron app (shared backend)
 
-以 Electron 打包的独立桌面应用：主进程（`electron/main.js`）负责拉起 Python 后端
-（`api/server.py`，端口 8787）并承载一个 `BrowserWindow`，窗口内加载 `web/` 下的前端页面。
-后端就绪失败会弹窗提示并退出，避免白屏。
+```bash
+# Start the backend (open http://127.0.0.1:8787 in a browser)
+PYTHONPATH=. ./venv/bin/python -m api.server                # default port 8787
+PYTHONPATH=. ./venv/bin/python -m api.server --port 9000    # custom port
+```
 
-### 启动
+## Electron / Web Desktop App
+
+A standalone desktop app packaged with Electron: the main process (`electron/main.js`) starts the Python backend
+(`api/server.py`, port 8787) and hosts a `BrowserWindow` loading the frontend under `web/`.
+If the backend fails to come up, a dialog is shown and the app exits, avoiding a blank screen. When packaged, Electron embeds the frozen backend executable; in dev it falls back to `venv/bin/python` and the system `python`.
+
+### Launch
 
 ```bash
 cd electron
-npm install        # 仅首次，安装 electron
-npm start          # 启动（自动拉起 Python 后端并打开窗口，1280×800）
-npm run dev        # 开发模式（自动打开 DevTools）
+npm install        # first time only: install electron + electron-builder
+npm start          # start (auto-starts Python backend and opens window, 1280×800)
+npm run dev        # dev mode (auto-opens DevTools)
+npm run dist:mac   # package macOS installer (dmg)
+npm run dist:win   # package Windows installer (nsis)
+npm run dist:linux # package Linux installer (AppImage + deb)
 ```
 
-> 若本机 `npm`/Electron 下载受阻，也可直接以任意浏览器访问 `http://127.0.0.1:8787/`
-> （先在项目根目录启动后端：`PYTHONPATH=. ./venv/bin/python -m api.server`），
-> 前端（`web/`）与 Electron 内加载的是同一套页面。
+> If `npm` / Electron download is blocked on your machine, you can also just open `http://127.0.0.1:8787/`
+> in any browser (start the backend from the project root first: `PYTHONPATH=. ./venv/bin/python -m api.server`).
+> The frontend (`web/`) is the same page loaded inside Electron.
 
-### 界面特性
+### UI Features
 
-- **浅色 / 深色双主题**：工具栏「🌓 主题」一键切换，偏好经 `localStorage` 持久化，下次启动自动恢复。
-- **品牌头**：工具栏左侧显示应用标识（🌿）+ 名称「Jira Git GUI」，与裸网页区分。
-- **实时状态点**：底部状态栏左侧指示点——绿=凭证已配置 / 黄=未配置，后端状态一目了然。
-- **视觉打磨**：主按钮渐变、列表项 hover 微抬升、卡片柔和阴影、GitHub 风格 diff 表格，整体更现代统一。
-- **标签页布局**：仓库 / 文件树 / 文件预览 / 提交记录 / 差异对比 / 日志，与 PyQt 版功能等价。
+- **Light / dark dual theme**: one-click toggle in the toolbar ("🌓 Theme"); preference persists via `localStorage` and restores on next launch.
+- **Branded header**: app mark (🌿) + name "Jira Git GUI" on the left of the toolbar, distinct from a bare web page.
+- **Live status dot**: indicator on the left of the bottom status bar — green = credentials configured / yellow = not configured, so backend state is obvious at a glance.
+- **Visual polish**: gradient primary buttons, list-item hover lift, soft card shadows, GitHub-style diff tables — modern and cohesive overall.
+- **Design system**: `web/styles.css` is driven by CSS variables for color, spacing, radius, and shadow; light / dark is a `body.dark` override, so new components reuse tokens instead of scattering hardcoded values.
+- **Tabbed layout**: Repos / File tree / File preview / Commits / Diff / Logs — feature-equivalent to the PyQt version.
 
-### 目录结构
+## Smart Diff
 
-```
-electron/
-├── main.js       # 主进程：Python 后端生命周期 + BrowserWindow + 日志桥接
-├── preload.js    # 暴露 window.electronAPI（日志上报等，contextIsolation 隔离）
-└── package.json  # name / version / start|dev 脚本
-web/
-├── index.html    # 结构（工具栏、标签页、连接设置弹窗）
-├── styles.css    # 设计系统：CSS 变量驱动，含 body.dark 深色覆盖
-└── app.js        # 逻辑：REST 调用 + SSE 日志/进度 + 纯 vanilla JS
-```
+The diff engine (`core/differ.py`) specifically addresses two common pain points: "same content, different format" and "single-line minified files":
 
----
+### Line-ending / whitespace filtering
 
-## 配置文件（`.env`）
+- For text files an extra **normalized hash** is computed (normalize `\r\n` to `\n` first, then MD5).
+- When local (e.g. CRLF) and remote (e.g. LF) differ only in line endings / whitespace but are semantically identical, the status is **`line-ending diff` (`WHITESPACE_ONLY`)** — not counted as "modified", and skipped on merge, so the remote style is never polluted.
+- The Web "Diff" panel has **"Ignore line-ending differences"** checked by default; unchecking restores "modified" for fine-grained review.
 
-应用启动时**自动读取项目根目录的 `.env`** 作为默认连接配置（无需每次在「连接设置」里重填）。
-文件已被 `.gitignore` 忽略，**请勿提交真实凭据**。支持的键名（兼容别名与拼写误差）：
+### Structured-file formatting
 
-| `.env` 键 | 含义 | 备注 |
+- For JSON / JSONC / XML families, `canonical_text()` normalizes and expands (JSON `indent=2`, XML `minidom.toprettyxml`) before generating the unified diff.
+- Single-line minified files thus become line-level readable diffs — only the actually changed field line is highlighted, instead of the whole line being red.
+- **Equality check and merge both use the original bytes**: minified single-line vs pretty multi-line (same content) is still "modified" per original MD5/size; the merge always writes the original remote bytes, never silently "formatting" and polluting the remote.
+- Parse failures always return as-is, never raising. Supported: JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL.
+
+## Performance
+
+The diff and merge engine has been hardened over several rounds (measured on repositories with tens of thousands of files):
+
+- **Incremental scanning**: re-scans only changed subtrees, ~**2.7×** faster overall.
+- **Set-based diffing**: set operations replace linear per-item comparison, much faster on large repos.
+- **Parallel merging**: local write stage processes multiple files in parallel, ~**8×** faster.
+- **O(1) file-tree index**: `tree_panel` indexes nodes in a dict; locating / expanding no longer traverses the whole tree.
+- **Global token-bucket limiter**: `DEFAULT_REQUEST_QPS=6` in `core/throttle.py` prevents tripping remote rate limits; the Web "merge rate" knob adjusts 15–30 QPS, with automatic backoff on overload.
+- **Cache-first**: remote tree / content prefer the lock-guarded JSON cache in `core/cache.py` to avoid re-fetching; `run_merge.py` is likewise cache-first.
+
+> Performance decisions and trade-offs are documented as ADRs and fix reports under `deliverables/gstack/` (e.g. `fix-crlf-whitespace-only-*.md`).
+
+## Configuration File (`.env`)
+
+On startup the app **auto-reads `.env` at the project root** as the default connection config (no need to re-fill "Connection Settings" each time).
+The file is gitignored — **do not commit real credentials**. Supported keys (alias- and typo-tolerant):
+
+| `.env` key | Meaning | Notes |
 | --- | --- | --- |
-| `jira_url` | Jira 基址
-| `username` | 账号名 | PAT 克隆建议使用 PAT 所属账号 |
-| `mode` | 模式 | `pat`（默认）或 `cookie` |
-| `personal_access_token` | PAT | 兼容旧拼写 `persoanl_access_token` |
-| `cookie` | 会话 Cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
+| `jira_url` | Jira base URL | also `JIRA_URL` |
+| `username` | Account name | for PAT clone, use the PAT owner's account |
+| `mode` | Mode | `pat` (default) or `cookie` |
+| `personal_access_token` | PAT | also tolerates old spelling `persoanl_access_token` |
+| `cookie` | Session cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
 
-示例：
+Example:
 
 ```ini
 jira_url=https://jira.cn
@@ -146,16 +194,42 @@ personal_access_token=YOUR_PAT
 cookie=JSESSIONID=...; atlassian.xsrf.token=...
 ```
 
-> 真实环境变量（大写键名，如 `JIRA_URL`）优先级高于 `.env`，便于 CI / 临时覆盖。
+> Real environment variables (uppercase keys, e.g. `JIRA_URL`) take priority over `.env`, convenient for CI / temporary overrides.
+> After frozen packaging, `.env` is searched along both the user data dir `~/.jira-git-gui` and the executable's directory.
 
----
+## Packaging & Release (Cross-platform)
 
-## 打包与发布（跨平台）
+The tool supports **three release flavors**, all sharing the same Python backend:
 
-本工具支持 **三种发布形态**，共用同一 Python 后端：
+| Flavor | Entry | Packaging | Artifact |
+|------|------|------|------|
+| PyQt6 desktop app | `main.py` | `pyinstaller build/pyinstaller_gui.spec` | `.app` (macOS) / `.exe` (Windows) |
+| Web app | Browser | `pyinstaller build/pyinstaller_backend.spec` | single-file backend `jira-git-backend` |
+| Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` / `.exe`(nsis) / `.AppImage`+`.deb` |
 
-| 形态 | 入口 | 打包 |
-|------|------|------|
-| PyQt6 桌面版 | `main.py` | `pyinstaller build/pyinstaller_gui.spec` → `.app` / `.exe` |
-| Web 版 | 浏览器 | `pyinstaller build/pyinstaller_backend.spec` → 单文件后端 |
-| Electron 桌面版 | `electron/` | electron-builder（嵌入冻结后的后端） |
+**Key constraint**: neither PyInstaller nor electron-builder supports **cross-compilation** — each platform's artifact must be built on that OS (or a corresponding CI runner).
+A `.github/workflows/release.yml` is configured so pushing a `vX.Y.Z` tag auto-builds on macOS / Windows / Ubuntu runners.
+
+Two key refactors before packaging (already done):
+
+1. **Decouple `core/logger.py` from PyQt6**: made lazy-loaded, so the headless backend is fully free of the GUI framework — ~8 MB after freezing.
+2. **Writable runtime dirs**: added `core/app_paths.get_data_root()`, routing logs / cache / downloads / session to `~/.jira-git-gui` (project root in dev) to avoid writing into a read-only frozen bundle.
+
+Detailed local build steps, CI flow, artifact table, and signing notes are in **[docs/PACKAGING.md](docs/PACKAGING.md)**.
+
+## Testing
+
+```bash
+# activate the venv that has PyQt6 first
+QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
+```
+
+Coverage: resume download, client optimizations (binary download / branch cache / parallel download), diff performance & formatting, CRLF / line-ending filtering, token-bucket limiter, file-tree index, commits, Worker exception protection, etc. Integration tests need real credentials and skip automatically when absent.
+
+## Known Limitations
+
+- **Unsigned**: local / CI artifacts are ad-hoc; first open is blocked by Gatekeeper / SmartScreen. Configure a cert for official release.
+- **Root `server.py` is deprecated**: it hardcodes an absolute path and is kept only for historical compatibility; new features and packaging use `api/server.py`.
+- **Python version**: dev env 3.9 is compatibility-hardened; CI and official packaging recommend **Python ≥ 3.10** (3.11 verified).
+- **Linux runtime deps**: the desktop app needs system libs `libgl1` / `libnss3` etc. (installed in CI).
+- **YAML formatting**: structured-file diff does not yet include YAML (needs PyYAML); can be extended later.
