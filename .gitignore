@@ -29,6 +29,13 @@ electron/node_modules/
 electron/package-lock.json
 electron/dist-electron/
 
+# Tauri
+tauri/web/
+tauri/src-tauri/target/
+tauri/src-tauri/gen/
+tauri/src-tauri/resources/backend/*
+!tauri/src-tauri/resources/backend/.gitkeep
+
 # PyInstaller 构建产物
 dist/
 build/__pycache__/

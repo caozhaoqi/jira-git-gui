@@ -30,6 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build"
 ELECTRON_DIR = ROOT / "electron"
+TAURI_DIR = ROOT / "tauri"
 VENV = ROOT / "venv"
 
 # 各形态构建成功后产出的目录 / 文件（相对 ROOT）提示
@@ -37,6 +38,7 @@ ARTIFACT_HINTS = {
     "gui": "dist/JiraGitGUI*",
     "backend": "dist/jira-git-backend*",
     "electron": "electron/dist-electron/*",
+    "tauri": "tauri/src-tauri/target/release/bundle/*",
 }
 
 
@@ -171,10 +173,49 @@ def build_electron(venv_py: Path, os_name: str, no_deps: bool) -> bool:
     return True
 
 
+def copy_backend_to_tauri(os_name: str) -> Path | None:
+    src = ROOT / "dist" / backend_exe_name(os_name)
+    if not src.exists():
+        return None
+    dst_dir = TAURI_DIR / "src-tauri" / "resources" / "backend"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / src.name
+    shutil.copyfile(src, dst)
+    dst.chmod(0o755)
+    print(f"  ✓ 已内置后端到 Tauri 资源：{dst.relative_to(ROOT)}")
+    return dst
+
+
+def build_tauri(venv_py: Path, os_name: str, no_deps: bool) -> bool:
+    print("\n=== 构建 Tauri 桌面版 (tauri) ===")
+    if shutil.which("cargo") is None:
+        print("  ✗ 未找到 Rust，请先安装 rustup (https://rustup.rs)")
+        return False
+    # Tauri 需要内置冻结后的后端
+    if not (ROOT / "dist" / backend_exe_name(os_name)).exists():
+        print("  ↳ 后端尚未构建，先构建 backend ...")
+        if not build_backend(venv_py, os_name, no_deps):
+            return False
+    if copy_backend_to_tauri(os_name) is None:
+        print("  ✗ 后端可执行不存在，无法嵌入 Tauri")
+        return False
+    # 同步前端文件到 tauri/web/（Tauri 编译需要 frontendDist）
+    web_src = ROOT / "web"
+    web_dst = TAURI_DIR / "web"
+    if web_dst.exists():
+        shutil.rmtree(web_dst)
+    shutil.copytree(web_src, web_dst)
+    print(f"  ✓ 已同步前端文件到 {web_dst.relative_to(ROOT)}")
+    # Tauri 构建（跳过 DMG，sandbox 环境限制 hdiutil）
+    run(["cargo", "tauri", "build", "--bundles", "app"], cwd=TAURI_DIR)
+    return True
+
+
 FLAVORS = {
     "gui": build_gui,
     "backend": build_backend,
     "electron": build_electron,
+    "tauri": build_tauri,
 }
 
 
@@ -184,13 +225,14 @@ def list_flavors(os_name: str):
     print("  gui     - PyQt6 桌面版 (.app / .exe / 可执行)")
     print("  backend - 单文件后端 (Web 版)")
     print("  electron- Electron 桌面版 (dmg / nsis / AppImage+deb)，需先有后端")
+    print("  tauri   - Tauri 桌面版 (dmg / msi / AppImage+deb)，需先有后端")
     print("\n示例：")
     print("  python build/build.py --flavor all")
 
 
 def main():
     ap = argparse.ArgumentParser(description="jira-git-gui 跨平台本地构建")
-    ap.add_argument("--flavor", choices=["gui", "backend", "electron", "all"],
+    ap.add_argument("--flavor", choices=["gui", "backend", "electron", "tauri", "all"],
                     default="all", help="要构建的形态（默认 all）")
     ap.add_argument("--list", action="store_true", help="仅列出本机可构建形态")
     ap.add_argument("--no-deps", action="store_true",
@@ -205,7 +247,7 @@ def main():
     print(f"平台识别：{os_name}  |  venv python：{venv_python()}")
 
     if args.flavor == "all":
-        targets = ["gui", "backend", "electron"]
+        targets = ["gui", "backend", "electron", "tauri"]
     else:
         targets = [args.flavor]
 

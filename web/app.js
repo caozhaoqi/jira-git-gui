@@ -21,7 +21,9 @@ const state = {
   qps: 6,
 };
 
-const API = location.origin;
+// Tauri 模式下前端由 Tauri 本体提供，后端在 127.0.0.1:8787；
+// Electron / Web 模式前后端同源，直接用 location.origin。
+const API = window.__TAURI__ ? 'http://127.0.0.1:8787' : location.origin;
 
 // ===== API 封装 =====
 async function api(path, opts = {}) {
@@ -59,6 +61,14 @@ function log(msg, level = 'info') {
   // Electron：转发到主进程统一落盘
   if (window.electronAPI?.log) {
     try { window.electronAPI.log(level, msg); } catch (_) {}
+  }
+  // Tauri：转发到 Rust 主进程统一落盘
+  if (window.__TAURI__) {
+    try {
+      import('@tauri-apps/api/core').then(m =>
+        m.invoke('log_message', { level, msg })
+      ).catch(() => {});
+    } catch (_) {}
   }
 }
 
@@ -1262,6 +1272,35 @@ try {
 
 updateStatus();
 connectSSE();
+
+// Tauri 特有：接收 Rust 主进程和 Python 日志，同步到 UI 日志面板
+if (window.__TAURI__) {
+  try {
+    import('@tauri-apps/api/core').then(m =>
+      m.invoke('get_app_info').then(info => {
+        if (info?.log_file) {
+          log(`[Tauri] 运行环境：${info.platform}  日志文件：${info.log_file}`);
+        }
+      }).catch(() => {})
+    ).catch(() => {});
+    import('@tauri-apps/api/event').then(m =>
+      m.listen('log:append', (event) => {
+        const text = event.payload?.text || '';
+        if (!text) return;
+        const el = document.getElementById('log-content');
+        if (!el) return;
+        const line = document.createElement('div');
+        line.className = 'log-line';
+        if (/\[error\]|\[py:err\]/.test(text)) line.classList.add('error');
+        else if (/\[warning\]/.test(text)) line.classList.add('warning');
+        line.textContent = text;
+        el.appendChild(line);
+        while (el.children.length > 3000) el.removeChild(el.firstChild);
+        el.scrollTop = el.scrollHeight;
+      })
+    ).catch(() => {});
+  } catch (_) {}
+}
 
 // Electron 特有：接收主进程和 Python 日志，同步到 UI 日志面板
 if (window.electronAPI?.onAppLog) {
