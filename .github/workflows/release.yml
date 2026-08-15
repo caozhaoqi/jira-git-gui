@@ -1,6 +1,6 @@
 # ---------------------------------------------------------------------------
 #  三端跨平台发布流水线
-#  触发：推送 v* 标签 或 手动 workflow_dispatch
+#  触发：推送 main 分支 / v* 标签 / 手动 workflow_dispatch
 #  产物：每个 OS 各出 ① 冻结后端（Web 模式用）② PyQt6 桌面应用 ③ Electron 安装包
 #  说明：PyInstaller / electron-builder 均不支持交叉编译，
 #        故后端 + GUI + Electron 必须在各自目标系统上构建（三 runner 分工）。
@@ -12,6 +12,11 @@ on:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+
+env:
+  # 未配置代码签名证书时禁用自动签名发现，否则 macOS/Windows 打包会因找不到证书而失败。
+  # 产物为未签名（ad-hoc），用户首次打开需手动允许（详见 docs/PACKAGING.md）。
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
 jobs:
   # ===================== macOS =====================
@@ -38,7 +43,7 @@ jobs:
       - name: Build Electron (dmg)
         working-directory: electron
         run: |
-          npm ci
+          npm install
           npm run dist:mac
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -74,7 +79,7 @@ jobs:
       - name: Build Electron (nsis)
         working-directory: electron
         run: |
-          npm ci
+          npm install
           npm run dist:win
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -97,9 +102,10 @@ jobs:
         with:
           node-version: "20"
       - name: Install system libs (Qt / Electron)
+        continue-on-error: true
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libnss3 libgbm1 libgtk-3-0 libasound2
+          sudo apt-get install -y libgl1 libnss3 libgbm1 libgtk-3-0 libasound2t64 fakeroot dpkg
       - name: Install Python deps
         run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
       - name: Build backend (onefile)
@@ -114,7 +120,7 @@ jobs:
       - name: Build Electron (AppImage + deb)
         working-directory: electron
         run: |
-          npm ci
+          npm install
           npm run dist:linux
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
