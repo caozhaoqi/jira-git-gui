@@ -15,6 +15,41 @@
 
 ---
 
+## 零、一键本地构建（推荐）
+
+项目内置跨平台编排脚本 `build/build.py`，会**自动识别当前操作系统**并构建该平台的产物
+（在 macOS 上出 `.app`/`.dmg`、Windows 上出 `.exe`/`.msi`、Linux 上出可执行/`AppImage`）。
+缺失的 Python 依赖会被自动补装，Electron 形态会自动先把冻结后端嵌入资源目录。
+
+```bash
+# macOS / Linux
+./build.sh --flavor all           # 构建本机支持的全部形态（gui + backend + electron）
+./build.sh --flavor backend       # 仅 Web 版后端
+./build.sh --list                 # 列出本机可构建形态
+
+# Windows (PowerShell)
+.\build.ps1 --flavor all
+.\build.ps1 --flavor gui
+
+# 也可直接调 Python（等价）
+python build/build.py --flavor all
+python build/build.py --no-deps    # 跳过依赖自动安装（假定已装好 requirements.txt + pyinstaller）
+```
+
+| 参数 | 含义 |
+|------|------|
+| `--flavor gui` | PyQt6 桌面版（`.app` / `.exe` / 可执行） |
+| `--flavor backend` | 单文件后端（Web 版） |
+| `--flavor electron` | Electron 桌面版（会先内置冻结后端） |
+| `--flavor all` | 上述三种（默认） |
+| `--list` | 仅列出本机可构建形态 |
+| `--no-deps` | 跳过依赖自动安装 |
+
+> 脚本逻辑见 `build/build.py`；`build.sh` / `build.ps1` 只是切到项目根后转发参数的薄包装。
+> **仍需按 OS 构建**：它不是交叉编译器，只负责「在本机一键出本机包」。三端齐发请用 CI。
+
+---
+
 ## 一、前置准备（三种形态通用）
 
 ```bash
