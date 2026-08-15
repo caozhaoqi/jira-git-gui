@@ -1,0 +1,125 @@
+# ---------------------------------------------------------------------------
+#  三端跨平台发布流水线
+#  触发：推送 v* 标签 或 手动 workflow_dispatch
+#  产物：每个 OS 各出 ① 冻结后端（Web 模式用）② PyQt6 桌面应用 ③ Electron 安装包
+#  说明：PyInstaller / electron-builder 均不支持交叉编译，
+#        故后端 + GUI + Electron 必须在各自目标系统上构建（三 runner 分工）。
+# ---------------------------------------------------------------------------
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # ===================== macOS =====================
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python deps
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+      - name: Build backend (onefile)
+        run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Build GUI (.app)
+        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
+      - name: Stage backend into Electron resources
+        run: |
+          mkdir -p electron/resources/backend
+          cp dist/jira-git-backend electron/resources/backend/jira-git-backend
+      - name: Build Electron (dmg)
+        working-directory: electron
+        run: |
+          npm ci
+          npm run dist:mac
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jira-git-gui-macos
+          path: |
+            electron/dist-electron/*
+            dist/jira-git-backend
+            dist/JiraGitGUI.app
+
+  # ===================== Windows =====================
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Python deps
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+      - name: Build backend (onefile)
+        run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Build GUI (onedir)
+        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
+      - name: Stage backend into Electron resources
+        shell: bash
+        run: |
+          mkdir -p electron/resources/backend
+          cp dist/jira-git-backend.exe electron/resources/backend/jira-git-backend.exe
+      - name: Build Electron (nsis)
+        working-directory: electron
+        run: |
+          npm ci
+          npm run dist:win
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jira-git-gui-windows
+          path: |
+            electron/dist-electron/*
+            dist/jira-git-backend.exe
+            dist/JiraGitGUI
+
+  # ===================== Linux =====================
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install system libs (Qt / Electron)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libnss3 libgbm1 libgtk-3-0 libasound2
+      - name: Install Python deps
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+      - name: Build backend (onefile)
+        run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Build GUI (onedir)
+        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
+      - name: Stage backend into Electron resources
+        run: |
+          mkdir -p electron/resources/backend
+          cp dist/jira-git-backend electron/resources/backend/jira-git-backend
+          chmod +x electron/resources/backend/jira-git-backend
+      - name: Build Electron (AppImage + deb)
+        working-directory: electron
+        run: |
+          npm ci
+          npm run dist:linux
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: jira-git-gui-linux
+          path: |
+            electron/dist-electron/*
+            dist/jira-git-backend
+            dist/JiraGitGUI

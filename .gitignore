@@ -27,6 +27,15 @@ tests/.pytest_cache/
 # Electron
 electron/node_modules/
 electron/package-lock.json
+electron/dist-electron/
+
+# PyInstaller 构建产物
+dist/
+build/__pycache__/
+build/pyinstaller_*/
+# 冻结后的后端二进制（由 CI / 本地构建生成，不入库；保留目录占位）
+electron/resources/backend/*
+!electron/resources/backend/.gitkeep
 
 deliverables/
 .workbuddy/

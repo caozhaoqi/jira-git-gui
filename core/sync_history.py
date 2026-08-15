@@ -16,12 +16,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
+from .app_paths import get_data_root
 from .logger import get_logger
 
 _log = get_logger()
 
-# 历史根目录
-HISTORY_DIR = Path(__file__).parent.parent / "sync_history"
+# 历史根目录：开发态为 <root>/sync_history；冻结态为 ~/.jira-git-gui/sync_history
+HISTORY_DIR = get_data_root() / "sync_history"
 
 # 写锁
 _write_lock = threading.Lock()

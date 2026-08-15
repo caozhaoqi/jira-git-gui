@@ -5,19 +5,21 @@
 - 不引入 python-dotenv 依赖，自带最小解析器（KEY=VALUE，忽略空行与 # 注释，去引号）。
 - 兼容多种键名别名，并容忍 .env 拼写误差（如 persoanl_access_token）。
 - 真实环境变量（大写键名）优先级高于 .env 文件，便于 CI / 临时覆盖。
-- Cookie 额外持久化到用户目录 ~/.jira_git_gui/session.json，启动自动读取。
+- Cookie 额外持久化到数据根目录 .session.json（开发态项目根 / 冻结态 ~/.jira-git-gui），启动自动读取。
 """
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
+from .app_paths import get_data_root
 from .models import ConnectConfig
 
-# 项目根目录 = <root>/core/config.py 的上两级
-_BASE = Path(__file__).resolve().parent.parent
+# 运行时数据根：开发态为项目根；冻结打包态为 ~/.jira-git-gui
+_BASE = get_data_root()
 
-# Cookie / 会话持久化文件（存项目根目录，避免沙箱权限问题）
+# Cookie / 会话持久化文件
 _SESSION_FILE = _BASE / ".session.json"
 
 
@@ -69,19 +71,38 @@ def build_config(env: dict) -> ConnectConfig:
     )
 
 
+def _env_search_roots(project_root: Optional[Path] = None) -> list:
+    """返回查找 .env 的候选根目录列表。
+
+    冻结打包（PyInstaller / electron-builder）后，程序的 .env 会被收集进
+    只读的 ``sys._MEIPASS`` 包内；运行时写入目录则移动到 ``~/.jira-git-gui``。
+    因此优先在包内找 .env（默认配置），找不到再回退数据根。
+    """
+    if project_root is not None:
+        return [Path(project_root)]
+    roots = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            roots.append(Path(meipass))
+    roots.append(_BASE)
+    return roots
+
+
 def load_config(project_root: Optional[Path] = None) -> Tuple[ConnectConfig, bool, str]:
     """读取 <root>/.env；存在则以其为默认配置，返回 (config, loaded, env_path)。"""
-    root = Path(project_root) if project_root else _BASE
-    env_path = root / ".env"
-    if not env_path.exists():
-        return ConnectConfig(), False, str(env_path)
-    env = _parse_env_file(env_path)
-    # 真实环境变量（大写键名）优先覆盖 .env 同名键
-    for names in _FIELD_ALIASES.values():
-        for n in names:
-            if n in os.environ and os.environ[n] != "":
-                env[n] = os.environ[n]
-    return build_config(env), True, str(env_path)
+    for root in _env_search_roots(project_root):
+        env_path = root / ".env"
+        if env_path.exists():
+            env = _parse_env_file(env_path)
+            # 真实环境变量（大写键名）优先覆盖 .env 同名键
+            for names in _FIELD_ALIASES.values():
+                for n in names:
+                    if n in os.environ and os.environ[n] != "":
+                        env[n] = os.environ[n]
+            return build_config(env), True, str(env_path)
+    fallback = _env_search_roots(project_root)[-1] / ".env"
+    return ConnectConfig(), False, str(fallback)
 
 
 # --------------------------------------------------------------------------- #
@@ -135,8 +156,13 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
         }
     """
     root = Path(project_root) if project_root else _BASE
-    env_path = root / ".env"
-    env = _parse_env_file(env_path) if env_path.exists() else {}
+    env_path = None
+    for cand in _env_search_roots(project_root):
+        p = cand / ".env"
+        if p.exists():
+            env_path = p
+            break
+    env = _parse_env_file(env_path) if env_path else {}
 
     repo_map: "dict[str, str]" = {}
     for key, val in env.items():

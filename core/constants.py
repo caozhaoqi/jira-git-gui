@@ -2,8 +2,10 @@
 import os
 from pathlib import Path
 
-# 项目根目录 = <root>/core/constants.py 的上两级
-BASE_DIR = Path(__file__).resolve().parent.parent
+from .app_paths import get_data_root
+
+# 运行时数据根：开发态为项目根；冻结打包态为 ~/.jira-git-gui（见 core/app_paths）。
+BASE_DIR = get_data_root()
 STORE = BASE_DIR / "store"
 REPOS_DIR = STORE / "repos"        # git clone 存放地： repos/<repoId>/
 DOWNLOAD_DIR = STORE / "downloads"  # Cookie 模式批量下载存放地

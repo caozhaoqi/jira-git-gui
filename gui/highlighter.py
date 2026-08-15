@@ -5,6 +5,8 @@
 颜色随应用主题（QApplication 的 "theme" 属性）自适应，浅色 / 深色两套配色。
 不引入任何第三方依赖，离线可用。
 """
+from __future__ import annotations
+
 from PyQt6.QtCore import QRegularExpression
 from PyQt6.QtGui import QSyntaxHighlighter, QTextCharFormat, QColor
 from PyQt6.QtGui import QTextDocument

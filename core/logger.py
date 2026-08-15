@@ -20,11 +20,26 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, pyqtSignal, qInstallMessageHandler, QtMsgType
+# PyQt6 为可选依赖：仅 PyQt6 桌面版（GUI 进程）需要。
+# 无头后端（api.server / Electron 拉起的后端子进程）不应被强制安装 GUI 框架，
+# 否则打包体积膨胀、跨平台编译更易失败。这里改为按需懒加载。
+try:  # noqa: BLE001
+    from PyQt6.QtCore import QObject, pyqtSignal, qInstallMessageHandler, QtMsgType
+    HAS_QT = True
+except Exception:
+    HAS_QT = False
+
+    class _NoOpSignal:
+        """无 Qt 环境下替代 pyqtSignal 的空操作信号。"""
+
+        def emit(self, *args, **kwargs) -> None:
+            pass
 
 # ----------------------------------------------------------------- 路径
+from core.app_paths import get_data_root
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR = get_data_root() / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = LOG_DIR / "jira_git_gui.log"
 
@@ -38,9 +53,16 @@ _ROOT_NAME = "jira-git-gui"
 _IN_QT_HANDLER = False
 
 
-class LogBridge(QObject):
-    """信号桥：把日志消息从任意线程投递到 UI 日志面板。单例由主窗口创建并注入。"""
-    message = pyqtSignal(str)
+if HAS_QT:
+    class LogBridge(QObject):
+        """信号桥：把日志消息从任意线程投递到 UI 日志面板。单例由主窗口创建并注入。"""
+        message = pyqtSignal(str)
+else:
+    class LogBridge:
+        """无 Qt 时的降级桥：message 为空操作信号，UI 转发被安全跳过。"""
+
+        def __init__(self) -> None:
+            self.message = _NoOpSignal()
 
 
 _bridge: "LogBridge | None" = None
@@ -137,6 +159,9 @@ def install_global_hooks() -> None:
     sys.excepthook = _excepthook
     threading.excepthook = _threading_excepthook
 
+    if not HAS_QT:
+        return  # 无 Qt 时无需安装 Qt 消息处理器
+
     def _qt_msg_handler(msg_type: QtMsgType, context, msg: str) -> None:
         # 关键：本处理器由 Qt 从自身调用栈内部回调，绝不能抛异常、也不能重入 Qt 渲染。
         # 因此只写日志文件/控制台（QtLogHandler 在 _IN_QT_HANDLER 时自动跳过 UI 转发）。
@@ -164,6 +189,8 @@ def install_global_hooks() -> None:
 
 def _show_fatal(etype, value, tb) -> None:
     """崩溃时尽力弹出提示，告诉用户日志位置。best-effort，绝不二次崩溃。"""
+    if not HAS_QT:
+        return
     try:
         from PyQt6.QtWidgets import QApplication, QMessageBox
         app = QApplication.instance()

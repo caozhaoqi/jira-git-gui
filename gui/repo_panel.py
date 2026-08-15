@@ -1,4 +1,6 @@
 """仓库面板：从 AllRepositories 页面发现仓库 / 手动指定仓库并加载文件树。"""
+from __future__ import annotations
+
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtWidgets import (
     QFormLayout, QGroupBox, QLabel, QLineEdit, QListWidget, QListWidgetItem,

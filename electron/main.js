@@ -11,6 +11,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const http = require('http');
 
 let pyProc = null;
@@ -18,10 +19,22 @@ let mainWindow = null;
 const BACKEND_PORT = 8787;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
+const IS_PACKAGED = app.isPackaged;  // electron-builder 打包后为 true
 
 // ---- 日志：终端 + 文件 + 渲染进程广播 ----
 const PROJECT_ROOT = path.join(__dirname, '..');
-const LOG_DIR = path.join(PROJECT_ROOT, 'logs');
+
+// 运行时数据目录：与后端 core/app_paths.get_data_root() 对齐。
+// - 打包态：~/.jira-git-gui（可写，避免写入只读的 app 包）
+// - 开发态：项目根
+function getDataDir() {
+  if (IS_PACKAGED) {
+    return path.join(os.homedir(), '.jira-git-gui');
+  }
+  return PROJECT_ROOT;
+}
+const DATA_DIR = getDataDir();
+const LOG_DIR = path.join(DATA_DIR, 'logs');
 if (!fs.existsSync(LOG_DIR)) {
   try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
 }
@@ -80,16 +93,27 @@ ipcMain.handle('app:get-info', () => ({
 }));
 
 // ---- Python 后端启动 ----
+// 返回后端启动命令：打包态用冻结后的单文件可执行；开发态用 venv 里的 python。
+function getBackendLaunch() {
+  const port = String(BACKEND_PORT);
+  if (IS_PACKAGED) {
+    const exeName = process.platform === 'win32' ? 'jira-git-backend.exe' : 'jira-git-backend';
+    const cmd = path.join(process.resourcesPath, 'backend', exeName);
+    return { cmd, args: ['--port', port] };
+  }
+  return { cmd: path.join(PROJECT_ROOT, 'venv', 'bin', 'python'), args: ['-m', 'api.server', '--port', port] };
+}
+
 function startPythonBackend() {
-  const projectRoot = PROJECT_ROOT;
-  const pythonPath = path.join(projectRoot, 'venv', 'bin', 'python');
+  const { cmd, args } = getBackendLaunch();
 
-  log(`Launching Python: ${pythonPath} -m api.server --port ${BACKEND_PORT}`);
+  log(`Launching backend: ${cmd} ${args.join(' ')}`);
 
-  pyProc = spawn(pythonPath, ['-m', 'api.server', '--port', String(BACKEND_PORT)], {
-    cwd: projectRoot,
+  pyProc = spawn(cmd, args, {
+    cwd: PROJECT_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    // 把数据目录透传给后端，使前后端日志 / 缓存落在同一可写目录
+    env: { ...process.env, JIRA_GIT_DATA_DIR: DATA_DIR },
   });
 
   log(`Python pid=${pyProc.pid}`);

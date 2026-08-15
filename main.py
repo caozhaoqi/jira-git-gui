@@ -17,7 +17,12 @@ def _ensure_venv_python():
     这样无论用哪个 python 启动 main.py，都不会因缺依赖而启动失败
     （典型场景：用系统 python 直接跑，报 ModuleNotFoundError: No module named 'PyQt6'）。
     若连 venv 都没有，则保持原样启动，由后续 import 给出清晰报错。
+
+    冻结打包（PyInstaller）后：解释器即自带依赖的可执行文件，无需也不会有 venv，
+    直接返回，避免 re-exec 到一个不存在的路径。
     """
+    if getattr(sys, "frozen", False):
+        return
     try:
         import PyQt6  # noqa: F401
         return

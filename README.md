@@ -147,3 +147,15 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 ```
 
 > 真实环境变量（大写键名，如 `JIRA_URL`）优先级高于 `.env`，便于 CI / 临时覆盖。
+
+---
+
+## 打包与发布（跨平台）
+
+本工具支持 **三种发布形态**，共用同一 Python 后端：
+
+| 形态 | 入口 | 打包 |
+|------|------|------|
+| PyQt6 桌面版 | `main.py` | `pyinstaller build/pyinstaller_gui.spec` → `.app` / `.exe` |
+| Web 版 | 浏览器 | `pyinstaller build/pyinstaller_backend.spec` → 单文件后端 |
+| Electron 桌面版 | `electron/` | electron-builder（嵌入冻结后的后端） |

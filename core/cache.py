@@ -15,12 +15,13 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .app_paths import get_data_root
 from .logger import get_logger
 
 _log = get_logger()
 
-# 缓存根目录
-CACHE_DIR = Path(__file__).parent.parent / "cache"
+# 缓存根目录：开发态为 <root>/cache；冻结态为 ~/.jira-git-gui/cache
+CACHE_DIR = get_data_root() / "cache"
 
 # 文件锁
 _locks: dict[str, threading.Lock] = {}
