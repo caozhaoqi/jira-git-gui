@@ -27,6 +27,7 @@
   "build": {
     "appId": "com.jiragitgui.app",
     "productName": "JiraGitGUI",
+    "publish": false,
     "directories": {
       "output": "dist-electron",
       "buildResources": "build"
