@@ -10,9 +10,11 @@
 """
 import difflib
 import hashlib
+import json as _json
 import os
 import threading
 import time
+from xml.dom import minidom as _minidom
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import Enum
@@ -530,8 +532,11 @@ def file_diff(local_path: str, remote_content: str) -> str:
     修复：keepends=False + lineterm='\\n'，确保控制行（---/+++/@@）有换行符，
     不会和内容行粘在一起。
 
-    额外处理：若本地与远程内容仅行尾符（CRLF vs LF）不同，则返回空字符串，
-    调用方（前端）会显示"内容实际相同"提示。
+    额外处理：
+    - 若本地与远程内容仅行尾符（CRLF vs LF）不同，则返回空字符串，
+      调用方（前端）会显示"内容实际相同"提示。
+    - 对 JSON / XML 等结构化文件，先 ``canonical_text`` 规范化展开再 diff，
+      使压缩成单行的文件也能呈现行级差异（仅展示层，不影响相等/合并）。
     """
     try:
         with open(local_path, "r", encoding="utf-8", errors="replace") as f:
@@ -539,12 +544,16 @@ def file_diff(local_path: str, remote_content: str) -> str:
     except (OSError, FileNotFoundError):
         local_content = ""
 
-    # 文本文件：仅行尾差异时跳过 unified_diff 计算
+    # 文本文件：仅行尾差异时跳过 unified_diff 计算（保持旧行为）
     if _is_text_file(Path(local_path)) and _is_same_normalized(local_content, remote_content or ""):
         return ""
 
-    local_lines = local_content.splitlines(keepends=False)
-    remote_lines = (remote_content or "").splitlines(keepends=False)
+    # 结构化文件规范化展开，使 diff 变成行级可读（仅展示层，不影响相等/合并）
+    local_canon = canonical_text(local_path, local_content)
+    remote_canon = canonical_text(local_path, remote_content or "")
+
+    local_lines = local_canon.splitlines(keepends=False)
+    remote_lines = remote_canon.splitlines(keepends=False)
 
     diff = difflib.unified_diff(
         local_lines,
@@ -574,6 +583,97 @@ def is_whitespace_only_diff(local_path: str, remote_content: str) -> bool:
     if not _is_text_file(Path(local_path)):
         return False
     return _is_same_normalized(local_content, remote_content or "")
+
+
+# --------------------------------------------------------------------------- #
+#  结构化文件规范化展开（仅用于 diff 展示层）
+# --------------------------------------------------------------------------- #
+# 这些扩展名按 JSON 解析并展开为缩进多行；解析失败回退原文。
+_JSON_EXTENSIONS = {
+    ".json", ".jsonc", ".json5", ".geojson", ".tfstate", ".ipynb",
+}
+# 这些扩展名按 XML 解析并展开（minidom.toprettyxml）。
+_XML_EXTENSIONS = {
+    ".xml", ".xhtml", ".svg", ".wsdl", ".plist", ".rss", ".atom", ".xsl", ".xslt",
+}
+
+
+def _strip_jsonc_comments(text: str) -> str:
+    """去掉 JSONC 的行注释 // 与块注释 /* */，保留字符串字面量内的注释符号。
+
+    用于配置类 JSON（带注释）的兜底解析；仅当严格 JSON 解析失败时才调用。
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    in_str = False
+    str_ch = ""
+    while i < n:
+        c = text[i]
+        if in_str:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if c == str_ch:
+                in_str = False
+            i += 1
+            continue
+        if c in ('"', "'"):
+            in_str = True
+            str_ch = c
+            out.append(c)
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            i += 2
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (text[i] == "*" and text[i + 1] == "/"):
+                i += 1
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def canonical_text(path: str, content: str) -> str:
+    """对结构化文本文件（JSON / JSONC / XML 系列）做规范化展开，便于行级 diff。
+
+    **仅用于「展示层」diff**：把压缩成单行的 JSON/XML 展开为多行可读格式，
+    使 unified diff 变成行级变化，而不是整行标红。
+
+    - 不影响文件相等判定（compute_diff 仍按原始 MD5/size）。
+    - 不改变合并写入的字节（merge_to_local 走原始远程内容）。
+    - 解析失败则原样返回原文，绝不抛异常。
+    """
+    if not content:
+        return content
+    ext = Path(path).suffix.lower()
+    if ext in _JSON_EXTENSIONS:
+        try:
+            return _json.dumps(_json.loads(content), indent=2, ensure_ascii=False)
+        except Exception:
+            try:
+                return _json.dumps(
+                    _json.loads(_strip_jsonc_comments(content)), indent=2, ensure_ascii=False
+                )
+            except Exception:
+                return content
+    if ext in _XML_EXTENSIONS:
+        try:
+            dom = _minidom.parseString(content.encode("utf-8"))
+            pretty = dom.toprettyxml(indent="  ")
+            # toprettyxml 会在节点间插入多余空行，压缩掉（结构化文件无语义空行）
+            return "\n".join(line for line in pretty.splitlines() if line.strip())
+        except Exception:
+            return content
+    return content
 
 
 # --------------------------------------------------------------------------- #

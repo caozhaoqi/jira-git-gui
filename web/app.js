@@ -1081,7 +1081,7 @@ function renderDiffContent(res, status) {
       // 标记为 modified / whitespace_only 但 unified_diff 为空 → 内容实际相同（行尾/编码差异）
       const hint = document.createElement('div');
       hint.className = 'diff-info-hint';
-      hint.innerHTML = '内容实际相同（可能仅行尾符 / 编码差异）<br>本地大小 ' +
+      hint.innerHTML = '内容实际相同（可能仅行尾符 / 空白 / 格式差异）<br>本地大小 ' +
         (local.length) + ' 字符，远程大小 ' + (remote.length) + ' 字符';
       el.appendChild(hint);
       // 仍然显示内容供用户确认

@@ -690,11 +690,16 @@ async def api_diff_file(req: DiffFileReq):
     diff_text = _differ.file_diff(local_path, remote_content or "")
     normalized_same = _differ.is_whitespace_only_diff(local_path, remote_content or "")
 
+    # 结构化文件：返回规范化展开后的内容供前端侧并排/raw 视图可读展示。
+    # 仅展示层——合并仍走 get_file_cached 的原始远程字节，不受影响。
+    show_local = _differ.canonical_text(local_path, local_content) if local_content else ""
+    show_remote = _differ.canonical_text(req.path, remote_content or "") if remote_content else ""
+
     return {
         "path": req.path,
         "diff": diff_text,
-        "local_content": local_content,
-        "remote_content": remote_content or "",
+        "local_content": show_local,
+        "remote_content": show_remote,
         "normalized_same": normalized_same,
         "cached": req.use_cache,
     }
