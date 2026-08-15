@@ -24,7 +24,6 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(PROJ / "web"), "web"),
-        (str(PROJ / ".env"), "."),
     ],
     hiddenimports=[
         # 后端 / 核心包
@@ -50,6 +49,12 @@ a = Analysis(
     noarchive=False,
 )
 
+# .env 通常被 gitignore，CI checkout 后不存在；仅当本机确有 .env 时才打进包，
+# 避免 PyInstaller 因找不到源文件而报错退出（缺失 .env 时运行时回退到连接设置 UI）。
+_env_file = PROJ / ".env"
+if _env_file.exists():
+    a.datas.append((str(_env_file), "."))
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -61,7 +66,7 @@ exe = EXE(
     name="jira-git-backend",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     runtime_tmpdir=None,
     console=True,
