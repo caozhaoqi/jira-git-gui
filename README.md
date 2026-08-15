@@ -213,6 +213,64 @@ cookie=JSESSIONID=...; atlassian.xsrf.token=...
 - **右侧标签页**：`文件预览` / `提交记录` / `日志`。底部状态栏实时显示
   当前 模式 / 仓库 / 分支 / Cookie·PAT 配置状态。
 
+## 性能优化
+
+针对「文件加载 / 差异对比 / 合并速度」三项核心路径已做工程化加速（零新依赖）：
+
+### 文件加载 —— 增量本地扫描
+- `core/differ.py` 的 `scan_local` 新增 `prev` 增量基线：仅当文件的 **size + mtime（st_mtime_ns）**
+  均未变化时，直接复用上次扫描缓存的 MD5，**跳过整文件哈希读取**。
+- `scan_local_cached` 在缓存过期/未命中时，自动以「最近一次扫描结果」作为增量基线。
+  大仓库重复扫描可省下绝大部分磁盘 I/O（基准：2000 个 1KB 文件增量重扫 **2.7x**；文件越大收益越高，
+  因 MD5 为 O(文件大小)，stat 为 O(1)）。零 I/O 命中路径（TTL 内）保持不变。
+
+### 差异对比 —— 集合化 + 缓存复用
+- `compute_diff` 改为 **集合差集/交集** 实现，避免每次迭代 `.get` 查找与 `sorted(union)` 大列表构建，
+  万级文件下更稳定；排序与判定语义与旧实现完全一致（新增单测 `test_differ_perf` 校验等价性）。
+- 差异展示所需的远程内容走 `get_file_cached` 内容缓存，重复对比不再重复拉取。
+
+### 合并速度 —— 并行抓取 + 写入
+- 新增 `core/differ.py` 的 `merge_entries`：用有界 `ThreadPoolExecutor` **并行**完成
+  「`get_file_cached` 抓取 → `merge_to_local` 写入」。CLI（`run_merge.py`）合并循环已由串行改为调用它。
+- 并发受两重约束：**本函数 `merge_workers` 限制在途任务数** + 底层 `client` 的**全局令牌桶**
+  （`throttle`）钳制对 Jira 服务器的稳态请求速率，因此无论并发多大都不会打崩服务器。
+- 父目录缓存 `_DIR_CACHE` 加 `threading.Lock()`，**修复并发合并下的潜在线程安全隐患**
+  （Web 批量合并 `api/server.py` 经 `asyncio.to_thread` 也受益）。
+- 配置：`MERGE_WORKERS`（默认 4，建议 4~8）；CLI 额外支持 `--merge-workers N` 覆盖。
+- 基准（120 文件 × 10ms 模拟网络 RTT）：串行 1 并发 **1.51s** → 并行 8 并发 **0.19s（≈8x）**。
+
+> Electron / Web 前端的批量合并 `api/server.py` 此前已实现 fetch(12)+write(20) 管道，本次主要补齐
+> **CLI 路径的并行化**与两条路径共享的 `_DIR_CACHE` 线程安全。
+
+### 文件树 —— path→item 索引（O(1) 查找）
+- `gui/tree_panel.py` 新增 `self._items_by_path` 字典索引，`find_item_by_path` 由整树递归 O(N) 改为
+  **O(1) 字典查找**（每次异步子目录回调都重找节点，万级文件场景下收益显著）。
+- `collect_checked`（收集勾选文件）同步改为走索引遍历，不再全树递归。
+- `set_root_entries` / `clear` 重置索引；`set_children` 在 `takeChildren` 前用 `_prune_subtree` 递归剔除旧子树，
+  避免悬空引用。占位子节点（「加载中…」，无 `UserRole`）不进索引。
+- 顺带**懒缓存系统图标**（目录/文件各一个），避免每个节点都向 `QApplication.style()` 查询。
+- 无头单测 `tests/test_tree_panel.py`（6 例）覆盖命中、懒加载子节点、索引剪枝、勾选收集、清空重置。
+
+### 预览面板 —— 大文件保护与测量结论
+- `gui/preview_panel.py` 已对超长内容截断到 **8000 行 / 1.5MB** 并显示提示条，杜绝 UI 卡死。
+- 实测（offscreen）：截断上限附近的 `setPlainText` 首帧约 **140ms（一次性、用户点击触发）**，属可接受范围；
+  未做后台线程分块渲染——线程化会引入内容切换竞态与取消/丢弃逻辑，**复杂度高于收益**，
+  按「先测量、有数据再决定」原则**维持现状**。如未来出现超长文件预览卡顿反馈，再评估 worker 分块追加。
+
+### 差异对比 —— 行尾/空白差异过滤
+- **问题**：大量文件（如 `hcm-cloud-vue` 这类前端仓库）因本地 CRLF 与远程 LF 行尾符不同，
+  raw 字节 MD5 与 size 均不同，被误判为「修改」，导致合并量虚高（截图里 11,447 个「修改」中
+  大量是这类伪差异）。
+- **后端**：`core/differ.py` 对文本文件额外计算 `norm_hash` / `norm_size`（`\\r\\n` 归一为 `\\n`）。
+  `compute_diff` 在 `ignore_line_endings=True` 时，若本地归一化大小与远程大小一致，
+  将文件标记为新状态 `WHITESPACE_ONLY`（汇总到 modified 计数但 status 独立）。
+- **合并**：`merge_to_local` 在写入前对文本文件再做一次归一化内容比较；仅行尾差异时
+  **直接跳过写入**，避免无意义刷盘与 mtime 变更。
+- **前端**：差异面板新增「**忽略行尾差异**」复选框（默认勾选）：
+  - 勾选时 `WHITESPACE_ONLY` 文件不进入差异列表、不参与「全部合并」；
+  - 取消勾选可恢复旧行为，方便排查真实差异。
+- **状态**：UI 状态条新增「行尾差异 N」徽章；文件列表中带 `CRLF/LF` 小标签。
+
 ## 已知约束
 
 - 当前提供的 PAT 若与登录账号不匹配（base64 前缀解出的账号 ≠ 登录账号），克隆会被 Jira 拒绝，

@@ -58,37 +58,43 @@ class TreePanel(QWidget):
         self.tree.itemExpanded.connect(self._on_expanded)
         self.tree.itemClicked.connect(self._on_clicked)
         layout.addWidget(self.tree)
+        # 性能：path -> 活节点索引，O(1) 查找，替代整树递归遍历（万级节点显著加速）
+        self._items_by_path: dict = {}
+        # 缓存系统图标，避免每个节点都向 QApplication.style() 查询
+        self._dir_icon = None
+        self._file_icon = None
 
     # ----------------------------------------------------------- 对外接口
     def clear(self) -> None:
         self.tree.clear()
+        self._items_by_path.clear()
+
+    def _prune_subtree(self, item) -> None:
+        """从索引中移除 item 及其所有后代（在 takeChildren 之前调用）。"""
+        for i in range(item.childCount()):
+            c = item.child(i)
+            d = c.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(d, dict) and "path" in d:
+                self._items_by_path.pop(d["path"], None)
+            self._prune_subtree(c)
 
     def find_item_by_path(self, path):
-        """按 path 在整棵树中查找节点，返回活的 QTreeWidgetItem；找不到返回 None。
+        """按 path 查找节点，返回活的 QTreeWidgetItem；找不到返回 None。
 
+        维护 ``_items_by_path`` 索引，O(1) 查找（替代整树递归遍历）。
         用于在异步回调（目录子项加载完成后）里「重新解析」节点引用，而非持有
         一个可能在请求期间被 tree.clear() 销毁的 QTreeWidgetItem。
         """
-
-        def walk(item):
-            for i in range(item.childCount()):
-                c = item.child(i)
-                d = c.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(d, dict) and d.get("path") == path:
-                    return c
-                found = walk(c)
-                if found is not None:
-                    return found
-            return None
-
-        return walk(self.tree.invisibleRootItem())
+        return self._items_by_path.get(path)
 
     def set_root_entries(self, entries) -> None:
         self.tree.clear()
+        self._items_by_path.clear()
         for e in entries:
             self.tree.addTopLevelItem(self._make_item(e))
 
     def set_children(self, parent_item, entries) -> None:
+        self._prune_subtree(parent_item)
         parent_item.takeChildren()
         d = parent_item.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(d, dict):
@@ -104,21 +110,13 @@ class TreePanel(QWidget):
             parent_item.addChild(self._make_item(e))
 
     def collect_checked(self) -> list:
-        """收集所有被勾选的【文件】路径。"""
+        """收集所有被勾选的【文件】路径（走索引，仅遍历已加载的文件节点）。"""
         paths = []
-        root = self.tree.invisibleRootItem()
-
-        def walk(item):
-            for i in range(item.childCount()):
-                c = item.child(i)
-                d = c.data(0, Qt.ItemDataRole.UserRole)
-                if isinstance(d, dict):
-                    if d.get("type") == "file":
-                        if c.checkState(2) == Qt.CheckState.Checked:
-                            paths.append(d["path"])
-                    walk(c)
-
-        walk(root)
+        for it in self._items_by_path.values():
+            d = it.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(d, dict) and d.get("type") == "file":
+                if it.checkState(2) == Qt.CheckState.Checked:
+                    paths.append(d["path"])
         return paths
 
     # ----------------------------------------------------------- 内部
@@ -127,14 +125,17 @@ class TreePanel(QWidget):
         it = QTreeWidgetItem([entry.name, size, ""])
         it.setData(0, Qt.ItemDataRole.UserRole,
                    {"path": entry.path, "type": entry.type, "loaded": False})
-        # 图标：目录 / 文件用系统风格图标，跨平台一致
-        style = QApplication.style()
-        if style is not None:
-            if entry.type == "dir":
-                icon = style.standardIcon(QStyle.StandardPixmap.SP_DirClosedIcon)
-            else:
-                icon = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-            it.setIcon(0, icon)
+        # 图标：目录 / 文件用系统风格图标（懒缓存，避免每个节点重复查询 style()）
+        if entry.type == "dir":
+            if self._dir_icon is None:
+                self._dir_icon = QApplication.style().standardIcon(
+                    QStyle.StandardPixmap.SP_DirClosedIcon)
+            it.setIcon(0, self._dir_icon)
+        else:
+            if self._file_icon is None:
+                self._file_icon = QApplication.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileIcon)
+            it.setIcon(0, self._file_icon)
         # 文件名按类型着色（主题感知）
         color = self._color_for(self._category(entry.name))
         if color is not None:
@@ -145,6 +146,8 @@ class TreePanel(QWidget):
         else:
             it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(2, Qt.CheckState.Unchecked)
+        # 登记到 path 索引，供 find_item_by_path / collect_checked O(1) 使用
+        self._items_by_path[entry.path] = it
         return it
 
     @staticmethod

@@ -7,201 +7,220 @@
   <link rel="stylesheet" href="/web/styles.css">
 </head>
 <body>
-  <!-- 工具栏 -->
-  <header class="toolbar">
-    <div class="toolbar-brand">
-      <span class="brand-logo">🌿</span>
-      <span class="brand-name">Jira Git GUI</span>
-    </div>
-    <div class="toolbar-group">
-      <button id="btn-connect" class="btn">连接设置</button>
-    </div>
-    <div class="toolbar-divider"></div>
-    <div class="toolbar-group">
-      <button id="btn-clone" class="btn">克隆仓库 (PAT)</button>
-      <button id="btn-download" class="btn">下载选中 (Cookie)</button>
-      <button id="btn-download-all" class="btn">下载整个仓库 (Cookie)</button>
-    </div>
-    <div class="toolbar-divider"></div>
-    <div class="toolbar-group">
-      <button id="btn-clear-resume" class="btn">清空断点</button>
-      <button id="btn-clear-log" class="btn">清空日志</button>
-    </div>
-    <div class="toolbar-divider"></div>
-    <div class="toolbar-group">
-      <label>并发</label>
-      <input type="number" id="inp-concurrency" min="1" max="16" value="4" class="spin">
-      <label>速率</label>
-      <input type="number" id="inp-rate" min="1" max="50" value="6" class="spin" title="对 Jira 服务器的稳态请求速率上限">
-    </div>
-    <div class="toolbar-spacer"></div>
-    <div class="toolbar-group">
-      <button id="btn-theme" class="btn btn-theme" title="切换浅色 / 深色主题">🌓 主题</button>
-    </div>
-    <div class="toolbar-group">
-      <span id="progress-label" class="progress-label"></span>
-      <progress id="progress-bar" class="progress-bar" style="display:none;"></progress>
-      <button id="btn-cancel" class="btn btn-sm" style="display:none;">取消</button>
-    </div>
-  </header>
-
-  <!-- 网络告警横幅 -->
-  <div id="network-warning" class="network-warning" style="display:none;"
-       onclick="this.style.display='none'">⚠ 网络中断</div>
-
-  <!-- 主体：全宽 Tab 布局 -->
-  <main class="main-layout">
-    <nav class="tabs">
-      <button class="tab active" data-tab="repo">仓库</button>
-      <button class="tab" data-tab="tree">文件树</button>
-      <button class="tab" data-tab="preview">文件预览</button>
-      <button class="tab" data-tab="commits">提交记录</button>
-      <button class="tab" data-tab="diff">差异对比</button>
-      <button class="tab" data-tab="logs">日志</button>
-    </nav>
-
-    <div class="tab-content">
-      <!-- 仓库 -->
-      <div id="tab-repo" class="tab-pane active">
-        <div class="tab-inner">
-          <div class="panel-header">
-            <h2 class="section-title">仓库列表</h2>
-          </div>
-          <p class="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
-          <div class="repo-toolbar">
-            <input type="text" id="repo-search" class="input repo-search-input" placeholder="🔍 搜索仓库名 / ID / 分支…">
-            <button id="btn-discover" class="btn btn-primary">发现仓库</button>
-            <button id="btn-view-files" class="btn">查看文件</button>
-          </div>
-          <div id="repo-list" class="repo-list">
-            <div class="empty-hint">点击「发现仓库」加载列表</div>
-          </div>
-          <details class="manual-group">
-            <summary>手动指定仓库</summary>
-            <div class="form-rows">
-              <label>仓库 ID<input type="text" id="inp-repo-id" class="input"></label>
-              <label>仓库名<input type="text" id="inp-repo-name" class="input" placeholder="PAT 克隆需要"></label>
-              <label>分支<input type="text" id="inp-branch" class="input" placeholder="(默认)"></label>
-              <button id="btn-load-tree" class="btn btn-primary btn-block">加载文件树</button>
-            </div>
-          </details>
-        </div>
+  <div class="app-shell">
+    <!-- 顶栏 -->
+    <header class="appbar">
+      <div class="appbar-brand">
+        <span class="brand-mark" aria-hidden="true">🌿</span>
+        <span class="brand-name">Jira&nbsp;Git <b>GUI</b></span>
       </div>
+      <div class="appbar-actions">
+        <button id="btn-connect" class="btn btn-ghost" title="连接设置">
+          <span class="ico">⚙</span><span class="lbl">连接设置</span>
+        </button>
+        <span id="status-dot" class="status-dot" title="后端状态"></span>
+        <button id="btn-theme" class="btn btn-icon" title="切换浅色 / 深色主题">🌓</button>
+      </div>
+    </header>
 
-      <!-- 文件树 -->
-      <div id="tab-tree" class="tab-pane">
-        <div class="tab-inner">
-          <div class="panel-header">
-            <h2 class="section-title">文件浏览器</h2>
+    <div class="app-body">
+      <!-- 左侧导航 -->
+      <aside class="sidebar">
+        <nav class="tabs" aria-label="主导航">
+          <button class="tab active" data-tab="repo"><span class="tab-ico">📦</span><span class="tab-txt">仓库</span></button>
+          <button class="tab" data-tab="tree"><span class="tab-ico">🌳</span><span class="tab-txt">文件树</span></button>
+          <button class="tab" data-tab="preview"><span class="tab-ico">👁</span><span class="tab-txt">文件预览</span></button>
+          <button class="tab" data-tab="commits"><span class="tab-ico">📜</span><span class="tab-txt">提交记录</span></button>
+          <button class="tab" data-tab="diff"><span class="tab-ico">🔀</span><span class="tab-txt">差异对比</span></button>
+          <button class="tab" data-tab="logs"><span class="tab-ico">📋</span><span class="tab-txt">日志</span></button>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
+        </div>
+      </aside>
+
+      <!-- 工作区 -->
+      <main class="workspace">
+        <!-- 全局操作条 -->
+        <div class="actionbar">
+          <div class="actionbar-group">
+            <button id="btn-clone" class="btn btn-primary">克隆仓库 (PAT)</button>
+            <button id="btn-download" class="btn">下载选中 (Cookie)</button>
+            <button id="btn-download-all" class="btn">下载整个仓库</button>
           </div>
-          <div id="tree-container" class="tree-container">
-            <div class="empty-hint">选择仓库后加载文件树</div>
+          <div class="actionbar-divider"></div>
+          <div class="actionbar-group">
+            <button id="btn-clear-resume" class="btn btn-ghost">清空断点</button>
+            <button id="btn-clear-log" class="btn btn-ghost">清空日志</button>
+          </div>
+          <div class="actionbar-divider"></div>
+          <div class="actionbar-group actionbar-fields">
+            <label class="field">并发
+              <input type="number" id="inp-concurrency" min="1" max="16" value="4" class="spin">
+            </label>
+            <label class="field">速率
+              <input type="number" id="inp-rate" min="1" max="50" value="6" class="spin" title="对 Jira 服务器的稳态请求速率上限">
+            </label>
+          </div>
+          <div class="actionbar-spacer"></div>
+          <div class="actionbar-group">
+            <span id="progress-label" class="progress-label"></span>
+            <progress id="progress-bar" class="progress-bar" style="display:none;"></progress>
+            <button id="btn-cancel" class="btn btn-sm btn-ghost" style="display:none;">取消</button>
           </div>
         </div>
-      </div>
 
-      <!-- 文件预览 -->
-      <div id="tab-preview" class="tab-pane">
-        <div class="tab-inner">
-          <div class="panel-header">
-            <h2 id="preview-title" class="section-title">预览</h2>
-          </div>
-          <pre id="preview-content" class="code-block"></pre>
-        </div>
-      </div>
+        <!-- 网络告警横幅 -->
+        <div id="network-warning" class="network-warning" style="display:none;"
+             onclick="this.style.display='none'">⚠ 网络中断</div>
 
-      <!-- 提交记录 -->
-      <div id="tab-commits" class="tab-pane">
-        <div class="tab-inner">
-          <div class="commit-toolbar">
-            <label>模式
-              <select id="commit-mode" class="select">
-                <option value="issue">按 Issue 查询</option>
-                <option value="local">本地 Git 仓库</option>
-              </select>
-            </label>
-            <label id="commit-issue-label">Issue
-              <input type="text" id="commit-issue" class="input" placeholder="TST-234">
-            </label>
-            <button id="btn-query-commits" class="btn btn-primary">查询</button>
-          </div>
-          <div class="commit-layout">
-            <div id="commit-list" class="commit-list">
-              <div class="empty-hint">输入 Issue 单号或选择本地模式后查询</div>
-            </div>
-            <div class="commit-detail">
-              <pre id="commit-detail-text" class="code-block commit-detail-text"></pre>
-              <div id="commit-files" class="commit-files"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 差异对比 -->
-      <div id="tab-diff" class="tab-pane">
-        <div class="tab-inner">
-          <div class="diff-toolbar">
-            <label>本地目录
-              <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:340px">
-            </label>
-            <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
-            <span id="diff-summary" class="diff-summary"></span>
-            <label class="diff-show-same" title="勾选后显示与远程完全相同的文件">
-              <input type="checkbox" id="chk-show-same"> 显示相同
-            </label>
-            <button id="btn-diff-merge-all" class="btn btn-sm" style="margin-left:auto;display:none">全部合并到本地</button>
-          </div>
-          <div id="diff-progress" class="diff-progress" style="display:none">
-            <div class="diff-progress-row">
-              <span id="diff-progress-stage" class="diff-progress-stage">准备中…</span>
-              <span id="diff-progress-detail" class="diff-progress-detail"></span>
-            </div>
-            <div class="diff-progress-bar-wrap">
-              <div id="diff-progress-bar" class="diff-progress-bar"><div class="diff-progress-fill"></div></div>
-              <span id="diff-progress-pct" class="diff-progress-pct"></span>
-            </div>
-            <div id="diff-error-box" class="diff-error-box" style="display:none"></div>
-          </div>
-          <div class="diff-layout">
-            <div id="diff-list" class="diff-list">
-              <div class="empty-hint">输入本地目录路径，点击「扫描差异」开始对比</div>
-            </div>
-            <div class="diff-viewer">
+        <div class="tab-content">
+          <!-- 仓库 -->
+          <div id="tab-repo" class="tab-pane active">
+            <div class="tab-inner">
               <div class="panel-header">
-                <h2 id="diff-file-title" class="section-title">选择左侧文件查看差异</h2>
-                <button id="btn-diff-merge-one" class="btn btn-sm btn-primary" style="display:none">合并到本地</button>
+                <h2 class="section-title">仓库列表</h2>
               </div>
-              <div id="diff-content" class="diff-content"></div>
+              <p class="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
+              <div class="repo-toolbar">
+                <input type="text" id="repo-search" class="input repo-search-input" placeholder="🔍 搜索仓库名 / ID / 分支…">
+                <button id="btn-discover" class="btn btn-primary">发现仓库</button>
+                <button id="btn-view-files" class="btn">查看文件</button>
+              </div>
+              <div id="repo-list" class="repo-list">
+                <div class="empty-hint">点击「发现仓库」加载列表</div>
+              </div>
+              <details class="manual-group">
+                <summary>手动指定仓库</summary>
+                <div class="form-rows">
+                  <label>仓库 ID<input type="text" id="inp-repo-id" class="input"></label>
+                  <label>仓库名<input type="text" id="inp-repo-name" class="input" placeholder="PAT 克隆需要"></label>
+                  <label>分支<input type="text" id="inp-branch" class="input" placeholder="(默认)"></label>
+                  <button id="btn-load-tree" class="btn btn-primary btn-block">加载文件树</button>
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <!-- 文件树 -->
+          <div id="tab-tree" class="tab-pane">
+            <div class="tab-inner">
+              <div class="panel-header">
+                <h2 class="section-title">文件浏览器</h2>
+                <span class="panel-sub">勾选文件后可「下载选中」</span>
+              </div>
+              <div id="tree-container" class="tree-container">
+                <div class="empty-hint">选择仓库后加载文件树</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 文件预览 -->
+          <div id="tab-preview" class="tab-pane">
+            <div class="tab-inner">
+              <div class="panel-header">
+                <h2 id="preview-title" class="section-title">预览</h2>
+              </div>
+              <pre id="preview-content" class="code-block"></pre>
+            </div>
+          </div>
+
+          <!-- 提交记录 -->
+          <div id="tab-commits" class="tab-pane">
+            <div class="tab-inner">
+              <div class="commit-toolbar">
+                <label class="field">模式
+                  <select id="commit-mode" class="select">
+                    <option value="issue">按 Issue 查询</option>
+                    <option value="local">本地 Git 仓库</option>
+                  </select>
+                </label>
+                <label id="commit-issue-label" class="field">Issue
+                  <input type="text" id="commit-issue" class="input" placeholder="TST-234">
+                </label>
+                <button id="btn-query-commits" class="btn btn-primary">查询</button>
+              </div>
+              <div class="commit-layout">
+                <div id="commit-list" class="commit-list card-soft">
+                  <div class="empty-hint">输入 Issue 单号或选择本地模式后查询</div>
+                </div>
+                <div class="commit-detail">
+                  <pre id="commit-detail-text" class="code-block commit-detail-text"></pre>
+                  <div id="commit-files" class="commit-files"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 差异对比 -->
+          <div id="tab-diff" class="tab-pane">
+            <div class="tab-inner">
+              <div class="diff-toolbar">
+                <label class="field">本地目录
+                  <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:340px">
+                </label>
+                <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
+                <span id="diff-summary" class="diff-summary"></span>
+                <label class="diff-show-same field field-inline" title="勾选后显示与远程完全相同的文件">
+                  <input type="checkbox" id="chk-show-same"> 显示相同
+                </label>
+                <label class="diff-ignore-eol field field-inline" title="忽略 CRLF/LF 行尾差异，避免大量无意义合并">
+                  <input type="checkbox" id="chk-ignore-eol" checked> 忽略行尾差异
+                </label>
+                <button id="btn-diff-merge-all" class="btn btn-sm btn-primary" style="margin-left:auto;display:none">全部合并到本地</button>
+              </div>
+              <div id="diff-progress" class="diff-progress" style="display:none">
+                <div class="diff-progress-row">
+                  <span id="diff-progress-stage" class="diff-progress-stage">准备中…</span>
+                  <span id="diff-progress-detail" class="diff-progress-detail"></span>
+                </div>
+                <div class="diff-progress-bar-wrap">
+                  <div id="diff-progress-bar" class="diff-progress-bar"><div class="diff-progress-fill"></div></div>
+                  <span id="diff-progress-pct" class="diff-progress-pct"></span>
+                </div>
+                <div id="diff-error-box" class="diff-error-box" style="display:none"></div>
+              </div>
+              <div class="diff-layout">
+                <div id="diff-list" class="diff-list card-soft">
+                  <div class="empty-hint">输入本地目录路径，点击「扫描差异」开始对比</div>
+                </div>
+                <div class="diff-viewer">
+                  <div class="panel-header">
+                    <h2 id="diff-file-title" class="section-title">选择左侧文件查看差异</h2>
+                    <button id="btn-diff-merge-one" class="btn btn-sm btn-primary" style="display:none">合并到本地</button>
+                  </div>
+                  <div id="diff-content" class="diff-content"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 日志 -->
+          <div id="tab-logs" class="tab-pane">
+            <div class="tab-inner">
+              <div class="panel-header">
+                <h2 class="section-title">日志</h2>
+                <button id="btn-clear-log-2" class="btn btn-sm btn-ghost">清空</button>
+              </div>
+              <pre id="log-content" class="log-block"></pre>
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- 日志 -->
-      <div id="tab-logs" class="tab-pane">
-        <div class="tab-inner">
-          <div class="panel-header">
-            <h2 class="section-title">日志</h2>
-            <button id="btn-clear-log-2" class="btn btn-sm">清空</button>
-          </div>
-          <pre id="log-content" class="log-block"></pre>
-        </div>
-      </div>
+      </main>
     </div>
-  </main>
 
-  <!-- 状态栏 -->
-  <footer class="status-bar">
-    <span id="status-dot" class="status-dot" title="后端状态"></span>
-    <span id="status-text">就绪</span>
-  </footer>
+    <!-- 状态栏 -->
+    <footer class="status-bar">
+      <span id="status-text">就绪</span>
+    </footer>
+  </div>
 
   <!-- 连接设置弹窗 -->
   <div id="connect-modal" class="modal-overlay" style="display:none;">
     <div class="modal">
       <div class="modal-header">
         <h2>连接设置</h2>
-        <button class="modal-close" id="connect-close">&times;</button>
+        <button class="modal-close" id="connect-close" aria-label="关闭">&times;</button>
       </div>
       <div class="modal-body">
         <fieldset class="form-group">
@@ -212,8 +231,8 @@
         <fieldset class="form-group">
           <legend>模式选择</legend>
           <div class="radio-row">
-            <label><input type="radio" name="mode" value="pat" checked> PAT 模式（git clone 全量）</label>
-            <label><input type="radio" name="mode" value="cookie"> Cookie 模式（Web 抓取）</label>
+            <label class="radio"><input type="radio" name="mode" value="pat" checked> PAT 模式（git clone 全量）</label>
+            <label class="radio"><input type="radio" name="mode" value="cookie"> Cookie 模式（Web 抓取）</label>
           </div>
         </fieldset>
         <fieldset class="form-group" id="pat-group">
@@ -235,7 +254,7 @@
       <div class="modal-footer">
         <button id="btn-test-connect" class="btn btn-primary">测试连接</button>
         <button id="btn-connect-ok" class="btn">确定</button>
-        <button id="btn-connect-cancel" class="btn">取消</button>
+        <button id="btn-connect-cancel" class="btn btn-ghost">取消</button>
       </div>
     </div>
   </div>

@@ -26,9 +26,9 @@ from core.config import load_config, load_merge_config
 from core.differ import (
     scan_local_cached,
     scan_remote_cached,
-    get_file_cached,
     compute_diff,
-    merge_to_local,
+    merge_entries,
+    clear_dir_cache,
     DiffStatus,
 )
 from core import sync_history
@@ -41,7 +41,8 @@ def p(msg):
     print(f"[{t}] {msg}", flush=True)
 
 
-def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl, use_cache):
+def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl,
+                   use_cache, merge_workers=4):
     """同步单个仓库：扫描 → 差异 → 合并，并记录历史。
 
     Args:
@@ -99,43 +100,29 @@ def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl, use
         )
         return summary, 0, 0, time.time() - t0
 
-    # 合并
+    # 合并（并行 fetch + write，受全局令牌桶限流，不会打崩服务器）
     to_merge = [e for e in diff.entries
                 if e.status in (DiffStatus.MODIFIED, DiffStatus.REMOTE_ONLY)]
-    p(f"\n   开始合并 {len(to_merge)} 个文件…")
+    p(f"\n   开始合并 {len(to_merge)} 个文件（{merge_workers} 并发抓+写）…")
 
-    ok = 0
-    fail = 0
-    merged_list = []
-    failed_list = []
+    clear_dir_cache()  # 每个仓库重置父目录缓存
     t3 = time.time()
 
-    for i, entry in enumerate(to_merge):
-        try:
-            content = get_file_cached(
-                client, namespace, entry.path,
-                file_ttl=file_ttl, use_cache=use_cache,
-            )
-            if content is None:
-                content = ""
-            if merge_to_local(local_dir, entry.path, content):
-                ok += 1
-                merged_list.append({"path": entry.path, "status": entry.status.value})
-            else:
-                fail += 1
-                failed_list.append({"path": entry.path, "error": "merge_failed"})
-        except Exception as e:
-            fail += 1
-            failed_list.append({"path": entry.path, "error": str(e)})
-            if fail <= 3:
-                p(f"     ✗ {entry.path} → {e}")
-
-        if (i + 1) % 50 == 0 or i + 1 == len(to_merge):
+    def _on_progress(done, ok, fail, total, path, success, err):
+        if done % 50 == 0 or done == total:
             elapsed = time.time() - t3
-            rate = (i + 1) / elapsed if elapsed > 0 else 0
-            eta = (len(to_merge) - i - 1) / rate if rate > 0 else 0
-            p(f"     {i+1}/{len(to_merge)}  成功={ok}  失败={fail}  "
+            rate = done / elapsed if elapsed > 0 else 0
+            eta = (total - done) / rate if rate > 0 else 0
+            p(f"     {done}/{total}  成功={ok}  失败={fail}  "
               f"速率={rate:.1f}/s  预计剩余={eta:.0f}s")
+        elif not success and fail <= 3:
+            p(f"     ✗ {path} → {err}")
+
+    ok, fail, merged_list, failed_list = merge_entries(
+        local_dir, to_merge, client, namespace,
+        file_ttl=file_ttl, use_cache=use_cache,
+        max_workers=merge_workers, on_progress=_on_progress,
+    )
 
     duration = time.time() - t3
     p(f"\n   ✓ {repo_alias} 完成: 成功={ok}  失败={fail}  耗时={duration:.1f}s")
@@ -168,6 +155,8 @@ def main():
     parser.add_argument("--history", action="store_true", help="查看同步历史（类 git log）")
     parser.add_argument("--clear-cache", action="store_true", help="清空全部缓存")
     parser.add_argument("--clear-history", action="store_true", help="清空同步历史")
+    parser.add_argument("--merge-workers", type=int, default=0,
+                        help="合并并发数（默认取 .env 的 MERGE_WORKERS，未配置则 4）")
     args = parser.parse_args()
 
     # 历史查看
@@ -206,8 +195,12 @@ def main():
         sys.exit(1)
     p(f"  ✓ 仓库映射: {len(repo_map)} 个")
     scan_workers = merge_cfg["scan_workers"]
+    merge_workers = merge_cfg["merge_workers"]
     tree_ttl = merge_cfg["tree_ttl"]
     file_ttl = merge_cfg["file_ttl"]
+    # CLI --merge-workers 优先覆盖 .env 配置
+    if args.merge_workers and args.merge_workers > 0:
+        merge_workers = args.merge_workers
 
     client = JiraGitClient()
     client.set_config(cfg)
@@ -261,6 +254,7 @@ def main():
             tree_ttl=tree_ttl,
             file_ttl=file_ttl,
             use_cache=use_cache,
+            merge_workers=merge_workers,
         )
 
     p(f"\n{'=' * 60}")

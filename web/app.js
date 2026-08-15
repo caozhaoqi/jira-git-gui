@@ -897,6 +897,11 @@ document.getElementById('chk-show-same').onchange = (e) => {
   diffState.showSame = e.target.checked;
   renderDiffList();
 };
+document.getElementById('chk-ignore-eol').onchange = (e) => {
+  diffState.ignoreLineEndings = e.target.checked;
+  // 仅重新扫描才能在后端应用新策略；立即重扫提升体验
+  if (diffState.entries.length) scanDiff();
+};
 
 document.getElementById('btn-clone').onclick = cloneRepo;
 document.getElementById('btn-download').onclick = downloadSelected;
@@ -922,7 +927,8 @@ const diffState = {
   entries: [],
   selectedPath: '',
   localDir: '',
-  showSame: false,  // 默认隐藏相同文件
+  showSame: false,        // 默认隐藏相同文件
+  ignoreLineEndings: true // 默认忽略 CRLF/LF 行尾差异
 };
 let diffDoneTimer = null;
 
@@ -948,16 +954,24 @@ async function scanDiff() {
   document.getElementById('btn-diff-merge-all').style.display = 'none';
 
   try {
-    const res = await apiPost('/api/diff/scan', { local_dir: localDir, repo_name: state.selectedRepo.display_name || '' });
+    const res = await apiPost('/api/diff/scan', {
+      local_dir: localDir,
+      repo_name: state.selectedRepo.display_name || '',
+      ignore_line_endings: diffState.ignoreLineEndings,
+    });
     diffState.entries = res.entries || [];
     diffState.localDir = localDir;
 
     const s = res.summary;
+    const wsBadge = s.whitespace_only
+      ? ` · <span class="badge-eol" title="仅 CRLF/LF 行尾差异，已默认忽略">行尾差异 ${s.whitespace_only}</span>`
+      : '';
     document.getElementById('diff-summary').innerHTML =
       `共 ${s.total} 个文件 | ` +
       `<span class="badge-modified">修改 ${s.modified}</span> · ` +
       `<span class="badge-local">仅本地 ${s.local_only}</span> · ` +
-      `<span class="badge-remote">仅远程 ${s.remote_only}</span> · 相同 ${s.same}`;
+      `<span class="badge-remote">仅远程 ${s.remote_only}</span> · 相同 ${s.same}` +
+      wsBadge;
 
     renderDiffList();
     const mergeAllBtn = document.getElementById('btn-diff-merge-all');
@@ -979,6 +993,7 @@ async function scanDiff() {
 
 const DIFF_ICONS = {
   modified: '✎',
+  whitespace_only: '≈',
   local_only: '←',
   remote_only: '→',
   same: '=',
@@ -986,6 +1001,7 @@ const DIFF_ICONS = {
 
 const DIFF_LABELS = {
   modified: '已修改',
+  whitespace_only: '仅行尾差异',
   local_only: '仅本地',
   remote_only: '仅远程',
   same: '相同',
@@ -993,18 +1009,27 @@ const DIFF_LABELS = {
 
 function renderDiffList() {
   const el = document.getElementById('diff-list');
-  const visible = diffState.entries.filter(e => diffState.showSame || e.status !== 'same');
+  const visible = diffState.entries.filter(e => {
+    if (e.status === 'same') return diffState.showSame;
+    if (e.status === 'whitespace_only') return !diffState.ignoreLineEndings;
+    return true;
+  });
   if (!visible.length) {
-    el.innerHTML = diffState.entries.length
+    const allSame = diffState.entries.length && diffState.entries.every(e => e.status === 'same');
+    const allIgnored = diffState.entries.length && diffState.entries.every(e => e.status === 'same' || e.status === 'whitespace_only');
+    el.innerHTML = allSame
       ? '<div class="empty-hint">无差异文件（所有文件相同；可勾选「显示相同」查看）</div>'
-      : '<div class="empty-hint">无差异（本地与远程完全一致）</div>';
+      : allIgnored
+        ? '<div class="empty-hint">无有效差异（剩余差异均为 CRLF/LF 行尾符；可取消「忽略行尾差异」查看）</div>'
+        : '<div class="empty-hint">无差异（本地与远程完全一致）</div>';
     return;
   }
   el.innerHTML = '';
   visible.forEach(e => {
     const item = document.createElement('div');
-    item.className = 'diff-item';
-    item.innerHTML = `<span class="diff-icon">${DIFF_ICONS[e.status] || '?'}</span><span class="diff-path" title="${esc(e.path)}">${esc(e.path)}</span>`;
+    item.className = 'diff-item' + (e.status === 'whitespace_only' ? ' diff-item-eol' : '');
+    const badge = e.status === 'whitespace_only' ? ' <span class="diff-eol-badge">CRLF/LF</span>' : '';
+    item.innerHTML = `<span class="diff-icon">${DIFF_ICONS[e.status] || '?'}</span><span class="diff-path" title="${esc(e.path)}">${esc(e.path)}${badge}</span>`;
     item.onclick = () => openDiffFile(e.path, item);
     el.appendChild(item);
   });
@@ -1052,8 +1077,8 @@ function renderDiffContent(res, status) {
 
   // 没有 diff 文本的情况
   if (!diffText) {
-    if (status === 'modified') {
-      // 标记为 modified 但 unified_diff 为空 → 内容实际相同（行尾/编码差异）
+    if (status === 'modified' || status === 'whitespace_only' || res.normalized_same) {
+      // 标记为 modified / whitespace_only 但 unified_diff 为空 → 内容实际相同（行尾/编码差异）
       const hint = document.createElement('div');
       hint.className = 'diff-info-hint';
       hint.innerHTML = '内容实际相同（可能仅行尾符 / 编码差异）<br>本地大小 ' +
@@ -1197,7 +1222,10 @@ async function mergeOne() {
 }
 
 async function mergeAll() {
-  const entries = diffState.entries.filter(e => e.status === 'modified' || e.status === 'remote_only');
+  const entries = diffState.entries.filter(e => {
+    if (e.status === 'whitespace_only' && diffState.ignoreLineEndings) return false;
+    return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
+  });
   if (!entries.length) { log('没有需要合并的文件', 'warning'); return; }
   const btn = document.getElementById('btn-diff-merge-all');
   btn.disabled = true;

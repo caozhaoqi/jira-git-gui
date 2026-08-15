@@ -561,6 +561,7 @@ class DiffScanReq(_BM):
     local_dir: str
     repo_name: str = ""
     use_cache: bool = True
+    ignore_line_endings: bool = True
 
 class DiffFileReq(_BM):
     local_dir: str
@@ -635,7 +636,10 @@ async def api_diff_scan(req: DiffScanReq):
             })
 
             # 阶段 3：差异计算
-            result = _differ.compute_diff(local_files, remote_files)
+            result = _differ.compute_diff(
+                local_files, remote_files,
+                ignore_line_endings=req.ignore_line_endings,
+            )
             _broadcast("scan_done", {"summary": result.summary()})
             return result
         finally:
@@ -684,12 +688,14 @@ async def api_diff_file(req: DiffFileReq):
     )
 
     diff_text = _differ.file_diff(local_path, remote_content or "")
+    normalized_same = _differ.is_whitespace_only_diff(local_path, remote_content or "")
 
     return {
         "path": req.path,
         "diff": diff_text,
         "local_content": local_content,
         "remote_content": remote_content or "",
+        "normalized_same": normalized_same,
         "cached": req.use_cache,
     }
 

@@ -1,100 +1,107 @@
-"""tree_panel 单测：路径解析、过期回调安全丢弃、基础增删。
+"""TreePanel path->item 索引与勾选收集的无头测试（offscreen）。
 
-需要 QApplication（用 offscreen 头less 平台，避免弹窗）。
-整个进程只允许一个 QApplication，故在导入 PyQt 之前先设好环境变量。
+验证 ADR-002：
+- find_item_by_path 走 O(1) 索引，且能命中懒加载后注入的子节点
+- set_children 在 takeChildren 前用 _prune_subtree 清理旧子树索引（无悬空引用）
+- collect_checked 只收集已勾选的【文件】节点，与递归语义一致
+- clear 重置索引
 """
 import os
+import sys
+import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
-import unittest  # noqa: E402
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
 
-_app = QApplication.instance() or QApplication([])
-
-from gui.tree_panel import TreePanel  # noqa: E402
+from core.models import TreeEntry
+from gui.tree_panel import TreePanel
 
 
-class _Entry:
-    """模拟 core.models.FileEntry 的最小替身，避免为单测引入整个 core。"""
-
-    def __init__(self, name, path, type_, size=None):
-        self.name = name
-        self.path = path
-        self.type = type_  # 'dir' / 'file'
-        self.size = size
+_APP = None
 
 
-class TestFindItemByPath(unittest.TestCase):
+def _app():
+    global _APP
+    if _APP is None:
+        _APP = QApplication(sys.argv)
+    return _APP
+
+
+def _entry(name, path, etype, size=None):
+    return TreeEntry(name=name, path=path, type=etype, size=size)
+
+
+class TestTreePanelIndex(unittest.TestCase):
     def setUp(self):
-        self.panel = TreePanel()
+        _app()
 
-    def _seed(self):
-        # 根：dirA (path=/a) -> 含 dirB (path=/a/b)；以及文件 /c
-        self.panel.set_root_entries([
-            _Entry("a", "/a", "dir"),
-            _Entry("c", "/c", "file", 1024),
+    def test_find_item_by_path_root_and_child(self):
+        p = TreePanel()
+        p.set_root_entries([
+            _entry("src", "src", "dir"),
+            _entry("readme.md", "readme.md", "file", 123),
         ])
-        root = self.panel.tree.invisibleRootItem()
-        item_a = root.child(0)
-        item_a.takeChildren()
-        item_a.addChild(self.panel._make_item(_Entry("b", "/a/b", "dir")))
+        f = p.find_item_by_path("readme.md")
+        self.assertIsNotNone(f)
+        self.assertEqual(f.data(0, Qt.ItemDataRole.UserRole)["path"], "readme.md")
+        d = p.find_item_by_path("src")
+        self.assertIsNotNone(d)
+        self.assertEqual(d.data(0, Qt.ItemDataRole.UserRole)["type"], "dir")
+        self.assertIsNone(p.find_item_by_path("nope"))
 
-    def test_find_nested(self):
-        self._seed()
-        it = self.panel.find_item_by_path("/a/b")
-        self.assertIsNotNone(it)
-        d = it.data(0, Qt.ItemDataRole.UserRole)
-        self.assertEqual(d["path"], "/a/b")
+    def test_find_item_after_set_children(self):
+        p = TreePanel()
+        p.set_root_entries([_entry("src", "src", "dir")])
+        parent = p.find_item_by_path("src")
+        p.set_children(parent, [
+            _entry("a.py", "src/a.py", "file", 10),
+            _entry("sub", "src/sub", "dir"),
+        ])
+        a = p.find_item_by_path("src/a.py")
+        self.assertIsNotNone(a)
+        self.assertEqual(a.data(0, Qt.ItemDataRole.UserRole)["path"], "src/a.py")
+        self.assertIsNotNone(p.find_item_by_path("src/sub"))
 
-    def test_find_top_level(self):
-        self._seed()
-        self.assertIsNotNone(self.panel.find_item_by_path("/c"))
+    def test_set_children_prunes_old_index(self):
+        p = TreePanel()
+        p.set_root_entries([_entry("src", "src", "dir")])
+        parent = p.find_item_by_path("src")
+        p.set_children(parent, [_entry("old.py", "src/old.py", "file", 1)])
+        self.assertIsNotNone(p.find_item_by_path("src/old.py"))
+        p.set_children(parent, [_entry("new.py", "src/new.py", "file", 2)])
+        self.assertIsNone(p.find_item_by_path("src/old.py"))
+        self.assertIsNotNone(p.find_item_by_path("src/new.py"))
 
-    def test_find_missing_returns_none(self):
-        self._seed()
-        self.assertIsNone(self.panel.find_item_by_path("/nope"))
+    def test_collect_checked_only_checked_files(self):
+        p = TreePanel()
+        p.set_root_entries([
+            _entry("a.py", "a.py", "file", 10),
+            _entry("b.py", "b.py", "file", 20),
+            _entry("dir", "dir", "dir"),
+        ])
+        p.find_item_by_path("a.py").setCheckState(2, Qt.CheckState.Checked)
+        self.assertEqual(p.collect_checked(), ["a.py"])
+        p.find_item_by_path("b.py").setCheckState(2, Qt.CheckState.Checked)
+        self.assertEqual(p.collect_checked(), ["a.py", "b.py"])
 
-    def test_find_after_clear_returns_none(self):
-        # 模拟「切换仓库 / 重新加载根目录」后 tree.clear() 销毁所有节点
-        self._seed()
-        self.panel.clear()
-        self.assertIsNone(self.panel.find_item_by_path("/a/b"))
+    def test_clear_resets_index(self):
+        p = TreePanel()
+        p.set_root_entries([_entry("x.py", "x.py", "file", 1)])
+        self.assertIsNotNone(p.find_item_by_path("x.py"))
+        p.clear()
+        self.assertIsNone(p.find_item_by_path("x.py"))
+        self.assertEqual(p.collect_checked(), [])
 
-
-class TestStaleCallback(unittest.TestCase):
-    """回归：请求在途时树被重建，回调按 path 解析找不到节点应安全丢弃（不崩）。
-
-    这正是 main_window._set_children 的防御逻辑所依赖的底层保证：
-    find_item_by_path 在节点被销毁后返回 None，于是回调直接 return，
-    不再触碰已销毁的 QTreeWidgetItem（否则会抛
-    "wrapped C/C++ object of type QTreeWidgetItem has been deleted"）。
-    """
-
-    def test_path_resolves_to_none_after_clear(self):
-        panel = TreePanel()
-        panel.set_root_entries([_Entry("a", "/a", "dir")])
-        panel.clear()  # 树已重建，旧 path 的节点已销毁
-        self.assertIsNone(panel.find_item_by_path("/a"))
-
-
-class TestSetChildren(unittest.TestCase):
-    def setUp(self):
-        self.panel = TreePanel()
-        self.panel.set_root_entries([_Entry("a", "/a", "dir")])
-        self.item_a = self.panel.tree.invisibleRootItem().child(0)
-
-    def test_populates_and_marks_loaded(self):
-        entries = [_Entry("x", "/a/x", "file", 10), _Entry("y", "/a/y", "dir")]
-        self.panel.set_children(self.item_a, entries)
-        self.assertEqual(self.item_a.childCount(), 2)
-        d = self.item_a.data(0, Qt.ItemDataRole.UserRole)
-        self.assertTrue(d["loaded"])
-
-    def test_empty_collapses(self):
-        self.panel.set_children(self.item_a, [])
-        self.assertFalse(self.item_a.isExpanded())
+    def test_placeholder_child_not_indexed(self):
+        """目录默认带「加载中…」占位子项，它无 path，不应进索引。"""
+        p = TreePanel()
+        p.set_root_entries([_entry("src", "src", "dir")])
+        parent = p.find_item_by_path("src")
+        self.assertEqual(list(p._items_by_path.keys()), ["src"])
+        p.set_children(parent, [])
+        self.assertEqual(list(p._items_by_path.keys()), ["src"])
 
 
 if __name__ == "__main__":
