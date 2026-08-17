@@ -180,10 +180,11 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
         except (TypeError, ValueError):
             return default
 
-    return         {
+    return {
             "repo_map": repo_map,
             "scan_workers": _int("MERGE_SCAN_WORKERS", 3),
             "merge_workers": _int("MERGE_WORKERS", 4),
             "tree_ttl": _int("MERGE_CACHE_TREE_TTL", 3600),
             "file_ttl": _int("MERGE_CACHE_FILE_TTL", 86400),
+            "scan_roots": env.get("MERGE_SCAN_ROOTS", "").strip(),
         }

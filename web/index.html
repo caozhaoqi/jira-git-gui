@@ -159,6 +159,7 @@
                 <label class="field">本地目录
                   <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:340px">
                 </label>
+                <button id="btn-diff-auto-dir" class="btn btn-sm btn-ghost" title="根据 .env 中的 MERGE_REPO_* 映射自动填充本地目录">自动扫描</button>
                 <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
                 <span id="diff-summary" class="diff-summary"></span>
                 <label class="diff-show-same field field-inline" title="勾选后显示与远程完全相同的文件">
@@ -166,6 +167,9 @@
                 </label>
                 <label class="diff-ignore-eol field field-inline" title="忽略 CRLF/LF 行尾差异，避免大量无意义合并">
                   <input type="checkbox" id="chk-ignore-eol" checked> 忽略行尾差异
+                </label>
+                <label class="diff-merge-remote-only field field-inline" title="只合并「仅远程」的云端新增文件，跳过本地修改，大幅加速">
+                  <input type="checkbox" id="chk-merge-remote-only"> 仅合并云端差异项
                 </label>
                 <button id="btn-diff-merge-all" class="btn btn-sm btn-primary" style="margin-left:auto;display:none">全部合并到本地</button>
               </div>

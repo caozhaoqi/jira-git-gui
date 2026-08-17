@@ -19,6 +19,7 @@ const state = {
   sse: null,
   maxWorkers: 4,
   qps: 6,
+  repoMappings: {},  // repo_name -> local_dir，来自 .env 的 MERGE_REPO_* 映射
 };
 
 // Tauri 模式下前端由 Tauri 本体提供，后端在 127.0.0.1:8787；
@@ -498,7 +499,56 @@ async function openRepo(r, el) {
   updateStatus();
   log(`已选择仓库 id=${r.repo_id} name=${r.display_name} branch=${branch || '(默认)'}`);
   loadTree('');
+  autoFillLocalDir();
   switchTab('tree');
+}
+
+async function loadRepoMappings() {
+  // 从后端加载 .env 中 MERGE_REPO_* 的远程仓库 → 本地目录映射
+  try {
+    const res = await api('/api/diff/repo-mappings');
+    state.repoMappings = {};
+    (res.mappings || []).forEach(m => {
+      if (m.repo_name && m.local_dir) state.repoMappings[m.repo_name] = m.local_dir;
+    });
+    log(`已加载 ${Object.keys(state.repoMappings).length} 个仓库本地映射`);
+  } catch (ex) {
+    log(`加载仓库映射失败：${ex.message}`, 'error');
+  }
+}
+
+function autoFillLocalDir() {
+  // 根据当前选中的远程仓库自动填充本地目录（优先 .env 映射）
+  if (!state.selectedRepo) return;
+  const repoName = state.selectedRepo.display_name;
+  if (!repoName) return;
+  const mapped = state.repoMappings[repoName];
+  if (mapped) {
+    const input = document.getElementById('diff-local-dir');
+    input.value = mapped;
+    diffState.localDir = mapped;
+    log(`已自动填充本地目录：${mapped}`);
+    return;
+  }
+  // 无精确映射时尝试发现候选目录
+  discoverLocalDirs(repoName);
+}
+
+async function discoverLocalDirs(repoName) {
+  // 调用后端发现本地候选目录；若只有一个高置信候选则自动填充
+  try {
+    const res = await api(`/api/diff/discover-local-dirs?repo_name=${encodeURIComponent(repoName)}`);
+    const candidates = res.candidates || [];
+    if (candidates.length === 1) {
+      document.getElementById('diff-local-dir').value = candidates[0];
+      diffState.localDir = candidates[0];
+      log(`已自动发现本地目录：${candidates[0]}`);
+    } else if (candidates.length > 1) {
+      log(`发现 ${candidates.length} 个候选目录，请手动选择：${candidates.join('、')}`, 'warning');
+    }
+  } catch (ex) {
+    log(`自动发现本地目录失败：${ex.message}`, 'error');
+  }
 }
 
 async function viewFiles() {
@@ -903,6 +953,7 @@ document.getElementById('repo-search').addEventListener('input', onRepoSearch);
 document.getElementById('btn-diff-scan').onclick = scanDiff;
 document.getElementById('btn-diff-merge-one').onclick = mergeOne;
 document.getElementById('btn-diff-merge-all').onclick = mergeAll;
+document.getElementById('btn-diff-auto-dir').onclick = autoFillLocalDir;
 document.getElementById('chk-show-same').onchange = (e) => {
   diffState.showSame = e.target.checked;
   renderDiffList();
@@ -911,6 +962,10 @@ document.getElementById('chk-ignore-eol').onchange = (e) => {
   diffState.ignoreLineEndings = e.target.checked;
   // 仅重新扫描才能在后端应用新策略；立即重扫提升体验
   if (diffState.entries.length) scanDiff();
+};
+document.getElementById('chk-merge-remote-only').onchange = (e) => {
+  diffState.mergeRemoteOnly = e.target.checked;
+  updateMergeAllButton();
 };
 
 document.getElementById('btn-clone').onclick = cloneRepo;
@@ -937,8 +992,9 @@ const diffState = {
   entries: [],
   selectedPath: '',
   localDir: '',
-  showSame: false,        // 默认隐藏相同文件
-  ignoreLineEndings: true // 默认忽略 CRLF/LF 行尾差异
+  showSame: false,         // 默认隐藏相同文件
+  ignoreLineEndings: true, // 默认忽略 CRLF/LF 行尾差异
+  mergeRemoteOnly: false,  // 仅合并「仅远程」的云端差异项
 };
 let diffDoneTimer = null;
 
@@ -1231,28 +1287,52 @@ async function mergeOne() {
   }
 }
 
+function updateMergeAllButton() {
+  const btn = document.getElementById('btn-diff-merge-all');
+  if (!btn) return;
+  if (diffState.mergeRemoteOnly) {
+    btn.title = '仅合并「仅远程」的云端差异项';
+  } else {
+    btn.title = '合并所有远程与本地不同的文件';
+  }
+}
+
 async function mergeAll() {
-  const entries = diffState.entries.filter(e => {
-    if (e.status === 'whitespace_only' && diffState.ignoreLineEndings) return false;
-    return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
-  });
-  if (!entries.length) { log('没有需要合并的文件', 'warning'); return; }
+  let entries;
+  if (diffState.mergeRemoteOnly) {
+    entries = diffState.entries.filter(e => e.status === 'remote_only');
+  } else {
+    entries = diffState.entries.filter(e => {
+      if (e.status === 'whitespace_only' && diffState.ignoreLineEndings) return false;
+      return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
+    });
+  }
+  if (!entries.length) {
+    log(diffState.mergeRemoteOnly ? '没有需要合并的云端差异项' : '没有需要合并的文件', 'warning');
+    return;
+  }
   const btn = document.getElementById('btn-diff-merge-all');
   btn.disabled = true;
   btn.textContent = `合并中 (0/${entries.length})…`;
-  log(`开始批量合并 ${entries.length} 个文件…`);
+  const modeHint = diffState.mergeRemoteOnly ? '（仅云端差异项）' : '';
+  log(`开始批量合并 ${entries.length} 个文件${modeHint}…`);
   try {
-    const reqs = entries.map(e => ({ local_dir: diffState.localDir, path: e.path }));
-    const res = await apiPost('/api/diff/merge-batch', reqs);
+    const reqs = entries.map(e => ({
+      local_dir: diffState.localDir,
+      path: e.path,
+      status: e.status,
+    }));
+    const query = diffState.mergeRemoteOnly ? '?status_filter=remote_only' : '';
+    const res = await apiPost(`/api/diff/merge-batch${query}`, reqs);
     const okCount = (res.results || []).filter(r => r.ok).length;
     const failCount = (res.results || []).length - okCount;
-    log(`批量合并完成：成功 ${okCount}，失败 ${failCount}`);
+    log(`批量合并完成${modeHint}：成功 ${okCount}，失败 ${failCount}`);
     // 从列表中移除成功的
     const okPaths = new Set((res.results || []).filter(r => r.ok).map(r => r.path));
     diffState.entries = diffState.entries.filter(e => !okPaths.has(e.path));
     renderDiffList();
     // 更新摘要
-    document.getElementById('diff-summary').textContent = `合并完成：成功 ${okCount}，失败 ${failCount}`;
+    document.getElementById('diff-summary').textContent = `合并完成${modeHint}：成功 ${okCount}，失败 ${failCount}`;
   } catch (ex) {
     log(`批量合并失败：${ex.message}`, 'error');
   } finally {
@@ -1272,6 +1352,7 @@ try {
 
 updateStatus();
 connectSSE();
+loadRepoMappings(); // 后台加载 .env 仓库映射，供后续自动填充本地目录
 
 // Tauri 特有：接收 Rust 主进程和 Python 日志，同步到 UI 日志面板
 if (window.__TAURI__) {

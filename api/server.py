@@ -572,6 +572,7 @@ class MergeReq(_BM):
     local_dir: str
     path: str
     use_cache: bool = True
+    status: str = ""  # 对应 DiffStatus，供批量合并时按状态过滤
 
 @app.post("/api/diff/scan")
 async def api_diff_scan(req: DiffScanReq):
@@ -720,7 +721,7 @@ async def api_diff_merge(req: MergeReq):
 
 
 @app.post("/api/diff/merge-batch")
-async def api_diff_merge_batch(reqs: list[MergeReq]):
+async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
     """批量合并多个文件（缓存优先，并行抓取 + 并行写入）。
 
     性能优化（针对「本地合并慢」）：
@@ -730,7 +731,15 @@ async def api_diff_merge_batch(reqs: list[MergeReq]):
     3. 快速跳过：本地相同大小且读取内容与远程 bytes 相同 → 不写盘
     4. 父目录缓存：用全局 _DIR_CACHE 集合同步 mkdir(parents=True)
     5. 每完成一个文件即推送进度（merge_progress SSE），便于前端实时显示
+
+    Args:
+        status_filter: 按差异状态过滤，逗号分隔，如 "remote_only"。
+                       为空时处理全部请求。
     """
+    if status_filter:
+        filters = {s.strip() for s in status_filter.split(",") if s.strip()}
+        reqs = [r for r in reqs if r.status in filters]
+
     namespace = str(client.repo_id) if client.repo_id else "default"
     total = len(reqs)
     _broadcast("merge_start", {"total": total})
@@ -840,6 +849,87 @@ async def api_diff_invalidate():
         raise HTTPException(400, "请先选择仓库")
     n = _cache.invalidate(str(client.repo_id))
     return {"ok": True, "cleared": n}
+
+
+@app.get("/api/diff/repo-mappings")
+async def api_diff_repo_mappings():
+    """返回 .env 中 MERGE_REPO_* 配置的远程仓库 → 本地目录映射。"""
+    cfg = load_merge_config()
+    mappings = [
+        {"repo_name": name, "local_dir": local_dir}
+        for name, local_dir in cfg["repo_map"].items()
+    ]
+    return {"mappings": mappings}
+
+
+@app.get("/api/diff/discover-local-dirs")
+async def api_diff_discover_local_dirs(repo_name: str = ""):
+    """根据仓库名自动扫描本地候选目录。
+
+    扫描策略：
+    1. 优先使用 .env 中 MERGE_SCAN_ROOTS（逗号分隔）作为根目录；
+       未配置则回退到 ~/Downloads 与 ~。
+    2. 在每个根目录下搜索 basename 与 repo_name 相同或包含的目录，
+       深度最多 2 层，避免遍历整个文件系统。
+    """
+    if not repo_name:
+        raise HTTPException(400, "repo_name 不能为空")
+
+    import os
+
+    merge_cfg = load_merge_config()
+    roots_str = merge_cfg.get("scan_roots", "")
+    roots: list[Path] = []
+    if roots_str:
+        roots = [Path(p.strip()).expanduser() for p in roots_str.split(",") if p.strip()]
+    if not roots:
+        roots = [Path.home() / "Downloads", Path.home()]
+
+    repo_lower = repo_name.lower()
+    candidates: list[tuple[int, str]] = []
+
+    def _score(basename: str) -> int:
+        b = basename.lower()
+        if b == repo_lower:
+            return 100
+        if repo_lower in b:
+            return 70
+        if b in repo_lower:
+            return 50
+        return 0
+
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            for entry in os.scandir(root):
+                if not entry.is_dir():
+                    continue
+                sc = _score(entry.name)
+                if sc:
+                    candidates.append((sc, entry.path))
+                # 深度 2：再扫一级子目录
+                try:
+                    for sub in os.scandir(entry):
+                        if sub.is_dir():
+                            sc2 = _score(sub.name)
+                            if sc2:
+                                # 子目录匹配分数略降
+                                candidates.append((sc2 - 10, sub.path))
+                except (PermissionError, OSError):
+                    continue
+        except (PermissionError, OSError):
+            continue
+
+    # 去重并按分数降序
+    seen: set[str] = set()
+    result: list[str] = []
+    for score, path in sorted(candidates, key=lambda x: -x[0]):
+        if path not in seen:
+            seen.add(path)
+            result.append(path)
+
+    return {"repo_name": repo_name, "candidates": result[:10]}
 
 
 # --------------------------------------------------------------------------- #
