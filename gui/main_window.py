@@ -26,7 +26,10 @@ from gui.preview_panel import PreviewPanel
 from gui.repo_panel import RepoPanel
 from gui.tree_panel import TreePanel
 from gui.commit_panel import CommitPanel
+from gui.k8s_panel import K8sPanel, yaml_get_task, yaml_apply_task, net_task
 from workers.tasks import Worker
+from core.k8s_snapshot import run_snapshot
+from core import k8s_manager as k8s_mgr
 
 
 class MainWindow(QMainWindow):
@@ -61,6 +64,7 @@ class MainWindow(QMainWindow):
         self.tree_panel = TreePanel()
         self.preview_panel = PreviewPanel()
         self.commit_panel = CommitPanel(self.client, self)
+        self.k8s_panel = K8sPanel(self)
 
         # —— 日志桥：把核心日志转发到 UI 面板（必须在最早完成）——
         self._bridge = LogBridge()
@@ -83,6 +87,7 @@ class MainWindow(QMainWindow):
         self.tabs.setDocumentMode(True)
         self.tabs.addTab(self.preview_panel, "文件预览")
         self.tabs.addTab(self.commit_panel, "提交记录")
+        self.tabs.addTab(self.k8s_panel, "K8s 快照")
         self.tabs.addTab(self.log_panel, "日志")
         right.addWidget(self.tabs)
         right.setStretchFactor(0, 1)
@@ -180,6 +185,14 @@ class MainWindow(QMainWindow):
         self.tree_panel.fileActivated.connect(self._open_file)
         self.commit_panel.queryRequested.connect(self._on_query_commits)
         self.commit_panel.fileViewRequested.connect(self._on_file_at_commit)
+
+        # K8s 快照：面板发出抓取/取消意图，由主窗口在后台线程执行
+        self.k8s_panel.snapshotRequested.connect(self._on_k8s_snapshot)
+        self.k8s_panel.cancelRequested.connect(self._on_k8s_cancel)
+        self.k8s_panel.yamlGetRequested.connect(self._on_k8s_yaml_get)
+        self.k8s_panel.yamlApplyRequested.connect(self._on_k8s_yaml_apply)
+        self.k8s_panel.netRequested.connect(self._on_k8s_net)
+        self._k8s_worker = None
 
         self._log_startup_banner()
         self._log("就绪。先点「连接设置」配置 Jira 地址 / 账号 / 模式，再在仓库面板选择或指定仓库。")
@@ -379,6 +392,101 @@ class MainWindow(QMainWindow):
             friendly = picked or (lines[-1] if lines else m)
         self.commit_panel.set_error(friendly)
         self._log(f"提交查询失败：{friendly}")
+
+    # ----------------------------------------------------------- K8s 快照
+    @safe_slot
+    def _on_k8s_snapshot(self, opts: dict) -> None:
+        if self._k8s_worker is not None and self._k8s_worker.isRunning():
+            self._log("K8s 快照正在执行中，请先取消或等待完成。")
+            return
+        # 若指定环境，解析其 kubeconfig / 命名空间（覆盖裸参数）
+        env = opts.get("env")
+        if env:
+            try:
+                kc, ns = k8s_mgr.resolve_env_kubeconfig(env)
+                opts["kubeconfig"] = kc or opts.get("kubeconfig")
+                if ns and not opts.get("namespace"):
+                    opts["namespace"] = ns
+            except Exception as ex:
+                self.k8s_panel.set_error(str(ex))
+                self._log("环境解析失败：%s" % ex)
+                return
+        self.k8s_panel.set_running(True)
+        self.k8s_panel.append_log("开始抓取 K8s 快照…")
+        self.tabs.setCurrentWidget(self.k8s_panel)
+        # 注意：run_snapshot 的 on_log/on_progress 由 Worker 默认转成
+        # log/progress 信号（经队列投递到主线程），故这里只 connect 信号，
+        # 不在 _spawn 里直接传 UI 回调（否则会在工作线程里触碰控件而崩溃）。
+        w = self._spawn(
+            run_snapshot, opts,
+            on_finished=self._on_k8s_done,
+            # 异常（含 UserError 干净文案）直接交给面板展示
+            on_error=self._on_k8s_error,
+        )
+        w.log.connect(self.k8s_panel.append_log)
+        w.log.connect(lambda m: self._log(m))
+        w.progress.connect(self.k8s_panel.set_progress)
+        self._k8s_worker = w
+
+    @safe_slot
+    def _on_k8s_done(self, result: dict) -> None:
+        self.k8s_panel.set_running(False)
+        self.k8s_panel.set_result(result)
+        sm = result.get("summary", {})
+        self._log("K8s 快照完成：共 %d，异常 %d，报告 %s"
+                  % (sm.get("total", 0), sm.get("high", 0), result.get("report")))
+        self._k8s_worker = None
+
+    @safe_slot
+    def _on_k8s_error(self, msg: str) -> None:
+        self.k8s_panel.set_running(False)
+        self.k8s_panel.set_error(msg)
+        self._log("K8s 快照失败：%s" % msg)
+        self._k8s_worker = None
+
+    @safe_slot
+    def _on_k8s_cancel(self) -> None:
+        if self._k8s_worker is not None:
+            self._k8s_worker.cancel()
+            self._log("已请求取消 K8s 快照。")
+
+    # ----------------------------------------------------------- K8s Pod YAML
+    @safe_slot
+    def _on_k8s_yaml_get(self, req: dict) -> None:
+        self.k8s_panel.set_busy(True, "yaml")
+        self.tabs.setCurrentWidget(self.k8s_panel)
+        w = self._spawn(
+            yaml_get_task, req["env"], req["kind"], req["name"], req.get("namespace"),
+            req.get("clean", True),
+            on_finished=lambda yaml_text: self.k8s_panel.set_yaml(yaml_text),
+            on_error=lambda m: self.k8s_panel.set_error(m),
+        )
+        w.finished.connect(lambda: self.k8s_panel.set_busy(False, "yaml"))
+
+    @safe_slot
+    def _on_k8s_yaml_apply(self, req: dict) -> None:
+        self.k8s_panel.set_busy(True, "yaml")
+        self.tabs.setCurrentWidget(self.k8s_panel)
+        w = self._spawn(
+            yaml_apply_task, req["env"], req["kind"], req["name"],
+            req.get("namespace"), req["content"],
+            on_finished=lambda res: self.k8s_panel.set_yaml_result(res),
+            on_error=lambda m: self.k8s_panel.set_error(m),
+        )
+        w.finished.connect(lambda: self.k8s_panel.set_busy(False, "yaml"))
+
+    # ----------------------------------------------------------- K8s 网络检测
+    @safe_slot
+    def _on_k8s_net(self, req: dict) -> None:
+        self.k8s_panel.set_busy(True, "net")
+        self.tabs.setCurrentWidget(self.k8s_panel)
+        w = self._spawn(
+            net_task, req["env"], req.get("extra_hosts"),
+            on_finished=lambda res: self.k8s_panel.set_net_result(res),
+            on_error=lambda m: self.k8s_panel.set_error(m),
+        )
+        w.log.connect(self.k8s_panel.append_log)
+        w.finished.connect(lambda: self.k8s_panel.set_busy(False, "net"))
 
     # ----------------------------------------------------------- 状态栏
     def _update_status(self) -> None:

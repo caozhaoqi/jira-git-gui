@@ -22,7 +22,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse,
+                                PlainTextResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -980,6 +981,298 @@ async def api_sync_history_clear(date: str = ""):
     """清空同步历史（可指定日期）。"""
     n = _history.clear(date_str=date or None)
     return {"ok": True, "cleared": n}
+
+
+# --------------------------------------------------------------------------- #
+#  K8s Pod 状态 / 日志快照
+# --------------------------------------------------------------------------- #
+from core.k8s_snapshot import (
+    run_snapshot as _k8s_run_snapshot,
+    fetch_logs as _k8s_fetch_logs,
+    run_kubectl as _k8s_run_kubectl,
+)
+from core import k8s_manager as _k8s_mgr
+from core.errors import UserError as _UserError
+
+# 单用户本地工具：一次只允许一个快照任务；任务状态通过 SSE 广播
+_k8s_cancel = threading.Event()
+_k8s_running = False
+_k8s_out_dir = {"dir": None}   # 最近一次输出目录，用于提供日志 / 报告下载
+# 最近一次快照使用的 kubeconfig / namespace，供「查看日志」实时回退到集群拉取
+_k8s_snap_meta = {"kubeconfig": None, "namespace": None}
+
+
+class K8sSnapshotReq(BaseModel):
+    namespace: str = ""
+    selector: str = ""
+    pod_filter: str = ""
+    tail: int = 200
+    restart_threshold: int = 5
+    all_logs: bool = False
+    include_previous: bool = False
+    out_dir: str = ""
+    kubeconfig: str = ""
+    infile: str = ""
+    env: str = ""   # 指定环境（开发/测试/正式）；优先于 kubeconfig/namespace
+
+
+@app.post("/api/k8s/snapshot")
+async def api_k8s_snapshot(req: K8sSnapshotReq):
+    """触发一次 K8s Pod 状态 / 日志快照（后台线程执行，SSE 推送进度）。"""
+    global _k8s_running
+    if _k8s_running:
+        raise HTTPException(status_code=409,
+                            detail="已有快照任务在运行中，请先取消或等待完成。")
+    opts = req.model_dump()
+    # 若指定环境，解析其 kubeconfig / 命名空间（覆盖裸参数）
+    if opts.get("env"):
+        try:
+            kc, ns = _k8s_mgr.resolve_env_kubeconfig(opts["env"])
+            opts["kubeconfig"] = kc or opts.get("kubeconfig")
+            if ns and not opts.get("namespace"):
+                opts["namespace"] = ns
+        except Exception as ex:
+            return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+    def _do() -> None:
+        global _k8s_running
+        _k8s_running = True
+        _k8s_cancel.clear()
+        try:
+            # 记录本次快照的 kubeconfig / namespace，供日志查看接口实时回退使用
+            _k8s_snap_meta["kubeconfig"] = opts.get("kubeconfig")
+            _k8s_snap_meta["namespace"] = opts.get("namespace")
+            result = _k8s_run_snapshot(
+                opts,
+                on_log=lambda m: _broadcast(
+                    "k8s_log", {"msg": m, "ts": time.strftime("%H:%M:%S")}
+                ),
+                on_progress=lambda done, total, name: _broadcast(
+                    "k8s_progress",
+                    {
+                        "done": done,
+                        "total": total,
+                        "pct": round(done / total * 100) if total else 0,
+                        "name": name,
+                    },
+                ),
+                should_cancel=_k8s_cancel.is_set,
+            )
+            _k8s_out_dir["dir"] = result["out_dir"]
+            _broadcast(
+                "k8s_done",
+                {
+                    "summary": result["summary"],
+                    "records": result["records"],
+                    "out_dir": result["out_dir"],
+                    "report": result["report"],
+                },
+            )
+            logger.info("K8s 快照完成: %s", result["out_dir"])
+        except Exception as ex:  # 含 UserError（配置类错误）
+            msg = getattr(ex, "message", None) or str(ex)
+            _broadcast("k8s_error", {"message": msg})
+            logger.error("K8s 快照失败: %s", ex)
+        finally:
+            _k8s_running = False
+            _broadcast("k8s_finished", {"running": False})
+
+    threading.Thread(target=_do, name="k8s-snapshot", daemon=True).start()
+    return {"ok": True, "msg": "快照任务已启动"}
+
+
+@app.post("/api/k8s/cancel")
+async def api_k8s_cancel():
+    """取消正在进行的快照任务。"""
+    _k8s_cancel.set()
+    return {"ok": True, "msg": "已发送取消信号"}
+
+
+@app.get("/api/k8s/report")
+async def api_k8s_report(download: bool = False):
+    """打开 / 下载最近一次生成的 report.html。"""
+    d = _k8s_out_dir["dir"]
+    if not d:
+        raise HTTPException(status_code=404, detail="尚未生成任何快照报告。")
+    path = Path(d) / "report.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="报告文件不存在。")
+    return FileResponse(
+        str(path),
+        media_type="text/html",
+        filename="report.html" if download else None,
+    )
+
+
+@app.get("/api/k8s/log")
+async def api_k8s_log(name: str):
+    """读取某个 Pod 的日志。
+
+    优先读取快照落盘文件；若本次快照未抓取该 Pod（例如状态正常的 Pod），
+    则回退到实时 ``kubectl logs`` 向集群拉取，避免直接 404。
+    """
+    d = _k8s_out_dir["dir"]
+    # 1) 优先使用快照已落盘的日志文件
+    if d:
+        logs_dir = Path(d) / "logs"
+        if logs_dir.exists():
+            parts = []
+            for f in sorted(logs_dir.glob(f"{name}*.log")):
+                parts.append(
+                    f"===== {f.name} =====\n"
+                    + f.read_text(encoding="utf-8", errors="replace")
+                )
+            if parts:
+                return PlainTextResponse("\n\n".join(parts))
+
+    # 2) 落盘无日志 → 实时向集群拉取（需已有快照保存的 kubeconfig 上下文）
+    kc = _k8s_snap_meta.get("kubeconfig")
+    if not kc:
+        raise HTTPException(
+            status_code=404,
+            detail="未找到该 Pod 的快照日志，且尚未连接集群（请先在当前环境运行一次快照）。",
+        )
+    ns = _k8s_snap_meta.get("namespace")
+    ns_args = ["-n", ns] if ns else []
+
+    # 2a) 单容器场景：直接抓
+    out, rc, err = _k8s_run_kubectl(
+        ["logs", name] + ns_args + ["--tail", "200"], kc, timeout=30
+    )
+    if rc == 0 and out.strip():
+        return PlainTextResponse(out)
+
+    # 2b) 多容器场景：列出容器分别抓取
+    if "container name must be specified" in err or "a container name must be specified" in err:
+        po, prc, perr = _k8s_run_kubectl(
+            ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
+        )
+        containers = []
+        if prc == 0:
+            try:
+                obj = json.loads(po)
+                containers = [c.get("name") for c in obj.get("spec", {}).get("containers", [])]
+            except Exception:
+                containers = []
+        parts = []
+        for c in containers:
+            log = _k8s_fetch_logs(name, c, kc, ns, 200, False, timeout=30)
+            parts.append("===== container: %s =====\n%s" % (c, log))
+        if parts:
+            return PlainTextResponse("\n\n".join(parts))
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"实时获取 Pod {name} 日志失败：{err.strip()[:300]}",
+    )
+
+
+# --------------------------------------------------------------------------- #
+#  K8s 多环境 / Pod YAML / 网络检测
+# --------------------------------------------------------------------------- #
+class K8sEnvReq(BaseModel):
+    name: str
+    label: str = ""
+    kubeconfig: str = ""
+    context: str = ""
+    namespace: str = "default"
+    intranet_hosts: list = []
+
+
+class K8sYamlReq(BaseModel):
+    env: str = ""
+    kind: str = "pod"
+    name: str = ""
+    namespace: str = ""
+    content: str = ""        # apply 时用
+    action: str = "get"      # get | apply
+    clean: bool = True       # get 时是否剔除 status/服务端字段
+
+
+class K8sNetworkReq(BaseModel):
+    env: str = ""
+    extra_hosts: list = []
+
+
+@app.get("/api/k8s/env")
+async def api_k8s_env_list():
+    """返回环境列表与当前环境。"""
+    data = _k8s_mgr.load_envs()
+    return {
+        "environments": [
+            {"name": n, **e, "is_current": n == data.get("current")}
+            for n, e in data["environments"].items()
+        ],
+        "current": data.get("current"),
+    }
+
+
+@app.post("/api/k8s/env")
+async def api_k8s_env_save(req: K8sEnvReq):
+    """新增 / 更新一个环境。"""
+    data = _k8s_mgr.add_or_update_env(
+        req.name, req.label, req.kubeconfig, req.context, req.namespace, req.intranet_hosts
+    )
+    return {"ok": True, "current": data.get("current")}
+
+
+@app.post("/api/k8s/env/switch")
+async def api_k8s_env_switch(name: str = ""):
+    """切换当前环境（同时记录 kubeconfig，供「查看日志」实时回退使用）。"""
+    data = _k8s_mgr.set_current_env(name)
+    try:
+        kc, ns = _k8s_mgr.resolve_env_kubeconfig(name or data.get("current"))
+        _k8s_snap_meta["kubeconfig"] = kc
+        _k8s_snap_meta["namespace"] = ns
+    except Exception:
+        pass
+    return {"ok": True, "current": data.get("current")}
+
+
+@app.post("/api/k8s/env/delete")
+async def api_k8s_env_delete(name: str = ""):
+    data = _k8s_mgr.delete_env(name)
+    return {"ok": True, "current": data.get("current")}
+
+
+@app.post("/api/k8s/yaml")
+async def api_k8s_yaml(req: K8sYamlReq):
+    """获取资源 YAML（get）或修改后上传（apply）。"""
+    try:
+        if req.action == "get":
+            if not req.name:
+                raise _UserError("请填写资源名称。")
+            yaml_text = _k8s_mgr.get_resource_yaml(
+                req.env, req.kind, req.name, req.namespace or None,
+                clean=req.clean)
+            return {"ok": True, "yaml": yaml_text}
+        elif req.action == "apply":
+            out, err = _k8s_mgr.apply_yaml_content(
+                req.env, req.content, req.namespace or None)
+            return {"ok": True, "stdout": out, "stderr": err}
+        raise _UserError("未知 action：%s" % req.action)
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.get("/api/k8s/pods")
+async def api_k8s_pods(env: str = "", namespace: str = "", selector: str = ""):
+    """列出指定环境的 Pod（用于 YAML 管理界面快速选择并自动获取）。"""
+    try:
+        items = _k8s_mgr.list_pods(env or "dev", selector or None, namespace or None)
+        return {"ok": True, "pods": items}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/network")
+async def api_k8s_network(req: K8sNetworkReq):
+    """检测当前到指定环境的网络状况（含内网探测）。"""
+    try:
+        result = _k8s_mgr.detect_network(req.env, req.extra_hosts or None)
+        return {"ok": True, **result}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
 
 # --------------------------------------------------------------------------- #

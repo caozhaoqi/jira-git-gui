@@ -46,3 +46,6 @@ electron/resources/backend/*
 
 deliverables/
 .workbuddy/
+
+*.DS_Store
+*.DS_Store.DS_Store

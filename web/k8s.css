@@ -1,0 +1,204 @@
+/* =====================================================================
+   K8s 快照面板样式 —— 复用全局设计令牌（浅色 / 深色双主题）。
+   仅包含 K8s tab 专属布局类，基础组件（.input/.btn/.card-soft/.code-block
+   等）沿用 styles.css。
+   ===================================================================== */
+
+/* ---------- 配置表单 ---------- */
+.k8s-form { padding: 14px 16px; margin-bottom: 16px; }
+.k8s-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+.field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.field-col .input,
+.field-col .spin { width: 100%; }
+.k8s-col-wide { grid-column: span 2; }
+.field-col-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  align-self: end;
+}
+.field-col-inline input { width: auto; }
+
+.k8s-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* ---------- 进度条 ---------- */
+.k8s-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.k8s-progress .progress-bar { flex: 1; }
+
+/* ---------- 摘要卡片 ---------- */
+.k8s-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.k8s-stat {
+  min-width: 96px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+.k8s-stat .n { font-size: 24px; font-weight: 700; line-height: 1.1; }
+.k8s-stat .l { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.k8s-stat.ok .n  { color: var(--success); }
+.k8s-stat.med .n { color: var(--warning); }
+.k8s-stat.high .n { color: var(--danger); }
+
+/* ---------- 布局：表格 + 日志 ---------- */
+.k8s-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .k8s-layout { grid-template-columns: 1fr; }
+}
+.k8s-table-wrap, .k8s-log-wrap { padding: 12px 14px; }
+.k8s-table-scroll { overflow: auto; max-height: calc(100vh - 320px); }
+
+/* ---------- 状态表 ---------- */
+.k8s-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.k8s-table th, .k8s-table td {
+  padding: 7px 9px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.k8s-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 600;
+  z-index: 1;
+}
+.k8s-table tbody tr { cursor: pointer; transition: background .12s; }
+.k8s-table tbody tr:hover { background: var(--surface-2); }
+.k8s-table .k8s-name { font-family: var(--mono); max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.k8s-restarts { color: var(--warning); font-weight: 600; }
+
+/* 严重度着色 */
+.k8s-row.sev-HIGH { background: var(--danger-bg); }
+.k8s-row.sev-MED  { background: var(--warning-bg); }
+.k8s-row.sev-OK   { /* 默认 */ }
+.k8s-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+.k8s-badge.sev-HIGH { background: var(--danger); }
+.k8s-badge.sev-MED  { background: var(--warning); }
+.k8s-badge.sev-OK   { background: var(--success); }
+
+/* ---------- 日志区 ---------- */
+.k8s-log-wrap .code-block {
+  min-height: 280px;
+  max-height: calc(100vh - 320px);
+  margin: 0;
+}
+
+/* ---------- 环境栏 ---------- */
+.k8s-envbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 12px; }
+.k8s-env-label { font-size: 13px; color: var(--muted); font-weight: 600; display: inline-flex; align-items: center; gap: 8px; margin: 0; }
+.sel {
+  padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font-size: 13px; min-width: 160px;
+}
+
+/* ---------- 子标签 ---------- */
+.k8s-subtabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.k8s-subtab {
+  padding: 9px 16px; border: none; background: none; color: var(--muted);
+  cursor: pointer; font-size: 14px; border-bottom: 2px solid transparent; font-weight: 600;
+}
+.k8s-subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.k8s-subpane { display: none; }
+.k8s-subpane.active { display: block; }
+
+/* ---------- YAML 编辑器 ---------- */
+.k8s-yaml-editor {
+  width: 100%; min-height: 320px; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--code-bg, #0f172a); color: var(--code-fg, #e2e8f0);
+  font-family: var(--mono); font-size: 12px; resize: vertical; line-height: 1.45;
+}
+.k8s-yaml-out { margin-top: 10px; min-height: 80px; max-height: 220px; }
+
+/* ---------- 网络检测 ---------- */
+.k8s-check {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; background: var(--surface);
+}
+.k8s-chk-ico {
+  width: 22px; height: 22px; border-radius: 50%; flex: 0 0 auto; display: flex;
+  align-items: center; justify-content: center; font-weight: 700; color: #fff; font-size: 13px; margin-top: 2px;
+}
+.k8s-chk-ico.ok { background: var(--success); }
+.k8s-chk-ico.fail { background: var(--danger); }
+.k8s-chk-ico.warn { background: var(--warning); }
+.k8s-chk-name { font-weight: 600; font-size: 13px; }
+.k8s-chk-detail { font-size: 12px; color: var(--muted); }
+.k8s-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+/* ---------- 环境管理弹窗 ---------- */
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex;
+  align-items: center; justify-content: center; z-index: 50; padding: 20px;
+}
+.modal-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  width: min(680px, 96vw); max-height: 90vh; overflow: auto; padding: 16px 18px; box-shadow: 0 12px 40px rgba(0,0,0,.25);
+}
+.k8s-env-list { border-top: 1px solid var(--border); padding-top: 10px; }
+.k8s-env-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 6px; font-size: 13px;
+}
+.k8s-env-item .nm { font-weight: 700; }
+.k8s-env-item .kc { color: var(--muted); font-family: var(--mono); font-size: 11px; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.k8s-env-item .cur { color: var(--success); font-size: 11px; font-weight: 700; }
+
+/* ---------- YAML 子页：内联控件 ---------- */
+.k8s-inline { display: flex; align-items: center; gap: 8px; }
+.k8s-check-inline {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+  color: var(--muted); white-space: nowrap; cursor: pointer; user-select: none;
+}
+.k8s-check-inline input { width: 15px; height: 15px; accent-color: var(--accent); }
+

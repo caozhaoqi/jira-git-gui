@@ -7,7 +7,8 @@
  *  3) 主进程 -> 渲染进程：通过 IPC "log:append" 把后端日志和主进程日志推到前端
  *  4) 渲染进程 -> 主进程：通过 IPC "log:from-renderer" 让前端日志也落盘
  */
-const { app, BrowserWindow, dialog, ipcMain } = require('electron');
+const electron = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = electron;
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -19,8 +20,6 @@ let mainWindow = null;
 const BACKEND_PORT = 8787;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
-const IS_PACKAGED = app.isPackaged;  // electron-builder 打包后为 true
-
 // ---- 日志：终端 + 文件 + 渲染进程广播 ----
 const PROJECT_ROOT = path.join(__dirname, '..');
 
@@ -28,20 +27,31 @@ const PROJECT_ROOT = path.join(__dirname, '..');
 // - 打包态：~/.jira-git-gui（可写，避免写入只读的 app 包）
 // - 开发态：项目根
 function getDataDir() {
-  if (IS_PACKAGED) {
+  // app.isPackaged may be undefined during module load; fallback to false for dev mode
+  const isPacked = app?.isPackaged ?? false;
+  if (isPacked) {
     return path.join(os.homedir(), '.jira-git-gui');
   }
   return PROJECT_ROOT;
 }
-const DATA_DIR = getDataDir();
-const LOG_DIR = path.join(DATA_DIR, 'logs');
-if (!fs.existsSync(LOG_DIR)) {
-  try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
+
+// Initialize paths lazily to avoid accessing app before it's ready
+let DATA_DIR = null;
+let LOG_DIR = null;
+let LOG_FILE = null;
+
+function initializePaths() {
+  if (DATA_DIR) return; // Already initialized
+  DATA_DIR = getDataDir();
+  LOG_DIR = path.join(DATA_DIR, 'logs');
+  if (!fs.existsSync(LOG_DIR)) {
+    try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (_) {}
+  }
+  LOG_FILE = path.join(
+    LOG_DIR,
+    `electron-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.log`
+  );
 }
-const LOG_FILE = path.join(
-  LOG_DIR,
-  `electron-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.log`
-);
 
 function _ts() {
   const d = new Date();
@@ -77,26 +87,40 @@ log(`Project root: ${PROJECT_ROOT}`);
 log(`Log file: ${LOG_FILE}`);
 log(`Backend URL: ${BACKEND_URL}  Dev mode: ${isDev}`);
 
-// ---- IPC：渲染进程上报日志 ----
-ipcMain.on('log:from-renderer', (_ev, payload) => {
-  const { level = 'info', msg } = payload || {};
-  _logRaw(`[renderer] [${level}] ${msg ?? ''}`);
-});
+// Check if we're running in a proper Electron environment
+if (!app || typeof app.whenReady !== 'function') {
+  logErr('ERROR: Electron app module not properly loaded.');
+  logErr('Possible causes: Running in VS Code sandbox, or improper Electron setup.');
+  logErr('To run Electron from command line:');
+  logErr('  1. Open a native terminal (not VS Code terminal)');
+  logErr('  2. cd /Users/caozhaoqi/PycharmProjects/jira-git-gui');
+  logErr('  3. ./run_web.sh --electron');
+  process.exit(1);
+}
 
-ipcMain.handle('log:get-path', () => LOG_FILE);
-ipcMain.handle('app:get-info', () => ({
-  platform: process.platform,
-  isElectron: true,
-  backendUrl: BACKEND_URL,
-  logFile: LOG_FILE,
-  isDev,
-}));
+// ---- IPC Handlers (registered in app.whenReady) ----
+function registerIpcHandlers() {
+  ipcMain.on('log:from-renderer', (_ev, payload) => {
+    const { level = 'info', msg } = payload || {};
+    _logRaw(`[renderer] [${level}] ${msg ?? ''}`);
+  });
+
+  ipcMain.handle('log:get-path', () => LOG_FILE);
+  ipcMain.handle('app:get-info', () => ({
+    platform: process.platform,
+    isElectron: true,
+    backendUrl: BACKEND_URL,
+    logFile: LOG_FILE,
+    isDev,
+  }));
+}
 
 // ---- Python 后端启动 ----
 // 返回后端启动命令：打包态用冻结后的单文件可执行；开发态用 venv 里的 python。
 function getBackendLaunch() {
   const port = String(BACKEND_PORT);
-  if (IS_PACKAGED) {
+  const isPacked = app?.isPackaged ?? false;
+  if (isPacked) {
     const exeName = process.platform === 'win32' ? 'jira-git-backend.exe' : 'jira-git-backend';
     const cmd = path.join(process.resourcesPath, 'backend', exeName);
     return { cmd, args: ['--port', port] };
@@ -230,9 +254,13 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(async () => {
-  log('app.whenReady() 触发');
-  startPythonBackend();
+// Only set up event listeners if app is available (it should be after require)
+if (app && app.whenReady) {
+  app.whenReady().then(async () => {
+    initializePaths(); // Initialize paths now that app is ready
+    registerIpcHandlers(); // Register IPC handlers
+    log('app.whenReady() 触发');
+    startPythonBackend();
 
   const timeoutMs = 15000;
   const timeoutPromise = new Promise((_, reject) => {
@@ -253,41 +281,44 @@ app.whenReady().then(async () => {
     app.quit();
   }
 });
+} // Close the if (app && app.whenReady) block
 
-app.on('before-quit', () => {
-  log('app before-quit：关闭 Python 后端');
-  if (pyProc) {
-    try { pyProc.kill('SIGTERM'); } catch (_) {}
-    pyProc = null;
-  }
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    log('window-all-closed：退出应用');
-    app.quit();
-  }
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    log('activate：重建窗口');
+if (app) {
+  app.on('before-quit', () => {
+    log('app before-quit：关闭 Python 后端');
     if (pyProc) {
-      createWindow();
-    } else {
-      (async () => {
-        startPythonBackend();
-        try {
-          await Promise.race([
-            waitForBackend(30),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('超时')), 15000))
-          ]);
-          createWindow();
-        } catch (err) {
-          dialog.showErrorBox('后端启动失败', `${err.message}\n\n日志文件：${LOG_FILE}`);
-          app.quit();
-        }
-      })();
+      try { pyProc.kill('SIGTERM'); } catch (_) {}
+      pyProc = null;
     }
-  }
-});
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      log('window-all-closed：退出应用');
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      log('activate：重建窗口');
+      if (pyProc) {
+        createWindow();
+      } else {
+        (async () => {
+          startPythonBackend();
+          try {
+            await Promise.race([
+              waitForBackend(30),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('超时')), 15000))
+            ]);
+            createWindow();
+          } catch (err) {
+            dialog.showErrorBox('后端启动失败', `${err.message}\n\n日志文件：${LOG_FILE}`);
+            app.quit();
+          }
+        })();
+      }
+    }
+  });
+}
