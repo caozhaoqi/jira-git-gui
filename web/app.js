@@ -522,9 +522,11 @@ function autoFillLocalDir() {
   if (!state.selectedRepo) return;
   const repoName = state.selectedRepo.display_name;
   if (!repoName) return;
+  const input = document.getElementById('diff-local-dir');
+  // 若用户已手动填写，则不覆盖；仅当输入为空时自动填充
+  if (input.value.trim()) return;
   const mapped = state.repoMappings[repoName];
   if (mapped) {
-    const input = document.getElementById('diff-local-dir');
     input.value = mapped;
     diffState.localDir = mapped;
     log(`已自动填充本地目录：${mapped}`);
