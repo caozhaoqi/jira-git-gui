@@ -32,7 +32,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS, NetworkWatchdog
-from core.config import load_config, load_session, save_session, clear_session, get_session_path
+from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config
 from core.constants import DEFAULT_REQUEST_QPS, DOWNLOAD_DIR
 from core.models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
 
