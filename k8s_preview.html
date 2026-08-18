@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K8s 多环境运维工具 · 演示预览</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --panel2:#f0f2f5; --text:#1f2329; --muted:#6b7280;
+    --border:#e5e7eb; --accent:#2f6fed; --accent-d:#1d4ed8; --ok:#16a34a; --med:#d97706;
+    --high:#c0392b; --code-bg:#0f172a; --code-fg:#e2e8f0; --shadow:0 1px 3px rgba(0,0,0,.06);
+  }
+  html[data-theme="dark"]{
+    --bg:#16181d; --panel:#1e2128; --panel2:#262a33; --text:#e6e8ec; --muted:#9aa3af;
+    --border:#333842; --accent:#4c8bff; --accent-d:#6ea2ff; --ok:#22c55e; --med:#f59e0b;
+    --high:#ef4444; --code-bg:#0b0f17; --code-fg:#cbd5e1; --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--text);line-height:1.5;padding:18px;}
+  h1{font-size:20px;margin:0 0 2px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:14px}
+  .topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  .envsel{display:flex;gap:8px;align-items:center}
+  .envbtn{padding:7px 14px;border:1px solid var(--border);background:var(--panel);color:var(--text);
+         border-radius:8px;cursor:pointer;font-size:13px;font-weight:600}
+  .envbtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .theme-btn{margin-left:auto;padding:7px 12px;border:1px solid var(--border);background:var(--panel);
+             border-radius:8px;cursor:pointer;font-size:13px}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  .tab{padding:9px 16px;border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px;
+       border-bottom:2px solid transparent;font-weight:600}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+  .pane{display:none}
+  .pane.active{display:block}
+  .card-soft{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
+  .input,.sel{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);
+              color:var(--text);font-size:13px}
+  textarea{width:100%;min-height:300px;padding:10px;border:1px solid var(--border);border-radius:8px;
+           background:var(--code-bg);color:var(--code-fg);font-family:Menlo,Monaco,Consolas,monospace;font-size:12px;
+           resize:vertical;line-height:1.45}
+  .btn{padding:8px 14px;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:8px;
+       cursor:pointer;font-size:13px;font-weight:600}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.ghost{background:transparent}
+  .btn.sm{padding:5px 10px;font-size:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  .progress{height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-top:10px;display:none}
+  .progress > i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
+  th{background:var(--panel2);position:sticky;top:0;font-weight:600;color:var(--muted)}
+  tr.s-HIGH{background:color-mix(in srgb,var(--high) 8%,transparent)}
+  tr.s-MED{background:color-mix(in srgb,var(--med) 10%,transparent)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;min-width:92px;text-align:center}
+  .stat .n{font-size:22px;font-weight:700}.stat .l{font-size:11px;color:var(--muted)}
+  .badge{font-size:10px;padding:2px 7px;border-radius:10px;color:#fff;margin-left:6px}
+  .badge.HIGH{background:var(--high)}.badge.MED{background:var(--med)}.badge.OK{background:var(--ok)}
+  pre.code{background:var(--code-bg);color:var(--code-fg);padding:10px;border-radius:8px;max-height:320px;overflow:auto;
+           font-size:12px;white-space:pre-wrap;word-break:break-all;margin:0}
+  .check{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);
+         border-radius:10px;margin-bottom:8px;background:var(--panel)}
+  .chk-ico{width:22px;height:22px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+           font-weight:700;color:#fff;font-size:13px;margin-top:2px}
+  .chk-ico.ok{background:var(--ok)}.chk-ico.fail{background:var(--high)}.chk-ico.warn{background:var(--med)}
+  .chk-name{font-weight:600;font-size:13px}.chk-detail{font-size:12px;color:var(--muted)}
+  .hint{font-size:12px;color:var(--muted);margin:8px 0}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer;user-select:none}
+  .chk input{width:15px;height:15px;accent-color:var(--accent)}
+  .mt{margin-top:14px}
+  .pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;background:var(--panel2);color:var(--muted);margin-left:6px}
+</style>
+</head>
+<body>
+  <h1>Kubernetes 多环境运维工具</h1>
+  <div class="sub">开发 / 测试 / 正式 三环境 · 快照 · Pod YAML 管理 · 网络(含内网)检测 — 演示预览（样例数据，无需集群）</div>
+
+  <div class="topbar">
+    <div class="envsel" id="envsel">
+      <span style="font-size:12px;color:var(--muted)">环境：</span>
+      <button class="envbtn active" data-env="dev">开发</button>
+      <button class="envbtn" data-env="test">测试</button>
+      <button class="envbtn" data-env="prod">正式</button>
+    </div>
+    <button class="theme-btn" id="theme-btn">🌓 切换主题</button>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-pane="snapshot">📸 快照</button>
+    <button class="tab" data-pane="yaml">📝 Pod YAML 管理</button>
+    <button class="tab" data-pane="net">🌐 网络检测</button>
+  </div>
+
+  <!-- ===================== 快照 ===================== -->
+  <div class="pane active" id="p-snapshot">
+    <div class="card-soft">
+      <div class="grid">
+        <div><label>命名空间</label><input class="input" id="s-ns" placeholder="默认（当前环境）"></div>
+        <div><label>Label 选择器</label><input class="input" id="s-sel" placeholder="app=hcm-core"></div>
+        <div><label>Pod 名正则</label><input class="input" id="s-flt" placeholder="hcm-core|celery"></div>
+        <div><label>日志行数</label><input class="input" id="s-tail" value="200"></div>
+      </div>
+      <div class="row">
+        <label style="margin:0"><input type="checkbox" id="s-all"> 全量抓日志</label>
+        <label style="margin:0"><input type="checkbox" id="s-prev"> 含重启前日志</label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="s-run">抓取快照</button>
+        <button class="btn" id="s-report">生成报告</button>
+      </div>
+      <div class="progress" id="s-prog"><i></i></div>
+      <div class="row"><span id="s-prog-label" class="hint"></span></div>
+    </div>
+
+    <div class="grid mt" id="s-stats"></div>
+    <div class="card-soft mt">
+      <div class="row" style="margin:0 0 6px"><b>Pod 状态</b><span class="hint" id="s-hint"></span></div>
+      <div style="max-height:340px;overflow:auto">
+        <table id="s-table"><thead><tr>
+          <th>名称</th><th>状态</th><th>就绪</th><th>重启</th><th>原因</th><th>节点</th><th>严重度</th>
+        </tr></thead><tbody id="s-tbody"></tbody></table>
+      </div>
+      <div class="row"><b>日志（点行查看）</b></div>
+      <pre class="code" id="s-log" style="margin-top:6px">点上方某行查看该 Pod 日志…</pre>
+    </div>
+  </div>
+
+  <!-- ===================== Pod YAML ===================== -->
+  <div class="pane" id="p-yaml">
+    <div class="card-soft">
+      <div class="grid">
+        <div><label>资源类型</label>
+          <select class="sel" id="y-kind"><option>pod</option><option>deployment</option><option>service</option><option>configmap</option><option>ingress</option></select>
+        </div>
+        <div><label>资源名称</label><input class="input" id="y-name" placeholder="如 hcm-core-6bc569958d-2ggkx"></div>
+        <div><label>命名空间（留空用环境默认）</label><input class="input" id="y-ns" placeholder="default"></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="y-get">获取 YAML</button>
+        <button class="btn primary" id="y-apply">修改后上传</button>
+        <label class="chk"><input type="checkbox" id="y-clean" checked> 清洗输出(移除 status/服务端字段)</label>
+        <span class="hint" id="y-msg"></span>
+      </div>
+    </div>
+    <div class="card-soft mt">
+      <div class="row" style="margin:0 0 6px"><b>YAML 内容</b><span class="pill" id="y-env-pill">环境：开发</span></div>
+      <textarea id="y-editor" spellcheck="false"># 点击「获取 YAML」从集群拉取，编辑后点「修改后上传」</textarea>
+      <div class="hint" id="y-apply-out"></div>
+    </div>
+  </div>
+
+  <!-- ===================== 网络检测 ===================== -->
+  <div class="pane" id="p-net">
+    <div class="card-soft">
+      <div class="hint">一键检测：kubectl 客户端 → kubeconfig 文件 → 集群连通 → 内网(API Server TCP) → 自定义内网主机 → 外网。</div>
+      <div class="row">
+        <label style="margin:0">额外内网主机(每行一个 host:port)</label>
+      </div>
+      <textarea id="n-hosts" style="min-height:60px" spellcheck="false">10.6.6.254:8080
+192.168.10.1:80</textarea>
+      <div class="row">
+        <button class="btn primary" id="n-run">开始检测</button>
+        <span class="hint" id="n-summary"></span>
+      </div>
+      <div class="progress" id="n-prog"><i></i></div>
+    </div>
+    <div class="mt" id="n-checks"></div>
+    <div class="card-soft mt">
+      <b>内网探测结果</b>
+      <div id="n-intranet" style="margin-top:8px"></div>
+      <div class="hint mt" id="n-verdict"></div>
+    </div>
+  </div>
+
+<script>
+const SAMPLE = {
+  dev: { kc:"~/Downloads/kubeconfig-dev.txt", pods:[
+    {name:"hcm-core-6bc569958d-2ggkx",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-2",host_ip:"10.6.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO  boot ok\n2026-08-17 16:00:02 INFO  listening :8080"},
+    {name:"kibana-5f7f9b589c-wwkp7",phase:"Running",ready:1,total:1,restarts:357,reason:"",node:"node-1",host_ip:"10.6.6.10",sev:"HIGH",
+     log:"[main]\nWARNING OOMKilled 3 times in last hour\nat org.elasticsearch.bootstrap... (memory pressure)"},
+    {name:"celery-synfile-54bb7b56b6-dzwq6",phase:"Failed",ready:0,total:1,restarts:0,reason:"Evicted",node:"node-3",host_ip:"10.6.6.11",sev:"HIGH",
+     log:"[celery-synfile]\nError: Pod was evicted due to node memory pressure"},
+    {name:"bad-svc-7d9c-x1",phase:"Running",ready:0,total:2,restarts:12,reason:"",node:"node-4",host_ip:"10.6.6.13",sev:"HIGH",
+     log:"[app]\nBackOff: CrashLoopBackOff\nTraceback: ConnectionRefusedError: redis:6379"},
+  ]},
+  test: { kc:"~/Downloads/kubeconfig-test.txt", pods:[
+    {name:"hcm-core-test-7d9-x2",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-t1",host_ip:"10.7.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (test)"},
+    {name:"hcm-web-test-5f-x3",phase:"Pending",ready:0,total:1,restarts:0,reason:"",node:"",host_ip:"",sev:"MED",
+     log:"[main]\nWarning: 0/3 nodes are available: 3 Insufficient cpu."},
+  ]},
+  prod: { kc:"~/Downloads/kubeconfig-prod.txt", pods:[
+    {name:"hcm-core-prod-9c-1",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-p1",host_ip:"10.8.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (prod)"},
+    {name:"hcm-db-prod-3x-2",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-p2",host_ip:"10.8.6.13",sev:"OK",
+     log:"[main]\nINFO postgres ready"},
+  ]},
+};
+const ENV_LABEL = {dev:"开发", test:"测试", prod:"正式"};
+let CUR = "dev";
+
+function setTheme(t){ document.documentElement.setAttribute("data-theme", t); localStorage.setItem("k8s-theme", t); }
+document.getElementById("theme-btn").onclick = () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  setTheme(cur === "dark" ? "light" : "dark");
+};
+setTheme(localStorage.getItem("k8s-theme") || "light");
+
+// 环境切换
+document.querySelectorAll("#envsel .envbtn").forEach(b => b.onclick = () => {
+  CUR = b.dataset.env;
+  document.querySelectorAll("#envsel .envbtn").forEach(x => x.classList.toggle("active", x === b));
+  document.getElementById("y-env-pill").textContent = "环境：" + ENV_LABEL[CUR];
+  resetAreas();
+});
+
+function resetAreas(){ document.getElementById("s-tbody").innerHTML=""; document.getElementById("s-stats").innerHTML="";
+  document.getElementById("s-log").textContent="点上方某行查看该 Pod 日志…"; document.getElementById("n-checks").innerHTML=""; }
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll(".pane").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active"); document.getElementById("p-"+t.dataset.pane).classList.add("active");
+});
+
+// ---------------- 快照 ----------------
+function runDemo(){
+  const prog = document.getElementById("s-prog"); const bar = prog.querySelector("i");
+  prog.style.display="block"; bar.style.width="0%";
+  document.getElementById("s-prog-label").textContent="抓取中…";
+  const pods = SAMPLE[CUR].pods;
+  let i=0;
+  const timer = setInterval(()=>{
+    i++; bar.style.width = Math.min(100, i/ (pods.length+1) *100) +"%";
+    document.getElementById("s-prog-label").textContent = `已处理 ${Math.min(i,pods.length)}/${pods.length}`;
+    if(i>=pods.length){ clearInterval(timer); renderSnapshot(pods); bar.style.width="100%";
+      setTimeout(()=>prog.style.display="none",400); }
+  }, 350);
+}
+function sevColor(s){ return s==="HIGH"?"var(--high)":s==="MED"?"var(--med)":"var(--ok)"; }
+function renderSnapshot(pods){
+  const stats = {OK:0,MED:0,HIGH:0,logs:pods.filter(p=>p.sev!=="OK").length};
+  pods.forEach(p=>stats[p.sev]++);
+  document.getElementById("s-stats").innerHTML = `
+    <div class="stat"><div class="n">${pods.length}</div><div class="l">Pod 总数</div></div>
+    <div class="stat"><div class="n" style="color:var(--ok)">${stats.OK}</div><div class="l">正常</div></div>
+    <div class="stat"><div class="n" style="color:var(--med)">${stats.MED}</div><div class="l">警告</div></div>
+    <div class="stat"><div class="n" style="color:var(--high)">${stats.HIGH}</div><div class="l">异常</div></div>
+    <div class="stat"><div class="n">${stats.logs}</div><div class="l">抓取日志</div></div>`;
+  const tb = document.getElementById("s-tbody"); tb.innerHTML="";
+  pods.forEach((p,idx)=>{
+    const tr=document.createElement("tr"); tr.className="s-"+p.sev;
+    tr.innerHTML=`<td><span class="dot" style="background:${sevColor(p.sev)}"></span>${p.name}</td>
+      <td>${p.phase}</td><td>${p.ready}/${p.total}</td><td>${p.restarts}</td>
+      <td>${p.reason||"—"}</td><td>${p.node||"—"}</td>
+      <td><span class="badge ${p.sev}">${p.sev}</span></td>`;
+    tr.onclick=()=>document.getElementById("s-log").textContent=p.log;
+    tb.appendChild(tr);
+  });
+  document.getElementById("s-hint").textContent=`共 ${pods.length} 个 · 环境：${ENV_LABEL[CUR]}`;
+}
+document.getElementById("s-run").onclick = runDemo;
+document.getElementById("s-report").onclick = ()=>{
+  const html = buildReport(SAMPLE[CUR].pods);
+  const w = window.open("", "_blank"); w.document.write(html); w.document.close();
+};
+function buildReport(pods){
+  const rows = pods.map(p=>`<tr class="s-${p.sev}"><td>${p.name}</td><td>${p.phase}</td><td>${p.ready}/${p.total}</td><td>${p.restarts}</td><td>${p.reason||"—"}</td><td>${p.node||"—"}</td><td><span class="badge ${p.sev}">${p.sev}</span></td></tr>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font-family:sans-serif;padding:24px;background:#f5f6f8}table{border-collapse:collapse;width:100%}
+    th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left}th{background:#f0f2f5}
+    tr.s-HIGH{background:#fdf0ef}tr.s-MED{background:#fef6ef}.badge{padding:2px 7px;border-radius:10px;color:#fff;font-size:11px}
+    .badge.HIGH{background:#c0392b}.badge.MED{background:#d97706}.badge.OK{background:#16a34a}</style></head>
+    <body><h1>K8s 快照报告（${ENV_LABEL[CUR]}）</h1>
+    <p>生成时间：${new Date().toLocaleString()} · 命名空间：默认 · 过滤：无</p>
+    <table><thead><tr><th>名称</th><th>状态</th><th>就绪</th><th>重启</th><th>原因</th><th>节点</th><th>严重度</th></tr></thead>
+    <tbody>${rows}</tbody></table></body></html>`;
+}
+
+// ---------------- Pod YAML ----------------
+// 模拟真实 `kubectl get pod -o yaml` 的原始输出（含大量服务端托管字段）
+const SAMPLE_YAML = (env)=>`apiVersion: v1
+kind: Pod
+metadata:
+  name: ${env==="prod"?"hcm-core-prod-9c-1":"hcm-core-6bc569958d-2ggkx"}
+  namespace: ${env==="prod"?"prod":"default"}
+  uid: a1b2c3d4-0000-1111-2222-333344445555
+  resourceVersion: "18370422"
+  generation: 1
+  creationTimestamp: "2026-08-17T10:00:00Z"
+  selfLink: /api/v1/namespaces/default/pods/hcm-core
+  managedFields:
+  - apiVersion: v1
+    manager: kubelet
+    operation: Update
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"kind":"Pod","apiVersion":"v1","metadata":{"name":"hcm-core"}}
+    prometheus.io/scrape: "true"
+  labels:
+    app: hcm-core
+spec:
+  nodeName: node-2
+  serviceAccountName: hcm
+  containers:
+  - name: hcm-core
+    image: registry.internal/hcm-core:1.4.2
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    ports:
+    - containerPort: 8080
+status:
+  phase: Running
+  podIP: 172.20.2.30
+  hostIP: 10.6.6.12
+  containerStatuses:
+  - name: hcm-core
+    ready: true
+    restartCount: 0`;
+
+// 演示用清洗：模拟 core.k8s_manager.clean_manifest_obj 的效果（整块跳过嵌套内容）
+function demoClean(yamlText){
+  const deny2 = ["uid","resourceVersion","generation","creationTimestamp","selfLink","managedFields","ownerReferences","nodeName"];
+  const lines = yamlText.split("\n");
+  const out = [];
+  let skipUntil = -1; // >=0 时跳过缩进 > skipUntil 的行，直到遇到缩进 <= skipUntil 的非空行
+  const indent = l => { const m = l.match(/^\s*/); return m ? m[0].length : 0; };
+  for (let l of lines){
+    if (skipUntil >= 0){
+      if (!l.trim()) continue;
+      const ind = indent(l);
+      // 列表值（如 managedFields: 下的 - apiVersion）子项缩进与父级同级，需一并跳过
+      if (ind > skipUntil || l.trim().startsWith("-")) continue;
+      skipUntil = -1;
+    }
+    if (!l.trim()){ out.push(l); continue; }
+    const ind = indent(l);
+    const key = l.trim().split(":")[0];
+    if (ind === 0 && key === "status"){ skipUntil = 0; continue; }
+    if (ind === 2 && deny2.includes(key)){ skipUntil = 2; continue; }
+    if (l.includes("kubectl.kubernetes.io/last-applied-configuration")){ skipUntil = ind; continue; }
+    out.push(l);
+  }
+  return out.join("\n");
+}
+document.getElementById("y-get").onclick = ()=>{
+  const raw = SAMPLE_YAML(CUR);
+  const clean = document.getElementById("y-clean").checked;
+  document.getElementById("y-editor").value = clean ? demoClean(raw) : raw;
+  document.getElementById("y-msg").textContent = `已从「${ENV_LABEL[CUR]}」拉取 ${document.getElementById("y-name").value||"hcm-core"} 的 YAML（演示）` + (clean?" · 已清洗":"");
+};
+document.getElementById("y-apply").onclick = ()=>{
+  const v = document.getElementById("y-editor").value.trim();
+  if(!v){ document.getElementById("y-msg").textContent="内容为空，无法上传。"; return; }
+  document.getElementById("y-apply-out").textContent = `kubectl apply -f -  (环境：${ENV_LABEL[CUR]})\n> pod/${CUR==="prod"?"hcm-core-prod-9c-1":"hcm-core-6bc569958d-2ggkx"} configured`;
+  document.getElementById("y-msg").textContent = "✅ 上传成功（演示，未真正执行）。";
+};
+
+// ---------------- 网络检测 ----------------
+function netChecks(env){
+  const cfg = {dev:"kubeconfig-dev.txt @ apiserver.dev:6443",
+               test:"kubeconfig-test.txt @ apiserver.test:6443",
+               prod:"kubeconfig-prod.txt @ apiserver.prod:6443"}[env];
+  const apiHost = {dev:"10.6.6.100:6443", test:"10.7.6.100:6443", prod:"10.8.6.100:6443"}[env];
+  const extra = document.getElementById("n-hosts").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const ch = [
+    {name:"kubectl 客户端", status:"ok", detail:"Client Version: v1.29.2"},
+    {name:"kubeconfig 文件", status: env==="prod"?"fail":"ok",
+       detail: env==="prod"?"未配置或不存在：~/Downloads/kubeconfig-prod.txt":"存在："+cfg},
+    {name:"集群连通 (kubectl version)", status: env==="prod"?"fail":"ok",
+       detail: env==="prod"?"无法连接集群：context deadline exceeded":"Server Version: v1.28.4"},
+    {name:"内网·集群 API Server", status: env==="prod"?"fail":"ok",
+       detail: env==="prod"?("不可达 "+apiHost+"（可能不在内网/VPN）"):("可达 "+apiHost.split(":")[0]+" (延迟 6.2ms)")},
+  ];
+  extra.forEach((h,i)=>{
+    const ok = !(env==="prod" && i===0);  // 演示：正式环境的内网主机不通
+    ch.push({name:"内网探测 "+h, status: ok?"ok":"fail",
+             detail: ok?("可达 (延迟 "+(3+i)+".1ms)"):"不可达"});
+  });
+  ch.push({name:"外网探测 (8.8.8.8:53)", status:"ok",
+            detail:"可达 (延迟 9.4ms)"});
+  return ch;
+}
+function runNet(){
+  const prog=document.getElementById("n-prog"); const bar=prog.querySelector("i");
+  prog.style.display="block"; bar.style.width="0%";
+  document.getElementById("n-checks").innerHTML="";
+  const checks = netChecks(CUR);
+  let i=0;
+  const timer=setInterval(()=>{
+    i++; bar.style.width=Math.min(100,i/checks.length*100)+"%";
+    const c=checks[i-1]; if(c) addCheck(c);
+    if(i>=checks.length){ clearInterval(timer); prog.style.display="none"; renderIntranet(); }
+  }, 300);
+}
+function addCheck(c){
+  const wrap=document.getElementById("n-checks");
+  const ico = c.status==="ok"?"✓":(c.status==="fail"?"✕":"!");
+  const div=document.createElement("div"); div.className="check";
+  div.innerHTML=`<div class="chk-ico ${c.status}">${ico}</div>
+    <div><div class="chk-name">${c.name}</div><div class="chk-detail">${c.detail}</div></div>`;
+  wrap.appendChild(div);
+}
+function renderIntranet(){
+  const env=CUR;
+  const rows = [
+    {t:{dev:"10.6.6.100:6443",test:"10.7.6.100:6443",prod:"10.8.6.100:6443"}[env], ok: env!=="prod", ms: env!=="prod"?"6.2":"—"},
+    ...document.getElementById("n-hosts").value.split("\n").map(s=>s.trim()).filter(Boolean)
+        .map((h,i)=>({t:h, ok:!(env==="prod"&&i===0), ms: env==="prod"&&i===0?"—":(3+i)+".1"})),
+  ];
+  document.getElementById("n-intranet").innerHTML = rows.map(r=>
+    `<div class="check"><div class="chk-ico ${r.ok?"ok":"fail"}">${r.ok?"✓":"✕"}</div>
+     <div><div class="chk-name">${r.t}</div><div class="chk-detail">${r.ok?("可达 (延迟 "+r.ms+"ms)"):"不可达"}</div></div></div>`).join("");
+  const failApi = env==="prod";
+  document.getElementById("n-summary").textContent = failApi? "⚠ 存在异常项" : "✅ 网络正常";
+  document.getElementById("n-verdict").textContent = failApi
+    ? "判定：当前可能【不在「正式」环境的内网/VPN】，或 kubeconfig 缺失。请确认已接入对应内网并配置 kubeconfig 后再操作。"
+    : "判定：当前可连接「"+ENV_LABEL[env]+"」集群与内网，可正常运维。";
+}
+document.getElementById("n-run").onclick = runNet;
+
+// 初始化
+document.getElementById("y-env-pill").textContent = "环境：" + ENV_LABEL[CUR];
+</script>
+</body>
+</html>

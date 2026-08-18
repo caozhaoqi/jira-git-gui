@@ -42,7 +42,7 @@ def p(msg):
 
 
 def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl,
-                   use_cache, merge_workers=4):
+                   use_cache, merge_workers=4, remote_only=False):
     """同步单个仓库：扫描 → 差异 → 合并，并记录历史。
 
     Args:
@@ -53,6 +53,7 @@ def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl,
         tree_ttl: 文件树缓存 TTL
         file_ttl: 文件内容缓存 TTL
         use_cache: 是否启用缓存
+        remote_only: 为 True 时仅合并「仅远程」的云端差异项
 
     Returns:
         (summary, merged_count, failed_count, duration)
@@ -96,14 +97,18 @@ def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl,
         sync_history.record(
             repo_alias=repo_alias, local_dir=local_dir, summary=summary,
             merged=[], failed=[], duration=time.time() - t0, status="success",
-            extra={"note": "无需合并"},
+            extra={"note": "无需合并", "remote_only": remote_only},
         )
         return summary, 0, 0, time.time() - t0
 
     # 合并（并行 fetch + write，受全局令牌桶限流，不会打崩服务器）
-    to_merge = [e for e in diff.entries
-                if e.status in (DiffStatus.MODIFIED, DiffStatus.REMOTE_ONLY)]
-    p(f"\n   开始合并 {len(to_merge)} 个文件（{merge_workers} 并发抓+写）…")
+    if remote_only:
+        to_merge = [e for e in diff.entries if e.status == DiffStatus.REMOTE_ONLY]
+        p(f"\n   【仅合并云端差异项】开始合并 {len(to_merge)} 个文件（{merge_workers} 并发抓+写）…")
+    else:
+        to_merge = [e for e in diff.entries
+                    if e.status in (DiffStatus.MODIFIED, DiffStatus.REMOTE_ONLY)]
+        p(f"\n   开始合并 {len(to_merge)} 个文件（{merge_workers} 并发抓+写）…")
 
     clear_dir_cache()  # 每个仓库重置父目录缓存
     t3 = time.time()
@@ -141,6 +146,7 @@ def sync_one_repo(client, repo, local_dir, scan_workers, tree_ttl, file_ttl,
             "repo_id": repo.repo_id,
             "branch": repo.default_branch,
             "scan_workers": scan_workers,
+            "remote_only": remote_only,
         },
     )
     p(f"   已记录同步历史: {commit_id}")
@@ -157,6 +163,8 @@ def main():
     parser.add_argument("--clear-history", action="store_true", help="清空同步历史")
     parser.add_argument("--merge-workers", type=int, default=0,
                         help="合并并发数（默认取 .env 的 MERGE_WORKERS，未配置则 4）")
+    parser.add_argument("--remote-only", action="store_true",
+                        help="仅合并「仅远程」的云端差异项，跳过本地修改")
     args = parser.parse_args()
 
     # 历史查看
@@ -255,6 +263,7 @@ def main():
             file_ttl=file_ttl,
             use_cache=use_cache,
             merge_workers=merge_workers,
+            remote_only=args.remote_only,
         )
 
     p(f"\n{'=' * 60}")

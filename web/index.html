@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Jira Git 通用拉取工具</title>
   <link rel="stylesheet" href="/web/styles.css">
+  <link rel="stylesheet" href="/web/k8s.css">
 </head>
 <body>
   <div class="app-shell">
@@ -33,6 +34,7 @@
           <button class="tab" data-tab="commits"><span class="tab-ico">📜</span><span class="tab-txt">提交记录</span></button>
           <button class="tab" data-tab="diff"><span class="tab-ico">🔀</span><span class="tab-txt">差异对比</span></button>
           <button class="tab" data-tab="logs"><span class="tab-ico">📋</span><span class="tab-txt">日志</span></button>
+          <button class="tab" data-tab="k8s"><span class="tab-ico">☸</span><span class="tab-txt">K8s 快照</span></button>
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
@@ -159,6 +161,7 @@
                 <label class="field">本地目录
                   <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:340px">
                 </label>
+                <button id="btn-diff-auto-dir" class="btn btn-sm btn-ghost" title="根据 .env 中的 MERGE_REPO_* 映射自动填充本地目录">自动扫描</button>
                 <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
                 <span id="diff-summary" class="diff-summary"></span>
                 <label class="diff-show-same field field-inline" title="勾选后显示与远程完全相同的文件">
@@ -166,6 +169,9 @@
                 </label>
                 <label class="diff-ignore-eol field field-inline" title="忽略 CRLF/LF 行尾差异，避免大量无意义合并">
                   <input type="checkbox" id="chk-ignore-eol" checked> 忽略行尾差异
+                </label>
+                <label class="diff-merge-remote-only field field-inline" title="只合并「仅远程」的云端新增文件，跳过本地修改，大幅加速">
+                  <input type="checkbox" id="chk-merge-remote-only"> 仅合并云端差异项
                 </label>
                 <button id="btn-diff-merge-all" class="btn btn-sm btn-primary" style="margin-left:auto;display:none">全部合并到本地</button>
               </div>
@@ -203,6 +209,219 @@
                 <button id="btn-clear-log-2" class="btn btn-sm btn-ghost">清空</button>
               </div>
               <pre id="log-content" class="log-block"></pre>
+            </div>
+          </div>
+
+          <!-- K8s 快照 -->
+          <div id="tab-k8s" class="tab-pane">
+            <div class="tab-inner">
+              <!-- 环境栏 -->
+              <div class="k8s-envbar card-soft">
+                <label class="k8s-env-label">环境
+                  <select id="k8s-env" class="sel"></select>
+                </label>
+                <button id="btn-k8s-env-manage" class="btn btn-ghost btn-sm">管理环境</button>
+                <span id="k8s-env-kc" class="panel-sub"></span>
+              </div>
+
+              <!-- 子标签 -->
+              <div class="k8s-subtabs">
+                <button class="k8s-subtab active" data-sub="snapshot">📸 快照</button>
+                <button class="k8s-subtab" data-sub="yaml">📝 Pod YAML 管理</button>
+                <button class="k8s-subtab" data-sub="net">🌐 网络检测</button>
+              </div>
+
+              <!-- 快照子页 -->
+              <div class="k8s-subpane active" id="k8s-sub-snapshot">
+                <div class="panel-header">
+                  <h2 class="section-title">K8s Pod 状态与日志快照</h2>
+                  <span class="panel-sub">批量抓取 Pod 状态与日志，自动标记异常</span>
+                </div>
+                <div class="k8s-form card-soft">
+                  <div class="k8s-form-grid">
+                    <label class="field-col">命名空间
+                      <input type="text" id="k8s-namespace" class="input" placeholder="默认当前上下文">
+                    </label>
+                    <label class="field-col">Label 选择器
+                      <input type="text" id="k8s-selector" class="input" placeholder="如 app=hcm-core">
+                    </label>
+                    <label class="field-col">Pod 名过滤(正则)
+                      <input type="text" id="k8s-filter" class="input" placeholder="如 hcm-core|celery">
+                    </label>
+                    <label class="field-col">日志行数
+                      <input type="number" id="k8s-tail" class="spin" value="200" min="0" max="2000">
+                    </label>
+                    <label class="field-col">重启阈值(HIGH)
+                      <input type="number" id="k8s-restart" class="spin" value="5" min="1" max="100">
+                    </label>
+                    <label class="field-col">输出目录
+                      <input type="text" id="k8s-outdir" class="input" placeholder="默认 ~/k8s_snapshots/<时间>">
+                    </label>
+                    <label class="field-col k8s-col-wide">kubeconfig(留空用环境配置)
+                      <input type="text" id="k8s-kubeconfig" class="input" placeholder="默认用当前环境的 kubeconfig">
+                    </label>
+                    <label class="field-col field-col-inline">
+                      <input type="checkbox" id="k8s-alllogs"> 抓取全部 Pod 日志
+                    </label>
+                    <label class="field-col field-col-inline">
+                      <input type="checkbox" id="k8s-prev"> 含重启前日志(--previous)
+                    </label>
+                  </div>
+                  <div class="k8s-actions">
+                    <button id="btn-k8s-run" class="btn btn-primary">抓取快照</button>
+                    <button id="btn-k8s-cancel" class="btn btn-ghost" style="display:none;">取消</button>
+                    <button id="btn-k8s-report" class="btn" style="display:none;">打开报告</button>
+                    <button id="btn-k8s-dir" class="btn btn-ghost" style="display:none;">复制输出目录</button>
+                  </div>
+                </div>
+
+                <div id="k8s-progress" class="k8s-progress" style="display:none;">
+                  <span id="k8s-progress-label" class="progress-label"></span>
+                  <progress id="k8s-progress-bar" class="progress-bar" value="0" max="100"></progress>
+                </div>
+
+                <div id="k8s-summary" class="k8s-summary" style="display:none;"></div>
+
+                <div class="k8s-layout">
+                  <div class="k8s-table-wrap card-soft">
+                    <div class="panel-header">
+                      <h3 class="section-title">Pod 状态</h3>
+                      <span id="k8s-table-hint" class="panel-sub"></span>
+                    </div>
+                    <div class="k8s-table-scroll">
+                      <table class="k8s-table">
+                        <thead>
+                          <tr>
+                            <th>名称</th><th>状态</th><th>就绪</th><th>重启</th><th>原因 / 问题</th>
+                            <th>节点</th><th>HostIP</th><th>PodIP</th><th>时长</th><th>级别</th>
+                          </tr>
+                        </thead>
+                        <tbody id="k8s-tbody">
+                          <tr><td colspan="10" class="empty-hint">点击「抓取快照」开始</td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div class="k8s-log-wrap card-soft">
+                    <div class="panel-header">
+                      <h3 class="section-title">日志</h3>
+                      <span id="k8s-log-name" class="panel-sub">选中上方 Pod 查看日志</span>
+                    </div>
+                    <pre id="k8s-log" class="code-block"></pre>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pod YAML 管理子页 -->
+              <div class="k8s-subpane" id="k8s-sub-yaml">
+                <div class="panel-header">
+                  <h2 class="section-title">Pod / 资源 YAML 管理</h2>
+                  <span class="panel-sub">获取 → 编辑 → 上传（apply），操作于当前环境</span>
+                </div>
+                <div class="k8s-form card-soft">
+                  <div class="k8s-form-grid">
+                    <label class="field-col">资源类型
+                      <select id="k8s-yaml-kind" class="sel">
+                        <option>pod</option><option>deployment</option><option>service</option>
+                        <option>configmap</option><option>ingress</option><option>statefulset</option>
+                      </select>
+                    </label>
+                    <label class="field-col">资源名称
+                      <input type="text" id="k8s-yaml-name" class="input" placeholder="如 hcm-core-6bc569958d-2ggkx">
+                    </label>
+                    <label class="field-col">命名空间(留空用环境默认)
+                      <input type="text" id="k8s-yaml-ns" class="input" placeholder="default">
+                    </label>
+                    <label class="field-col">从 Pod 列表自动获取
+                      <div class="k8s-inline">
+                        <button id="btn-k8s-yaml-pods" class="btn btn-sm btn-ghost" type="button">载入列表</button>
+                        <select id="k8s-yaml-podlist" class="sel" style="flex:1;">
+                          <option value="">（先载入当前环境 Pod 列表）</option>
+                        </select>
+                      </div>
+                    </label>
+                  </div>
+                  <div class="k8s-actions">
+                    <button id="btn-k8s-yaml-get" class="btn">获取 YAML</button>
+                    <button id="btn-k8s-yaml-apply" class="btn btn-primary">修改后上传</button>
+                    <label class="k8s-check-inline"><input type="checkbox" id="k8s-yaml-clean" checked> 清洗输出(移除 status/服务端字段)</label>
+                    <span id="k8s-yaml-msg" class="panel-sub"></span>
+                  </div>
+                </div>
+                <div class="k8s-form card-soft mt">
+                  <div class="panel-header">
+                    <h3 class="section-title">YAML 内容</h3>
+                  </div>
+                  <textarea id="k8s-yaml-editor" class="k8s-yaml-editor" spellcheck="false"># 点击「获取 YAML」从集群拉取，编辑后点「修改后上传」</textarea>
+                  <pre id="k8s-yaml-out" class="k8s-yaml-out code-block" style="display:none;"></pre>
+                </div>
+              </div>
+
+              <!-- 网络检测子页 -->
+              <div class="k8s-subpane" id="k8s-sub-net">
+                <div class="panel-header">
+                  <h2 class="section-title">网络检测（含内网环境）</h2>
+                  <span class="panel-sub">检测 kubectl / kubeconfig / 集群连通 / 内网(API Server) / 外网</span>
+                </div>
+                <div class="k8s-form card-soft">
+                  <label class="field-col">额外内网主机(每行一个 host:port)
+                    <textarea id="k8s-net-hosts" class="k8s-yaml-editor" style="min-height:60px" spellcheck="false">10.6.6.254:8080
+192.168.10.1:80</textarea>
+                  </label>
+                  <div class="k8s-actions">
+                    <button id="btn-k8s-net-run" class="btn btn-primary">开始检测</button>
+                    <span id="k8s-net-summary" class="panel-sub"></span>
+                  </div>
+                  <div id="k8s-net-progress" class="k8s-progress" style="display:none;">
+                    <span class="progress-label">检测中…</span>
+                    <progress class="progress-bar" value="0" max="100"></progress>
+                  </div>
+                </div>
+                <h3 class="section-title mt">检测结果</h3>
+                <div id="k8s-net-checks"></div>
+                <div class="k8s-form card-soft mt">
+                  <div class="panel-header"><h3 class="section-title">内网探测</h3></div>
+                  <div id="k8s-net-intranet"></div>
+                  <div id="k8s-net-verdict" class="panel-sub mt"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 环境管理弹窗 -->
+          <div id="k8s-env-modal" class="modal" style="display:none;">
+            <div class="modal-box">
+              <div class="panel-header">
+                <h3 class="section-title">环境管理</h3>
+                <button id="btn-k8s-env-close" class="btn btn-ghost btn-sm">关闭</button>
+              </div>
+              <div class="k8s-form-grid">
+                <label class="field-col">环境标识(英文)
+                  <input type="text" id="k8s-env-name" class="input" placeholder="如 dev">
+                </label>
+                <label class="field-col">显示名
+                  <input type="text" id="k8s-env-label" class="input" placeholder="如 开发">
+                </label>
+                <label class="field-col">kubeconfig 路径
+                  <input type="text" id="k8s-env-kubeconfig" class="input">
+                </label>
+                <label class="field-col">context(可选)
+                  <input type="text" id="k8s-env-context" class="input">
+                </label>
+                <label class="field-col">默认命名空间
+                  <input type="text" id="k8s-env-namespace" class="input" value="default">
+                </label>
+                <label class="field-col k8s-col-wide">内网探测主机(每行 host:port)
+                  <textarea id="k8s-env-intranet" class="k8s-yaml-editor" style="min-height:50px"></textarea>
+                </label>
+              </div>
+              <div class="k8s-actions">
+                <button id="btn-k8s-env-save" class="btn btn-primary">保存</button>
+                <button id="btn-k8s-env-switch" class="btn">切换为当前</button>
+                <button id="btn-k8s-env-delete" class="btn btn-ghost">删除</button>
+                <span id="k8s-env-msg" class="panel-sub"></span>
+              </div>
+              <div class="k8s-env-list mt" id="k8s-env-list"></div>
             </div>
           </div>
         </div>
