@@ -13,6 +13,7 @@
 import asyncio
 import json
 import logging
+import os
 import sys
 import threading
 import queue
@@ -21,7 +22,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, WebSocket
 from fastapi.responses import (JSONResponse, StreamingResponse, FileResponse,
                                 PlainTextResponse)
 from fastapi.staticfiles import StaticFiles
@@ -1014,6 +1015,7 @@ class K8sSnapshotReq(BaseModel):
     kubeconfig: str = ""
     infile: str = ""
     env: str = ""   # 指定环境（开发/测试/正式）；优先于 kubeconfig/namespace
+    log_level: str = "INFO"  # 日志级别: DEBUG/INFO/WARNING/ERROR
 
 
 @app.post("/api/k8s/snapshot")
@@ -1105,44 +1107,70 @@ async def api_k8s_report(download: bool = False):
 
 
 @app.get("/api/k8s/log")
-async def api_k8s_log(name: str):
-    """读取某个 Pod 的日志。
+async def api_k8s_log(
+    name: str,
+    env: str = "",
+    container: str = "",
+    tail: int = 200,
+    previous: bool = False,
+):
+    """读取某个 Pod 的日志（供主面板与独立日志查看页共用）。
 
-    优先读取快照落盘文件；若本次快照未抓取该 Pod（例如状态正常的 Pod），
-    则回退到实时 ``kubectl logs`` 向集群拉取，避免直接 404。
+    - 优先读取快照落盘文件（按 container 名匹配 ``{name}__{container}.log``）；
+    - 落盘无则实时 ``kubectl logs`` 向集群拉取，避免直接 404。
+    - ``env`` 优先用于解析 kubeconfig / 命名空间，回退到快照上下文。
     """
     d = _k8s_out_dir["dir"]
-    # 1) 优先使用快照已落盘的日志文件
+    # 1) 快照落盘文件优先
     if d:
         logs_dir = Path(d) / "logs"
         if logs_dir.exists():
-            parts = []
-            for f in sorted(logs_dir.glob(f"{name}*.log")):
-                parts.append(
-                    f"===== {f.name} =====\n"
-                    + f.read_text(encoding="utf-8", errors="replace")
-                )
-            if parts:
-                return PlainTextResponse("\n\n".join(parts))
+            if container:
+                f = logs_dir / ("%s__%s.log" % (name, container))
+                if f.exists():
+                    return PlainTextResponse(f.read_text(encoding="utf-8", errors="replace"))
+            else:
+                parts = []
+                for f in sorted(logs_dir.glob(f"{name}*.log")):
+                    parts.append(
+                        f"===== {f.name} =====\n"
+                        + f.read_text(encoding="utf-8", errors="replace")
+                    )
+                if parts:
+                    return PlainTextResponse("\n\n".join(parts))
 
-    # 2) 落盘无日志 → 实时向集群拉取（需已有快照保存的 kubeconfig 上下文）
-    kc = _k8s_snap_meta.get("kubeconfig")
+    # 2) 解析 kubeconfig / 命名空间：env 优先，回退快照上下文
+    kc, ns = (None, None)
+    if env:
+        kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
+    if not kc:
+        kc = _k8s_snap_meta.get("kubeconfig")
+        ns = ns or _k8s_snap_meta.get("namespace")
     if not kc:
         raise HTTPException(
             status_code=404,
-            detail="未找到该 Pod 的快照日志，且尚未连接集群（请先在当前环境运行一次快照）。",
+            detail="未找到该 Pod 的快照日志，且尚未连接集群（请先在当前环境运行一次快照或指定环境）。",
         )
-    ns = _k8s_snap_meta.get("namespace")
+    try:
+        tail = max(1, min(int(tail), 5000))
+    except Exception:
+        tail = 200
     ns_args = ["-n", ns] if ns else []
 
-    # 2a) 单容器场景：直接抓
+    # 3) 指定容器 → 直接实时抓取（单容器场景）
+    if container:
+        log = _k8s_fetch_logs(name, container, kc, ns, tail, previous, timeout=30)
+        return PlainTextResponse(log)
+
+    # 4) 未指定容器：先试单容器，再试多容器
     out, rc, err = _k8s_run_kubectl(
-        ["logs", name] + ns_args + ["--tail", "200"], kc, timeout=30
+        ["logs", name] + ns_args + ["--tail", str(tail)] + (["--previous"] if previous else []),
+        kc, timeout=30,
     )
     if rc == 0 and out.strip():
         return PlainTextResponse(out)
 
-    # 2b) 多容器场景：列出容器分别抓取
+    # 4b) 多容器场景：列出容器分别抓取
     if "container name must be specified" in err or "a container name must be specified" in err:
         po, prc, perr = _k8s_run_kubectl(
             ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
@@ -1156,7 +1184,7 @@ async def api_k8s_log(name: str):
                 containers = []
         parts = []
         for c in containers:
-            log = _k8s_fetch_logs(name, c, kc, ns, 200, False, timeout=30)
+            log = _k8s_fetch_logs(name, c, kc, ns, tail, previous, timeout=30)
             parts.append("===== container: %s =====\n%s" % (c, log))
         if parts:
             return PlainTextResponse("\n\n".join(parts))
@@ -1165,6 +1193,32 @@ async def api_k8s_log(name: str):
         status_code=404,
         detail=f"实时获取 Pod {name} 日志失败：{err.strip()[:300]}",
     )
+
+
+@app.get("/api/k8s/pod-containers")
+async def api_k8s_pod_containers(name: str, env: str = "", namespace: str = ""):
+    """列出某 Pod 的容器名，供独立日志查看页的容器选择器使用。"""
+    kc, ns = (None, None)
+    if env:
+        kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
+    if not kc:
+        kc = _k8s_snap_meta.get("kubeconfig")
+        ns = ns or _k8s_snap_meta.get("namespace")
+    if not kc:
+        raise HTTPException(status_code=404, detail="尚未连接集群，无法获取容器列表。")
+    ns_args = ["-n", namespace] if namespace else (["-n", ns] if ns else [])
+    out, rc, err = _k8s_run_kubectl(
+        ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
+    )
+    if rc != 0:
+        raise HTTPException(status_code=502, detail=f"kubectl 获取 Pod 失败：{err.strip()[:300]}")
+    try:
+        obj = json.loads(out)
+        containers = [c.get("name") for c in obj.get("spec", {}).get("containers", [])]
+        ns = obj.get("metadata", {}).get("namespace", ns or "")
+    except Exception as ex:
+        raise HTTPException(status_code=502, detail=f"解析 Pod 失败：{ex}")
+    return {"ok": True, "name": name, "namespace": ns, "containers": containers}
 
 
 # --------------------------------------------------------------------------- #
@@ -1273,6 +1327,347 @@ async def api_k8s_network(req: K8sNetworkReq):
         return {"ok": True, **result}
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+# --------------------------------------------------------------------------- #
+#  K8s 事件 / 描述 / Top（只读可观测性，均支持 env 参数）
+# --------------------------------------------------------------------------- #
+@app.get("/api/k8s/events")
+async def api_k8s_events(
+    env: str = "",
+    namespace: str = "",
+    kind: str = "",
+    name: str = "",
+    limit: int = 200,
+    all_ns: bool = False,
+):
+    """列出集群事件（按时间倒序，Warning 置顶标红由前端处理）。"""
+    try:
+        d = _k8s_mgr.list_events(
+            env or "dev", namespace or None, kind or None, name or None,
+            int(limit) if limit else 200, bool(all_ns))
+        return {"ok": True, **d}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.get("/api/k8s/describe")
+async def api_k8s_describe(
+    env: str = "",
+    kind: str = "",
+    name: str = "",
+    namespace: str = "",
+):
+    """kubectl describe 资源，返回原始文本 + 相关事件。"""
+    if not kind or not name:
+        return {"ok": False, "error": "请指定资源类型(kind)与名称(name)。"}
+    try:
+        d = _k8s_mgr.describe_resource(env or "dev", kind, name, namespace or None)
+        return {"ok": True, **d}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.get("/api/k8s/top")
+async def api_k8s_top(env: str = "", scope: str = "pods", namespace: str = ""):
+    """kubectl top pods/nodes，按内存消耗降序。"""
+    try:
+        d = _k8s_mgr.get_top(env or "dev", scope or "pods", namespace or None)
+        return {"ok": True, **d}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+# --------------------------------------------------------------------------- #
+#  K8s 交互式终端（Xshell 式）/ 文件浏览器（Xftp 式）
+# --------------------------------------------------------------------------- #
+class K8sExecReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    command: str = ""
+    cwd: str = ""
+
+
+class K8sFileListReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+
+
+class K8sFileReadReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+    max_bytes: int = 200000
+
+
+class K8sFileWriteReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+    content: str = ""
+    encoding: str = ""      # 'base64' 表示 content 已 base64 编码（二进制）
+
+
+class K8sFileUploadReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+    data: str = ""          # base64 编码的二进制内容
+
+
+class K8sFileDeleteReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+    is_dir: bool = False
+
+
+class K8sFileMkdirReq(BaseModel):
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+
+
+@app.post("/api/k8s/exec")
+async def api_k8s_exec(req: K8sExecReq):
+    """在 Pod 内一次性执行命令（管道模式，不带 -t）。"""
+    try:
+        output, new_cwd = _k8s_mgr.exec_command(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.command, req.cwd or None)
+        resp = {"ok": True, "output": output}
+        if new_cwd:
+            resp["cwd"] = new_cwd
+        return resp
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/list")
+async def api_k8s_file_list(req: K8sFileListReq):
+    """列出 Pod 内目录（Xftp 式文件浏览器）。"""
+    try:
+        entries = _k8s_mgr.list_dir(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path or "/")
+        return {"ok": True, "path": req.path or "/", "entries": entries}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/read")
+async def api_k8s_file_read(req: K8sFileReadReq):
+    """读取 Pod 内文本 / 二进制文件内容。"""
+    try:
+        max_bytes = int(req.max_bytes) if req.max_bytes else 200000
+        content, is_binary = _k8s_mgr.read_file(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path, max_bytes)
+        resp = {"ok": True, "content": content, "is_binary": is_binary}
+        # 通过 stat 判断真实大小，确定是否截断
+        try:
+            size = _k8s_mgr._file_size_bytes(
+                req.env, req.pod, req.container or None, req.namespace or None,
+                req.path)
+            if size is not None and size > max_bytes:
+                resp["truncated"] = True
+        except Exception:
+            pass
+        return resp
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/write")
+async def api_k8s_file_write(req: K8sFileWriteReq):
+    """写文本 / 二进制文件到 Pod（二进制：base64 文本经容器内 base64 -d 解码）。"""
+    try:
+        if req.encoding == "base64":
+            # 传入的是 base64 文本，必须原样交给容器内 `base64 -d` 解码，
+            # 若先在本机 b64decode 再喂给 base64 -d 会造成「双重解码」损坏文件。
+            payload = req.content
+            binary = True
+        else:
+            payload = req.content
+            binary = False
+        _k8s_mgr.write_file(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path, payload, binary=binary)
+        return {"ok": True}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/upload")
+async def api_k8s_file_upload(req: K8sFileUploadReq):
+    """上传二进制文件到 Pod（data 始终为 base64 文本，交由容器内 base64 -d 解码写入）。"""
+    try:
+        # data 是 base64 文本：直接透传给容器内 `base64 -d > path`，
+        # 不要在本机先解码，否则会造成双重解码。
+        _k8s_mgr.write_file(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path, req.data, binary=True)
+        return {"ok": True}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/delete")
+async def api_k8s_file_delete(req: K8sFileDeleteReq):
+    """删除 Pod 内文件或目录。"""
+    try:
+        _k8s_mgr.delete_path(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path, is_dir=bool(req.is_dir))
+        return {"ok": True}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.post("/api/k8s/file/mkdir")
+async def api_k8s_file_mkdir(req: K8sFileMkdirReq):
+    """在 Pod 内创建目录（含父级）。"""
+    try:
+        _k8s_mgr.mkdir_path(
+            req.env, req.pod, req.container or None, req.namespace or None,
+            req.path)
+        return {"ok": True}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@app.websocket("/ws/k8s/exec")
+async def ws_k8s_exec(websocket: WebSocket):
+    """交互式 Shell（Xshell 式）。
+
+    连接参数来自 query（env/pod/container/namespace/cwd）或首条 JSON 消息；
+    之后客户端发送 ``{type:'cmd', data}`` 与 ``{type:'disconnect'}``。
+    服务端回 ``{type:'ready', cwd}`` / ``{type:'output', data}`` /
+    ``{type:'cwd', cwd}`` / ``{type:'error', msg}``。
+    """
+    await websocket.accept()
+    q = websocket.query_params
+    env_name = q.get("env")
+    pod = q.get("pod")
+    container = q.get("container") or None
+    namespace = q.get("namespace") or None
+    cwd = q.get("cwd") or "/"
+
+    # 若 query 未提供完整连接参数，等待首条 JSON（init）
+    if not (env_name and pod):
+        try:
+            init = await websocket.receive_json()
+        except Exception:
+            await websocket.close()
+            return
+        if isinstance(init, dict):
+            env_name = init.get("env") or env_name
+            pod = init.get("pod") or pod
+            container = init.get("container") or container
+            namespace = init.get("namespace") or namespace
+            cwd = init.get("cwd") or cwd
+
+    if not (env_name and pod):
+        await websocket.send_json({"type": "error", "msg": "缺少 env 或 pod 参数"})
+        await websocket.close()
+        return
+
+    # 解析环境：复用 k8s_manager 的环境解析结果（前缀 + KUBECONFIG）
+    try:
+        prefix, _ = _k8s_mgr._exec_base_args(env_name, pod, container, namespace)
+        kc, _ = _k8s_mgr.resolve_env_kubeconfig(env_name)
+    except Exception as ex:
+        await websocket.send_json(
+            {"type": "error", "msg": getattr(ex, "message", None) or str(ex)})
+        await websocket.close()
+        return
+
+    # 注入 kubectl 所在目录到 PATH（GUI/IDE 启动的进程 PATH 常缺 Homebrew 目录）
+    sub_env = _k8s_mgr._kubectl_subprocess_env(dict(os.environ))
+    if kc:
+        sub_env["KUBECONFIG"] = kc
+
+    await websocket.send_json({"type": "ready", "cwd": cwd})
+
+    proc = None
+
+    def _terminate():
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    async def _run_cmd(cmd):
+        nonlocal proc, cwd
+        script = _k8s_mgr._build_exec_script(cmd, cwd, track_cwd=True)
+        argv = list(prefix) + ["--", "sh", "-c", script]
+        # 用自动定位的 kubectl 二进制，避免进程 PATH 缺失导致 FileNotFoundError
+        kubectl_bin = _k8s_mgr._resolve_kubectl_binary()
+        proc = await asyncio.create_subprocess_exec(
+            kubectl_bin, *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=sub_env,
+        )
+        assert proc.stdout is not None
+        buf = []
+        while True:
+            line = await proc.stdout.readline()
+            if not line:
+                break
+            text = line.decode("utf-8", "replace")
+            buf.append(text)
+            await websocket.send_json({"type": "output", "data": text})
+        await proc.wait()
+        merged = "".join(buf)
+        new_cwd, _ = _k8s_mgr._split_pwd(merged)
+        if new_cwd:
+            cwd = new_cwd
+            await websocket.send_json({"type": "cwd", "cwd": cwd})
+
+    try:
+        while True:
+            try:
+                msg = await websocket.receive_json()
+            except Exception:
+                break
+            if not isinstance(msg, dict):
+                continue
+            t = msg.get("type")
+            if t == "disconnect":
+                break
+            if t == "cmd":
+                # 先结束上一条仍在运行的命令
+                if proc is not None and proc.returncode is None:
+                    _terminate()
+                    try:
+                        await proc.wait()
+                    except Exception:
+                        pass
+                await _run_cmd(msg.get("data", ""))
+            # 其他 type 忽略
+    finally:
+        _terminate()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #

@@ -18,7 +18,7 @@
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal, QSettings, QUrl
-from PyQt6.QtGui import QColor, QDesktopServices
+from PyQt6.QtGui import QColor, QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
     QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -248,11 +248,22 @@ class K8sPanel(QWidget):
         r3 = QHBoxLayout(); r3.setSpacing(8)
         self.all_logs = QCheckBox("全量抓日志（默认仅异常 Pod）")
         self.prev_logs = QCheckBox("含重启前日志(--previous)")
-        self.kubeconfig = QLineEdit(); self.kubeconfig.setPlaceholderText("留空则用当前环境的 kubeconfig")
-        r3.addWidget(self.all_logs); r3.addWidget(self.prev_logs); r3.addWidget(self.kubeconfig, 3)
+        r3.addWidget(self.all_logs); r3.addWidget(self.prev_logs)
+        r3.addWidget(QLabel("日志级别"))
+        self.log_level = QComboBox()
+        self.log_level.addItems(["DEBUG", "INFO", "WARNING", "ERROR"])
+        self.log_level.setCurrentText("INFO")
+        self.log_level.setToolTip("控制快照日志输出详细程度\nDEBUG=详细 | INFO=正常 | WARNING=仅警告 | ERROR=仅错误")
+        r3.addWidget(self.log_level)
+        r3.addStretch(1)
         cl.addLayout(r3)
 
         r4 = QHBoxLayout(); r4.setSpacing(8)
+        self.kubeconfig = QLineEdit(); self.kubeconfig.setPlaceholderText("留空则用当前环境的 kubeconfig")
+        r4.addWidget(self.kubeconfig, 3)
+        cl.addLayout(r4)
+
+        r5 = QHBoxLayout(); r5.setSpacing(8)
         self.btn_run = QPushButton("抓取快照"); self.btn_run.setObjectName("primary")
         self.btn_run.clicked.connect(self._on_run)
         self.btn_cancel = QPushButton("取消"); self.btn_cancel.setEnabled(False)
@@ -417,6 +428,10 @@ class K8sPanel(QWidget):
         self.kubeconfig.setText(s.value("k8s/kubeconfig", ""))
         self.all_logs.setChecked(s.value("k8s/all_logs", "false") == "true")
         self.prev_logs.setChecked(s.value("k8s/include_previous", "false") == "true")
+        lv = s.value("k8s/log_level", "INFO")
+        idx = self.log_level.findText(lv)
+        if idx >= 0:
+            self.log_level.setCurrentIndex(idx)
 
     def _save_settings(self):
         s = self._settings
@@ -429,6 +444,7 @@ class K8sPanel(QWidget):
         s.setValue("k8s/kubeconfig", self.kubeconfig.text().strip())
         s.setValue("k8s/all_logs", "true" if self.all_logs.isChecked() else "false")
         s.setValue("k8s/include_previous", "true" if self.prev_logs.isChecked() else "false")
+        s.setValue("k8s/log_level", self.log_level.currentText())
 
     # ================================================== 对外回调（主线程）
     def append_log(self, msg: str) -> None:
@@ -518,6 +534,7 @@ class K8sPanel(QWidget):
             "include_previous": self.prev_logs.isChecked(),
             "kubeconfig": self.kubeconfig.text().strip() or None,
             "env": self._env,
+            "log_level": self.log_level.currentText(),
         }
         od = self.out_dir.text().strip()
         if od:
@@ -587,7 +604,6 @@ class K8sPanel(QWidget):
             self._show_log(0)
 
     def _bold(self):
-        from PyQt6.QtGui import QFont
         f = QFont(); f.setBold(True); return f
 
     def _on_cell_clicked(self, row, _col):
