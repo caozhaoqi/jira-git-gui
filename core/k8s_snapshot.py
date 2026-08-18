@@ -21,6 +21,7 @@
     out_dir            str   输出目录（默认 ~/k8s_snapshots/<时间戳>）
     kubeconfig         str   kubeconfig 路径（默认用环境变量 KUBECONFIG）
     infile             str   离线模式：直接读取 kubectl get pods -o json 文件
+    log_level          str   日志级别：DEBUG/INFO/WARNING/ERROR（默认 INFO）
 """
 import datetime as dt
 import html
@@ -34,6 +35,10 @@ from pathlib import Path
 from core.errors import UserError
 
 SEV_COLOR = {"HIGH": "#c0392b", "MED": "#d97706", "OK": "#16a34a"}
+
+# 日志级别（数值越小越详细）
+LOG_LEVELS = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
+LOG_LEVEL_DEFAULT = "INFO"
 
 
 # --------------------------------------------------------------------- kubectl
@@ -302,6 +307,15 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
     include_previous = bool(opts.get("include_previous", False))
     kubeconfig = opts.get("kubeconfig") or None
     infile = opts.get("infile") or None
+    log_level = (opts.get("log_level") or LOG_LEVEL_DEFAULT).upper()
+    if log_level not in LOG_LEVELS:
+        log_level = LOG_LEVEL_DEFAULT
+    _lv = LOG_LEVELS[log_level]
+
+    def _log(level, msg):
+        """按日志级别过滤输出。"""
+        if LOG_LEVELS.get(level, 0) >= _lv:
+            on_log(msg)
 
     ts = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     if opts.get("out_dir"):
@@ -314,14 +328,14 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
 
     # 1) 获取 pods
     if infile:
-        on_log("[*] 离线模式，读取 %s" % infile)
+        _log("INFO", "[*] 离线模式，读取 %s" % infile)
         try:
             data = json.loads(Path(infile).read_text(encoding="utf-8"))
         except Exception as e:
             raise UserError("读取 infile 失败：%s" % e)
         cluster_info = {"context": "offline", "namespace": namespace or "—", "filter": pod_filter or "无"}
     else:
-        on_log("[*] 抓取 pods（namespace=%s, selector=%s）…" % (namespace or "默认", selector or "无"))
+        _log("INFO", "[*] 抓取 pods（namespace=%s, selector=%s）…" % (namespace or "默认", selector or "无"))
         args = ["get", "pods", "-o", "json"]
         if namespace:
             args += ["-n", namespace]
@@ -343,7 +357,7 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
         }
 
     items = data.get("items", []) if isinstance(data, dict) else data
-    on_log("[*] 共 %d 个 pod" % len(items))
+    _log("INFO", "[*] 共 %d 个 pod" % len(items))
 
     # 2) 解析 + 分类
     records = []
@@ -367,7 +381,7 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
     done = 0
     for rec in records:
         if should_cancel():
-            on_log("[*] 用户取消，返回已完成部分。")
+            _log("WARNING", "[*] 用户取消，返回已完成部分。")
             break
         need = all_logs or rec["sev"] != "OK"
         if not need:
@@ -411,7 +425,7 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
     report_path = out_dir / "report.html"
     report_path.write_text(html_doc, encoding="utf-8")
 
-    on_log("[*] 报告已生成：%s" % report_path)
+    _log("INFO", "[*] 报告已生成：%s" % report_path)
 
     return {
         "out_dir": str(out_dir),

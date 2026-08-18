@@ -287,6 +287,14 @@
                     <label class="field-col field-col-inline">
                       <input type="checkbox" id="k8s-prev"> 含重启前日志(--previous)
                     </label>
+                    <label class="field-col">日志级别
+                      <select id="k8s-log-level" class="sel">
+                        <option value="DEBUG">DEBUG (详细)</option>
+                        <option value="INFO" selected>INFO (正常)</option>
+                        <option value="WARNING">WARNING (仅警告)</option>
+                        <option value="ERROR">ERROR (仅错误)</option>
+                      </select>
+                    </label>
                   </div>
                   <div class="k8s-actions">
                     <button id="btn-k8s-run" class="btn btn-primary">抓取快照</button>
@@ -656,44 +664,107 @@
 
   <!-- 连接设置弹窗 -->
   <div id="connect-modal" class="modal-overlay" style="display:none;">
-    <div class="modal">
-      <div class="modal-header">
-        <h2>连接设置</h2>
+    <div class="cdialog">
+      <div class="cdialog-accent"></div>
+      <div class="cdialog-head">
+        <div class="cdialog-title">
+          <span class="cdialog-icon">⚙</span>
+          <h2>连接设置</h2>
+          <span class="cdialog-sub">配置 Jira 连接与认证方式</span>
+        </div>
         <button class="modal-close" id="connect-close" aria-label="关闭">&times;</button>
       </div>
-      <div class="modal-body">
-        <fieldset class="form-group">
-          <legend>基础配置</legend>
-          <label>Jira 地址<input type="text" id="cfg-url" class="input" placeholder="https://jira.example.com"></label>
-          <label>用户名<input type="text" id="cfg-user" class="input"></label>
-        </fieldset>
-        <fieldset class="form-group">
-          <legend>模式选择</legend>
-          <div class="radio-row">
-            <label class="radio"><input type="radio" name="mode" value="pat" checked> PAT 模式（git clone 全量）</label>
-            <label class="radio"><input type="radio" name="mode" value="cookie"> Cookie 模式（Web 抓取）</label>
+      <div class="cdialog-body">
+
+        <!-- 基础配置 -->
+        <div class="csec">
+          <div class="csec-label">基础配置</div>
+          <div class="cfield-row">
+            <div class="cfield">
+              <label>Jira 地址</label>
+              <input type="text" id="cfg-url" class="input" placeholder="https://jira.example.com">
+            </div>
+            <div class="cfield">
+              <label>用户名</label>
+              <input type="text" id="cfg-user" class="input" placeholder="your.name@company.com">
+            </div>
           </div>
-        </fieldset>
-        <fieldset class="form-group" id="pat-group">
-          <legend>PAT</legend>
-          <input type="password" id="cfg-pat" class="input" placeholder="Personal Access Token">
-        </fieldset>
-        <fieldset class="form-group" id="cookie-group" style="display:none;">
-          <legend>Cookie 会话</legend>
-          <textarea id="cfg-cookie" class="textarea" placeholder="JSESSIONID=...; atlassian.xsrf.token=..."></textarea>
-        </fieldset>
-        <fieldset class="form-group">
-          <legend>仓库设置</legend>
-          <label>仓库 ID<input type="text" id="cfg-repo-id" class="input"></label>
-          <label>分支<input type="text" id="cfg-branch" class="input"></label>
-          <label>仓库名<input type="text" id="cfg-repo-name" class="input" placeholder="PAT 克隆需要；可留空由 Cookie 探测"></label>
-        </fieldset>
-        <div id="connect-status" class="connect-status"></div>
-      </div>
-      <div class="modal-footer">
-        <button id="btn-test-connect" class="btn btn-primary">测试连接</button>
-        <button id="btn-connect-ok" class="btn">确定</button>
-        <button id="btn-connect-cancel" class="btn btn-ghost">取消</button>
+        </div>
+
+        <!-- 认证方式：卡片式切换 -->
+        <div class="csec">
+          <div class="csec-label">认证方式</div>
+          <div class="cmake">
+            <label class="cmake-opt cmake-pat">
+              <input type="radio" name="mode" value="pat" checked>
+              <div class="cmake-card">
+                <div class="cmake-card-head">
+                  <span class="cmake-ico cmake-ico-key">🔑</span>
+                  <span class="cmake-name">PAT 模式</span>
+                </div>
+                <div class="cmake-desc">Personal Access Token 认证，支持 git clone 全量</div>
+              </div>
+            </label>
+            <label class="cmake-opt cmake-cookie">
+              <input type="radio" name="mode" value="cookie">
+              <div class="cmake-card">
+                <div class="cmake-card-head">
+                  <span class="cmake-ico cmake-ico-cookie">🍪</span>
+                  <span class="cmake-name">Cookie 模式</span>
+                </div>
+                <div class="cmake-desc">会话 Cookie 认证，适合 Web 抓取</div>
+              </div>
+            </label>
+          </div>
+
+          <!-- PAT 输入 -->
+          <div id="pat-group" class="ccreds">
+            <div class="cfield">
+              <label>Personal Access Token</label>
+              <input type="password" id="cfg-pat" class="input" placeholder="粘贴你的 PAT">
+            </div>
+          </div>
+
+          <!-- Cookie 输入 -->
+          <div id="cookie-group" class="ccreds" style="display:none;">
+            <div class="cfield">
+              <label>Cookie</label>
+              <textarea id="cfg-cookie" class="textarea" placeholder="JSESSIONID=...; atlassian.xsrf.token=..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 仓库设置：可折叠 -->
+        <div class="csec">
+          <details class="cadvanced">
+            <summary><span class="cad-arrow">▸</span>仓库设置（可选）</summary>
+            <div class="cfield-row">
+              <div class="cfield">
+                <label>仓库 ID</label>
+                <input type="text" id="cfg-repo-id" class="input">
+              </div>
+              <div class="cfield">
+                <label>分支</label>
+                <input type="text" id="cfg-branch" class="input">
+              </div>
+            </div>
+            <div class="cfield">
+              <label>仓库名</label>
+              <input type="text" id="cfg-repo-name" class="input" placeholder="PAT 克隆需要；可留空由 Cookie 探测">
+            </div>
+          </details>
+        </div>
+
+        <div id="connect-status" class="cstatus"></div>
+
+        <div class="cactions">
+          <button id="btn-test-connect" class="btn btn-primary">
+            <span class="caction-sparkle">⚡</span>测试连接
+          </button>
+          <button id="btn-connect-ok" class="btn btn-ok">确定</button>
+          <button id="btn-connect-cancel" class="btn btn-ghost">取消</button>
+        </div>
+
       </div>
     </div>
   </div>

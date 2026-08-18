@@ -384,6 +384,7 @@ async function runK8s() {
     out_dir: document.getElementById('k8s-outdir').value.trim(),
     kubeconfig: document.getElementById('k8s-kubeconfig').value.trim(),
     env: state.k8s.env,
+    log_level: document.getElementById('k8s-log-level').value,
   };
   // 清空上次结果
   document.getElementById('k8s-tbody').innerHTML =
@@ -435,6 +436,9 @@ async function loadK8sEnvs() {
     const d = await api('/api/k8s/env');
     if (!d || !d.environments) return;
     const sel = document.getElementById('k8s-env');
+    // 临时解绑 onchange，避免 innerHTML 清空和设置 selected 时触发重复的 onK8sEnvChange
+    const prevHandler = sel.onchange;
+    sel.onchange = null;
     sel.innerHTML = '';
     d.environments.forEach(e => {
       const o = document.createElement('option');
@@ -448,6 +452,8 @@ async function loadK8sEnvs() {
     document.getElementById('k8s-env-kc').textContent =
       cur && cur.kubeconfig ? 'kubeconfig: ' + cur.kubeconfig : '未配置 kubeconfig';
     updateK8sEnvTag();
+    // 恢复 onchange 处理器
+    sel.onchange = prevHandler;
     // 环境变化后，若正停留在「Pod YAML」子页则自动刷新 Pod 列表
     const yamlPane = document.getElementById('k8s-sub-yaml');
     if (yamlPane && yamlPane.classList.contains('active')) loadK8sPodList();
@@ -1388,7 +1394,7 @@ async function testConnect() {
   const cfg = getConnectConfig();
   const btn = document.getElementById('btn-test-connect');
   btn.disabled = true;
-  btn.textContent = '测试中…';
+  btn.innerHTML = '<span class="caction-sparkle">⏳</span>测试中…';
   const statusEl = document.getElementById('connect-status');
   statusEl.textContent = '测试中…（PAT 模式会触发真实克隆，可能耗时）';
   statusEl.style.color = '';
@@ -1417,7 +1423,7 @@ async function testConnect() {
     statusEl.style.color = 'var(--danger)';
   } finally {
     btn.disabled = false;
-    btn.textContent = '测试连接';
+    btn.innerHTML = '<span class="caction-sparkle">⚡</span>测试连接';
   }
 }
 

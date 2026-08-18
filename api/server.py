@@ -1015,6 +1015,7 @@ class K8sSnapshotReq(BaseModel):
     kubeconfig: str = ""
     infile: str = ""
     env: str = ""   # 指定环境（开发/测试/正式）；优先于 kubeconfig/namespace
+    log_level: str = "INFO"  # 日志级别: DEBUG/INFO/WARNING/ERROR
 
 
 @app.post("/api/k8s/snapshot")
