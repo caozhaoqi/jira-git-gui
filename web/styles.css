@@ -31,9 +31,11 @@
   --danger:      #e1453d;
   --danger-bg:   #fdecea;
   --info:        #3b6cf6;
+  --accent:      #3b6cf6;   /* K8s 强调色（子标签激活态 / 勾选框），浅色主题=主色 */
 
   --code-bg:     #f6f8fa;
   --code-border: #e6eaef;
+  --code-fg:      #1c2733;   /* 代码/日志正文：浅色主题用深灰，避免纯黑刺眼 */
 
   --radius:      12px;
   --radius-sm:   8px;
@@ -77,9 +79,11 @@ body.dark {
   --danger:      #f06a62;
   --danger-bg:   #2e1715;
   --info:        #5b8bff;
+  --accent:      #5b8bff;   /* K8s 强调色，深色主题=主色亮版 */
 
   --code-bg:     #0c0f16;
   --code-border: #232a36;
+  --code-fg:      #c5d0de;   /* 代码/日志正文：柔和的米白，替代刺眼的纯白 #e7ecf3 */
 
   --shadow-sm:   0 1px 2px rgba(0,0,0,.4);
   --shadow-md:   0 4px 12px rgba(0,0,0,.5);
@@ -209,7 +213,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: var(--sp-3) var(--sp-4);
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
@@ -299,7 +303,7 @@ button { font-family: inherit; }
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   padding: 8px 10px;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
@@ -386,7 +390,7 @@ button { font-family: inherit; }
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.55;
-  color: var(--text);
+  color: var(--code-fg);
   overflow: auto;
   white-space: pre;
   tab-size: 4;
@@ -574,6 +578,9 @@ body.dark .diff-eol-badge { background: var(--primary-700); color: var(--primary
 .progress-bar { width: 160px; height: 6px; accent-color: var(--primary); }
 
 /* ---------- 连接设置弹窗 ---------- */
+/* 注意：k8s.css 将 .modal 定义为全屏遮罩（用于 K8s 弹窗 .modal > .modal-box）。
+   此处连接设置弹窗结构为 .modal-overlay > .modal（卡片），必须用更高特异性的
+   .modal-overlay .modal 避免被 k8s.css 的 .modal 覆盖成透明遮罩。 */
 .modal-overlay {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(16, 24, 40, .45);
@@ -582,37 +589,42 @@ body.dark .diff-eol-badge { background: var(--primary-700); color: var(--primary
   animation: fade-in .15s ease;
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-.modal {
-  width: min(560px, 92vw);
+.modal-overlay .modal {
+  width: min(680px, 94vw);
   max-height: 90vh; overflow: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
 }
-.modal-header {
+.modal-overlay .modal-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 16px 20px; border-bottom: 1px solid var(--border);
   position: sticky; top: 0; background: var(--surface); z-index: 1;
 }
-.modal-header h2 { font-size: 16px; }
-.modal-close {
-  border: none; background: transparent; font-size: 22px; line-height: 1;
+.modal-overlay .modal-header h2 { font-size: 18px; }
+.modal-overlay .modal-close {
+  border: none; background: transparent; font-size: 24px; line-height: 1;
   color: var(--muted); cursor: pointer; padding: 0 6px; border-radius: 6px;
 }
-.modal-close:hover { background: var(--surface-2); color: var(--text); }
-.modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
-.modal-footer {
-  display: flex; justify-content: flex-end; gap: 8px;
-  padding: 14px 20px; border-top: 1px solid var(--border);
+.modal-overlay .modal-close:hover { background: var(--surface-2); color: var(--text); }
+.modal-overlay .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 18px; }
+.modal-overlay .modal-footer {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 16px 24px; border-top: 1px solid var(--border);
   position: sticky; bottom: 0; background: var(--surface);
 }
-.form-group { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
-.form-group legend { font-size: 12px; font-weight: 600; color: var(--text-2); padding: 0 6px; }
-.form-group label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
-.radio-row { display: flex; flex-direction: column; gap: 8px; }
-.radio { flex-direction: row !important; align-items: center; gap: 8px; color: var(--text) !important; font-size: 13px !important; }
-.connect-status { font-size: 12px; color: var(--text-2); min-height: 16px; }
+/* 配置表单放大：弹窗内输入控件更清晰 */
+.modal-overlay .form-group { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.modal-overlay .form-group legend { font-size: 13px; font-weight: 600; color: var(--text-2); padding: 0 6px; }
+.modal-overlay .form-group label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-2); }
+.modal-overlay .radio-row { display: flex; flex-direction: column; gap: 10px; }
+.modal-overlay .radio { flex-direction: row !important; align-items: center; gap: 8px; color: var(--text) !important; font-size: 14px !important; }
+.modal-overlay .input, .modal-overlay .select, .modal-overlay .textarea {
+  font-size: 14px; padding: 10px 12px;
+}
+.modal-overlay .textarea { min-height: 96px; font-size: 13px; }
+.modal-overlay .connect-status { font-size: 13px; color: var(--text-2); min-height: 18px; }
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 860px) {

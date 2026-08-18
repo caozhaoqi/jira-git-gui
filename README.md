@@ -1,31 +1,45 @@
-# Jira Git Universal Pull Tool
+# Jira Git GUI
 
 > 📘 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
-A general-purpose desktop client for the Jira Git Integration plugin (Xiplink / BigBrassBand). It ships in two desktop flavors:
+A unified desktop console for **Jira Git Integration** (Xiplink / BigBrassBand) **and Kubernetes daily operations**. It ships in two desktop flavors that share the same Python backend:
 
 - **PyQt6 desktop app** (`main.py`): pure Python + PyQt6, no browser required; all network requests run on background threads so the UI never freezes.
-- **Electron / Web desktop app** (`electron/` + `web/`): Electron loads the same Web frontend for cross-platform packaging; you can also just open it in a browser against the local backend. UI features are detailed below under "Electron / Web Desktop App".
+- **Electron / Web app** (`electron/` + `web/`): Electron loads the same Web frontend for cross-platform packaging; you can also just open it in any browser against the local backend.
 
 > Both frontends share the same Python backend (`api/server.py`, default port 8787) and are feature-equivalent.
 
-## Features
+## Features at a glance
 
-- **Dual frontend / dual mode**: choose the native PyQt6 desktop app or the Electron + Web app; switch freely between PAT (full `git clone`) and Cookie (web fetch / recursive download) authentication.
-- **Unified design system**: the Web frontend uses a CSS-variable-driven light / dark dual theme, with a branded header, live status dot, and GitHub-style diff tables — modern and consistent.
-- **High-performance engine**: incremental scanning (~2.7×), set-based diffing, parallel merging (~8×), and O(1) file-tree indexing; a global token-bucket rate limiter with a UI-adjustable rate.
-- **Smart diff**: automatically detects CRLF / LF line-ending and whitespace-only differences (classified as "line-ending diff" rather than "modified"); structured files such as JSON / JSONC / XML are auto-formatted and expanded in the diff view, so even single-line minified files become readable line by line.
-- **Resume-able downloads with bounded concurrency**: Cookie mode supports recursive whole-repo downloads (including nested files and binaries) with resume, cancellation, and a default of 4 concurrent threads.
+### Jira / Git module
 
-## Two Modes
+- **Dual auth modes**: switch freely between **PAT** (full `git clone`) and **Cookie** (web fetch / recursive download) authentication.
+- **High-performance engine**: incremental scanning (~2.7×), set-based diffing, parallel merging (~8×), O(1) file-tree indexing, and a global token-bucket rate limiter with a UI-adjustable rate.
+- **Smart diff**: auto-detects CRLF / LF line-ending and whitespace-only differences (classified as "line-ending diff" instead of "modified"); JSON / JSONC / XML family files are auto-formatted and expanded so single-line minified files become readable line by line.
+- **Resume-able downloads**: Cookie mode supports recursive whole-repo downloads (nested files & binaries included) with resume, cancellation, and bounded concurrency (default 4 threads).
 
-| Mode | Auth | Capabilities | Limits |
-| --- | --- | --- | --- |
-| **PAT mode** | Personal Access Token | `git clone` full pull (incl. nested files), local browse / preview | Requires a valid PAT and repo name under that account |
-| **Cookie mode** | `JSESSIONID` session | Browse file tree (lazy), preview text files, batch / recursive download of whole repo (incl. nested files & binaries), resume, parallel download | Binaries can only be "downloaded" locally, not previewed; depends on a valid session cookie |
+### K8s ops module (☸ K8s tab)
 
-> Cookie mode already supports **recursive whole-repo downloads** (the plugin API itself accepts any path, including subdirs and nested files),
-> no longer limited to "root only". Resume + bounded concurrency (default 4 threads) make whole-repo fetching resumable, cancelable, and faster.
+| Sub-tab | What it does |
+| --- | --- |
+| 📸 **Snapshot** | Batch-grab Pod status + logs → severity rating (HIGH / MED / OK) → interactive HTML report + JSON |
+| 📝 **Pod YAML** | get / apply any resource (pod / deployment / service / configmap / ingress / statefulset), auto-cleans server-side noise fields (`status`, `managedFields`, `last-applied`, …) before apply |
+| 🌐 **Network** | One-click chain check: kubectl → kubeconfig → cluster reachability → intranet TCP probes → internet egress |
+| 📡 **Events** | Cluster event stream (warning-first), filter by namespace / object / type, `--all-namespaces`, auto-refresh |
+| 📊 **Top** | `kubectl top` — CPU / memory usage bars, Pod ↔ Node scope switch, auto-refresh |
+| 💻 **Shell** | Xshell-style interactive terminal inside a Pod container (WebSocket), persistent `cwd`, command history |
+| 📁 **Files** | Xftp-style file browser inside a Pod container: list / open-edit / save / upload / download / mkdir / delete |
+| 🔍 **Describe** | `kubectl describe` popup with related events, triggered from snapshot, YAML page, or manual input |
+| 📜 **Log viewer** | Inline preview + dedicated full-screen page (`log_viewer.html`): search & highlight, level coloring, container & Pod switching, tail lines, live auto-refresh, download |
+
+- **Multi-environment**: dev / test / prod with independent kubeconfigs, color-coded env pills (dev=blue, test=orange, prod=red).
+- **Robustness**: kubectl binary auto-located (Homebrew / Docker / system PATH fallback) so the app works even when launched from a GUI with a minimal `PATH`.
+
+## UI Layout
+
+- Sidebar tabs: 仓库 / 文件树 / 文件预览 / 提交记录 / 差异对比 / 日志 / **K8s 快照**
+- Light / dark dual theme (one-click toggle, persisted via `localStorage`).
+- The global action bar is context-aware — repo-only actions are hidden on the K8s tab.
 
 ## Project Structure
 
@@ -33,7 +47,7 @@ A general-purpose desktop client for the Jira Git Integration plugin (Xiplink / 
 jira-git-gui/
 ├── main.py                 # Entry: creates QApplication + MainWindow (PyQt6 desktop app)
 ├── run_merge.py            # CLI: merge remote repos' latest code into local (cache-first + sync history)
-├── server.py               # ⚠️ Legacy monolithic backend (DEPRECATED, do not use; main path is api/server.py)
+├── k8s_preview.html        # Self-contained demo of the K8s YAML cleaning (no cluster needed)
 ├── requirements.txt        # PyQt6 / httpx / fastapi / uvicorn
 ├── core/                   # Core logic layer (no GUI dependency, independently testable)
 │   ├── app_paths.py        # Runtime writable dirs (relocates to ~/.jira-git-gui when frozen)
@@ -47,7 +61,10 @@ jira-git-gui/
 │   ├── sync_history.py     # Sync history (git-log-like)
 │   ├── logger.py           # Rotating file log + LogBridge (UI bridge) + global excepthook (PyQt6 lazy-loaded)
 │   ├── safe.py             # safe_slot decorator: catches slot exceptions, prevents UI crashes
-│   └── errors.py           # Unified exception types
+│   ├── errors.py           # Unified exception types
+│   ├── k8s_manager.py      # K8s core: env/kubeconfig resolution, YAML get-apply with cleaning,
+│   │                       #   events / describe / top, exec & file ops, kubectl auto-location
+│   └── k8s_snapshot.py     # Snapshot engine: Pod status + log grabbing, severity, HTML/JSON report
 ├── gui/                    # UI layer (PyQt6 widgets)
 │   ├── main_window.py      # Layout + signal binding + async task orchestration
 │   ├── connect_dialog.py   # Connection settings (url / account / mode / PAT / Cookie / repo)
@@ -58,19 +75,23 @@ jira-git-gui/
 │   ├── highlighter.py      # Zero-dependency syntax highlighter (QSyntaxHighlighter)
 │   ├── styles.py           # Light / dark dual-theme QSS
 │   ├── commit_panel.py     # Commit history
-│   └── log_panel.py        # Logs
+│   ├── log_panel.py        # Logs
+│   └── k8s_panel.py        # K8s tab (snapshot / YAML / network / events / top / shell / files)
 ├── workers/                # Async task layer
 │   └── tasks.py            # Generic QThread Worker (auto on_log callback; full traceback on error)
-├── api/                    # Backend shared by Web / Electron
-│   └── server.py           # FastAPI: REST + SSE, default port 8787 (main path)
+├── api/                    # Backend shared by Web / Electron / Tauri
+│   └── server.py           # FastAPI: 50+ REST endpoints + SSE push + WebSocket shell, port 8787
 ├── electron/               # Electron desktop app
 │   ├── main.js             # Main process: Python backend lifecycle + BrowserWindow + log bridge
 │   ├── preload.js          # Exposes window.electronAPI (contextIsolation isolated)
 │   └── package.json        # name / version / start|dev|dist scripts + electron-builder config
 ├── web/                    # Web frontend (shared by Electron / browser, zero framework deps)
-│   ├── index.html          # Page structure (toolbar + tabs + connection dialog)
+│   ├── index.html          # Page structure (tabs + K8s panes + connection dialog)
+│   ├── app.js              # Frontend logic (REST + SSE + WebSocket, pure vanilla JS)
 │   ├── styles.css          # Design system (CSS variables, light / dark dual theme)
-│   └── app.js              # Frontend logic (REST + SSE, pure vanilla JS)
+│   ├── k8s.css             # K8s-specific layout & visuals
+│   └── log_viewer.*        # Dedicated full-screen log page (search / highlight / pod & container switch)
+├── tauri/                  # Tauri shell (optional 3rd desktop flavor)
 ├── build/                  # PyInstaller specs (gui / backend)
 ├── tests/                  # Unit tests (unit before integration, version-controlled)
 ├── store/                  # Runtime artifacts (git clone / downloads, gitignored)
@@ -99,10 +120,7 @@ python3 main.py              # any python works: main.py auto-switches to venv
 ./run.sh                     # one-click launcher (macOS / Linux)
 ```
 
-> **Self-healing launch**: `main.py` has a built-in venv self-check at the top — if the current interpreter lacks `PyQt6`,
-> it auto `re-exec`s into the project's own `venv` interpreter before starting. So running with system `python3`
-> will no longer raise `ModuleNotFoundError: No module named 'PyQt6'`.
-> If the venv itself is missing PyQt6, install dependencies via step 2 above first.
+> **Self-healing launch**: `main.py` has a built-in venv self-check — if the current interpreter lacks `PyQt6`, it auto re-execs into the project's own `venv` interpreter before starting.
 
 ### Web / Electron app (shared backend)
 
@@ -112,124 +130,116 @@ PYTHONPATH=. ./venv/bin/python -m api.server                # default port 8787
 PYTHONPATH=. ./venv/bin/python -m api.server --port 9000    # custom port
 ```
 
-## Electron / Web Desktop App
-
-A standalone desktop app packaged with Electron: the main process (`electron/main.js`) starts the Python backend
-(`api/server.py`, port 8787) and hosts a `BrowserWindow` loading the frontend under `web/`.
-If the backend fails to come up, a dialog is shown and the app exits, avoiding a blank screen. When packaged, Electron embeds the frozen backend executable; in dev it falls back to `venv/bin/python` and the system `python`.
-
-### Launch
-
 ```bash
 cd electron
-npm install        # first time only: install electron + electron-builder
-npm start          # start (auto-starts Python backend and opens window, 1280×800)
+npm install        # first time only
+npm start          # start (auto-starts Python backend and opens the window)
 npm run dev        # dev mode (auto-opens DevTools)
 npm run dist:mac   # package macOS installer (dmg)
 npm run dist:win   # package Windows installer (nsis)
 npm run dist:linux # package Linux installer (AppImage + deb)
 ```
 
-> If `npm` / Electron download is blocked on your machine, you can also just open `http://127.0.0.1:8787/`
-> in any browser (start the backend from the project root first: `PYTHONPATH=. ./venv/bin/python -m api.server`).
-> The frontend (`web/`) is the same page loaded inside Electron.
+> If `npm` / Electron download is blocked on your machine, just start the backend and open `http://127.0.0.1:8787/` in any browser — the frontend is the same page Electron loads.
 
-### UI Features
+## K8s Ops Module
 
-- **Light / dark dual theme**: one-click toggle in the toolbar ("🌓 Theme"); preference persists via `localStorage` and restores on next launch.
-- **Branded header**: app mark (🌿) + name "Jira Git GUI" on the left of the toolbar, distinct from a bare web page.
-- **Live status dot**: indicator on the left of the bottom status bar — green = credentials configured / yellow = not configured, so backend state is obvious at a glance.
-- **Visual polish**: gradient primary buttons, list-item hover lift, soft card shadows, GitHub-style diff tables — modern and cohesive overall.
-- **Design system**: `web/styles.css` is driven by CSS variables for color, spacing, radius, and shadow; light / dark is a `body.dark` override, so new components reuse tokens instead of scattering hardcoded values.
-- **Tabbed layout**: Repos / File tree / File preview / Commits / Diff / Logs — feature-equivalent to the PyQt version.
+### Environment management
+
+Environments (dev / test / prod …) are stored in `~/.config/jira-git-gui/k8s_envs.json`, each with its own kubeconfig path, optional context and default namespace. The env picker in the K8s tab shows a color-coded pill, and the **YAML** / **Events** / **Top** panes auto-refresh their lists when you switch environments.
+
+### Log viewer (`web/log_viewer.html`)
+
+Open from the snapshot log panel ("⧉ open in new page") or directly:
+
+```
+http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
+```
+
+- **Pod switching**: pick any Pod from the top dropdown — logs, containers and namespace switch automatically.
+- **Container switching** for multi-container Pods; `--previous` support for restarted containers.
+- **Search**: keyword (regex supported), ignore-case, match counter `N/M`, ▲▼ jump between matches.
+- **Level highlighting**: ERROR/FATAL red, WARN yellow, DEBUG dimmed.
+- **Tail lines**: 50 / 200 / 500 / 1000 / full (5000).
+- **Live tail**: auto-refresh every 3 / 5 / 10 s with follow-bottom.
+- **Line numbers, wrap toggle, font size ±, download as `.txt`, theme toggle**.
+
+### Shell & files (Xshell / Xftp style)
+
+- **Shell**: WebSocket terminal into a Pod container (`/ws/k8s/exec`). Choose env → pod → container → connect; run commands with persistent working directory (`cd` survives across commands), command history via ↑/↓.
+- **Files**: browse the container filesystem with breadcrumbs; double-click a text file to edit inline and save back; upload (base64), download, mkdir, delete with confirmation.
+
+### Snapshot report
+
+`kubectl get pods` + per-Pod log grabbing → severity rating (HIGH / MED / OK) → a self-contained HTML report plus `pods.json` / `summary.json` under `~/k8s_snapshots/<timestamp>/`. Pods with abnormal status get their logs saved on disk; the in-app log panel falls back to live cluster fetching when a snapshot log is missing.
 
 ## Smart Diff
 
-The diff engine (`core/differ.py`) specifically addresses two common pain points: "same content, different format" and "single-line minified files":
+The diff engine (`core/differ.py`) addresses two common pain points: "same content, different format" and "single-line minified files".
 
 ### Line-ending / whitespace filtering
 
-- For text files an extra **normalized hash** is computed (normalize `\r\n` to `\n` first, then MD5).
-- When local (e.g. CRLF) and remote (e.g. LF) differ only in line endings / whitespace but are semantically identical, the status is **`line-ending diff` (`WHITESPACE_ONLY`)** — not counted as "modified", and skipped on merge, so the remote style is never polluted.
-- The Web "Diff" panel has **"Ignore line-ending differences"** checked by default; unchecking restores "modified" for fine-grained review.
+- A normalized hash (CRLF → LF, then MD5) is computed for text files.
+- When local (e.g. CRLF) and remote (e.g. LF) differ only in line endings / whitespace, the status is **`line-ending diff`** — not counted as "modified" and skipped on merge.
+- The Web Diff panel has "Ignore line-ending differences" checked by default; unchecking restores "modified".
 
 ### Structured-file formatting
 
-- For JSON / JSONC / XML families, `canonical_text()` normalizes and expands (JSON `indent=2`, XML `minidom.toprettyxml`) before generating the unified diff.
-- Single-line minified files thus become line-level readable diffs — only the actually changed field line is highlighted, instead of the whole line being red.
-- **Equality check and merge both use the original bytes**: minified single-line vs pretty multi-line (same content) is still "modified" per original MD5/size; the merge always writes the original remote bytes, never silently "formatting" and polluting the remote.
-- Parse failures always return as-is, never raising. Supported: JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL.
+- JSON / JSONC / XML families are normalized and expanded (`indent=2` / `toprettyxml`) before diffing, so single-line minified files become line-level readable diffs.
+- Equality checks and merges always use the **original bytes** — the remote style is never "prettified" into the remote repo.
+- Parse failures return as-is, never raising. Supported: JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL.
 
 ## Performance
 
-The diff and merge engine has been hardened over several rounds (measured on repositories with tens of thousands of files):
+Measured on repositories with tens of thousands of files:
 
-- **Incremental scanning**: re-scans only changed subtrees, ~**2.7×** faster overall.
-- **Set-based diffing**: set operations replace linear per-item comparison, much faster on large repos.
-- **Parallel merging**: local write stage processes multiple files in parallel, ~**8×** faster.
-- **O(1) file-tree index**: `tree_panel` indexes nodes in a dict; locating / expanding no longer traverses the whole tree.
-- **Global token-bucket limiter**: `DEFAULT_REQUEST_QPS=6` in `core/throttle.py` prevents tripping remote rate limits; the Web "merge rate" knob adjusts 15–30 QPS, with automatic backoff on overload.
-- **Cache-first**: remote tree / content prefer the lock-guarded JSON cache in `core/cache.py` to avoid re-fetching; `run_merge.py` is likewise cache-first.
+- **Incremental scanning**: re-scans only changed subtrees, ~**2.7×** faster.
+- **Set-based diffing**: set operations replace linear per-item comparison.
+- **Parallel merging**: ~**8×** faster local write stage.
+- **O(1) file-tree index**: dict-based node index, no full-tree traversal.
+- **Token-bucket limiter**: `DEFAULT_REQUEST_QPS=6` in `core/throttle.py`; the Web merge-rate knob adjusts 15–30 QPS with automatic backoff.
+- **Cache-first**: lock-guarded JSON cache in `core/cache.py` avoids re-fetching remote trees / content.
 
-> Performance decisions and trade-offs are documented as ADRs and fix reports under `deliverables/gstack/` (e.g. `fix-crlf-whitespace-only-*.md`).
+## Configuration (`.env`)
 
-## Configuration File (`.env`)
-
-On startup the app **auto-reads `.env` at the project root** as the default connection config (no need to re-fill "Connection Settings" each time).
-The file is gitignored — **do not commit real credentials**. Supported keys (alias- and typo-tolerant):
+The app **auto-reads `.env` at the project root** as the default connection config. The file is gitignored — **do not commit real credentials**. Supported keys (alias- and typo-tolerant):
 
 | `.env` key | Meaning | Notes |
 | --- | --- | --- |
 | `jira_url` | Jira base URL | also `JIRA_URL` |
 | `username` | Account name | for PAT clone, use the PAT owner's account |
 | `mode` | Mode | `pat` (default) or `cookie` |
-| `personal_access_token` | PAT | also tolerates old spelling `persoanl_access_token` |
+| `personal_access_token` | PAT | also tolerates `persoanl_access_token` |
 | `cookie` | Session cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
 
-Example:
-
-```ini
-jira_url=https://jira.cn
-personal_access_token=YOUR_PAT
-cookie=JSESSIONID=...; atlassian.xsrf.token=...
-```
-
-> Real environment variables (uppercase keys, e.g. `JIRA_URL`) take priority over `.env`, convenient for CI / temporary overrides.
-> After frozen packaging, `.env` is searched along both the user data dir `~/.jira-git-gui` and the executable's directory.
+> Real environment variables (uppercase keys, e.g. `JIRA_URL`) take priority over `.env`. After frozen packaging, `.env` is searched in both `~/.jira-git-gui` and the executable's directory.
 
 ## Packaging & Release (Cross-platform)
 
-The tool supports **three release flavors**, all sharing the same Python backend:
+Three release flavors, all sharing the same Python backend:
 
 | Flavor | Entry | Packaging | Artifact |
-|------|------|------|------|
+| --- | --- | --- | --- |
 | PyQt6 desktop app | `main.py` | `pyinstaller build/pyinstaller_gui.spec` | `.app` (macOS) / `.exe` (Windows) |
 | Web app | Browser | `pyinstaller build/pyinstaller_backend.spec` | single-file backend `jira-git-backend` |
-| Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` / `.exe`(nsis) / `.AppImage`+`.deb` |
+| Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` / `.exe` (nsis) / `.AppImage`+`.deb` |
 
-**Key constraint**: neither PyInstaller nor electron-builder supports **cross-compilation** — each platform's artifact must be built on that OS (or a corresponding CI runner).
-A `.github/workflows/release.yml` is configured so pushing a `vX.Y.Z` tag auto-builds on macOS / Windows / Ubuntu runners.
-
-Two key refactors before packaging (already done):
-
-1. **Decouple `core/logger.py` from PyQt6**: made lazy-loaded, so the headless backend is fully free of the GUI framework — ~8 MB after freezing.
-2. **Writable runtime dirs**: added `core/app_paths.get_data_root()`, routing logs / cache / downloads / session to `~/.jira-git-gui` (project root in dev) to avoid writing into a read-only frozen bundle.
+**Key constraint**: neither PyInstaller nor electron-builder supports cross-compilation — each platform's artifact must be built on that OS. A `.github/workflows/release.yml` auto-builds on macOS / Windows / Ubuntu runners when a `vX.Y.Z` tag is pushed.
 
 Detailed local build steps, CI flow, artifact table, and signing notes are in **[docs/PACKAGING.md](docs/PACKAGING.md)**.
 
 ## Testing
 
 ```bash
-# activate the venv that has PyQt6 first
 QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Coverage: resume download, client optimizations (binary download / branch cache / parallel download), diff performance & formatting, CRLF / line-ending filtering, token-bucket limiter, file-tree index, commits, Worker exception protection, etc. Integration tests need real credentials and skip automatically when absent.
+Coverage: resume download, client optimizations (binary download / branch cache / parallel download), diff performance & formatting, CRLF / line-ending filtering, token-bucket limiter, file-tree index, commits, Worker exception protection, K8s YAML cleaning, `kubectl top` parsing, exec `cwd` tracking, `ls -la` parsing, file write (text & binary base64 path). Integration tests need real credentials / clusters and skip automatically when absent.
 
 ## Known Limitations
 
 - **Unsigned**: local / CI artifacts are ad-hoc; first open is blocked by Gatekeeper / SmartScreen. Configure a cert for official release.
-- **Root `server.py` is deprecated**: it hardcodes an absolute path and is kept only for historical compatibility; new features and packaging use `api/server.py`.
+- **Root `server.py` is deprecated**: hardcoded absolute path, kept only for historical compatibility; new features use `api/server.py`.
 - **Python version**: dev env 3.9 is compatibility-hardened; CI and official packaging recommend **Python ≥ 3.10** (3.11 verified).
-- **Linux runtime deps**: the desktop app needs system libs `libgl1` / `libnss3` etc. (installed in CI).
-- **YAML formatting**: structured-file diff does not yet include YAML (needs PyYAML); can be extended later.
+- **Linux runtime deps**: the desktop app needs system libs `libgl1` / `libnss3` etc.
+- **K8s shell is non-TTY**: commands run via `sh -c` pipes (no interactive editor / `top` full-screen); interactive terminals are a P2 roadmap item.

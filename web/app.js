@@ -20,7 +20,9 @@ const state = {
   maxWorkers: 4,
   qps: 6,
   repoMappings: {},  // repo_name -> local_dir，来自 .env 的 MERGE_REPO_* 映射
-  k8s: { running: false, outDir: null, env: null },
+  k8s: { running: false, outDir: null, env: null,
+         shell: { cwd: '/', connected: false, history: [], histIdx: 0 },
+         files: { path: '/', selected: null, editPath: null, entries: [] } },
 };
 
 // Tauri 模式下前端由 Tauri 本体提供，后端在 127.0.0.1:8787；
@@ -355,6 +357,7 @@ function renderK8sTable(records) {
 }
 
 async function viewK8sLog(name) {
+  state.k8s.lastPod = name;
   document.getElementById('k8s-log-name').textContent = name;
   const box = document.getElementById('k8s-log');
   box.textContent = '加载日志中…';
@@ -444,6 +447,7 @@ async function loadK8sEnvs() {
     const cur = d.environments.find(e => e.name === d.current);
     document.getElementById('k8s-env-kc').textContent =
       cur && cur.kubeconfig ? 'kubeconfig: ' + cur.kubeconfig : '未配置 kubeconfig';
+    updateK8sEnvTag();
     // 环境变化后，若正停留在「Pod YAML」子页则自动刷新 Pod 列表
     const yamlPane = document.getElementById('k8s-sub-yaml');
     if (yamlPane && yamlPane.classList.contains('active')) loadK8sPodList();
@@ -457,6 +461,26 @@ function onK8sEnvChange() {
   const cur = document.getElementById('k8s-env').selectedOptions[0];
   // kc 标签在 loadK8sEnvs 刷新，这里简单更新
   document.getElementById('k8s-env-kc').textContent = '当前环境：' + state.k8s.env;
+  updateK8sEnvTag();
+  // 若正停留在 Shell / 文件 子页，刷新 Pod 列表
+  const connbar = document.getElementById('k8s-shell-connbar');
+  if (connbar && connbar.style.display !== 'none') loadK8sShellPods();
+}
+
+// 根据当前环境名渲染带颜色标识的 pill（dev=蓝 / test=橙 / prod=红）
+function updateK8sEnvTag() {
+  const sel = document.getElementById('k8s-env');
+  const tag = document.getElementById('k8s-env-tag');
+  const nameEl = document.getElementById('k8s-env-tag-name');
+  if (!sel || !tag || !nameEl) return;
+  nameEl.textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : (sel.value || '—');
+  const v = (sel.value || '').toLowerCase();
+  let cls = 'k8s-env-tag ';
+  if (v.includes('prod') || v === 'prd' || v.includes('生产')) cls += 'env-prod';
+  else if (v.includes('test') || v.includes('uat') || v.includes('stag') || v.includes('测试') || v.includes('预发')) cls += 'env-test';
+  else if (v.includes('dev') || v.includes('开发') || v.includes('development')) cls += 'env-dev';
+  else cls += 'env-other';
+  tag.className = cls;
 }
 
 function openK8sEnvModal() {
@@ -537,9 +561,27 @@ function switchK8sSub(tab) {
     t.classList.toggle('active', t.dataset.sub === tab));
   document.querySelectorAll('.k8s-subpane').forEach(p =>
     p.classList.toggle('active', p.id === 'k8s-sub-' + tab));
-  // 进入「Pod YAML」子页时自动载入当前环境的 Pod 列表（无需手动点「载入列表」）
+  // 离开子页时停掉自动刷新定时器，避免后台空跑
+  clearK8sAutoTimers();
+  // 离开 Shell 子页时断开 WebSocket，避免悬挂连接
+  if (tab !== 'shell' && _shellWs) k8sShellDisconnect();
+  // 共享连接栏：仅 Shell / 文件 子页显示
+  const connbar = document.getElementById('k8s-shell-connbar');
+  if (connbar) connbar.style.display = (tab === 'shell' || tab === 'files') ? '' : 'none';
+  // 进入子页时按需自动载入
   if (tab === 'yaml') {
     loadK8sPodList();
+  } else if (tab === 'events') {
+    loadK8sEvents();
+  } else if (tab === 'top') {
+    loadK8sTop();
+  } else if (tab === 'shell' || tab === 'files') {
+    loadK8sShellPods();
+    if (tab === 'files') {
+      renderK8sBreadcrumb(state.k8s.files.path || '/');
+      const pod = document.getElementById('k8s-shell-pod');
+      if (pod && pod.value) k8sFilesList(state.k8s.files.path || '/');
+    }
   }
 }
 
@@ -656,6 +698,573 @@ function renderK8sNet(d) {
     ? '判定：当前可连接该环境集群与内网，可正常运维。'
     : '判定：未连通集群（可能未接入对应内网/VPN 或 kubeconfig 缺失）。请确认后重试。';
 }
+
+// ===== K8s 事件流 / 资源 Top / 描述 =====
+let _k8sEvTimer = null;
+let _k8sTopTimer = null;
+function clearK8sAutoTimers() {
+  if (_k8sEvTimer) { clearInterval(_k8sEvTimer); _k8sEvTimer = null; }
+  if (_k8sTopTimer) { clearInterval(_k8sTopTimer); _k8sTopTimer = null; }
+}
+
+// 点击「刷新」时启动（带自动刷新）；进入子页时只加载一次（不带定时器）
+function startK8sAuto(which) {
+  if (which === 'events') {
+    if (_k8sEvTimer) { clearInterval(_k8sEvTimer); _k8sEvTimer = null; }
+    loadK8sEvents();
+    if (document.getElementById('k8s-ev-auto').checked) {
+      _k8sEvTimer = setInterval(loadK8sEvents, 10000);
+    }
+  } else {
+    if (_k8sTopTimer) { clearInterval(_k8sTopTimer); _k8sTopTimer = null; }
+    loadK8sTop();
+    if (document.getElementById('k8s-top-auto').checked) {
+      _k8sTopTimer = setInterval(loadK8sTop, 10000);
+    }
+  }
+}
+
+async function loadK8sEvents() {
+  const ns = document.getElementById('k8s-ev-ns').value.trim();
+  const kind = document.getElementById('k8s-ev-kind').value.trim();
+  const name = document.getElementById('k8s-ev-name').value.trim();
+  const limit = parseInt(document.getElementById('k8s-ev-limit').value) || 200;
+  const allNs = document.getElementById('k8s-ev-allns').checked;
+  const summary = document.getElementById('k8s-ev-summary');
+  summary.textContent = '加载中…';
+  try {
+    const q = new URLSearchParams({ env: state.k8s.env, limit });
+    if (ns) q.set('namespace', ns);
+    if (kind) q.set('kind', kind);
+    if (name) q.set('name', name);
+    if (allNs) q.set('all_ns', '1');
+    const d = await api('/api/k8s/events?' + q.toString());
+    if (!d.ok) { summary.textContent = '失败：' + d.error; return; }
+    renderK8sEvents(d);
+    summary.textContent = '共 ' + d.total + ' 条' + (d.warning ? ' · ⚠ Warning ' + d.warning : '');
+  } catch (ex) {
+    summary.textContent = '失败：' + ex.message;
+  }
+}
+
+function renderK8sEvents(d) {
+  const tb = document.getElementById('k8s-ev-tbody');
+  const evs = d.events || [];
+  if (!evs.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="empty-hint">无事件</td></tr>';
+    return;
+  }
+  document.getElementById('k8s-ev-hint').textContent = evs.length + ' 条';
+  tb.innerHTML = '';
+  for (const e of evs) {
+    const tr = document.createElement('tr');
+    tr.className = 'ev-' + (e.type || 'Normal');
+    const time = (e.last_seen || '').replace('T', ' ').replace('Z', '').slice(0, 19);
+    const obj = e.object_kind + '/' + e.object_name + (e.object_ns ? ' (' + e.object_ns + ')' : '');
+    tr.innerHTML =
+      '<td class="ev-time">' + esc(time) + '</td>' +
+      '<td class="ev-type">' + esc(e.type || '') + '</td>' +
+      '<td class="ev-reason">' + esc(e.reason || '') + '</td>' +
+      '<td class="ev-obj" title="' + esc(obj) + '">' + esc(obj) + '</td>' +
+      '<td>' + esc(e.source || '') + '</td>' +
+      '<td class="ev-count">' + esc(String(e.count || 1)) + '</td>' +
+      '<td class="ev-msg" title="' + esc(e.message || '') + '">' + esc(e.message || '') + '</td>';
+    tb.appendChild(tr);
+  }
+}
+
+async function loadK8sTop() {
+  const scope = document.getElementById('k8s-top-scope').value;
+  const ns = document.getElementById('k8s-top-ns').value.trim();
+  const summary = document.getElementById('k8s-top-summary');
+  const title = document.getElementById('k8s-top-title');
+  // 切换范围时显隐命名空间输入（Node 无命名空间概念）
+  document.getElementById('k8s-top-ns-col').style.display = scope === 'nodes' ? 'none' : '';
+  title.textContent = scope === 'nodes' ? 'Node 消耗' : 'Pod 消耗';
+  summary.textContent = '加载中…';
+  try {
+    const q = new URLSearchParams({ env: state.k8s.env, scope });
+    if (ns && scope === 'pods') q.set('namespace', ns);
+    const d = await api('/api/k8s/top?' + q.toString());
+    if (!d.ok) { summary.textContent = '失败：' + d.error; return; }
+    renderK8sTop(d);
+    summary.textContent = '共 ' + (d.rows || []).length + ' 个';
+  } catch (ex) {
+    summary.textContent = '失败：' + ex.message;
+  }
+}
+
+function renderK8sTop(d) {
+  const thead = document.getElementById('k8s-top-thead');
+  const tb = document.getElementById('k8s-top-tbody');
+  const rows = d.rows || [];
+  const scope = d.scope || 'pods';
+  if (scope === 'nodes') {
+    thead.innerHTML = '<tr><th>节点</th><th>CPU</th><th>CPU%</th><th>内存</th><th>内存%</th></tr>';
+  } else {
+    thead.innerHTML = '<tr><th>Pod</th><th>命名空间</th><th>CPU</th><th>内存</th></tr>';
+  }
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="5" class="empty-hint">无数据（集群需启用 metrics-server）</td></tr>';
+    return;
+  }
+  // 条形占比：相对列表内最大值
+  const maxCpu = Math.max(1e-9, ...rows.map(r => _parseTopVal(r.cpu)));
+  const maxMem = Math.max(1e-9, ...rows.map(r => _parseTopVal(r.memory)));
+  tb.innerHTML = '';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    const cpuBar = '<div class="k8s-top-bar"><i style="width:' + Math.round(_parseTopVal(r.cpu) / maxCpu * 100) + '%"></i></div>';
+    const memBar = '<div class="k8s-top-bar mem"><i style="width:' + Math.round(_parseTopVal(r.memory) / maxMem * 100) + '%"></i></div>';
+    if (scope === 'nodes') {
+      tr.innerHTML =
+        '<td class="top-name" title="' + esc(r.name) + '">' + esc(r.name) + '</td>' +
+        '<td class="top-cell"><span class="top-val">' + esc(r.cpu) + '</span>' + cpuBar + '</td>' +
+        '<td class="top-pct">' + esc(r.cpu_pct || '') + '</td>' +
+        '<td class="top-cell"><span class="top-val">' + esc(r.memory) + '</span>' + memBar + '</td>' +
+        '<td class="top-pct">' + esc(r.memory_pct || '') + '</td>';
+    } else {
+      tr.innerHTML =
+        '<td class="top-name" title="' + esc(r.name) + '">' + esc(r.name) + '</td>' +
+        '<td>' + esc(r.namespace || '') + '</td>' +
+        '<td class="top-cell"><span class="top-val">' + esc(r.cpu) + '</span>' + cpuBar + '</td>' +
+        '<td class="top-cell"><span class="top-val">' + esc(r.memory) + '</span>' + memBar + '</td>';
+    }
+    tb.appendChild(tr);
+  }
+}
+
+function _parseTopVal(s) {
+  s = (s || '').trim();
+  if (!s || s === '?') return 0;
+  if (s.endsWith('m')) { const v = parseFloat(s.slice(0, -1)); return isNaN(v) ? 0 : v / 1000; }
+  const m = s.match(/^([\d.]+)(Ki|Mi|Gi|Ti|K|M|G|T|i|n)?$/);
+  if (!m) { const v = parseFloat(s); return isNaN(v) ? 0 : v; }
+  const val = parseFloat(m[1]);
+  const unit = m[2] || '';
+  const mult = { n: 1e-9, Ki: 1 / 1024, Mi: 1, Gi: 1024, Ti: 1048576, K: 1e-6, M: 1e-3, G: 1, T: 1e3, i: 1 };
+  return val * (mult[unit] || 1);
+}
+
+function openK8sDescribe(kind, name, ns) {
+  if (kind) document.getElementById('k8s-describe-kind').value = kind;
+  if (name) document.getElementById('k8s-describe-name').value = name;
+  if (ns !== undefined) document.getElementById('k8s-describe-ns').value = ns || '';
+  document.getElementById('k8s-describe-modal').style.display = 'flex';
+  runK8sDescribe();
+}
+function closeK8sDescribeModal() {
+  document.getElementById('k8s-describe-modal').style.display = 'none';
+}
+async function runK8sDescribe() {
+  const kind = document.getElementById('k8s-describe-kind').value.trim();
+  const name = document.getElementById('k8s-describe-name').value.trim();
+  const ns = document.getElementById('k8s-describe-ns').value.trim();
+  const msg = document.getElementById('k8s-describe-msg');
+  const txt = document.getElementById('k8s-describe-text');
+  if (!kind || !name) { msg.textContent = '请填写资源类型与名称'; return; }
+  msg.textContent = '描述中…';
+  txt.textContent = '';
+  document.getElementById('k8s-describe-events').innerHTML = '';
+  try {
+    const q = new URLSearchParams({ env: state.k8s.env, kind, name });
+    if (ns) q.set('namespace', ns);
+    const d = await api('/api/k8s/describe?' + q.toString());
+    if (!d.ok) { msg.textContent = '失败：' + d.error; return; }
+    txt.textContent = d.text || '(无输出)';
+    renderK8sDescribeEvents(d.events || []);
+    msg.textContent = '✅ 已描述 ' + kind + '/' + name;
+  } catch (ex) {
+    msg.textContent = '失败：' + ex.message;
+  }
+}
+function renderK8sDescribeEvents(evs) {
+  const box = document.getElementById('k8s-describe-events');
+  box.innerHTML = '';
+  if (!evs.length) { box.innerHTML = '<div class="empty-hint">该资源无相关事件</div>'; return; }
+  evs.slice(0, 30).forEach(e => {
+    const ico = e.type === 'Warning' ? '✕' : '✓';
+    const div = document.createElement('div');
+    div.className = 'k8s-check';
+    div.innerHTML = '<div class="k8s-chk-ico ' + (e.type === 'Warning' ? 'fail' : 'ok') + '">' + ico + '</div>'
+      + '<div><div class="k8s-chk-name">' + esc(e.reason || '') + (e.count > 1 ? ' ×' + e.count : '') + '</div>'
+      + '<div class="k8s-chk-detail">' + esc(e.message || '') + '</div></div>';
+    box.appendChild(div);
+  });
+}
+
+// ===== Shell 终端（WebSocket）/ 文件浏览器（REST） =====
+// 共享连接栏的当前目标（env/pod/container/namespace）
+function k8sTarget() {
+  return {
+    env: state.k8s.env,
+    pod: document.getElementById('k8s-shell-pod')?.value || '',
+    container: document.getElementById('k8s-shell-container')?.value || '',
+    namespace: document.getElementById('k8s-shell-ns')?.value.trim() || '',
+  };
+}
+
+// 填充共享连接栏的 Pod 下拉（进入 shell/files 子页时自动调用）
+async function loadK8sShellPods() {
+  const sel = document.getElementById('k8s-shell-pod');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">加载中…</option>';
+  try {
+    const ns = encodeURIComponent(document.getElementById('k8s-shell-ns').value.trim());
+    const d = await api(`/api/k8s/pods?env=${encodeURIComponent(state.k8s.env)}&namespace=${ns}`);
+    if (!d.ok) { sel.innerHTML = '<option value="">加载失败：' + esc(d.error) + '</option>'; return; }
+    const pods = d.pods || [];
+    if (!pods.length) { sel.innerHTML = '<option value="">（无 Pod）</option>'; return; }
+    sel.innerHTML = '<option value="">— 选择 Pod —</option>' +
+      pods.map(p => `<option value="${esc(p.name)}">${esc(p.name)} · ${esc(p.phase || '')}</option>`).join('');
+    if (prev && pods.some(p => p.name === prev)) sel.value = prev;
+  } catch (ex) {
+    sel.innerHTML = '<option value="">加载失败：' + esc(ex.message) + '</option>';
+  }
+}
+
+// Pod 变更：填充容器列表；若 Shell 已连接则断开旧连接
+async function onK8sShellPodChange() {
+  const pod = document.getElementById('k8s-shell-pod').value;
+  const csel = document.getElementById('k8s-shell-container');
+  if (_shellWs) k8sShellDisconnect();
+  csel.innerHTML = '<option value="">（默认容器）</option>';
+  if (!pod) return;
+  try {
+    const q = new URLSearchParams({ name: pod, env: state.k8s.env });
+    const d = await api(`/api/k8s/pod-containers?${q.toString()}`);
+    const cs = d.containers || [];
+    if (cs.length) {
+      csel.innerHTML = '<option value="">（默认容器）</option>' +
+        cs.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    }
+  } catch (ex) { /* 容器列表加载失败不阻断使用 */ }
+}
+
+// ---------- Shell 终端 ----------
+let _shellWs = null;
+
+function k8sShellConnect() {
+  const t = k8sTarget();
+  if (!t.env) { alert('请先选择环境（顶部「环境」）'); return; }
+  if (!t.pod) { alert('请先选择 Pod'); return; }
+  if (_shellWs) { try { _shellWs.close(); } catch (_) {} }
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  const q = new URLSearchParams({ env: t.env, pod: t.pod });
+  if (t.container) q.set('container', t.container);
+  if (t.namespace) q.set('namespace', t.namespace);
+  let ws;
+  try {
+    ws = new WebSocket(proto + location.host + '/ws/k8s/exec?' + q.toString());
+  } catch (ex) { appendShellLine('无法建立连接：' + ex.message, 'err'); return; }
+  _shellWs = ws;
+  const status = document.getElementById('k8s-shell-status');
+  if (status) { status.className = 'k8s-conn-status off'; status.textContent = '连接中…'; }
+  appendShellLine('正在连接 ' + t.pod + (t.container ? '/' + t.container : '') + ' …', 'sys');
+  ws.onopen = () => {};
+  ws.onmessage = (ev) => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (_) { appendShellText(ev.data); return; }
+    if (m.type === 'ready') {
+      state.k8s.shell.cwd = m.cwd || '/';
+      state.k8s.shell.connected = true;
+      setShellConnected(true);
+      updateShellPrompt();
+      appendShellLine('已连接 · 工作目录 ' + (m.cwd || '/'), 'sys');
+    } else if (m.type === 'output') {
+      appendShellText(m.data || '');
+    } else if (m.type === 'cwd') {
+      state.k8s.shell.cwd = m.cwd || state.k8s.shell.cwd;
+      updateShellPrompt();
+    } else if (m.type === 'error') {
+      appendShellLine('错误：' + (m.msg || ''), 'err');
+    }
+  };
+  ws.onclose = () => {
+    state.k8s.shell.connected = false;
+    setShellConnected(false);
+    appendShellLine('— 连接已关闭 —', 'sys');
+    if (_shellWs === ws) _shellWs = null;
+  };
+  ws.onerror = () => { appendShellLine('WebSocket 连接错误', 'err'); };
+}
+
+function k8sShellSend() {
+  const input = document.getElementById('k8s-shell-input');
+  const val = input.value;
+  if (!_shellWs || _shellWs.readyState !== WebSocket.OPEN) return;
+  _shellWs.send(JSON.stringify({ type: 'cmd', data: val }));
+  appendShellLine((state.k8s.shell.cwd || '/') + ' $ ' + val, 'cmd');
+  if (val.trim()) {
+    state.k8s.shell.history.push(val);
+    state.k8s.shell.histIdx = state.k8s.shell.history.length;
+  }
+  input.value = '';
+}
+
+function k8sShellKey(e) {
+  const st = state.k8s.shell;
+  if (e.key === 'Enter') { k8sShellSend(); }
+  else if (e.key === 'ArrowUp') {
+    if (st.history.length && st.histIdx > 0) { st.histIdx--; e.target.value = st.history[st.histIdx] || ''; }
+    e.preventDefault();
+  } else if (e.key === 'ArrowDown') {
+    if (st.histIdx < st.history.length - 1) { st.histIdx++; e.target.value = st.history[st.histIdx] || ''; }
+    else { st.histIdx = st.history.length; e.target.value = ''; }
+    e.preventDefault();
+  }
+}
+
+function k8sShellDisconnect() {
+  if (_shellWs) {
+    try { _shellWs.send(JSON.stringify({ type: 'disconnect' })); } catch (_) {}
+    try { _shellWs.close(); } catch (_) {}
+    _shellWs = null;
+  }
+  state.k8s.shell.connected = false;
+  setShellConnected(false);
+}
+
+function setShellConnected(on) {
+  const status = document.getElementById('k8s-shell-status');
+  const input = document.getElementById('k8s-shell-input');
+  const btnC = document.getElementById('k8s-shell-connect');
+  const btnD = document.getElementById('k8s-shell-disconnect');
+  if (status) { status.className = 'k8s-conn-status ' + (on ? 'on' : 'off'); status.textContent = on ? '已连接' : '未连接'; }
+  if (input) input.disabled = !on;
+  if (btnC) btnC.disabled = on;
+  if (btnD) btnD.disabled = !on;
+}
+
+function updateShellPrompt() {
+  const p = document.getElementById('k8s-shell-prompt');
+  if (p) p.textContent = (state.k8s.shell.cwd || '/') + ' $ ';
+}
+
+function appendShellText(t) {
+  const out = document.getElementById('k8s-shell-out');
+  if (!out) return;
+  const div = document.createElement('div');
+  div.className = 'k8s-shell-line out';
+  div.textContent = t;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+  while (out.children.length > 4000) out.removeChild(out.firstChild);
+}
+function appendShellLine(t, kind) {
+  const out = document.getElementById('k8s-shell-out');
+  if (!out) return;
+  const div = document.createElement('div');
+  div.className = 'k8s-shell-line ' + (kind || 'sys');
+  div.textContent = t;
+  out.appendChild(div);
+  out.scrollTop = out.scrollHeight;
+  while (out.children.length > 4000) out.removeChild(out.firstChild);
+}
+
+// ---------- 文件浏览器 ----------
+function k8sPathJoin(base, name) {
+  if (!base || base === '/') return '/' + name;
+  if (base.endsWith('/')) return base + name;
+  return base + '/' + name;
+}
+function k8sPathParent(p) {
+  if (!p || p === '/') return '/';
+  let s = p.endsWith('/') ? p.slice(0, -1) : p;
+  const i = s.lastIndexOf('/');
+  return i <= 0 ? '/' : s.slice(0, i);
+}
+
+function renderK8sBreadcrumb(path) {
+  const el = document.getElementById('k8s-files-path');
+  if (!el) return;
+  el.innerHTML = '';
+  const root = document.createElement('span');
+  root.className = 'k8s-files-crumb';
+  root.textContent = '📁 /';
+  root.onclick = () => k8sFilesList('/');
+  el.appendChild(root);
+  const parts = (path || '/').split('/').filter(Boolean);
+  let acc = '';
+  parts.forEach(p => {
+    const sep = document.createElement('span');
+    sep.className = 'k8s-files-sep'; sep.textContent = '/';
+    el.appendChild(sep);
+    acc += '/' + p;
+    const crumb = document.createElement('span');
+    crumb.className = 'k8s-files-crumb';
+    crumb.textContent = p;
+    const segPath = acc;
+    crumb.onclick = () => k8sFilesList(segPath);
+    el.appendChild(crumb);
+  });
+}
+
+async function k8sFilesList(path) {
+  const t = k8sTarget();
+  if (!t.pod) {
+    const tb = document.getElementById('k8s-files-list');
+    tb.innerHTML = '<tr><td colspan="4" class="empty-hint">请先在上方选择 Pod / 容器</td></tr>';
+    return;
+  }
+  if (path !== undefined) state.k8s.files.path = path;
+  const p = state.k8s.files.path || '/';
+  renderK8sBreadcrumb(p);
+  const tb = document.getElementById('k8s-files-list');
+  tb.innerHTML = '<tr><td colspan="4" class="empty-hint">加载中…</td></tr>';
+  try {
+    const d = await apiPost('/api/k8s/file/list', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path: p,
+    });
+    if (!d.ok) { tb.innerHTML = '<tr><td colspan="4" class="empty-hint">失败：' + esc(d.error) + '</td></tr>'; return; }
+    state.k8s.files.entries = d.entries || [];
+    renderK8sFiles(d.entries || []);
+  } catch (ex) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty-hint">失败：' + esc(ex.message) + '</td></tr>';
+  }
+}
+
+function renderK8sFiles(entries) {
+  const tb = document.getElementById('k8s-files-list');
+  tb.innerHTML = '';
+  const rows = (entries || []).slice().sort((a, b) => {
+    const ad = a.type === 'dir' ? 0 : 1, bd = b.type === 'dir' ? 0 : 1;
+    return ad - bd || String(a.name).localeCompare(String(b.name));
+  });
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="empty-hint">空目录</td></tr>';
+    return;
+  }
+  for (const e of rows) {
+    const isDir = e.type === 'dir';
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="k8s-files-name"><span class="k8s-files-icon">' + (isDir ? '📁' : '📄') + '</span>' + esc(e.name) + '</td>' +
+      '<td class="k8s-files-type">' + (isDir ? '目录' : '文件') + '</td>' +
+      '<td class="k8s-files-size">' + (isDir ? '—' : fmtSize(e.size)) + '</td>' +
+      '<td class="k8s-files-time">' + esc((e.modtime || '').replace('T', ' ').replace('Z', '').slice(0, 19)) + '</td>';
+    tr.onclick = () => {
+      document.querySelectorAll('#k8s-files-list tr').forEach(r => r.classList.remove('selected'));
+      tr.classList.add('selected');
+      state.k8s.files.selected = { name: e.name, isDir };
+    };
+    tr.ondblclick = () => k8sFileOpen(e.name, isDir);
+    tb.appendChild(tr);
+  }
+}
+
+async function k8sFileOpen(name, isDir) {
+  const path = k8sPathJoin(state.k8s.files.path, name);
+  if (isDir) { k8sFilesList(path); return; }
+  const t = k8sTarget();
+  try {
+    const d = await apiPost('/api/k8s/file/read', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path, max_bytes: 200000,
+    });
+    if (!d.ok) { alert('读取失败：' + d.error); return; }
+    if (d.is_binary) { alert('这是二进制文件，不支持在线编辑。'); return; }
+    state.k8s.files.editPath = path;
+    document.getElementById('k8s-file-edit-area').value = d.content || '';
+    document.getElementById('k8s-file-edit-title').textContent =
+      '编辑 · ' + name + (d.truncated ? '（已截断，原始文件较大）' : '');
+    document.getElementById('k8s-file-edit-msg').textContent = '';
+    document.getElementById('k8s-file-edit-modal').style.display = 'flex';
+  } catch (ex) { alert('读取失败：' + ex.message); }
+}
+
+async function k8sFileSave() {
+  const path = state.k8s.files.editPath;
+  if (!path) return;
+  const t = k8sTarget();
+  const content = document.getElementById('k8s-file-edit-area').value;
+  const msg = document.getElementById('k8s-file-edit-msg');
+  msg.textContent = '保存中…';
+  try {
+    const d = await apiPost('/api/k8s/file/write', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path, content,
+    });
+    if (!d.ok) { msg.textContent = '失败：' + d.error; return; }
+    msg.textContent = '✅ 已保存';
+    k8sFilesList(state.k8s.files.path || '/');
+  } catch (ex) { msg.textContent = '失败：' + ex.message; }
+}
+
+function k8sFileDownload() {
+  const content = document.getElementById('k8s-file-edit-area').value;
+  const path = state.k8s.files.editPath || 'file.txt';
+  const name = (path.split('/').pop()) || 'file.txt';
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+function k8sFileEditClose() {
+  document.getElementById('k8s-file-edit-modal').style.display = 'none';
+  document.getElementById('k8s-file-edit-msg').textContent = '';
+}
+
+async function k8sFilesMkdir() {
+  const name = prompt('新建文件夹名称：');
+  if (!name) return;
+  const t = k8sTarget();
+  const path = k8sPathJoin(state.k8s.files.path, name.trim());
+  try {
+    const d = await apiPost('/api/k8s/file/mkdir', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path,
+    });
+    if (!d.ok) { alert('新建失败：' + d.error); return; }
+    k8sFilesList(state.k8s.files.path || '/');
+  } catch (ex) { alert('新建失败：' + ex.message); }
+}
+
+function k8sFilesUploadClick() { document.getElementById('k8s-files-fileinput').click(); }
+async function k8sFilesUploadChange(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const t = k8sTarget();
+  try {
+    const data = await fileToBase64(file);
+    const d = await apiPost('/api/k8s/file/upload', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace,
+      path: state.k8s.files.path || '/', data,
+    });
+    if (!d.ok) { alert('上传失败：' + d.error); return; }
+    k8sFilesList(state.k8s.files.path || '/');
+  } catch (ex) { alert('上传失败：' + ex.message); }
+  e.target.value = '';  // 允许重复上传同名文件
+}
+
+async function k8sFilesDelete() {
+  const sel = state.k8s.files.selected;
+  if (!sel) { alert('请先单击选中要删除的文件 / 目录'); return; }
+  if (!confirm('确认删除 ' + (sel.isDir ? '目录' : '文件') + '「' + sel.name + '」？此操作不可恢复。')) return;
+  const t = k8sTarget();
+  const path = k8sPathJoin(state.k8s.files.path, sel.name);
+  try {
+    const d = await apiPost('/api/k8s/file/delete', {
+      env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path, is_dir: sel.isDir,
+    });
+    if (!d.ok) { alert('删除失败：' + d.error); return; }
+    state.k8s.files.selected = null;
+    k8sFilesList(state.k8s.files.path || '/');
+  } catch (ex) { alert('删除失败：' + ex.message); }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve((r.result || '').split(',')[1] || '');
+    r.onerror = () => reject(r.error || new Error('读取文件失败'));
+    r.readAsDataURL(file);
+  });
+}
+
+function k8sFilesUp() { k8sFilesList(k8sPathParent(state.k8s.files.path || '/')); }
+function k8sFilesRefresh() { k8sFilesList(state.k8s.files.path || '/'); }
 
 // ===== 差异进度条控制 =====
 function setDiffProgress(opts) {
@@ -1296,6 +1905,13 @@ function switchTab(name) {
   document.querySelectorAll('.tab-pane').forEach(p => {
     p.classList.toggle('active', p.id === `tab-${name}`);
   });
+  // 操作条仅在与「仓库下载」相关的 tab 显示；K8s / 日志 等无关 tab 隐藏
+  // （避免「克隆仓库 / PAT / 下载」等不相关操作出现在运维页面）
+  const bar = document.getElementById('actionbar');
+  if (bar) {
+    const showBar = ['repo', 'tree', 'preview', 'commits', 'diff'].includes(name);
+    bar.style.display = showBar ? '' : 'none';
+  }
 }
 
 // ===== 提交模式切换 =====
@@ -1395,6 +2011,13 @@ document.getElementById('btn-k8s-run').onclick = runK8s;
 document.getElementById('btn-k8s-cancel').onclick = cancelK8s;
 document.getElementById('btn-k8s-report').onclick = openK8sReport;
 document.getElementById('btn-k8s-dir').onclick = copyK8sDir;
+document.getElementById('btn-k8s-log-open').onclick = () => {
+  const pod = state.k8s.lastPod;
+  if (!pod) { alert('请先在上方选择一个 Pod 查看其日志。'); return; }
+  const url = '/web/log_viewer.html?pod=' + encodeURIComponent(pod) +
+              '&env=' + encodeURIComponent(state.k8s.env || '');
+  window.open(url, '_blank');
+};
 
 // 环境栏 + 子标签 + 弹窗 + YAML + 网络
 document.getElementById('k8s-env').onchange = onK8sEnvChange;
@@ -1419,6 +2042,57 @@ document.getElementById('k8s-yaml-ns').addEventListener('input', () => {
   }, 500);
 });
 document.getElementById('btn-k8s-net-run').onclick = runK8sNet;
+
+// 事件 / 资源 Top / 描述
+document.getElementById('btn-k8s-ev').onclick = () => startK8sAuto('events');
+document.getElementById('k8s-ev-auto').onchange = () => startK8sAuto('events');
+document.getElementById('btn-k8s-top').onclick = () => startK8sAuto('top');
+document.getElementById('k8s-top-scope').onchange = loadK8sTop;
+document.getElementById('k8s-top-auto').onchange = () => startK8sAuto('top');
+document.getElementById('btn-k8s-describe-pod').onclick = () => {
+  const pod = state.k8s.lastPod;
+  if (!pod) { alert('请先在上方选择一个 Pod 查看其日志。'); return; }
+  openK8sDescribe('pod', pod);
+};
+document.getElementById('btn-k8s-yaml-describe').onclick = () => {
+  const kind = document.getElementById('k8s-yaml-kind').value.trim();
+  const name = document.getElementById('k8s-yaml-name').value.trim();
+  const ns = document.getElementById('k8s-yaml-ns').value.trim();
+  if (!name) { document.getElementById('k8s-yaml-msg').textContent = '请先填写资源名称'; return; }
+  openK8sDescribe(kind, name, ns);
+};
+document.getElementById('btn-k8s-describe-run').onclick = runK8sDescribe;
+document.getElementById('btn-k8s-describe-close').onclick = closeK8sDescribeModal;
+document.getElementById('k8s-describe-modal').onclick = (e) => {
+  if (e.target === document.getElementById('k8s-describe-modal')) closeK8sDescribeModal();
+};
+document.getElementById('btn-k8s-describe-copy').onclick = () => {
+  const t = document.getElementById('k8s-describe-text').textContent;
+  (navigator.clipboard?.writeText(t) || Promise.reject())
+    .then(() => document.getElementById('k8s-describe-msg').textContent = '已复制',
+          () => document.getElementById('k8s-describe-msg').textContent = '复制失败');
+};
+
+// ===== Shell / 文件 子标签事件绑定 =====
+document.getElementById('k8s-shell-pod').onchange = onK8sShellPodChange;
+document.getElementById('k8s-shell-container').onchange = () => { if (_shellWs) k8sShellDisconnect(); };
+document.getElementById('k8s-shell-connect').onclick = k8sShellConnect;
+document.getElementById('k8s-shell-disconnect').onclick = k8sShellDisconnect;
+document.getElementById('k8s-shell-input').addEventListener('keydown', k8sShellKey);
+
+document.getElementById('k8s-files-up').onclick = k8sFilesUp;
+document.getElementById('k8s-files-refresh').onclick = k8sFilesRefresh;
+document.getElementById('k8s-files-mkdir').onclick = k8sFilesMkdir;
+document.getElementById('k8s-files-upload').onclick = k8sFilesUploadClick;
+document.getElementById('k8s-files-delete').onclick = k8sFilesDelete;
+document.getElementById('k8s-files-fileinput').addEventListener('change', k8sFilesUploadChange);
+
+document.getElementById('k8s-file-edit-close').onclick = k8sFileEditClose;
+document.getElementById('k8s-file-edit-save').onclick = k8sFileSave;
+document.getElementById('k8s-file-edit-download').onclick = k8sFileDownload;
+document.getElementById('k8s-file-edit-modal').onclick = (e) => {
+  if (e.target === document.getElementById('k8s-file-edit-modal')) k8sFileEditClose();
+};
 
 // 进入 K8s 标签页时加载环境列表（保留原有 switchTab 行为）
 document.querySelectorAll('.tab').forEach(t => {

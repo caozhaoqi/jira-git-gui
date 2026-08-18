@@ -43,8 +43,8 @@
 
       <!-- 工作区 -->
       <main class="workspace">
-        <!-- 全局操作条 -->
-        <div class="actionbar">
+        <!-- 全局操作条（仅仓库相关 tab 显示，K8s / 日志 等无关 tab 自动隐藏） -->
+        <div class="actionbar" id="actionbar">
           <div class="actionbar-group">
             <button id="btn-clone" class="btn btn-primary">克隆仓库 (PAT)</button>
             <button id="btn-download" class="btn">下载选中 (Cookie)</button>
@@ -220,6 +220,9 @@
                 <label class="k8s-env-label">环境
                   <select id="k8s-env" class="sel"></select>
                 </label>
+                <span id="k8s-env-tag" class="k8s-env-tag env-other" title="当前环境">
+                  <span class="k8s-env-dot"></span><span id="k8s-env-tag-name">—</span>
+                </span>
                 <button id="btn-k8s-env-manage" class="btn btn-ghost btn-sm">管理环境</button>
                 <span id="k8s-env-kc" class="panel-sub"></span>
               </div>
@@ -229,6 +232,24 @@
                 <button class="k8s-subtab active" data-sub="snapshot">📸 快照</button>
                 <button class="k8s-subtab" data-sub="yaml">📝 Pod YAML 管理</button>
                 <button class="k8s-subtab" data-sub="net">🌐 网络检测</button>
+                <button class="k8s-subtab" data-sub="events">📡 事件</button>
+                <button class="k8s-subtab" data-sub="top">📊 资源 Top</button>
+                <button class="k8s-subtab" data-sub="shell">💻 Shell</button>
+                <button class="k8s-subtab" data-sub="files">📁 文件</button>
+              </div>
+
+              <!-- Shell / 文件 共享连接栏（仅这两个子页显示） -->
+              <div class="k8s-connbar card-soft" id="k8s-shell-connbar" style="display:none;">
+                <label class="field">Pod
+                  <select id="k8s-shell-pod" class="sel"><option value="">（请先选择 Pod）</option></select>
+                </label>
+                <label class="field">容器
+                  <select id="k8s-shell-container" class="sel"><option value="">（默认容器）</option></select>
+                </label>
+                <label class="field">命名空间
+                  <input type="text" id="k8s-shell-ns" class="input" placeholder="默认" style="width:150px">
+                </label>
+                <span id="k8s-shell-status" class="k8s-conn-status off">未连接</span>
               </div>
 
               <!-- 快照子页 -->
@@ -304,10 +325,15 @@
                   </div>
                   <div class="k8s-log-wrap card-soft">
                     <div class="panel-header">
-                      <h3 class="section-title">日志</h3>
+                      <h3 class="section-title">日志预览</h3>
                       <span id="k8s-log-name" class="panel-sub">选中上方 Pod 查看日志</span>
                     </div>
                     <pre id="k8s-log" class="code-block"></pre>
+                    <div class="k8s-log-cta">
+                      <span class="k8s-log-hint">仅显示最近片段；搜索 / 级别高亮 / 下载请在独立页面查看完整日志</span>
+                      <button id="btn-k8s-log-open" class="btn btn-primary" title="在新页面打开（便于浏览 / 分析）">⧉ 新页面打开完整日志</button>
+                      <button id="btn-k8s-describe-pod" class="btn btn-ghost" title="查看选中 Pod 的 describe（含相关事件）">🔍 描述</button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -344,6 +370,7 @@
                   <div class="k8s-actions">
                     <button id="btn-k8s-yaml-get" class="btn">获取 YAML</button>
                     <button id="btn-k8s-yaml-apply" class="btn btn-primary">修改后上传</button>
+                    <button id="btn-k8s-yaml-describe" class="btn btn-ghost">描述</button>
                     <label class="k8s-check-inline"><input type="checkbox" id="k8s-yaml-clean" checked> 清洗输出(移除 status/服务端字段)</label>
                     <span id="k8s-yaml-msg" class="panel-sub"></span>
                   </div>
@@ -386,6 +413,165 @@
                 </div>
               </div>
             </div>
+          <!-- 事件子页 -->
+          <div class="k8s-subpane" id="k8s-sub-events">
+            <div class="panel-header">
+              <h2 class="section-title">集群事件流</h2>
+              <span class="panel-sub">kubectl get events（按时间倒序，Warning 置红）</span>
+            </div>
+            <div class="k8s-form card-soft">
+              <div class="k8s-form-grid">
+                <label class="field-col">命名空间
+                  <input type="text" id="k8s-ev-ns" class="input" placeholder="默认当前环境命名空间">
+                </label>
+                <label class="field-col">资源类型过滤(可选)
+                  <input type="text" id="k8s-ev-kind" class="input" placeholder="如 Pod / Deployment">
+                </label>
+                <label class="field-col">资源名过滤(可选，模糊)
+                  <input type="text" id="k8s-ev-name" class="input" placeholder="如 hcm-core">
+                </label>
+                <label class="field-col">显示条数
+                  <input type="number" id="k8s-ev-limit" class="spin" value="200" min="10" max="1000">
+                </label>
+                <label class="field-col field-col-inline">
+                  <input type="checkbox" id="k8s-ev-allns"> 全部命名空间
+                </label>
+                <label class="field-col field-col-inline">
+                  <input type="checkbox" id="k8s-ev-auto"> 自动刷新(10s)
+                </label>
+              </div>
+              <div class="k8s-actions">
+                <button id="btn-k8s-ev" class="btn btn-primary">刷新事件</button>
+                <span id="k8s-ev-summary" class="panel-sub"></span>
+              </div>
+            </div>
+            <div class="k8s-table-wrap card-soft mt">
+              <div class="panel-header">
+                <h3 class="section-title">事件</h3>
+                <span id="k8s-ev-hint" class="panel-sub"></span>
+              </div>
+              <div class="k8s-table-scroll">
+                <table class="k8s-table k8s-events-table">
+                  <thead><tr>
+                    <th>时间</th><th>类型</th><th>原因</th><th>对象</th>
+                    <th>来源</th><th>次数</th><th>信息</th>
+                  </tr></thead>
+                  <tbody id="k8s-ev-tbody">
+                    <tr><td colspan="7" class="empty-hint">点击「刷新事件」</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 资源 Top 子页 -->
+          <div class="k8s-subpane" id="k8s-sub-top">
+            <div class="panel-header">
+              <h2 class="section-title">资源消耗 Top</h2>
+              <span class="panel-sub">kubectl top（需集群启用 metrics-server）</span>
+            </div>
+            <div class="k8s-form card-soft">
+              <div class="k8s-form-grid">
+                <label class="field-col">范围
+                  <select id="k8s-top-scope" class="sel">
+                    <option value="pods">Pod</option>
+                    <option value="nodes">Node</option>
+                  </select>
+                </label>
+                <label class="field-col" id="k8s-top-ns-col">命名空间
+                  <input type="text" id="k8s-top-ns" class="input" placeholder="默认当前环境命名空间">
+                </label>
+                <label class="field-col field-col-inline">
+                  <input type="checkbox" id="k8s-top-auto"> 自动刷新(10s)
+                </label>
+              </div>
+              <div class="k8s-actions">
+                <button id="btn-k8s-top" class="btn btn-primary">刷新</button>
+                <span id="k8s-top-summary" class="panel-sub"></span>
+              </div>
+            </div>
+            <div class="k8s-table-wrap card-soft mt">
+              <div class="panel-header">
+                <h3 class="section-title" id="k8s-top-title">Pod 消耗</h3>
+                <span id="k8s-top-hint" class="panel-sub"></span>
+              </div>
+              <div class="k8s-table-scroll">
+                <table class="k8s-table k8s-top-table">
+                  <thead id="k8s-top-thead"></thead>
+                  <tbody id="k8s-top-tbody">
+                    <tr><td colspan="6" class="empty-hint">点击「刷新」</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          </div>
+
+          <!-- 交互式 Shell 子页（类似 Xshell） -->
+          <div class="k8s-subpane" id="k8s-sub-shell">
+            <div class="panel-header">
+              <h2 class="section-title">交互式 Shell 终端</h2>
+              <span class="panel-sub">通过 WebSocket 连接 Pod 容器，支持命令历史（↑ / ↓）</span>
+            </div>
+            <div id="k8s-shell-out" class="k8s-shell-out">未连接。先在上方选择 Pod / 容器，然后点击「连接」。</div>
+            <div class="k8s-shell-inputrow">
+              <span class="k8s-shell-prompt" id="k8s-shell-prompt">$ </span>
+              <input type="text" id="k8s-shell-input" class="k8s-shell-input"
+                     placeholder="输入命令，回车执行…" autocomplete="off" spellcheck="false" disabled>
+              <button id="k8s-shell-connect" class="btn btn-primary">连接</button>
+              <button id="k8s-shell-disconnect" class="btn" disabled>断开</button>
+            </div>
+          </div>
+
+          <!-- 文件浏览器子页（类似 Xftp） -->
+          <div class="k8s-subpane" id="k8s-sub-files">
+            <div class="panel-header">
+              <h2 class="section-title">文件浏览器</h2>
+              <span class="panel-sub">浏览 / 编辑 / 上传 / 删除 Pod 内文件（类似 Xftp）</span>
+            </div>
+            <div class="k8s-files-toolbar card-soft">
+              <div class="k8s-files-breadcrumb">
+                <span class="k8s-files-bc-label">路径</span>
+                <div id="k8s-files-path" class="k8s-files-path"></div>
+              </div>
+              <div class="k8s-files-actions">
+                <button id="k8s-files-up" class="btn btn-sm" title="返回上一级目录">↑ 上级</button>
+                <button id="k8s-files-refresh" class="btn btn-sm">刷新</button>
+                <button id="k8s-files-mkdir" class="btn btn-sm">新建文件夹</button>
+                <button id="k8s-files-upload" class="btn btn-sm">上传</button>
+                <button id="k8s-files-delete" class="btn btn-sm btn-ghost">删除</button>
+              </div>
+            </div>
+            <div class="k8s-files-list-wrap card-soft">
+              <div class="k8s-table-scroll">
+                <table class="k8s-files-table">
+                  <thead>
+                    <tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th></tr>
+                  </thead>
+                  <tbody id="k8s-files-list">
+                    <tr><td colspan="4" class="empty-hint">先在上方选择 Pod，然后点击「刷新」</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <input type="file" id="k8s-files-fileinput" style="display:none">
+
+            <!-- 文件编辑弹窗 -->
+            <div id="k8s-file-edit-modal" class="modal" style="display:none;">
+              <div class="modal-box" style="width:min(820px,96vw)">
+                <div class="panel-header">
+                  <h3 class="section-title" id="k8s-file-edit-title">编辑文件</h3>
+                  <button id="k8s-file-edit-close" class="btn btn-ghost btn-sm">关闭</button>
+                </div>
+                <textarea id="k8s-file-edit-area" class="k8s-yaml-editor" spellcheck="false" style="min-height:300px"></textarea>
+                <div class="k8s-actions">
+                  <button id="k8s-file-edit-save" class="btn btn-primary">保存</button>
+                  <button id="k8s-file-edit-download" class="btn">下载</button>
+                  <span id="k8s-file-edit-msg" class="panel-sub"></span>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- 环境管理弹窗 -->
@@ -424,6 +610,40 @@
               <div class="k8s-env-list mt" id="k8s-env-list"></div>
             </div>
           </div>
+
+          <!-- 资源描述弹窗 -->
+          <div id="k8s-describe-modal" class="modal" style="display:none;">
+            <div class="modal-box" style="width:min(860px,96vw)">
+              <div class="panel-header">
+                <h3 class="section-title" id="k8s-describe-title">资源描述</h3>
+                <button id="btn-k8s-describe-close" class="btn btn-ghost btn-sm">关闭</button>
+              </div>
+              <div class="k8s-form-grid">
+                <label class="field-col">资源类型
+                  <select id="k8s-describe-kind" class="sel">
+                    <option>pod</option><option>deployment</option><option>service</option>
+                    <option>configmap</option><option>ingress</option><option>statefulset</option>
+                    <option>node</option><option>namespace</option>
+                  </select>
+                </label>
+                <label class="field-col">资源名称
+                  <input type="text" id="k8s-describe-name" class="input" placeholder="如 hcm-core-6bc569958d-2ggkx">
+                </label>
+                <label class="field-col">命名空间(留空用环境默认)
+                  <input type="text" id="k8s-describe-ns" class="input" placeholder="default">
+                </label>
+              </div>
+              <div class="k8s-actions">
+                <button id="btn-k8s-describe-run" class="btn btn-primary">描述</button>
+                <button id="btn-k8s-describe-copy" class="btn btn-ghost">复制</button>
+                <span id="k8s-describe-msg" class="panel-sub"></span>
+              </div>
+              <pre id="k8s-describe-text" class="k8s-yaml-editor" style="min-height:240px;margin-top:10px"></pre>
+              <div class="panel-header mt"><h3 class="section-title">相关事件</h3></div>
+              <div id="k8s-describe-events" class="k8s-describe-events"></div>
+            </div>
+          </div>
+
         </div>
       </main>
     </div>
