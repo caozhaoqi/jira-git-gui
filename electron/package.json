@@ -56,10 +56,7 @@
       "artifactName": "${productName}-${version}-setup.${ext}"
     },
     "linux": {
-      "target": [
-        "AppImage",
-        "deb"
-      ],
+      "target": ["AppImage", "deb"],
       "category": "Development",
       "maintainer": "caozhaoqi <1150118968@qq.com>"
     }
