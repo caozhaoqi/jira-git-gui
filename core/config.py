@@ -191,14 +191,15 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
 
 
 # --------------------------------------------------------------------------- #
-#  HCM 云函数账号本地配置（含真实密码，绝不可提交到 git）
+#  云函数账号本地配置（含真实密码，绝不可提交到 git）
 # --------------------------------------------------------------------------- #
-def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
-    """从 hcm_accounts.local.json 读取 HCM 云函数账号列表（含密码）。
+def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
+    """从 cf_accounts.local.json 读取云函数账号列表（含密码）。
 
-    该文件必须放在本地且已被 .gitignore 忽略（hcm_accounts.local.json），
-    绝不能进入版本库。找不到时回退到 hcm_accounts.example.json（仅结构占位，
-    无真实密码）。
+    该文件必须放在本地且已被 .gitignore 忽略（cf_accounts.local.json），
+    绝不能进入版本库。找不到时回退到 cf_accounts.example.json（仅结构占位，
+    无真实密码）。server_url / username / password 允许为空字符串（前端会提示
+    填写，不强制剔除占位项）。
 
     返回: [{"name", "server_url", "username", "password"}, ...]
     """
@@ -206,13 +207,13 @@ def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
     local = None
     example = None
     for root in roots:
-        p = root / "hcm_accounts.local.json"
+        p = root / "cf_accounts.local.json"
         if p.exists():
             local = p
             break
     if local is None:
         for root in roots:
-            p = root / "hcm_accounts.example.json"
+            p = root / "cf_accounts.example.json"
             if p.exists():
                 example = p
                 break
@@ -231,12 +232,57 @@ def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
         if not isinstance(item, dict):
             continue
         url = (item.get("server_url") or "").strip()
-        if not url:
-            continue
         out.append({
-            "name": (item.get("name") or url).strip(),
+            "name": (item.get("name") or url or "未命名").strip(),
             "server_url": url,
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),
         })
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  HCM 平台连接业务白名单（无敏感信息，可提交到 git，属于“改了会连不上平台”的
+#  保留项：hcminner 头、真实接口路径、参考项目名、真实平台域名）
+# --------------------------------------------------------------------------- #
+def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
+    """读取 HCM 平台连接业务白名单（无敏感信息，可提交 git，必须原样保留）。
+
+    白名单项（改了会连不上平台）：
+      - hcminner:           内部 OpenAPI 鉴权头 {header, value}
+      - model_list_api:     真实日志查询接口路径（POST，拼在 server_url 之后）
+      - reference_projects: 参考项目名（hcm-cloud-vue / hcm-core），合并比对识别用
+      - platform_hosts:     真实平台域名白名单（21qor.hcmcloud.cn 等）
+
+    从项目根 hcm_whitelist.json 读取。该文件可提交、应保留。
+    找不到文件或解析失败时回退到内置默认值（与当前线上行为一致），
+    保证服务不因配置缺失而中断。
+    """
+    defaults = {
+        "hcminner": {"header": "hcminner", "value": "1"},
+        "model_list_api": {"path": "/api/hcm.model.list"},
+        "reference_projects": {"names": ["hcm-cloud-vue", "hcm-core"]},
+        "platform_hosts": {
+            "hosts": [
+                "21qor.hcmcloud.cn",
+                "hcm.ptacn.com",
+                "bhcdhcm.tjbhcd.com",
+            ]
+        },
+    }
+    roots = _env_search_roots(project_root)
+    for root in roots:
+        p = root / "hcm_whitelist.json"
+        if p.exists():
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                return defaults
+            if not isinstance(data, dict):
+                return defaults
+            merged = {k: dict(v) for k, v in defaults.items()}
+            for k, v in data.items():
+                if k in merged and isinstance(v, dict):
+                    merged[k].update(v)
+            return merged
+    return defaults

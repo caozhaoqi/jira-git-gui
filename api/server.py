@@ -34,7 +34,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS, NetworkWatchdog
-from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config, load_hcm_accounts
+from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config, load_cf_accounts, load_hcm_whitelist
 from core.constants import DEFAULT_REQUEST_QPS, DOWNLOAD_DIR
 from core.models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
 
@@ -1734,26 +1734,34 @@ def _commit_to_dict(c: Commit) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-#  HCM 云函数日志查询
+#  云函数日志查询
 # --------------------------------------------------------------------------- #
-@app.get("/api/hcm/accounts")
-async def api_hcm_accounts():
-    """返回本地配置文件中的 HCM 账号列表（含密码，仅供本机前端自动填充）。
+@app.get("/api/cf/accounts")
+async def api_cf_accounts():
+    """返回本地配置文件中的 CF 账号列表（含密码，仅供本机前端自动填充）。
 
-    来源为 hcm_accounts.local.json（已被 .gitignore 忽略，含真实账号密码，
+    来源为 cf_accounts.local.json（已被 .gitignore 忽略，含真实账号密码，
     绝不进入 git）。找不到时回退 example 模板（无真实密码）。
     """
     try:
-        accounts = load_hcm_accounts()
+        accounts = load_cf_accounts()
     except Exception as e:
-        logger.exception(f"[HCM] 读取账号配置失败: {e}")
+        logger.exception(f"[CF] 读取账号配置失败: {e}")
         accounts = []
     return {"accounts": accounts}
 
 
 import httpx
 
-class HcmLogReq(BaseModel):
+# HCM 平台连接业务白名单（改了会连不上平台）：统一从 hcm_whitelist.json 读取，不再硬编码。
+# 含 hcminner 鉴权头、真实日志查询接口路径、参考项目名、真实平台域名。
+_HCM_WL = load_hcm_whitelist()
+_HCM_HCMINNER_HEADER = _HCM_WL["hcminner"].get("header", "hcminner")
+_HCM_HCMINNER_VALUE = _HCM_WL["hcminner"].get("value", "1")
+_HCM_MODEL_LIST_API = _HCM_WL["model_list_api"].get("path", "/api/hcm.model.list")
+
+
+class CfLogReq(BaseModel):
     server_url: str = ""
     token: str = ""
     log_type: str = ""
@@ -1762,7 +1770,7 @@ class HcmLogReq(BaseModel):
     proxy: str = ""  # 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
 
 
-class HcmLogExportReq(BaseModel):
+class CfLogExportReq(BaseModel):
     server_url: str = ""
     log_type: str = ""
     auth_method: str = ""  # 实际生效的认证方式
@@ -1773,7 +1781,7 @@ class HcmLogExportReq(BaseModel):
     raw: object = None  # 原始响应（可选）
 
 
-class HcmLoginReq(BaseModel):
+class CfLoginReq(BaseModel):
     server_url: str = ""
     mobile: str = ""
     password: str = ""
@@ -1783,19 +1791,19 @@ class HcmLoginReq(BaseModel):
     captcha_id: str = ""  # 后端返回的验证码会话ID（关联 httpx cookie jar）
 
 
-class HcmCaptchaReq(BaseModel):
+class CfCaptchaReq(BaseModel):
     server_url: str = ""
     proxy: str = ""
 
 
-# HCM 验证码会话缓存：captcha_id -> {"jar": cookie jar, "index": image_code_index}
-_HCM_CAPTCHA_CACHE: dict[str, object] = {}
-_HCM_CAPTCHA_TTL: dict[str, float] = {}
-_HCM_CAPTCHA_MAX = 200
+# CF 验证码会话缓存：captcha_id -> {"jar": cookie jar, "index": image_code_index}
+_CF_CAPTCHA_CACHE: dict[str, object] = {}
+_CF_CAPTCHA_TTL: dict[str, float] = {}
+_CF_CAPTCHA_MAX = 200
 
 
 def _sniff_image_type(data: bytes) -> str | None:
-    """按 magic bytes 判定图片真实类型（HCM 验证码端点常把 content-type 错标为 text/html）。"""
+    """按 magic bytes 判定图片真实类型（CF 验证码端点常把 content-type 错标为 text/html）。"""
     if not data or len(data) < 4:
         return None
     if data[:6] in (b"GIF87a", b"GIF89a"):
@@ -1809,7 +1817,7 @@ def _sniff_image_type(data: bytes) -> str | None:
     return None
 
 
-def _new_hcm_client(req_proxy: str, existing_cookies=None):
+def _new_cf_client(req_proxy: str, existing_cookies=None):
     """创建 httpx 客户端；existing_cookies 可选 CookieJar（验证码→登录同会话）。"""
     kwargs = dict(timeout=15, follow_redirects=True)
     if req_proxy:
@@ -1821,9 +1829,9 @@ def _new_hcm_client(req_proxy: str, existing_cookies=None):
     return httpx.AsyncClient(**kwargs)
 
 
-@app.post("/api/hcm/captcha")
-async def api_hcm_captcha(req: HcmCaptchaReq):
-    """获取 HCM 登录图片验证码。
+@app.post("/api/cf/captcha")
+async def api_cf_captcha(req: CfCaptchaReq):
+    """获取 CF 登录图片验证码。
 
     参考 hcm-cloud-vue 前端源码：验证码图片端点为 /img/imagevalidatecode?index={index}&v={random}，
     登录时需回传同一个 image_code_index + 用户输入的 image_code。
@@ -1832,21 +1840,21 @@ async def api_hcm_captcha(req: HcmCaptchaReq):
     if not req.server_url:
         raise HTTPException(400, "请先配置服务器地址")
     base = req.server_url.rstrip("/")
-    # HCM 验证码图片端点（参考 controller.login.js: init_image_code）
+    # CF 验证码图片端点（参考 controller.login.js: init_image_code）
     url = f"{base}/img/imagevalidatecode"
 
     # 清理过期的 captcha 缓存（3 分钟 TTL）
     import time as _time
     now = _time.time()
-    for cid in list(_HCM_CAPTCHA_TTL.keys()):
-        if now - _HCM_CAPTCHA_TTL[cid] > 180:
-            _HCM_CAPTCHA_CACHE.pop(cid, None)
-            _HCM_CAPTCHA_TTL.pop(cid, None)
-    if len(_HCM_CAPTCHA_CACHE) > _HCM_CAPTCHA_MAX:
-        oldest = sorted(_HCM_CAPTCHA_TTL, key=_HCM_CAPTCHA_TTL.get)
+    for cid in list(_CF_CAPTCHA_TTL.keys()):
+        if now - _CF_CAPTCHA_TTL[cid] > 180:
+            _CF_CAPTCHA_CACHE.pop(cid, None)
+            _CF_CAPTCHA_TTL.pop(cid, None)
+    if len(_CF_CAPTCHA_CACHE) > _CF_CAPTCHA_MAX:
+        oldest = sorted(_CF_CAPTCHA_TTL, key=_CF_CAPTCHA_TTL.get)
         for cid in oldest[:100]:
-            _HCM_CAPTCHA_CACHE.pop(cid, None)
-            _HCM_CAPTCHA_TTL.pop(cid, None)
+            _CF_CAPTCHA_CACHE.pop(cid, None)
+            _CF_CAPTCHA_TTL.pop(cid, None)
 
     import secrets, base64
     captcha_id = secrets.token_urlsafe(12)
@@ -1854,7 +1862,7 @@ async def api_hcm_captcha(req: HcmCaptchaReq):
     image_code_index = secrets.token_hex(4)
     try:
         jar = httpx.Cookies()
-        async with _new_hcm_client(req.proxy, existing_cookies=jar) as client:
+        async with _new_cf_client(req.proxy, existing_cookies=jar) as client:
             # 先访问登录页获取初始 cookie（有些部署必须先有 session cookie 才能拿验证码图）
             try:
                 await client.get(f"{base}/login")
@@ -1864,14 +1872,14 @@ async def api_hcm_captcha(req: HcmCaptchaReq):
             resp.raise_for_status()
             if not resp.content or len(resp.content) < 10:
                 raise HTTPException(502, "服务器未返回验证码图片")
-            # 注意：HCM 该端点常把图片 content-type 错标为 text/html，必须按 magic bytes 判定真实图片类型
+            # 注意：CF 该端点常把图片 content-type 错标为 text/html，必须按 magic bytes 判定真实图片类型
             ctype = _sniff_image_type(resp.content)
             if ctype is None:
                 snippet = resp.content[:200].decode("utf-8", "ignore")
                 raise HTTPException(502, f"服务器未返回有效图片验证码，响应前200字符: {snippet}")
             b64 = base64.b64encode(resp.content).decode("ascii")
-            _HCM_CAPTCHA_CACHE[captcha_id] = {"jar": jar.jar, "index": image_code_index}
-            _HCM_CAPTCHA_TTL[captcha_id] = _time.time()
+            _CF_CAPTCHA_CACHE[captcha_id] = {"jar": jar.jar, "index": image_code_index}
+            _CF_CAPTCHA_TTL[captcha_id] = _time.time()
             return {
                 "captcha_id": captcha_id,
                 "image_code_index": image_code_index,
@@ -1884,19 +1892,19 @@ async def api_hcm_captcha(req: HcmCaptchaReq):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"[HCM] 获取验证码异常: {e}")
+        logger.exception(f"[CF] 获取验证码异常: {e}")
         raise HTTPException(500, f"获取验证码失败: {type(e).__name__}: {e}")
 
 
-@app.post("/api/hcm/logs")
-async def api_hcm_logs(req: HcmLogReq):
-    """代理查询 HCM 平台 dynamic_log 日志。
+@app.post("/api/cf/logs")
+async def api_cf_logs(req: CfLogReq):
+    """代理查询 CF 平台 dynamic_log 日志。
 
     通过后端代理请求目标服务器，避免浏览器跨域限制。
     认证方式（依次尝试）：
       1) Cookie: token=xxx（最常见的前端登录态形式）
       2) Authorization: Bearer {token} + hcminner: 1（内部 OpenAPI 形式）
-    查询接口：POST /api/hcm.model.list (JSON body)
+    查询接口：POST {model_list_api}（路径来自 hcm_whitelist.json，改了会连不上平台）
     """
     if not req.token:
         raise HTTPException(400, "请先配置 token")
@@ -1908,7 +1916,7 @@ async def api_hcm_logs(req: HcmLogReq):
             raise HTTPException(400, "Token 格式异常，请重新获取 Token 后再查询（当前值疑似 HTML/验证码片段，而非登录 Token）")
 
     base = req.server_url.rstrip("/")
-    url = f"{base}/api/hcm.model.list"
+    url = f"{base}{_HCM_MODEL_LIST_API}"
     base_headers_json = {"Content-Type": "application/json"}
     # 参考 hcm-core/test/test_avoid_check.py: dynamic_log 用 filter_dict + 直接值（非 advance_filter_dict + {eq}）
     filter_dict = {}
@@ -1925,9 +1933,9 @@ async def api_hcm_logs(req: HcmLogReq):
     attempts = [
         # 方式1：Cookie（最常见）
         {"name": "cookie", "headers": base_headers_json, "cookies": {"token": req.token}},
-        # 方式2：Bearer + hcminner
+        # 方式2：Bearer + hcminner（hcminner 头来自 hcm_whitelist.json，改了会连不上平台）
         {"name": "bearer_hcminner",
-         "headers": {**base_headers_json, "Authorization": f"Bearer {req.token}", "hcminner": "1"}},
+         "headers": {**base_headers_json, "Authorization": f"Bearer {req.token}", _HCM_HCMINNER_HEADER: _HCM_HCMINNER_VALUE}},
         # 方式3：Header token（有些部署是 x-token / 纯 token header）
         {"name": "header_token",
          "headers": {**base_headers_json, "token": req.token}},
@@ -1941,23 +1949,23 @@ async def api_hcm_logs(req: HcmLogReq):
             kw["transport"] = httpx.AsyncHTTPTransport()
         return kw
 
-    logger.info(f"[HCM] 查询: base={base} model=dynamic_log log_type={req.log_type or '(全部)'} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
+    logger.info(f"[CF] 查询: base={base} model=dynamic_log log_type={req.log_type or '(全部)'} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
 
     last_error = None
     for i, att in enumerate(attempts):
         try:
-            logger.info(f"[HCM] 尝试方式{i+1}: {att['name']}")
+            logger.info(f"[CF] 尝试方式{i+1}: {att['name']}")
             client_kw = _client_kwargs()
             if "cookies" in att:
                 client_kw["cookies"] = att["cookies"]
             async with httpx.AsyncClient(**client_kw) as client:
                 resp = await client.post(url, json=payload, headers=att["headers"])
-                logger.info(f"[HCM] 方式{i+1} 响应: status={resp.status_code} len={len(resp.content)}")
+                logger.info(f"[CF] 方式{i+1} 响应: status={resp.status_code} len={len(resp.content)}")
                 if resp.status_code == 405:
                     last_error = HTTPException(resp.status_code, f"[{att['name']}] HTTP 405 Method Not Allowed: {resp.text[:300]}")
                     continue  # 方法不对，换下一种
                 if resp.status_code >= 400:
-                    # 解析 HCM 错误响应：{errcode, errmsg, description} 或 {success, message}
+                    # 解析 CF 错误响应：{errcode, errmsg, description} 或 {success, message}
                     try:
                         err_body = resp.json()
                     except ValueError:
@@ -1997,7 +2005,7 @@ async def api_hcm_logs(req: HcmLogReq):
                         last_error = HTTPException(401, f"[{att['name']}] 业务失败: {msg}（token 可能已失效，建议重新登录获取 Token）")
                         continue
                     raise HTTPException(400, f"[{att['name']}] 业务失败: {msg}")
-                logger.info(f"[HCM] 方式{i+1} 成功")
+                logger.info(f"[CF] 方式{i+1} 成功")
                 if isinstance(data, dict) and "result" in data:
                     return {"method": att["name"], "raw": data, "data": data["result"]}
                 return {"method": att["name"], **data} if isinstance(data, dict) else data
@@ -2014,7 +2022,7 @@ async def api_hcm_logs(req: HcmLogReq):
                 raise
             continue
         except Exception as e:
-            logger.exception(f"[HCM] 方式{i+1} 异常: {e}")
+            logger.exception(f"[CF] 方式{i+1} 异常: {e}")
             last_error = HTTPException(500, f"[{att['name']}] {type(e).__name__}: {e}")
             if i == len(attempts) - 1:
                 raise last_error
@@ -2022,25 +2030,26 @@ async def api_hcm_logs(req: HcmLogReq):
     raise last_error if last_error else HTTPException(500, "查询失败，未知错误")
 
 
-@app.post("/api/hcm/logs/export")
-async def api_hcm_logs_export(req: HcmLogExportReq):
-    """将查询到的 HCM 云函数日志导出为本地 JSON 文件，供 AI 分析系统运行问题。
+@app.post("/api/cf/logs/export")
+async def api_cf_logs_export(req: CfLogExportReq):
+    """将查询到的 CF 云函数日志导出为本地 JSON 文件，供 AI 分析系统运行问题。
 
-    写入 logs/hcm_logs/hcm_logs_<log_type>_<timestamp>.json，返回绝对路径。
+    写入 logs/cf_logs/cf_logs_<log_type>_<timestamp>.json，返回绝对路径。
+    注：旧版本目录名为 logs/hcm_logs/，为兼容历史日志同时查询两处。
     """
     from datetime import datetime
     if not req.rows:
         raise HTTPException(400, "无可导出的日志数据")
-    export_dir = _PROJECT_ROOT / "logs" / "hcm_logs"
+    export_dir = _PROJECT_ROOT / "logs" / "cf_logs"
     export_dir.mkdir(parents=True, exist_ok=True)
     safe_log_type = "".join(c if c.isalnum() or c in "-_" else "_" for c in (req.log_type or "unknown"))[:60]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"hcm_logs_{safe_log_type}_{ts}.json"
+    fname = f"cf_logs_{safe_log_type}_{ts}.json"
     fpath = export_dir / fname
     out = {
         "export_info": {
             "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": "HCM 云函数日志 (dynamic_log)",
+            "source": "CF 云函数日志 (dynamic_log)",
             "server_url": req.server_url,
             "log_type": req.log_type,
             "auth_method": req.auth_method,
@@ -2057,9 +2066,9 @@ async def api_hcm_logs_export(req: HcmLogExportReq):
     try:
         fpath.write_text(content, encoding="utf-8")
     except Exception as e:
-        logger.exception(f"[HCM] 导出日志写入失败: {e}")
+        logger.exception(f"[CF] 导出日志写入失败: {e}")
         raise HTTPException(500, f"写入文件失败: {e}")
-    logger.info(f"[HCM] 日志已导出: {fpath} ({len(req.rows)} 条)")
+    logger.info(f"[CF] 日志已导出: {fpath} ({len(req.rows)} 条)")
     return {"ok": True, "path": str(fpath), "filename": fname, "count": len(req.rows), "content": content}
 
 
@@ -2068,16 +2077,17 @@ class ClipboardSaveReq(BaseModel):
     filename: str = ""  # 可选文件名，留空则自动生成
 
 
-@app.post("/api/hcm/clipboard-save")
-async def api_hcm_clipboard_save(req: ClipboardSaveReq):
+@app.post("/api/cf/clipboard-save")
+async def api_cf_clipboard_save(req: ClipboardSaveReq):
     """将剪贴板文本内容保存为本地文件，返回文件路径。
 
-    写入 logs/hcm_clipboard/ 目录，文件名自动生成或使用指定名称。
+    写入 logs/cf_clipboard/ 目录，文件名自动生成或使用指定名称。
+    注：旧版本目录名为 logs/hcm_clipboard/，为兼容历史剪贴板文件同时查询两处。
     """
     if not req.text or not req.text.strip():
         raise HTTPException(400, "剪贴板内容为空")
     from datetime import datetime
-    export_dir = _PROJECT_ROOT / "logs" / "hcm_clipboard"
+    export_dir = _PROJECT_ROOT / "logs" / "cf_clipboard"
     export_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in (req.filename or "").strip())[:80]
@@ -2089,15 +2099,15 @@ async def api_hcm_clipboard_save(req: ClipboardSaveReq):
     try:
         fpath.write_text(req.text, encoding="utf-8")
     except Exception as e:
-        logger.exception(f"[HCM] 剪贴板文件写入失败: {e}")
+        logger.exception(f"[CF] 剪贴板文件写入失败: {e}")
         raise HTTPException(500, f"写入文件失败: {e}")
-    logger.info(f"[HCM] 剪贴板已保存: {fpath} ({len(req.text)} chars)")
+    logger.info(f"[CF] 剪贴板已保存: {fpath} ({len(req.text)} chars)")
     return {"ok": True, "path": str(fpath), "filename": safe_name, "size": len(req.text)}
 
 
-@app.post("/api/hcm/login")
-async def api_hcm_login(req: HcmLoginReq):
-    """使用账号密码登录 HCM 平台，获取 token。
+@app.post("/api/cf/login")
+async def api_cf_login(req: CfLoginReq):
+    """使用账号密码登录 CF 平台，获取 token。
 
     登录接口：POST /login (form data, NOT JSON)
     字段：mobile / password / pure_result=true / transfer_strategy=no / un_redirect=true
@@ -2108,17 +2118,17 @@ async def api_hcm_login(req: HcmLoginReq):
 
     base = req.server_url.rstrip("/")
     url = f"{base}/login"
-    logger.info(f"[HCM] 发起登录: url={url} mobile={req.mobile} proxy={req.proxy or '(直连)'} need_captcha={bool(req.image_code)}")
+    logger.info(f"[CF] 发起登录: url={url} mobile={req.mobile} proxy={req.proxy or '(直连)'} need_captcha={bool(req.image_code)}")
     try:
         # 如果有 captcha_id，复用同一会话 cookie jar 与 image_code_index
         jar_override = None
         cached_index = ""
-        if req.captcha_id and req.captcha_id in _HCM_CAPTCHA_CACHE:
-            entry = _HCM_CAPTCHA_CACHE[req.captcha_id]
+        if req.captcha_id and req.captcha_id in _CF_CAPTCHA_CACHE:
+            entry = _CF_CAPTCHA_CACHE[req.captcha_id]
             jar_override = entry.get("jar") if isinstance(entry, dict) else entry
             cached_index = entry.get("index", "") if isinstance(entry, dict) else ""
-            _HCM_CAPTCHA_CACHE.pop(req.captcha_id, None)
-            _HCM_CAPTCHA_TTL.pop(req.captcha_id, None)
+            _CF_CAPTCHA_CACHE.pop(req.captcha_id, None)
+            _CF_CAPTCHA_TTL.pop(req.captcha_id, None)
         # image_code_index 优先用前端显式传入的，否则用拉取验证码时缓存的
         image_code_index = req.image_code_index or cached_index
         kwargs = dict(timeout=15, follow_redirects=True)
@@ -2143,22 +2153,22 @@ async def api_hcm_login(req: HcmLoginReq):
             form_data["image_code_index"] = image_code_index
         async with httpx.AsyncClient(**kwargs) as client:
             resp = await client.post(url, data=form_data)
-            logger.info(f"[HCM] 登录响应: status={resp.status_code} content-type={resp.headers.get('content-type')} len={len(resp.content)}")
+            logger.info(f"[CF] 登录响应: status={resp.status_code} content-type={resp.headers.get('content-type')} len={len(resp.content)}")
             if resp.status_code >= 400:
                 detail = resp.text[:800]
-                logger.error(f"[HCM] 登录失败 HTTP {resp.status_code}: {detail}")
-                raise HTTPException(resp.status_code, f"HCM服务器返回HTTP {resp.status_code}：{detail}")
+                logger.error(f"[CF] 登录失败 HTTP {resp.status_code}: {detail}")
+                raise HTTPException(resp.status_code, f"CF服务器返回HTTP {resp.status_code}：{detail}")
             try:
                 data = resp.json()
             except ValueError as e:
                 raw = resp.text[:1200]
-                logger.error(f"[HCM] 登录返回非JSON: {raw[:300]}")
+                logger.error(f"[CF] 登录返回非JSON: {raw[:300]}")
                 raise HTTPException(502, f"登录返回非JSON内容（可能是登录页HTML）: {raw[:500]}")
             # 登录失败（如账号密码错误、需图片验证码）：透传 need_img_valid/message，前端据此拉验证码
             if isinstance(data, dict) and data.get("success") is False:
                 msg = data.get("message", "登录失败")
                 need_img = bool(data.get("need_img_valid"))
-                logger.warning(f"[HCM] 登录被拒: status={data.get('status')} need_img_valid={need_img} msg={msg}")
+                logger.warning(f"[CF] 登录被拒: status={data.get('status')} need_img_valid={need_img} msg={msg}")
                 return JSONResponse({"ok": False, "need_img_valid": need_img, "message": msg})
             token = ""
             if isinstance(data, dict):
@@ -2171,20 +2181,20 @@ async def api_hcm_login(req: HcmLoginReq):
                         token = cookie.value
                         break
             if not token:
-                logger.error(f"[HCM] 登录成功但未取到token，响应: {str(data)[:500]}")
+                logger.error(f"[CF] 登录成功但未取到token，响应: {str(data)[:500]}")
                 raise HTTPException(500, f"登录成功但未获取到 token，响应内容: {str(data)[:500]}")
-            logger.info(f"[HCM] 登录成功，token长度={len(token)}")
+            logger.info(f"[CF] 登录成功，token长度={len(token)}")
             return {"ok": True, "token": token, "server_url": base}
     except httpx.ConnectError as e:
-        logger.error(f"[HCM] 登录连接失败: {e}")
+        logger.error(f"[CF] 登录连接失败: {e}")
         raise HTTPException(502, f"无法连接服务器 {base}: {e}")
     except httpx.TimeoutException as e:
-        logger.error(f"[HCM] 登录超时: {e}")
+        logger.error(f"[CF] 登录超时: {e}")
         raise HTTPException(504, "登录请求超时")
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception(f"[HCM] 登录异常: {e}")
+        logger.exception(f"[CF] 登录异常: {e}")
         raise HTTPException(500, f"登录失败: {type(e).__name__}: {e}")
 
 

@@ -38,7 +38,7 @@
           <button class="tab" data-tab="diff"><span class="tab-ico">🔀</span><span class="tab-txt">差异对比</span></button>
           <button class="tab" data-tab="logs"><span class="tab-ico">📋</span><span class="tab-txt">日志</span></button>
           <button class="tab" data-tab="k8s"><span class="tab-ico">☸</span><span class="tab-txt">K8s 快照</span></button>
-          <button class="tab" data-tab="hcm"><span class="tab-ico">🔬</span><span class="tab-txt">云函数日志</span></button>
+          <button class="tab" data-tab="cf"><span class="tab-ico">🔬</span><span class="tab-txt">云函数日志</span></button>
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
@@ -268,10 +268,10 @@
                       <input type="text" id="k8s-namespace" class="input" placeholder="默认当前上下文">
                     </label>
                     <label class="field-col">Label 选择器
-                      <input type="text" id="k8s-selector" class="input" placeholder="如 app=hcm-core">
+                      <input type="text" id="k8s-selector" class="input" placeholder="如 app=core">
                     </label>
                     <label class="field-col">Pod 名过滤(正则)
-                      <input type="text" id="k8s-filter" class="input" placeholder="如 hcm-core|celery">
+                      <input type="text" id="k8s-filter" class="input" placeholder="如 core|celery">
                     </label>
                     <label class="field-col">日志行数
                       <input type="number" id="k8s-tail" class="spin" value="200" min="0" max="2000">
@@ -365,7 +365,7 @@
                       </select>
                     </label>
                     <label class="field-col">资源名称
-                      <input type="text" id="k8s-yaml-name" class="input" placeholder="如 hcm-core-6bc569958d-2ggkx">
+                      <input type="text" id="k8s-yaml-name" class="input" placeholder="如 core-6bc569958d-2ggkx">
                     </label>
                     <label class="field-col">命名空间(留空用环境默认)
                       <input type="text" id="k8s-yaml-ns" class="input" placeholder="default">
@@ -440,7 +440,7 @@
                   <input type="text" id="k8s-ev-kind" class="input" placeholder="如 Pod / Deployment">
                 </label>
                 <label class="field-col">资源名过滤(可选，模糊)
-                  <input type="text" id="k8s-ev-name" class="input" placeholder="如 hcm-core">
+                  <input type="text" id="k8s-ev-name" class="input" placeholder="如 core">
                 </label>
                 <label class="field-col">显示条数
                   <input type="number" id="k8s-ev-limit" class="spin" value="200" min="10" max="1000">
@@ -637,7 +637,7 @@
                   </select>
                 </label>
                 <label class="field-col">资源名称
-                  <input type="text" id="k8s-describe-name" class="input" placeholder="如 hcm-core-6bc569958d-2ggkx">
+                  <input type="text" id="k8s-describe-name" class="input" placeholder="如 core-6bc569958d-2ggkx">
                 </label>
                 <label class="field-col">命名空间(留空用环境默认)
                   <input type="text" id="k8s-describe-ns" class="input" placeholder="default">
@@ -658,103 +658,103 @@
           </div>
 
           <!-- 云函数日志 -->
-          <div id="tab-hcm" class="tab-pane">
+          <div id="tab-cf" class="tab-pane">
             <div class="tab-inner">
 
               <!-- 配置区 -->
-              <div class="card-soft hcm-cfg-card">
+              <div class="card-soft cf-cfg-card">
                 <div class="panel-header">
-                  <h2 class="section-title">HCM 云函数日志</h2>
-                  <div class="hcm-env-switcher">
-                    <select id="hcm-env-select" class="sel">
+                  <h2 class="section-title">CF 云函数日志</h2>
+                  <div class="cf-env-switcher">
+                    <select id="cf-env-select" class="sel">
                       <option value="">选择环境…</option>
                       <option value="custom">✏️ 自定义</option>
                     </select>
                   </div>
-                  <button id="hcm-cfg-toggle" class="btn btn-ghost btn-sm">配置 ▸</button>
+                  <button id="cf-cfg-toggle" class="btn btn-ghost btn-sm">配置 ▸</button>
                 </div>
 
-                <div id="hcm-cfg-body" class="hcm-cfg-body" style="display:none;">
-                  <div class="hcm-cfg-row">
-                    <div class="hcm-cfg-field">
+                <div id="cf-cfg-body" class="cf-cfg-body" style="display:none;">
+                  <div class="cf-cfg-row">
+                    <div class="cf-cfg-field">
                       <label>服务器地址</label>
-                      <input type="text" id="hcm-server-url" class="input" placeholder="从上方环境列表选择后自动填充">
+                      <input type="text" id="cf-server-url" class="input" placeholder="从上方环境列表选择后自动填充">
                     </div>
                   </div>
-                  <div class="hcm-cfg-row">
-                    <div class="hcm-cfg-field">
+                  <div class="cf-cfg-row">
+                    <div class="cf-cfg-field">
                       <label>手机号</label>
-                      <input type="text" id="hcm-username" class="input" placeholder="从上方环境列表选择后自动填充">
+                      <input type="text" id="cf-username" class="input" placeholder="从上方环境列表选择后自动填充">
                     </div>
-                    <div class="hcm-cfg-field">
+                    <div class="cf-cfg-field">
                       <label>密码</label>
-                      <input type="password" id="hcm-password" class="input" placeholder="从上方环境列表选择后自动填充">
+                      <input type="password" id="cf-password" class="input" placeholder="从上方环境列表选择后自动填充">
                     </div>
-                    <div class="hcm-cfg-field hcm-cfg-field--token">
+                    <div class="cf-cfg-field cf-cfg-field--token">
                       <label>Token</label>
-                      <input type="text" id="hcm-token" class="input" placeholder="2|1:0|10:...|5:token|...">
+                      <input type="text" id="cf-token" class="input" placeholder="2|1:0|10:...|5:token|...">
                     </div>
                   </div>
-                  <div class="hcm-cfg-row">
-                    <div class="hcm-cfg-field hcm-cfg-field--full">
+                  <div class="cf-cfg-row">
+                    <div class="cf-cfg-field cf-cfg-field--full">
                       <label>代理地址（留空直连；例：http://127.0.0.1:7890 或 socks5://127.0.0.1:7891）</label>
-                      <input type="text" id="hcm-proxy" class="input" placeholder="http://127.0.0.1:7890">
+                      <input type="text" id="cf-proxy" class="input" placeholder="http://127.0.0.1:7890">
                     </div>
                   </div>
-                  <div class="hcm-cfg-row hcm-captcha-row">
-                    <div class="hcm-cfg-field hcm-cfg-field--captcha">
+                  <div class="cf-cfg-row cf-captcha-row">
+                    <div class="cf-cfg-field cf-cfg-field--captcha">
                       <label>图片验证码</label>
-                      <div class="hcm-captcha-img-wrap">
-                        <img id="hcm-captcha-img" alt="验证码" title="点击刷新">
-                        <button type="button" id="hcm-btn-refresh-captcha" class="btn btn-ghost btn-xs">刷新</button>
+                      <div class="cf-captcha-img-wrap">
+                        <img id="cf-captcha-img" alt="验证码" title="点击刷新">
+                        <button type="button" id="cf-btn-refresh-captcha" class="btn btn-ghost btn-xs">刷新</button>
                       </div>
                     </div>
-                    <div class="hcm-cfg-field">
+                    <div class="cf-cfg-field">
                       <label>&nbsp;</label>
-                      <input type="text" id="hcm-captcha-code" class="input" placeholder="请输入图中验证码" maxlength="8" autocomplete="off">
+                      <input type="text" id="cf-captcha-code" class="input" placeholder="请输入图中验证码" maxlength="8" autocomplete="off">
                     </div>
                   </div>
-                  <div class="hcm-cfg-actions">
-                    <button id="hcm-btn-login" class="btn btn-sm">登录获取 Token</button>
-                    <button id="hcm-btn-save" class="btn btn-sm btn-primary">保存配置</button>
+                  <div class="cf-cfg-actions">
+                    <button id="cf-btn-login" class="btn btn-sm">登录获取 Token</button>
+                    <button id="cf-btn-save" class="btn btn-sm btn-primary">保存配置</button>
                   </div>
                 </div>
               </div>
 
               <!-- 查询区 -->
-              <div class="card-soft hcm-query-card">
-                <div class="hcm-query-row">
-                  <div class="hcm-cfg-field">
+              <div class="card-soft cf-query-card">
+                <div class="cf-query-row">
+                  <div class="cf-cfg-field">
                     <label>log_type</label>
-                    <input type="text" id="hcm-log-type" class="input" placeholder="留空查询全部 / salary_seal_delay_payment_vvv1">
+                    <input type="text" id="cf-log-type" class="input" placeholder="留空查询全部 / salary_seal_delay_payment_vvv1">
                   </div>
-                  <div class="hcm-cfg-field hcm-cfg-field--w100">
+                  <div class="cf-cfg-field cf-cfg-field--w100">
                     <label>每页条数</label>
-                    <input type="number" id="hcm-page-size" class="input" value="200" min="1" max="12000">
+                    <input type="number" id="cf-page-size" class="input" value="200" min="1" max="12000">
                   </div>
-                  <div class="hcm-cfg-field hcm-cfg-field--w80">
+                  <div class="cf-cfg-field cf-cfg-field--w80">
                     <label>页码</label>
-                    <input type="number" id="hcm-page-index" class="input" value="1" min="1">
+                    <input type="number" id="cf-page-index" class="input" value="1" min="1">
                   </div>
-                  <button id="hcm-btn-query" class="btn btn-primary hcm-query-btn">查询日志</button>
-                  <button id="hcm-btn-export-json" class="btn hcm-query-btn" disabled title="将当前查询结果导出为本地 JSON 文件，便于发给 AI 分析">导出 JSON</button>
-                  <button id="hcm-btn-clipboard-save" class="btn btn-ghost hcm-query-btn" title="读取剪贴板文字，保存为本地文件并输出文件路径">📋 剪贴板转文件</button>
+                  <button id="cf-btn-query" class="btn btn-primary cf-query-btn">查询日志</button>
+                  <button id="cf-btn-export-json" class="btn cf-query-btn" disabled title="将当前查询结果导出为本地 JSON 文件，便于发给 AI 分析">导出 JSON</button>
+                  <button id="cf-btn-clipboard-save" class="btn btn-ghost cf-query-btn" title="读取剪贴板文字，保存为本地文件并输出文件路径">📋 剪贴板转文件</button>
                 </div>
-                <div id="hcm-query-status" class="hcm-query-status"></div>
+                <div id="cf-query-status" class="cf-query-status"></div>
               </div>
 
               <!-- 日志搜索/过滤工具栏 -->
-              <div class="hcm-search-bar card-soft" id="hcm-search-bar" style="display:none;">
-                <input type="text" id="hcm-search-input" class="input hcm-search-input" placeholder="搜索日志内容、时间、log_type…（实时过滤）">
-                <label class="hcm-search-case" title="区分大小写">
-                  <input type="checkbox" id="hcm-search-case"> 大小写敏感
+              <div class="cf-search-bar card-soft" id="cf-search-bar" style="display:none;">
+                <input type="text" id="cf-search-input" class="input cf-search-input" placeholder="搜索日志内容、时间、log_type…（实时过滤）">
+                <label class="cf-search-case" title="区分大小写">
+                  <input type="checkbox" id="cf-search-case"> 大小写敏感
                 </label>
-                <button id="hcm-btn-sort-time" class="btn btn-sm btn-ghost" title="按时间排序">时间 ↓</button>
-                <span id="hcm-search-count" class="hcm-search-count"></span>
+                <button id="cf-btn-sort-time" class="btn btn-sm btn-ghost" title="按时间排序">时间 ↓</button>
+                <span id="cf-search-count" class="cf-search-count"></span>
               </div>
 
               <!-- 结果区 -->
-              <div id="hcm-results" class="hcm-results">
+              <div id="cf-results" class="cf-results">
                 <div class="empty-hint">点击「查询日志」开始（log_type 留空查全部）</div>
               </div>
 

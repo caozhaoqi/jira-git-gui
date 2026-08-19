@@ -1,0 +1,35 @@
+{
+  "_comment": "云函数账号本地配置模板。复制为 cf_accounts.local.json 后填入真实账号密码即可，cf_accounts.local.json 已被 .gitignore 忽略，绝不进 git。本文件可提交，仅作结构占位（无真实密码）。password 留空时前端切换该环境会提示填写。",
+  "accounts": [
+    {
+      "name": "环境显示名（自定义）",
+      "server_url": "https://example.cfcloud.cn",
+      "username": "REPLACE_ME",
+      "password": "REPLACE_ME"
+    },
+    {
+      "name": "公有云",
+      "server_url": "",
+      "username": "",
+      "password": ""
+    },
+    {
+      "name": "测试地址",
+      "server_url": "http://",
+      "username": "",
+      "password": ""
+    },
+    {
+      "name": "测试环境",
+      "server_url": "http://",
+      "username": "",
+      "password": ""
+    },
+    {
+      "name": "开发环境",
+      "server_url": "",
+      "username": "",
+      "password": ""
+    }
+  ]
+}
