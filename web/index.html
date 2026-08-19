@@ -730,7 +730,7 @@
                 <div class="hcm-query-row">
                   <div class="hcm-cfg-field">
                     <label>log_type</label>
-                    <input type="text" id="hcm-log-type" class="input" placeholder="salary_seal_delay_payment_vvv1">
+                    <input type="text" id="hcm-log-type" class="input" placeholder="留空查询全部 / salary_seal_delay_payment_vvv1">
                   </div>
                   <div class="hcm-cfg-field hcm-cfg-field--w100">
                     <label>每页条数</label>
@@ -742,13 +742,24 @@
                   </div>
                   <button id="hcm-btn-query" class="btn btn-primary hcm-query-btn">查询日志</button>
                   <button id="hcm-btn-export-json" class="btn hcm-query-btn" disabled title="将当前查询结果导出为本地 JSON 文件，便于发给 AI 分析">导出 JSON</button>
+                  <button id="hcm-btn-clipboard-save" class="btn btn-ghost hcm-query-btn" title="读取剪贴板文字，保存为本地文件并输出文件路径">📋 剪贴板转文件</button>
                 </div>
                 <div id="hcm-query-status" class="hcm-query-status"></div>
               </div>
 
+              <!-- 日志搜索/过滤工具栏 -->
+              <div class="hcm-search-bar card-soft" id="hcm-search-bar" style="display:none;">
+                <input type="text" id="hcm-search-input" class="input hcm-search-input" placeholder="搜索日志内容、时间、log_type…（实时过滤）">
+                <label class="hcm-search-case" title="区分大小写">
+                  <input type="checkbox" id="hcm-search-case"> 大小写敏感
+                </label>
+                <button id="hcm-btn-sort-time" class="btn btn-sm btn-ghost" title="按时间排序">时间 ↓</button>
+                <span id="hcm-search-count" class="hcm-search-count"></span>
+              </div>
+
               <!-- 结果区 -->
               <div id="hcm-results" class="hcm-results">
-                <div class="empty-hint">输入 log_type 后点击「查询日志」</div>
+                <div class="empty-hint">点击「查询日志」开始（log_type 留空查全部）</div>
               </div>
 
             </div>

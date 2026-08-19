@@ -1885,8 +1885,6 @@ async def api_hcm_logs(req: HcmLogReq):
     """
     if not req.token:
         raise HTTPException(400, "请先配置 token")
-    if not req.log_type:
-        raise HTTPException(400, "请输入 log_type")
     # 保护：明显不是 token 的值（HTML片段、input属性值片段）直接报错
     suspicious = ("<html", "<!doctype", "__image_validate_index", "input ", "name=")
     low = req.token.lower()
@@ -1898,13 +1896,14 @@ async def api_hcm_logs(req: HcmLogReq):
     url = f"{base}/api/hcm.model.list"
     base_headers_json = {"Content-Type": "application/json"}
     # 参考 hcm-core/test/test_avoid_check.py: dynamic_log 用 filter_dict + 直接值（非 advance_filter_dict + {eq}）
+    filter_dict = {}
+    if req.log_type:
+        filter_dict["log_type"] = req.log_type
     payload = {
         "model": "dynamic_log",
         "page_index": req.page_index,
         "page_size": req.page_size,
-        "filter_dict": {
-            "log_type": req.log_type,
-        },
+        "filter_dict": filter_dict,
     }
 
     # 构造三种认证方式，依次尝试
@@ -1927,7 +1926,7 @@ async def api_hcm_logs(req: HcmLogReq):
             kw["transport"] = httpx.AsyncHTTPTransport()
         return kw
 
-    logger.info(f"[HCM] 查询: base={base} model=dynamic_log log_type={req.log_type} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
+    logger.info(f"[HCM] 查询: base={base} model=dynamic_log log_type={req.log_type or '(全部)'} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
 
     last_error = None
     for i, att in enumerate(attempts):
@@ -2047,6 +2046,38 @@ async def api_hcm_logs_export(req: HcmLogExportReq):
         raise HTTPException(500, f"写入文件失败: {e}")
     logger.info(f"[HCM] 日志已导出: {fpath} ({len(req.rows)} 条)")
     return {"ok": True, "path": str(fpath), "filename": fname, "count": len(req.rows), "content": content}
+
+
+class ClipboardSaveReq(BaseModel):
+    text: str = ""
+    filename: str = ""  # 可选文件名，留空则自动生成
+
+
+@app.post("/api/hcm/clipboard-save")
+async def api_hcm_clipboard_save(req: ClipboardSaveReq):
+    """将剪贴板文本内容保存为本地文件，返回文件路径。
+
+    写入 logs/hcm_clipboard/ 目录，文件名自动生成或使用指定名称。
+    """
+    if not req.text or not req.text.strip():
+        raise HTTPException(400, "剪贴板内容为空")
+    from datetime import datetime
+    export_dir = _PROJECT_ROOT / "logs" / "hcm_clipboard"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in (req.filename or "").strip())[:80]
+    if not safe_name:
+        safe_name = f"clipboard_{ts}.txt"
+    elif not safe_name.endswith((".txt", ".json", ".log", ".md")):
+        safe_name += ".txt"
+    fpath = export_dir / safe_name
+    try:
+        fpath.write_text(req.text, encoding="utf-8")
+    except Exception as e:
+        logger.exception(f"[HCM] 剪贴板文件写入失败: {e}")
+        raise HTTPException(500, f"写入文件失败: {e}")
+    logger.info(f"[HCM] 剪贴板已保存: {fpath} ({len(req.text)} chars)")
+    return {"ok": True, "path": str(fpath), "filename": safe_name, "size": len(req.text)}
 
 
 @app.post("/api/hcm/login")
