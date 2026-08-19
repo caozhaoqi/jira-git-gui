@@ -1180,6 +1180,244 @@ body.dark .modal-overlay .cstatus {
   background: var(--surface-2);
 }
 
+/* ========== HCM 云函数日志页 ========== */
+.hcm-cfg-card { padding: 16px 20px; margin-bottom: 14px; }
+.hcm-cfg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  animation: pane-in .25s var(--ease-out);
+}
+.hcm-cfg-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.hcm-cfg-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+}
+.hcm-cfg-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding-left: 2px;
+}
+.hcm-cfg-field .input { width: 100%; }
+/* HCM 字段尺寸变体（替代 inline style） */
+.hcm-cfg-field--full { flex: 1 1 100%; min-width: 100%; }
+.hcm-cfg-field--token { flex: 2; }
+.hcm-cfg-field--captcha { flex: 0 0 auto; min-width: 130px; }
+.hcm-cfg-field--main { flex: 1; }
+.hcm-cfg-field--w100 { flex: 0 0 100px; min-width: 100px; }
+.hcm-cfg-field--w80 { flex: 0 0 80px; min-width: 80px; }
+.hcm-query-btn { align-self: flex-end; white-space: nowrap; }
+
+/* HCM 面板头部环境切换 */
+.panel-header { position: relative; display: flex; align-items: center; gap: 12px; }
+.panel-header .section-title { margin-right: auto; }
+.hcm-env-switcher .sel {
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  min-width: 180px;
+  transition: all .15s;
+}
+.hcm-env-switcher .sel:hover { border-color: var(--border-strong); }
+.hcm-env-switcher .sel:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
+.hcm-cfg-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hcm-query-card { padding: 14px 20px; margin-bottom: 14px; }
+.hcm-query-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.hcm-query-status {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-height: 18px;
+}
+.hcm-query-status.error { color: var(--danger); white-space: pre-wrap; word-break: break-word; font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; line-height: 1.55; }
+.hcm-query-status.success { color: var(--success); }
+
+/* 验证码 */
+.hcm-captcha-row { gap: 16px; align-items: flex-end; }
+.hcm-captcha-img-wrap { display: flex; gap: 8px; align-items: center; }
+#hcm-captcha-img {
+  height: 40px; width: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  cursor: pointer;
+  object-fit: cover;
+  transition: opacity .2s;
+}
+#hcm-captcha-img[src=""], #hcm-captcha-img:not([src]) {
+  background: repeating-linear-gradient(45deg, var(--bg-2), var(--bg-2) 6px, var(--bg-3) 6px, var(--bg-3) 12px);
+}
+.btn-xs { padding: 4px 8px !important; font-size: 12px !important; line-height: 1.5; }
+body.dark #hcm-captcha-img:not([src]) {
+  background: repeating-linear-gradient(45deg, #1a1f2d, #1a1f2d 6px, #242a3b 6px, #242a3b 12px);
+}
+
+/* 日志结果表 */
+.hcm-results { margin-top: 4px; }
+.hcm-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.hcm-log-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.hcm-log-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.hcm-log-table tbody tr {
+  transition: background .15s var(--ease-out);
+  cursor: pointer;
+}
+.hcm-log-table tbody tr:hover { background: var(--surface-2); }
+.hcm-log-table tbody tr.expanded { background: var(--primary-050); }
+.hcm-log-type {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--primary);
+  font-weight: 600;
+}
+.hcm-log-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hcm-log-type {
+  font-size: 11.5px;
+  color: var(--accent);
+  font-family: var(--mono);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hcm-log-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  padding: 2px 0 8px;
+}
+.hcm-log-content {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hcm-log-content-full {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 12px 14px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  margin: 6px 0;
+  max-height: 400px;
+  overflow: auto;
+  line-height: 1.6;
+}
+.hcm-log-detail-row td {
+  padding: 0 14px 12px;
+  background: var(--surface-2);
+}
+.hcm-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.hcm-result-count {
+  font-weight: 600;
+  color: var(--text);
+}
+.hcm-pagination {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  justify-content: center;
+}
+
+/* 日志搜索/过滤工具栏 */
+.hcm-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.hcm-search-input { flex: 1 1 240px; min-width: 180px; }
+.hcm-search-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.hcm-search-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hcm-search-count b { color: var(--text); }
+.hcm-btn-sort-time { white-space: nowrap; }
+
 /* 响应式 */
 @media (max-width: 560px) {
   .modal-overlay .cdialog {
@@ -1217,3 +1455,6 @@ body.dark .modal-overlay .cstatus {
   .actionbar { gap: 6px; padding: 8px 10px; }
   .btn .lbl { display: none; }
 }
+
+/* diff 本地目录宽度 */
+.diff-dir-input { width: 340px; max-width: 100%; }

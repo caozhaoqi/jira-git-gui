@@ -23,6 +23,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('app:get-info');
   },
 
+  /** 读取系统剪贴板纯文本（Electron 原生模块，绕过浏览器权限） */
+  readClipboardText() {
+    return ipcRenderer.invoke('clipboard:read-text');
+  },
+
+  /** 写入系统剪贴板纯文本 */
+  writeClipboardText(text) {
+    return ipcRenderer.invoke('clipboard:write-text', text);
+  },
+
   getLogPath() {
     return ipcRenderer.invoke('log:get-path');
   },

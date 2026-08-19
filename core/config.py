@@ -188,3 +188,55 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
             "file_ttl": _int("MERGE_CACHE_FILE_TTL", 86400),
             "scan_roots": env.get("MERGE_SCAN_ROOTS", "").strip(),
         }
+
+
+# --------------------------------------------------------------------------- #
+#  HCM 云函数账号本地配置（含真实密码，绝不可提交到 git）
+# --------------------------------------------------------------------------- #
+def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
+    """从 hcm_accounts.local.json 读取 HCM 云函数账号列表（含密码）。
+
+    该文件必须放在本地且已被 .gitignore 忽略（hcm_accounts.local.json），
+    绝不能进入版本库。找不到时回退到 hcm_accounts.example.json（仅结构占位，
+    无真实密码）。
+
+    返回: [{"name", "server_url", "username", "password"}, ...]
+    """
+    roots = _env_search_roots(project_root)
+    local = None
+    example = None
+    for root in roots:
+        p = root / "hcm_accounts.local.json"
+        if p.exists():
+            local = p
+            break
+    if local is None:
+        for root in roots:
+            p = root / "hcm_accounts.example.json"
+            if p.exists():
+                example = p
+                break
+    src = local or example
+    if src is None:
+        return []
+    try:
+        data = json.loads(src.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    raw = data.get("accounts", []) if isinstance(data, dict) else data
+    if not isinstance(raw, list):
+        return []
+    out: "list[dict]" = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        url = (item.get("server_url") or "").strip()
+        if not url:
+            continue
+        out.append({
+            "name": (item.get("name") or url).strip(),
+            "server_url": url,
+            "username": (item.get("username") or item.get("mobile") or "").strip(),
+            "password": (item.get("password") or "").strip(),
+        })
+    return out

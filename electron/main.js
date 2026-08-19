@@ -8,7 +8,7 @@
  *  4) 渲染进程 -> 主进程：通过 IPC "log:from-renderer" 让前端日志也落盘
  */
 const electron = require('electron');
-const { app, BrowserWindow, dialog, ipcMain } = electron;
+const { app, BrowserWindow, dialog, ipcMain, clipboard } = electron;
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -113,6 +113,12 @@ function registerIpcHandlers() {
     logFile: LOG_FILE,
     isDev,
   }));
+  // 剪贴板：用 Electron 原生 clipboard 模块（不受浏览器 clipboard-read 权限限制）
+  ipcMain.handle('clipboard:read-text', () => clipboard.readText());
+  ipcMain.handle('clipboard:write-text', (_ev, text) => {
+    clipboard.writeText(String(text ?? ''));
+    return true;
+  });
 }
 
 // ---- Python 后端启动 ----
