@@ -34,7 +34,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS, NetworkWatchdog
-from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config, load_cf_accounts
+from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config, load_cf_accounts, load_hcm_whitelist
 from core.constants import DEFAULT_REQUEST_QPS, DOWNLOAD_DIR
 from core.models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
 
@@ -1753,6 +1753,14 @@ async def api_cf_accounts():
 
 import httpx
 
+# HCM 平台连接业务白名单（改了会连不上平台）：统一从 hcm_whitelist.json 读取，不再硬编码。
+# 含 hcminner 鉴权头、真实日志查询接口路径、参考项目名、真实平台域名。
+_HCM_WL = load_hcm_whitelist()
+_HCM_HCMINNER_HEADER = _HCM_WL["hcminner"].get("header", "hcminner")
+_HCM_HCMINNER_VALUE = _HCM_WL["hcminner"].get("value", "1")
+_HCM_MODEL_LIST_API = _HCM_WL["model_list_api"].get("path", "/api/hcm.model.list")
+
+
 class CfLogReq(BaseModel):
     server_url: str = ""
     token: str = ""
@@ -1896,7 +1904,7 @@ async def api_cf_logs(req: CfLogReq):
     认证方式（依次尝试）：
       1) Cookie: token=xxx（最常见的前端登录态形式）
       2) Authorization: Bearer {token} + hcminner: 1（内部 OpenAPI 形式）
-    查询接口：POST /api/hcm.model.list (JSON body)
+    查询接口：POST {model_list_api}（路径来自 hcm_whitelist.json，改了会连不上平台）
     """
     if not req.token:
         raise HTTPException(400, "请先配置 token")
@@ -1908,7 +1916,7 @@ async def api_cf_logs(req: CfLogReq):
             raise HTTPException(400, "Token 格式异常，请重新获取 Token 后再查询（当前值疑似 HTML/验证码片段，而非登录 Token）")
 
     base = req.server_url.rstrip("/")
-    url = f"{base}/api/hcm.model.list"
+    url = f"{base}{_HCM_MODEL_LIST_API}"
     base_headers_json = {"Content-Type": "application/json"}
     # 参考 hcm-core/test/test_avoid_check.py: dynamic_log 用 filter_dict + 直接值（非 advance_filter_dict + {eq}）
     filter_dict = {}
@@ -1925,9 +1933,9 @@ async def api_cf_logs(req: CfLogReq):
     attempts = [
         # 方式1：Cookie（最常见）
         {"name": "cookie", "headers": base_headers_json, "cookies": {"token": req.token}},
-        # 方式2：Bearer + hcminner
+        # 方式2：Bearer + hcminner（hcminner 头来自 hcm_whitelist.json，改了会连不上平台）
         {"name": "bearer_hcminner",
-         "headers": {**base_headers_json, "Authorization": f"Bearer {req.token}", "hcminner": "1"}},
+         "headers": {**base_headers_json, "Authorization": f"Bearer {req.token}", _HCM_HCMINNER_HEADER: _HCM_HCMINNER_VALUE}},
         # 方式3：Header token（有些部署是 x-token / 纯 token header）
         {"name": "header_token",
          "headers": {**base_headers_json, "token": req.token}},

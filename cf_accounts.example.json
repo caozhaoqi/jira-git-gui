@@ -14,14 +14,14 @@
       "password": ""
     },
     {
-      "name": "测试地址 (73.2.3.27)",
-      "server_url": "http://73.2.3.27",
+      "name": "测试地址",
+      "server_url": "http://",
       "username": "",
       "password": ""
     },
     {
-      "name": "测试环境 (73.2.192.1)",
-      "server_url": "http://73.2.192.1",
+      "name": "测试环境",
+      "server_url": "http://",
       "username": "",
       "password": ""
     },
