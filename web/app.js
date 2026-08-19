@@ -2687,6 +2687,11 @@ function _hcmContentFull(row) {
   if (c == null) return '';
   return typeof c === 'object' ? JSON.stringify(c, null, 2) : String(c);
 }
+function _hcmLogType(row, fallback) {
+  // 优先取记录自身的 log_type（HCM dynamic_log 每条记录都带该字段）；
+  // 查询时指定了 log_type 则作为兜底；都没有则标「未知」
+  return row.log_type || row.logType || fallback || '(未知)';
+}
 // 拉取剩余分页，合并为全量日志集（供「按时间排序所有日志」使用，避免只排当前页）
 async function ensureAllHcmLogs() {
   const base = HCM_LAST_LOG_RESULT;
@@ -2748,7 +2753,8 @@ function renderHcmResults() {
     filtered = all.filter(r => {
       const content = caseSensitive ? _hcmContent(r) : _hcmContent(r).toLowerCase();
       const time = caseSensitive ? _hcmTime(r) : _hcmTime(r).toLowerCase();
-      return content.includes(needle) || time.includes(needle);
+      const type = caseSensitive ? _hcmLogType(r, base.log_type) : _hcmLogType(r, base.log_type).toLowerCase();
+      return content.includes(needle) || time.includes(needle) || type.includes(needle);
     });
   }
 
@@ -2776,8 +2782,9 @@ function renderHcmResults() {
     <table class="hcm-log-table">
       <thead>
         <tr>
-          <th style="width:60px">#</th>
-          <th style="width:180px">时间</th>
+          <th style="width:48px">#</th>
+          <th style="width:150px">类型</th>
+          <th style="width:170px">时间</th>
           <th>内容</th>
         </tr>
       </thead>
@@ -2787,15 +2794,18 @@ function renderHcmResults() {
     const createTime = _hcmTime(row);
     const content = _hcmContent(row);
     const contentFull = _hcmContentFull(row);
+    const logTypeVal = _hcmLogType(row, base.log_type);
     const idx = i + 1;
     html += `
       <tr class="hcm-log-row" data-idx="${i}">
         <td>${idx}</td>
+        <td class="hcm-log-type" title="${esc(logTypeVal)}">${esc(logTypeVal)}</td>
         <td class="hcm-log-time">${esc(createTime)}</td>
         <td class="hcm-log-content">${esc(content)}</td>
       </tr>
       <tr class="hcm-log-detail-row" id="hcm-detail-${i}" style="display:none">
-        <td colspan="3">
+        <td colspan="4">
+          <div class="hcm-log-meta">类型：${esc(logTypeVal)} ｜ ID：${esc(row.id != null ? row.id : (row._id || ''))} ｜ 时间：${esc(createTime)}</div>
           <div class="hcm-log-content-full">${esc(contentFull)}</div>
         </td>
       </tr>
