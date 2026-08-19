@@ -31,11 +31,22 @@ const API = window.__TAURI__ ? 'http://127.0.0.1:8787' : location.origin;
 
 // ===== API 封装 =====
 async function api(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
-  // 只消费一次 body：clone 成两份，先读 text 再尝试 parse JSON
+  let res;
+  try {
+    res = await fetch(`${API}${path}`, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+  } catch (e) {
+    // 网络层错误：超时 vs 断网
+    if (e && e.name === 'AbortError') {
+      const err = new Error('请求超时，请检查网络或稍后重试');
+      err.type = 'timeout'; throw err;
+    }
+    const err = new Error('网络连接失败，请检查网络或服务是否运行');
+    err.type = 'network'; throw err;
+  }
+  // 只消费一次 body：先读 text 再尝试 parse JSON
   let text = '';
   try { text = await res.text(); } catch (_) {}
   let data = null;
@@ -45,19 +56,48 @@ async function api(path, opts = {}) {
     data = {};
   }
   if (!res.ok) {
-    // FastAPI HTTPException 默认 JSON 格式: {"detail": "..."}
+    // FastAPI HTTPException 默认 JSON 格式: {"detail": "..."}；HCM 用 {errmsg}
     const detail =
       (data && typeof data.detail === 'string' && data.detail) ||
       (data && typeof data.detail === 'object' && JSON.stringify(data.detail)) ||
       (data && typeof data.message === 'string' && data.message) ||
       (data && typeof data.msg === 'string' && data.msg) ||
+      (data && typeof data.errmsg === 'string' && data.errmsg) ||
       (data && typeof data.error === 'string' && data.error) ||
       (data && typeof data._raw === 'string' && data._raw.slice(0, 4000)) ||
       '';
-    if (detail) throw new Error(detail);
-    throw new Error(`HTTP ${res.status} ${res.statusText || ''}`.trim());
+    // 认证失效：401/403，或 HCM 登录类 errcode(17003/17001/need_img_valid)
+    const isAuth = res.status === 401 || res.status === 403 ||
+      /未登录|登录失效|登录已过期|token\s*(失效|过期|无效)|认证失败|无权访问|17003|17001|need_img_valid/i.test(detail);
+    if (isAuth) {
+      const err = new Error(detail || '登录已失效，请重新登录');
+      err.type = 'auth'; err.status = res.status; throw err;
+    }
+    const err = new Error(detail || `HTTP ${res.status} ${res.statusText || ''}`.trim());
+    err.type = res.status >= 500 ? 'server' : 'business';
+    err.status = res.status;
+    throw err;
   }
   return data || {};
+}
+
+// 统一错误 -> toast：根据 ex.type 选择图标与操作，auth 类带「去连接设置」按钮
+function toastApiError(ex, fallbackAction) {
+  const msg = (ex && ex.message) ? ex.message : '操作失败';
+  const type = (ex && ex.type) || 'error';
+  const toastType = type === 'auth' ? 'warn' : (type === 'timeout' || type === 'network' ? 'warn' : 'error');
+  const opts = {};
+  if (type === 'auth') {
+    opts.duration = 0; // 认证失效不自动消失，需用户处理
+    opts.action = {
+      label: '去连接设置',
+      primary: true,
+      onClick: () => { try { openConnectModal(); } catch (_) {} }
+    };
+  } else if (fallbackAction) {
+    opts.action = fallbackAction;
+  }
+  return toast(msg, toastType, opts);
 }
 
 async function apiPost(path, body) {
@@ -66,6 +106,92 @@ async function apiPost(path, body) {
 
 async function apiDelete(path) {
   return api(path, { method: 'DELETE' });
+}
+
+// ===== 工具：HTML 转义 =====
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ===== 全局 Toast 通知 =====
+let _toastStack = null;
+function _getToastStack() {
+  if (_toastStack) return _toastStack;
+  _toastStack = document.createElement('div');
+  _toastStack.className = 'toast-stack';
+  _toastStack.id = 'toast-stack';
+  document.body.appendChild(_toastStack);
+  return _toastStack;
+}
+const _TOAST_ICONS = { success: '✓', warn: '!', error: '✕', info: 'i' };
+function toast(message, type = 'info', opts = {}) {
+  const stack = _getToastStack();
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  const icon = _TOAST_ICONS[type] || 'i';
+  let actionsHtml = '';
+  if (opts && opts.action && opts.action.label) {
+    const cls = opts.action.primary ? ' primary' : '';
+    actionsHtml = '<div class="toast-actions"><button class="' + cls + '">' + escapeHtml(opts.action.label) + '</button></div>';
+  }
+  el.innerHTML =
+    '<span class="toast-icon">' + icon + '</span>' +
+    '<div class="toast-body">' + escapeHtml(message) + actionsHtml + '</div>' +
+    '<button class="toast-close" aria-label="关闭">×</button>';
+  stack.appendChild(el);
+  const close = () => {
+    if (el.classList.contains('leaving')) return;
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 200);
+  };
+  el.querySelector('.toast-close').addEventListener('click', close);
+  if (opts && opts.action && opts.action.label) {
+    el.querySelector('.toast-actions button').addEventListener('click', () => {
+      try { opts.action.onClick && opts.action.onClick(); } catch (_) {}
+      close();
+    });
+  }
+  const duration = opts && opts.duration != null ? opts.duration : (type === 'error' ? 8000 : 3500);
+  if (duration > 0) setTimeout(close, duration);
+  return { close };
+}
+
+// withLoading: 异步操作统一反馈基线
+// - btn: HTMLButtonElement 或选择器字符串
+// - fn: async () => any（真正的操作逻辑）
+// - opts: { loadingText, originalText, okToast: string|(r)=>string, failToast: bool }
+async function withLoading(btn, fn, opts = {}) {
+  if (typeof btn === 'string') btn = document.querySelector(btn);
+  const okToast = opts.okToast === undefined ? true : opts.okToast;
+  const failToast = opts.failToast !== false;
+  let originalText = opts.originalText;
+  if (btn && !originalText) originalText = btn.innerHTML;
+  const loadingText = opts.loadingText || '<span class="caction-sparkle">⏳</span>处理中…';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = loadingText;
+  }
+  try {
+    const r = await fn();
+    if (okToast) {
+      const msg = typeof okToast === 'function' ? okToast(r) : (typeof okToast === 'string' ? okToast : '操作成功');
+      toast(msg, 'success');
+    }
+    return r;
+  } catch (ex) {
+    if (failToast) toastApiError(ex);
+    throw ex;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText || '';
+    }
+  }
 }
 
 // ===== 日志 =====
@@ -973,8 +1099,8 @@ let _shellWs = null;
 
 function k8sShellConnect() {
   const t = k8sTarget();
-  if (!t.env) { alert('请先选择环境（顶部「环境」）'); return; }
-  if (!t.pod) { alert('请先选择 Pod'); return; }
+  if (!t.env) { toast('请先选择环境（顶部「环境」）', 'warn'); return; }
+  if (!t.pod) { toast('请先选择 Pod', 'warn'); return; }
   if (_shellWs) { try { _shellWs.close(); } catch (_) {} }
   const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
   const q = new URLSearchParams({ env: t.env, pod: t.pod });
@@ -1188,15 +1314,15 @@ async function k8sFileOpen(name, isDir) {
     const d = await apiPost('/api/k8s/file/read', {
       env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path, max_bytes: 200000,
     });
-    if (!d.ok) { alert('读取失败：' + d.error); return; }
-    if (d.is_binary) { alert('这是二进制文件，不支持在线编辑。'); return; }
+    if (!d.ok) { toast('读取失败：' + d.error, 'error'); return; }
+    if (d.is_binary) { toast('这是二进制文件，不支持在线编辑。', 'info'); return; }
     state.k8s.files.editPath = path;
     document.getElementById('k8s-file-edit-area').value = d.content || '';
     document.getElementById('k8s-file-edit-title').textContent =
       '编辑 · ' + name + (d.truncated ? '（已截断，原始文件较大）' : '');
     document.getElementById('k8s-file-edit-msg').textContent = '';
     document.getElementById('k8s-file-edit-modal').style.display = 'flex';
-  } catch (ex) { alert('读取失败：' + ex.message); }
+  } catch (ex) { toast('读取失败：' + ex.message, 'error'); }
 }
 
 async function k8sFileSave() {
@@ -1242,9 +1368,9 @@ async function k8sFilesMkdir() {
     const d = await apiPost('/api/k8s/file/mkdir', {
       env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path,
     });
-    if (!d.ok) { alert('新建失败：' + d.error); return; }
+    if (!d.ok) { toast('新建失败：' + d.error, 'error'); return; }
     k8sFilesList(state.k8s.files.path || '/');
-  } catch (ex) { alert('新建失败：' + ex.message); }
+  } catch (ex) { toast('新建失败：' + ex.message, 'error'); }
 }
 
 function k8sFilesUploadClick() { document.getElementById('k8s-files-fileinput').click(); }
@@ -1258,15 +1384,15 @@ async function k8sFilesUploadChange(e) {
       env: t.env, pod: t.pod, container: t.container, namespace: t.namespace,
       path: state.k8s.files.path || '/', data,
     });
-    if (!d.ok) { alert('上传失败：' + d.error); return; }
+    if (!d.ok) { toast('上传失败：' + d.error, 'error'); return; }
     k8sFilesList(state.k8s.files.path || '/');
-  } catch (ex) { alert('上传失败：' + ex.message); }
+  } catch (ex) { toast('上传失败：' + ex.message, 'error'); }
   e.target.value = '';  // 允许重复上传同名文件
 }
 
 async function k8sFilesDelete() {
   const sel = state.k8s.files.selected;
-  if (!sel) { alert('请先单击选中要删除的文件 / 目录'); return; }
+  if (!sel) { toast('请先单击选中要删除的文件 / 目录', 'warn'); return; }
   if (!confirm('确认删除 ' + (sel.isDir ? '目录' : '文件') + '「' + sel.name + '」？此操作不可恢复。')) return;
   const t = k8sTarget();
   const path = k8sPathJoin(state.k8s.files.path, sel.name);
@@ -1274,10 +1400,10 @@ async function k8sFilesDelete() {
     const d = await apiPost('/api/k8s/file/delete', {
       env: t.env, pod: t.pod, container: t.container, namespace: t.namespace, path, is_dir: sel.isDir,
     });
-    if (!d.ok) { alert('删除失败：' + d.error); return; }
+    if (!d.ok) { toast('删除失败：' + d.error, 'error'); return; }
     state.k8s.files.selected = null;
     k8sFilesList(state.k8s.files.path || '/');
-  } catch (ex) { alert('删除失败：' + ex.message); }
+  } catch (ex) { toast('删除失败：' + ex.message, 'error'); }
 }
 
 function fileToBase64(file) {
@@ -1449,10 +1575,18 @@ async function testConnect() {
 
 async function applyConnect() {
   const cfg = getConnectConfig();
-  await apiPost('/api/connect', cfg);
-  closeConnectModal();
-  updateStatus();
-  log('连接配置已更新。');
+  try {
+    await withLoading('#btn-connect-ok', async () => {
+      await apiPost('/api/connect', cfg);
+    }, {
+      loadingText: '保存中…',
+      originalText: '确定',
+      okToast: '连接配置已更新',
+    });
+    closeConnectModal();
+    updateStatus();
+    log('连接配置已更新。');
+  } catch (_) {}
 }
 
 // ===== 仓库列表 =====
@@ -1475,6 +1609,7 @@ async function discoverRepos() {
     log(`【发现仓库】返回 ${state.repos.length} 个`);
   } catch (ex) {
     log(`发现仓库异常：${ex.message}`, 'error');
+    toastApiError(ex, { label: '重试', onClick: () => discoverRepos() });
   } finally {
     btn.disabled = false;
     btn.textContent = '发现仓库';
@@ -2039,7 +2174,7 @@ document.getElementById('btn-k8s-report').onclick = openK8sReport;
 document.getElementById('btn-k8s-dir').onclick = copyK8sDir;
 document.getElementById('btn-k8s-log-open').onclick = () => {
   const pod = state.k8s.lastPod;
-  if (!pod) { alert('请先在上方选择一个 Pod 查看其日志。'); return; }
+  if (!pod) { toast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
   const url = '/web/log_viewer.html?pod=' + encodeURIComponent(pod) +
               '&env=' + encodeURIComponent(state.k8s.env || '');
   window.open(url, '_blank');
@@ -2077,7 +2212,7 @@ document.getElementById('k8s-top-scope').onchange = loadK8sTop;
 document.getElementById('k8s-top-auto').onchange = () => startK8sAuto('top');
 document.getElementById('btn-k8s-describe-pod').onclick = () => {
   const pod = state.k8s.lastPod;
-  if (!pod) { alert('请先在上方选择一个 Pod 查看其日志。'); return; }
+  if (!pod) { toast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
   openK8sDescribe('pod', pod);
 };
 document.getElementById('btn-k8s-yaml-describe').onclick = () => {
@@ -2129,6 +2264,49 @@ loadK8sEnvs();
 
 // ===== HCM 云函数日志 =====
 const HCM_CFG_KEY = 'jgg-hcm-cfg';
+// 预置环境（可直接切换，地址/账号密码用户填全）
+const HCM_PRESETS = {
+  public: {
+    name: '公有云',
+    server_url: 'https://21qor.hcmcloud.cn',
+    mobile: '666666',
+    password: 'Ab666666',
+  },
+  test1: {
+    name: '测试地址',
+    server_url: 'http://73.2.3.27',
+    mobile: '666666',
+    password: 'Ab666666',
+  },
+  test2: {
+    name: '测试环境',
+    server_url: 'http://73.2.192',
+    mobile: '666666',
+    password: 'Ab666666',
+  },
+  dev: {
+    name: '开发环境',
+    server_url: '',
+    mobile: '666666',
+    password: 'Ab666666',
+  },
+};
+function switchHcmEnv(key) {
+  if (!key || !HCM_PRESETS[key]) {
+    // custom / 空：不填地址，其他填默认
+    if (key === 'custom') {
+      document.getElementById('hcm-username').value = '666666';
+      document.getElementById('hcm-password').value = 'Ab666666';
+    }
+    return;
+  }
+  const p = HCM_PRESETS[key];
+  document.getElementById('hcm-server-url').value = p.server_url || '';
+  document.getElementById('hcm-username').value = p.mobile || '';
+  document.getElementById('hcm-password').value = p.password || '';
+  toast(`已切换到「${p.name}」环境，账号密码已预填，地址：${p.server_url || '请手动填写'}`, 'info');
+  saveHcmCfg();
+}
 
 function loadHcmCfg() {
   try {
@@ -2141,6 +2319,15 @@ function loadHcmCfg() {
     document.getElementById('hcm-log-type').value = cfg.log_type || '';
     document.getElementById('hcm-page-size').value = cfg.page_size || 200;
     document.getElementById('hcm-page-index').value = cfg.page_index || 1;
+    // 自动选中匹配的预置环境
+    const sel = document.getElementById('hcm-env-select');
+    const url = cfg.server_url || '';
+    let matched = 'custom';
+    for (const k of Object.keys(HCM_PRESETS)) {
+      if (HCM_PRESETS[k].server_url && url && HCM_PRESETS[k].server_url === url) { matched = k; break; }
+      if (HCM_PRESETS[k].server_url && url && url.startsWith(HCM_PRESETS[k].server_url)) { matched = k; break; }
+    }
+    if (sel) sel.value = matched;
   } catch (_) {}
 }
 
@@ -2159,6 +2346,8 @@ function saveHcmCfg() {
 }
 
 let HCM_CURRENT_CAPTCHA_ID = '';
+let HCM_CURRENT_IMAGE_CODE_INDEX = '';
+let HCM_LAST_LOG_RESULT = null;  // 上次查询结果，供导出 JSON 用
 
 async function fetchHcmCaptcha() {
   const serverUrl = document.getElementById('hcm-server-url').value.trim();
@@ -2166,7 +2355,7 @@ async function fetchHcmCaptcha() {
   const imgEl = document.getElementById('hcm-captcha-img');
   const statusEl = document.getElementById('hcm-query-status');
   if (!serverUrl) {
-    alert('请先填写服务器地址');
+    toast('请先填写服务器地址', 'warn');
     return;
   }
   imgEl.style.opacity = '0.4';
@@ -2174,11 +2363,14 @@ async function fetchHcmCaptcha() {
   try {
     const res = await apiPost('/api/hcm/captcha', { server_url: serverUrl, proxy });
     HCM_CURRENT_CAPTCHA_ID = res.captcha_id || '';
+    HCM_CURRENT_IMAGE_CODE_INDEX = res.image_code_index || '';
     imgEl.src = res.image || '';
     imgEl.style.opacity = '1';
     imgEl.style.cursor = 'pointer';
     document.getElementById('hcm-captcha-code').value = '';
   } catch (e) {
+    HCM_CURRENT_CAPTCHA_ID = '';
+    HCM_CURRENT_IMAGE_CODE_INDEX = '';
     imgEl.style.opacity = '1';
     imgEl.style.cursor = 'pointer';
     imgEl.removeAttribute('src');
@@ -2186,8 +2378,69 @@ async function fetchHcmCaptcha() {
       statusEl.textContent = `获取验证码失败：${e.message}`;
       statusEl.className = 'hcm-query-status error';
     } else {
-      alert(`获取验证码失败：${e.message}`);
+      toast('获取验证码失败：' + e.message, 'error');
     }
+  }
+}
+
+async function exportHcmLogs() {
+  const statusEl = document.getElementById('hcm-query-status');
+  const btn = document.getElementById('hcm-btn-export-json');
+  if (!HCM_LAST_LOG_RESULT || !HCM_LAST_LOG_RESULT.rows || !HCM_LAST_LOG_RESULT.rows.length) {
+    statusEl.textContent = '请先查询日志并确保有结果，再导出';
+    statusEl.className = 'hcm-query-status error';
+    return;
+  }
+  const r = HCM_LAST_LOG_RESULT;
+  if (btn) { btn.disabled = true; btn.textContent = '导出中…'; }
+  try {
+    const res = await apiPost('/api/hcm/logs/export', {
+      server_url: r.server_url,
+      log_type: r.log_type,
+      auth_method: r.auth_method,
+      page_index: r.page_index,
+      page_size: r.page_size,
+      total: r.total,
+      rows: r.rows,
+      raw: r.raw,
+    });
+    if (res.path) {
+      // 复制文件路径到剪贴板，便于直接粘贴
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(res.path);
+          copied = true;
+        }
+      } catch (_) {}
+      if (!copied) {
+        // fallback：临时 textarea + execCommand
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = res.path;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          copied = true;
+        } catch (_) {}
+      }
+      statusEl.textContent = copied
+        ? `已导出 ${res.count} 条，文件路径已复制到剪贴板：${res.path}`
+        : `已导出 ${res.count} 条 → ${res.path}（复制到剪贴板失败，请手动复制路径）`;
+      statusEl.className = 'hcm-query-status success';
+      try { console.log('HCM 日志导出路径:', res.path); } catch (_) {}
+    } else {
+      throw new Error('未返回文件路径');
+    }
+  } catch (e) {
+    statusEl.textContent = `导出失败：${e.message}`;
+    statusEl.className = 'hcm-query-status error';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '导出 JSON'; }
   }
 }
 
@@ -2212,13 +2465,10 @@ async function hcmLogin() {
     statusEl.className = 'hcm-query-status error';
     return;
   }
-  if (!HCM_CURRENT_CAPTCHA_ID) {
-    statusEl.textContent = '请先点击「刷新」获取验证码';
-    statusEl.className = 'hcm-query-status error';
-    return;
-  }
-  if (!imageCode) {
-    statusEl.textContent = '请输入图片验证码';
+  // 图片验证码改为可选：默认不强制，仅当用户填了验证码或后端要求(need_img_valid)时才需要
+  // 若用户填了验证码却没拉取过验证码图片，提示先刷新
+  if (imageCode && !HCM_CURRENT_CAPTCHA_ID) {
+    statusEl.textContent = '请先点击「刷新」获取验证码图片再输入';
     statusEl.className = 'hcm-query-status error';
     return;
   }
@@ -2235,24 +2485,44 @@ async function hcmLogin() {
       password,
       proxy,
       image_code: imageCode,
+      image_code_index: HCM_CURRENT_IMAGE_CODE_INDEX,
       captcha_id: HCM_CURRENT_CAPTCHA_ID,
     });
+    // 登录成功
     if (res.token) {
       document.getElementById('hcm-token').value = res.token;
       HCM_CURRENT_CAPTCHA_ID = '';
+      HCM_CURRENT_IMAGE_CODE_INDEX = '';
       document.getElementById('hcm-captcha-img').removeAttribute('src');
       document.getElementById('hcm-captcha-code').value = '';
       saveHcmCfg();
       statusEl.textContent = '登录成功，Token 已获取并保存';
       statusEl.className = 'hcm-query-status success';
-    } else {
-      throw new Error('未获取到 token');
+      return;
     }
+    // 后端透传的登录被拒：success=false
+    if (res && res.ok === false) {
+      const needImg = res.need_img_valid === true;
+      const msg = res.message || '登录失败';
+      if (needImg) {
+        statusEl.textContent = `${msg}（需要图片验证码，请输入后重新登录）`;
+        statusEl.className = 'hcm-query-status error';
+        // 自动拉取验证码图片供用户填写
+        try { await fetchHcmCaptcha(); } catch (_) {}
+      } else {
+        statusEl.textContent = `登录失败：${msg}`;
+        statusEl.className = 'hcm-query-status error';
+      }
+      return;
+    }
+    throw new Error('未获取到 token');
   } catch (ex) {
     statusEl.textContent = `登录失败：${ex.message}`;
     statusEl.className = 'hcm-query-status error';
-    // 登录失败，刷新验证码
-    try { await fetchHcmCaptcha(); } catch (_) {}
+    // 仅在已有验证码会话时刷新（避免无验证码部署被狂刷）
+    if (HCM_CURRENT_CAPTCHA_ID) {
+      try { await fetchHcmCaptcha(); } catch (_) {}
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = '登录获取 Token';
@@ -2303,6 +2573,20 @@ async function queryHcmLogs() {
     const payload = res.data || res.result || res;
     const rows = payload.list || payload.data || payload.items || res.list || res.data || [];
     const total = payload.total ?? payload.count ?? payload.row_count ?? res.total ?? rows.length;
+
+    // 保存查询结果供「导出 JSON」使用
+    HCM_LAST_LOG_RESULT = {
+      server_url: serverUrl,
+      log_type: logType,
+      auth_method: res.method || '',
+      page_index: pageIndex,
+      page_size: pageSize,
+      total,
+      rows,
+      raw: res,
+    };
+    const exportBtn = document.getElementById('hcm-btn-export-json');
+    if (exportBtn) exportBtn.disabled = rows.length === 0;
 
     statusEl.textContent = `查询成功，共 ${total} 条`;
     statusEl.className = 'hcm-query-status success';
@@ -2383,6 +2667,8 @@ async function queryHcmLogs() {
     statusEl.textContent = `查询失败：${ex.message}`;
     statusEl.className = 'hcm-query-status error';
     resultsEl.innerHTML = '<div class="empty-hint">查询失败</div>';
+    const exportBtn = document.getElementById('hcm-btn-export-json');
+    if (exportBtn) exportBtn.disabled = true;
   } finally {
     btn.disabled = false;
     btn.textContent = '查询日志';
@@ -2390,6 +2676,9 @@ async function queryHcmLogs() {
 }
 
 // HCM 事件绑定
+document.getElementById('hcm-env-select').addEventListener('change', (e) => {
+  switchHcmEnv(e.target.value);
+});
 document.getElementById('hcm-cfg-toggle').onclick = function() {
   toggleHcmCfg();
   // 不自动拉验证码 — 只有用户手动点「刷新」或「登录获取Token」才拉
@@ -2404,6 +2693,7 @@ document.getElementById('hcm-btn-login').onclick = async () => {
   hcmLogin();
 };
 document.getElementById('hcm-btn-query').onclick = queryHcmLogs;
+document.getElementById('hcm-btn-export-json').onclick = exportHcmLogs;
 document.getElementById('hcm-btn-refresh-captcha').onclick = fetchHcmCaptcha;
 document.getElementById('hcm-captcha-img').addEventListener('click', fetchHcmCaptcha);
 document.getElementById('hcm-log-type').addEventListener('keydown', e => {

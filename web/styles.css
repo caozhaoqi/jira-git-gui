@@ -1209,6 +1209,34 @@ body.dark .modal-overlay .cstatus {
   padding-left: 2px;
 }
 .hcm-cfg-field .input { width: 100%; }
+/* HCM 字段尺寸变体（替代 inline style） */
+.hcm-cfg-field--full { flex: 1 1 100%; min-width: 100%; }
+.hcm-cfg-field--token { flex: 2; }
+.hcm-cfg-field--captcha { flex: 0 0 auto; min-width: 130px; }
+.hcm-cfg-field--main { flex: 1; }
+.hcm-cfg-field--w100 { flex: 0 0 100px; min-width: 100px; }
+.hcm-cfg-field--w80 { flex: 0 0 80px; min-width: 80px; }
+.hcm-query-btn { align-self: flex-end; white-space: nowrap; }
+
+/* HCM 面板头部环境切换 */
+.panel-header { position: relative; display: flex; align-items: center; gap: 12px; }
+.panel-header .section-title { margin-right: auto; }
+.hcm-env-switcher .sel {
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  min-width: 180px;
+  transition: all .15s;
+}
+.hcm-env-switcher .sel:hover { border-color: var(--border-strong); }
+.hcm-env-switcher .sel:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
 .hcm-cfg-actions {
   display: flex;
   gap: 8px;
@@ -1384,3 +1412,6 @@ body.dark #hcm-captcha-img:not([src]) {
   .actionbar { gap: 6px; padding: 8px 10px; }
   .btn .lbl { display: none; }
 }
+
+/* diff 本地目录宽度 */
+.diff-dir-input { width: 340px; max-width: 100%; }

@@ -163,7 +163,7 @@
             <div class="tab-inner">
               <div class="diff-toolbar">
                 <label class="field">本地目录
-                  <input type="text" id="diff-local-dir" class="input" placeholder="/path/to/local/repo" style="width:340px">
+                  <input type="text" id="diff-local-dir" class="input diff-dir-input" placeholder="/path/to/local/repo">
                 </label>
                 <button id="btn-diff-auto-dir" class="btn btn-sm btn-ghost" title="根据 .env 中的 MERGE_REPO_* 映射自动填充本地目录">自动扫描</button>
                 <button id="btn-diff-scan" class="btn btn-primary">扫描差异</button>
@@ -251,7 +251,7 @@
                   <select id="k8s-shell-container" class="sel"><option value="">（默认容器）</option></select>
                 </label>
                 <label class="field">命名空间
-                  <input type="text" id="k8s-shell-ns" class="input" placeholder="默认" style="width:150px">
+                  <input type="text" id="k8s-shell-ns" class="input k8s-ns-input" placeholder="默认">
                 </label>
                 <span id="k8s-shell-status" class="k8s-conn-status off">未连接</span>
               </div>
@@ -373,7 +373,7 @@
                     <label class="field-col">从 Pod 列表自动获取
                       <div class="k8s-inline">
                         <button id="btn-k8s-yaml-pods" class="btn btn-sm btn-ghost" type="button">载入列表</button>
-                        <select id="k8s-yaml-podlist" class="sel" style="flex:1;">
+                        <select id="k8s-yaml-podlist" class="sel k8s-flex1">
                           <option value="">（先载入当前环境 Pod 列表）</option>
                         </select>
                       </div>
@@ -424,7 +424,7 @@
                   <div id="k8s-net-verdict" class="panel-sub mt"></div>
                 </div>
               </div>
-            </div>
+
           <!-- 事件子页 -->
           <div class="k8s-subpane" id="k8s-sub-events">
             <div class="panel-header">
@@ -516,8 +516,6 @@
                 </table>
               </div>
             </div>
-          </div>
-
           </div>
 
           <!-- 交互式 Shell 子页（类似 Xshell） -->
@@ -656,6 +654,9 @@
             </div>
           </div>
 
+        </div>
+          </div>
+
           <!-- 云函数日志 -->
           <div id="tab-hcm" class="tab-pane">
             <div class="tab-inner">
@@ -664,6 +665,16 @@
               <div class="card-soft hcm-cfg-card">
                 <div class="panel-header">
                   <h2 class="section-title">HCM 云函数日志</h2>
+                  <div class="hcm-env-switcher">
+                    <select id="hcm-env-select" class="sel">
+                      <option value="">选择环境…</option>
+                      <option value="public">☁️ 公有云</option>
+                      <option value="test1">🧪 测试地址 (73.2.3.27)</option>
+                      <option value="test2">🧪 测试环境 (73.2.192.1)</option>
+                      <option value="dev">🔧 开发环境</option>
+                      <option value="custom">✏️ 自定义</option>
+                    </select>
+                  </div>
                   <button id="hcm-cfg-toggle" class="btn btn-ghost btn-sm">配置 ▸</button>
                 </div>
 
@@ -683,26 +694,26 @@
                       <label>密码</label>
                       <input type="password" id="hcm-password" class="input" placeholder="Ab666666">
                     </div>
-                    <div class="hcm-cfg-field" style="flex:2">
+                    <div class="hcm-cfg-field hcm-cfg-field--token">
                       <label>Token</label>
                       <input type="text" id="hcm-token" class="input" placeholder="2|1:0|10:...|5:token|...">
                     </div>
                   </div>
                   <div class="hcm-cfg-row">
-                    <div class="hcm-cfg-field" style="flex:1 1 100%">
+                    <div class="hcm-cfg-field hcm-cfg-field--full">
                       <label>代理地址（留空直连；例：http://127.0.0.1:7890 或 socks5://127.0.0.1:7891）</label>
                       <input type="text" id="hcm-proxy" class="input" placeholder="http://127.0.0.1:7890">
                     </div>
                   </div>
                   <div class="hcm-cfg-row hcm-captcha-row">
-                    <div class="hcm-cfg-field" style="flex:0 0 auto;min-width:130px;">
+                    <div class="hcm-cfg-field hcm-cfg-field--captcha">
                       <label>图片验证码</label>
                       <div class="hcm-captcha-img-wrap">
                         <img id="hcm-captcha-img" alt="验证码" title="点击刷新">
                         <button type="button" id="hcm-btn-refresh-captcha" class="btn btn-ghost btn-xs">刷新</button>
                       </div>
                     </div>
-                    <div class="hcm-cfg-field" style="flex:1">
+                    <div class="hcm-cfg-field">
                       <label>&nbsp;</label>
                       <input type="text" id="hcm-captcha-code" class="input" placeholder="请输入图中验证码" maxlength="8" autocomplete="off">
                     </div>
@@ -717,19 +728,20 @@
               <!-- 查询区 -->
               <div class="card-soft hcm-query-card">
                 <div class="hcm-query-row">
-                  <div class="hcm-cfg-field" style="flex:1">
+                  <div class="hcm-cfg-field">
                     <label>log_type</label>
                     <input type="text" id="hcm-log-type" class="input" placeholder="salary_seal_delay_payment_vvv1">
                   </div>
-                  <div class="hcm-cfg-field" style="width:100px">
+                  <div class="hcm-cfg-field hcm-cfg-field--w100">
                     <label>每页条数</label>
                     <input type="number" id="hcm-page-size" class="input" value="200" min="1" max="12000">
                   </div>
-                  <div class="hcm-cfg-field" style="width:80px">
+                  <div class="hcm-cfg-field hcm-cfg-field--w80">
                     <label>页码</label>
                     <input type="number" id="hcm-page-index" class="input" value="1" min="1">
                   </div>
-                  <button id="hcm-btn-query" class="btn btn-primary" style="align-self:flex-end">查询日志</button>
+                  <button id="hcm-btn-query" class="btn btn-primary hcm-query-btn">查询日志</button>
+                  <button id="hcm-btn-export-json" class="btn hcm-query-btn" disabled title="将当前查询结果导出为本地 JSON 文件，便于发给 AI 分析">导出 JSON</button>
                 </div>
                 <div id="hcm-query-status" class="hcm-query-status"></div>
               </div>

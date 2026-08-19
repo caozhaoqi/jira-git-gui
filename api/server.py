@@ -1747,6 +1747,17 @@ class HcmLogReq(BaseModel):
     proxy: str = ""  # 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
 
 
+class HcmLogExportReq(BaseModel):
+    server_url: str = ""
+    log_type: str = ""
+    auth_method: str = ""  # 实际生效的认证方式
+    page_index: int = 1
+    page_size: int = 200
+    total: int = 0
+    rows: list = []  # 日志记录数组
+    raw: object = None  # 原始响应（可选）
+
+
 class HcmLoginReq(BaseModel):
     server_url: str = ""
     mobile: str = ""
@@ -1995,6 +2006,47 @@ async def api_hcm_logs(req: HcmLogReq):
                 raise last_error
 
     raise last_error if last_error else HTTPException(500, "查询失败，未知错误")
+
+
+@app.post("/api/hcm/logs/export")
+async def api_hcm_logs_export(req: HcmLogExportReq):
+    """将查询到的 HCM 云函数日志导出为本地 JSON 文件，供 AI 分析系统运行问题。
+
+    写入 logs/hcm_logs/hcm_logs_<log_type>_<timestamp>.json，返回绝对路径。
+    """
+    from datetime import datetime
+    if not req.rows:
+        raise HTTPException(400, "无可导出的日志数据")
+    export_dir = _PROJECT_ROOT / "logs" / "hcm_logs"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    safe_log_type = "".join(c if c.isalnum() or c in "-_" else "_" for c in (req.log_type or "unknown"))[:60]
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"hcm_logs_{safe_log_type}_{ts}.json"
+    fpath = export_dir / fname
+    out = {
+        "export_info": {
+            "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "HCM 云函数日志 (dynamic_log)",
+            "server_url": req.server_url,
+            "log_type": req.log_type,
+            "auth_method": req.auth_method,
+            "page_index": req.page_index,
+            "page_size": req.page_size,
+            "total": req.total,
+            "returned_count": len(req.rows),
+        },
+        "logs": req.rows,
+    }
+    if req.raw is not None:
+        out["raw_response"] = req.raw
+    content = json.dumps(out, ensure_ascii=False, indent=2)
+    try:
+        fpath.write_text(content, encoding="utf-8")
+    except Exception as e:
+        logger.exception(f"[HCM] 导出日志写入失败: {e}")
+        raise HTTPException(500, f"写入文件失败: {e}")
+    logger.info(f"[HCM] 日志已导出: {fpath} ({len(req.rows)} 条)")
+    return {"ok": True, "path": str(fpath), "filename": fname, "count": len(req.rows), "content": content}
 
 
 @app.post("/api/hcm/login")

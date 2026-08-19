@@ -431,3 +431,6 @@
 .k8s-files-size { font-family: var(--mono); color: var(--text-2); text-align: right; }
 .k8s-files-time { color: var(--muted); font-family: var(--mono); }
 
+/* inline style 清理 */
+.k8s-ns-input { width: 150px; }
+.k8s-flex1 { flex: 1; min-width: 0; }
