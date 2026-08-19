@@ -2445,6 +2445,65 @@ async function exportHcmLogs() {
   }
 }
 
+async function saveClipboardToFile() {
+  const statusEl = document.getElementById('hcm-query-status');
+  const btn = document.getElementById('hcm-btn-clipboard-save');
+
+  // 1) 读取系统剪贴板文本
+  //    Electron 环境优先走原生 clipboard 模块（不受浏览器 clipboard-read 权限限制），
+  //    纯 Web / HTTPS 环境回退到 navigator.clipboard.readText()。
+  const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+  let text = '';
+  try {
+    if (isElectron) {
+      text = await window.electronAPI.readClipboardText();
+    } else if (navigator.clipboard && navigator.clipboard.readText) {
+      text = await navigator.clipboard.readText();
+    } else {
+      throw new Error('当前环境不支持剪贴板读取 API');
+    }
+  } catch (e) {
+    statusEl.textContent = `读取剪贴板失败：${e.message}（请先复制文本，并点击本窗口使其获得焦点，再重试）`;
+    statusEl.className = 'hcm-query-status error';
+    return;
+  }
+  if (!text || !text.trim()) {
+    statusEl.textContent = '剪贴板内容为空，请先复制一些文本再点击';
+    statusEl.className = 'hcm-query-status error';
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+  statusEl.textContent = '正在保存剪贴板内容到文件…';
+  statusEl.className = 'hcm-query-status';
+  try {
+    const res = await apiPost('/api/hcm/clipboard-save', { text });
+    if (res.path) {
+      // 复制文件路径到剪贴板，便于直接粘贴
+      let copied = false;
+      try {
+        if (isElectron) {
+          await window.electronAPI.writeClipboardText(res.path);
+          copied = true;
+        } else if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(res.path);
+          copied = true;
+        }
+      } catch (_) {}
+      statusEl.textContent = `已保存剪贴板内容（${res.size} 字符）→ ${res.path}${copied ? '（路径已复制到剪贴板）' : ''}`;
+      statusEl.className = 'hcm-query-status success';
+      log(`剪贴板转文件成功：${res.path}`);
+    } else {
+      throw new Error('未返回文件路径');
+    }
+  } catch (ex) {
+    statusEl.textContent = `保存失败：${ex.message}`;
+    statusEl.className = 'hcm-query-status error';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📋 剪贴板转文件'; }
+  }
+}
+
 function toggleHcmCfg() {
   const body = document.getElementById('hcm-cfg-body');
   const btn = document.getElementById('hcm-cfg-toggle');
@@ -2755,6 +2814,7 @@ document.getElementById('hcm-btn-login').onclick = async () => {
 };
 document.getElementById('hcm-btn-query').onclick = queryHcmLogs;
 document.getElementById('hcm-btn-export-json').onclick = exportHcmLogs;
+document.getElementById('hcm-btn-clipboard-save').onclick = saveClipboardToFile;
 document.getElementById('hcm-btn-refresh-captcha').onclick = fetchHcmCaptcha;
 document.getElementById('hcm-captcha-img').addEventListener('click', fetchHcmCaptcha);
 document.getElementById('hcm-log-type').addEventListener('keydown', e => {
