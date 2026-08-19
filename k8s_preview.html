@@ -99,8 +99,8 @@
     <div class="card-soft">
       <div class="grid">
         <div><label>命名空间</label><input class="input" id="s-ns" placeholder="默认（当前环境）"></div>
-        <div><label>Label 选择器</label><input class="input" id="s-sel" placeholder="app=hcm-core"></div>
-        <div><label>Pod 名正则</label><input class="input" id="s-flt" placeholder="hcm-core|celery"></div>
+        <div><label>Label 选择器</label><input class="input" id="s-sel" placeholder="app=core"></div>
+        <div><label>Pod 名正则</label><input class="input" id="s-flt" placeholder="core|celery"></div>
         <div><label>日志行数</label><input class="input" id="s-tail" value="200"></div>
       </div>
       <div class="row">
@@ -135,7 +135,7 @@
         <div><label>资源类型</label>
           <select class="sel" id="y-kind"><option>pod</option><option>deployment</option><option>service</option><option>configmap</option><option>ingress</option></select>
         </div>
-        <div><label>资源名称</label><input class="input" id="y-name" placeholder="如 hcm-core-6bc569958d-2ggkx"></div>
+        <div><label>资源名称</label><input class="input" id="y-name" placeholder="如 core-6bc569958d-2ggkx"></div>
         <div><label>命名空间（留空用环境默认）</label><input class="input" id="y-ns" placeholder="default"></div>
       </div>
       <div class="row">
@@ -178,26 +178,16 @@
 <script>
 const SAMPLE = {
   dev: { kc:"~/Downloads/kubeconfig-dev.txt", pods:[
-    {name:"hcm-core-6bc569958d-2ggkx",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-2",host_ip:"10.6.6.12",sev:"OK",
-     log:"[main]\n2026-08-17 16:00:01 INFO  boot ok\n2026-08-17 16:00:02 INFO  listening :8080"},
-    {name:"kibana-5f7f9b589c-wwkp7",phase:"Running",ready:1,total:1,restarts:357,reason:"",node:"node-1",host_ip:"10.6.6.10",sev:"HIGH",
-     log:"[main]\nWARNING OOMKilled 3 times in last hour\nat org.elasticsearch.bootstrap... (memory pressure)"},
-    {name:"celery-synfile-54bb7b56b6-dzwq6",phase:"Failed",ready:0,total:1,restarts:0,reason:"Evicted",node:"node-3",host_ip:"10.6.6.11",sev:"HIGH",
-     log:"[celery-synfile]\nError: Pod was evicted due to node memory pressure"},
-    {name:"bad-svc-7d9c-x1",phase:"Running",ready:0,total:2,restarts:12,reason:"",node:"node-4",host_ip:"10.6.6.13",sev:"HIGH",
-     log:"[app]\nBackOff: CrashLoopBackOff\nTraceback: ConnectionRefusedError: redis:6379"},
+    {name:"core-6bc569958d-2ggkx",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-2",host_ip:"10.6.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO  boot ok\n2026-08-17 16:00:02 INFO  listening :8080"}
   ]},
   test: { kc:"~/Downloads/kubeconfig-test.txt", pods:[
-    {name:"hcm-core-test-7d9-x2",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-t1",host_ip:"10.7.6.12",sev:"OK",
-     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (test)"},
-    {name:"hcm-web-test-5f-x3",phase:"Pending",ready:0,total:1,restarts:0,reason:"",node:"",host_ip:"",sev:"MED",
-     log:"[main]\nWarning: 0/3 nodes are available: 3 Insufficient cpu."},
+    {name:"core-test-7d9-x2",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-t1",host_ip:"10.7.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (test)"}
   ]},
   prod: { kc:"~/Downloads/kubeconfig-prod.txt", pods:[
-    {name:"hcm-core-prod-9c-1",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-p1",host_ip:"10.8.6.12",sev:"OK",
-     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (prod)"},
-    {name:"hcm-db-prod-3x-2",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-p2",host_ip:"10.8.6.13",sev:"OK",
-     log:"[main]\nINFO postgres ready"},
+    {name:"core-prod-9c-1",phase:"Running",ready:1,total:1,restarts:0,reason:"",node:"node-p1",host_ip:"10.8.6.12",sev:"OK",
+     log:"[main]\n2026-08-17 16:00:01 INFO boot ok (prod)"}
   ]},
 };
 const ENV_LABEL = {dev:"开发", test:"测试", prod:"正式"};
@@ -286,29 +276,29 @@ function buildReport(pods){
 const SAMPLE_YAML = (env)=>`apiVersion: v1
 kind: Pod
 metadata:
-  name: ${env==="prod"?"hcm-core-prod-9c-1":"hcm-core-6bc569958d-2ggkx"}
+  name: ${env==="prod"?"prod-9c-1":"6bc569958d-2ggkx"}
   namespace: ${env==="prod"?"prod":"default"}
   uid: a1b2c3d4-0000-1111-2222-333344445555
   resourceVersion: "18370422"
   generation: 1
   creationTimestamp: "2026-08-17T10:00:00Z"
-  selfLink: /api/v1/namespaces/default/pods/hcm-core
+  selfLink: /api/v1/namespaces/default/pods/
   managedFields:
   - apiVersion: v1
     manager: kubelet
     operation: Update
   annotations:
     kubectl.kubernetes.io/last-applied-configuration: |
-      {"kind":"Pod","apiVersion":"v1","metadata":{"name":"hcm-core"}}
+      {"kind":"Pod","apiVersion":"v1","metadata":{"name":""}}
     prometheus.io/scrape: "true"
   labels:
-    app: hcm-core
+    app: 
 spec:
   nodeName: node-2
-  serviceAccountName: hcm
+  serviceAccountName: 
   containers:
-  - name: hcm-core
-    image: registry.internal/hcm-core:1.4.2
+  - name: 
+    image: registry.internal/:1.4.2
     resources:
       requests:
         cpu: "500m"
@@ -323,7 +313,7 @@ status:
   podIP: 172.20.2.30
   hostIP: 10.6.6.12
   containerStatuses:
-  - name: hcm-core
+  - name: 
     ready: true
     restartCount: 0`;
 
@@ -356,12 +346,12 @@ document.getElementById("y-get").onclick = ()=>{
   const raw = SAMPLE_YAML(CUR);
   const clean = document.getElementById("y-clean").checked;
   document.getElementById("y-editor").value = clean ? demoClean(raw) : raw;
-  document.getElementById("y-msg").textContent = `已从「${ENV_LABEL[CUR]}」拉取 ${document.getElementById("y-name").value||"hcm-core"} 的 YAML（演示）` + (clean?" · 已清洗":"");
+  document.getElementById("y-msg").textContent = `已从「${ENV_LABEL[CUR]}」拉取 ${document.getElementById("y-name").value||"core"} 的 YAML（演示）` + (clean?" · 已清洗":"");
 };
 document.getElementById("y-apply").onclick = ()=>{
   const v = document.getElementById("y-editor").value.trim();
   if(!v){ document.getElementById("y-msg").textContent="内容为空，无法上传。"; return; }
-  document.getElementById("y-apply-out").textContent = `kubectl apply -f -  (环境：${ENV_LABEL[CUR]})\n> pod/${CUR==="prod"?"hcm-core-prod-9c-1":"hcm-core-6bc569958d-2ggkx"} configured`;
+  document.getElementById("y-apply-out").textContent = `kubectl apply -f -  (环境：${ENV_LABEL[CUR]})\n> pod/${CUR==="prod"?"prod-9c-1":"6bc569958d-2ggkx"} configured`;
   document.getElementById("y-msg").textContent = "✅ 上传成功（演示，未真正执行）。";
 };
 

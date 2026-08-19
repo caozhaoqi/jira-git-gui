@@ -191,14 +191,15 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
 
 
 # --------------------------------------------------------------------------- #
-#  HCM 云函数账号本地配置（含真实密码，绝不可提交到 git）
+#  云函数账号本地配置（含真实密码，绝不可提交到 git）
 # --------------------------------------------------------------------------- #
-def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
-    """从 hcm_accounts.local.json 读取 HCM 云函数账号列表（含密码）。
+def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
+    """从 cf_accounts.local.json 读取云函数账号列表（含密码）。
 
-    该文件必须放在本地且已被 .gitignore 忽略（hcm_accounts.local.json），
-    绝不能进入版本库。找不到时回退到 hcm_accounts.example.json（仅结构占位，
-    无真实密码）。
+    该文件必须放在本地且已被 .gitignore 忽略（cf_accounts.local.json），
+    绝不能进入版本库。找不到时回退到 cf_accounts.example.json（仅结构占位，
+    无真实密码）。server_url / username / password 允许为空字符串（前端会提示
+    填写，不强制剔除占位项）。
 
     返回: [{"name", "server_url", "username", "password"}, ...]
     """
@@ -206,13 +207,13 @@ def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
     local = None
     example = None
     for root in roots:
-        p = root / "hcm_accounts.local.json"
+        p = root / "cf_accounts.local.json"
         if p.exists():
             local = p
             break
     if local is None:
         for root in roots:
-            p = root / "hcm_accounts.example.json"
+            p = root / "cf_accounts.example.json"
             if p.exists():
                 example = p
                 break
@@ -231,10 +232,8 @@ def load_hcm_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
         if not isinstance(item, dict):
             continue
         url = (item.get("server_url") or "").strip()
-        if not url:
-            continue
         out.append({
-            "name": (item.get("name") or url).strip(),
+            "name": (item.get("name") or url or "未命名").strip(),
             "server_url": url,
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),

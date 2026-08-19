@@ -12,8 +12,8 @@
 
 ``opts`` 字段（均为可选，缺省取默认值）：
     namespace          str   命名空间（默认当前上下文默认 ns）
-    selector           str   label 选择器，如 "app=hcm-core"
-    pod_filter         str   pod 名正则，如 "hcm-core|celery"
+    selector           str   label 选择器，如 "app=core"
+    pod_filter         str   pod 名正则，如 "core|celery"
     tail               int   每容器抓取日志行数（默认 200）
     restart_threshold  int   重启次数 >= 此值视为 HIGH（默认 5）
     all_logs           bool  抓取所有 pod 日志（默认仅异常 pod）
