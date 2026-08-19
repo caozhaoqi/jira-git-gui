@@ -2279,22 +2279,31 @@ async function loadHcmAccounts() {
   }
   const sel = document.getElementById('hcm-env-select');
   if (!sel) return;
-  // 清掉上一轮动态注入的账号选项（保留「选择环境…」与「自定义」）
-  Array.from(sel.options).forEach(o => { if (o.dataset.dyn) o.remove(); });
-  const customOpt = Array.from(sel.options).find(o => o.value === 'custom');
+  // 强制清掉除「选择环境…」和「自定义」以外的所有 option（包括旧 HTML 缓存里的
+  // 硬编码占位项），保证下拉框只反映本地配置文件 + 自定义入口。
+  const PRESERVED = new Set(['', 'custom']);
+  Array.from(sel.options).forEach(o => {
+    if (!PRESERVED.has(o.value)) o.remove();
+  });
+  // 然后注入本地账号配置文件的选项
   HCM_ACCOUNTS.forEach(acc => {
     const opt = document.createElement('option');
     opt.value = acc.name;
     opt.textContent = acc.name;
     opt.dataset.dyn = '1';
-    if (customOpt) sel.insertBefore(opt, customOpt);
-    else sel.appendChild(opt);
+    sel.insertBefore(opt, sel.querySelector('option[value="custom"]'));
   });
   // 自动匹配当前已填写的服务器地址
   const curUrl = (document.getElementById('hcm-server-url').value || '').trim();
   if (curUrl) {
     const m = HCM_ACCOUNTS.find(a => a.server_url && curUrl === a.server_url);
     if (m) sel.value = m.name;
+  }
+  // 给运维/排查一个明显信号
+  if (HCM_ACCOUNTS.length === 0) {
+    console.warn('[HCM] 本地 hcm_accounts.local.json 未读到任何账号，下拉框只有「自定义」可选');
+  } else {
+    console.info(`[HCM] 已从本地配置加载 ${HCM_ACCOUNTS.length} 个账号：${HCM_ACCOUNTS.map(a => a.name).join('、')}`);
   }
 }
 
