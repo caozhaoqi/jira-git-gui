@@ -1375,6 +1375,34 @@ body.dark #hcm-captcha-img:not([src]) {
   justify-content: center;
 }
 
+/* 日志搜索/过滤工具栏 */
+.hcm-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.hcm-search-input { flex: 1 1 240px; min-width: 180px; }
+.hcm-search-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.hcm-search-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.hcm-search-count b { color: var(--text); }
+.hcm-btn-sort-time { white-space: nowrap; }
+
 /* 响应式 */
 @media (max-width: 560px) {
   .modal-overlay .cdialog {

@@ -2348,6 +2348,7 @@ function saveHcmCfg() {
 let HCM_CURRENT_CAPTCHA_ID = '';
 let HCM_CURRENT_IMAGE_CODE_INDEX = '';
 let HCM_LAST_LOG_RESULT = null;  // 上次查询结果，供导出 JSON 用
+let HCM_SORT_DIR = 'desc';        // 'asc' | 'desc' 按 create_time 排序（客户端）
 
 async function fetchHcmCaptcha() {
   const serverUrl = document.getElementById('hcm-server-url').value.trim();
@@ -2544,11 +2545,7 @@ async function queryHcmLogs() {
     statusEl.className = 'hcm-query-status error';
     return;
   }
-  if (!logType) {
-    statusEl.textContent = '请输入 log_type';
-    statusEl.className = 'hcm-query-status error';
-    return;
-  }
+  // 注意：log_type 允许留空（后端按空 filter 查询全部 dynamic_log），不再强制必填
 
   saveHcmCfg();
 
@@ -2591,77 +2588,19 @@ async function queryHcmLogs() {
     statusEl.textContent = `查询成功，共 ${total} 条`;
     statusEl.className = 'hcm-query-status success';
 
+    // 清空上次搜索词，确保新查询整页可见
+    const searchInputEl = document.getElementById('hcm-search-input');
+    if (searchInputEl) searchInputEl.value = '';
+
     if (!rows.length) {
       resultsEl.innerHTML = '<div class="empty-hint">未找到匹配的日志记录</div>';
+      const sb = document.getElementById('hcm-search-bar');
+      if (sb) sb.style.display = 'none';
       return;
     }
 
-    // 构建结果表
-    let html = `
-      <div class="hcm-result-meta">
-        <span class="hcm-result-count">${total} 条结果</span>
-        <span>第 ${pageIndex} 页</span>
-        <span>log_type: ${esc(logType)}</span>
-      </div>
-      <table class="hcm-log-table">
-        <thead>
-          <tr>
-            <th style="width:60px">#</th>
-            <th style="width:180px">时间</th>
-            <th>内容</th>
-          </tr>
-        </thead>
-        <tbody>
-    `;
-
-    rows.forEach((row, i) => {
-      const createTime = row.create_time || row.createTime || row.created_at || '';
-      const content = row.content || row.message || row.data || JSON.stringify(row);
-      const idx = i + 1 + (pageIndex - 1) * pageSize;
-      html += `
-        <tr class="hcm-log-row" data-idx="${i}">
-          <td>${idx}</td>
-          <td class="hcm-log-time">${esc(createTime)}</td>
-          <td class="hcm-log-content">${esc(typeof content === 'object' ? JSON.stringify(content) : content)}</td>
-        </tr>
-        <tr class="hcm-log-detail-row" id="hcm-detail-${i}" style="display:none">
-          <td colspan="3">
-            <div class="hcm-log-content-full">${esc(typeof content === 'object' ? JSON.stringify(content, null, 2) : content)}</div>
-          </td>
-        </tr>
-      `;
-    });
-
-    html += '</tbody></table>';
-
-    // 分页
-    const totalPages = Math.ceil(total / pageSize);
-    if (totalPages > 1) {
-      html += '<div class="hcm-pagination">';
-      if (pageIndex > 1) {
-        html += `<button class="btn btn-sm" onclick="document.getElementById('hcm-page-index').value=${pageIndex - 1};queryHcmLogs()">上一页</button>`;
-      }
-      html += `<span style="font-size:12px;color:var(--muted)">${pageIndex} / ${totalPages}</span>`;
-      if (pageIndex < totalPages) {
-        html += `<button class="btn btn-sm" onclick="document.getElementById('hcm-page-index').value=${pageIndex + 1};queryHcmLogs()">下一页</button>`;
-      }
-      html += '</div>';
-    }
-
-    resultsEl.innerHTML = html;
-
-    // 绑定行点击展开/收起
-    document.querySelectorAll('.hcm-log-row').forEach(tr => {
-      tr.onclick = () => {
-        const idx = tr.dataset.idx;
-        const detail = document.getElementById(`hcm-detail-${idx}`);
-        if (detail) {
-          const visible = detail.style.display !== 'none';
-          detail.style.display = visible ? 'none' : '';
-          tr.classList.toggle('expanded', !visible);
-        }
-      };
-    });
+    // 渲染结果（含排序 + 客户端实时搜索过滤；详见 renderHcmResults）
+    renderHcmResults();
 
   } catch (ex) {
     statusEl.textContent = `查询失败：${ex.message}`;
@@ -2673,6 +2612,128 @@ async function queryHcmLogs() {
     btn.disabled = false;
     btn.textContent = '查询日志';
   }
+}
+
+// HCM 日志结果渲染（排序 + 客户端实时搜索过滤，不重新请求服务器）
+function _hcmTime(row) {
+  return String(row.create_time || row.createTime || row.created_at || '');
+}
+function _hcmContent(row) {
+  const c = row.content || row.message || row.data;
+  if (c == null) return '';
+  return typeof c === 'object' ? JSON.stringify(c) : String(c);
+}
+function _hcmContentFull(row) {
+  const c = row.content || row.message || row.data;
+  if (c == null) return '';
+  return typeof c === 'object' ? JSON.stringify(c, null, 2) : String(c);
+}
+function renderHcmResults() {
+  const base = HCM_LAST_LOG_RESULT;
+  const resultsEl = document.getElementById('hcm-results');
+  const searchBar = document.getElementById('hcm-search-bar');
+  if (!base || !base.rows) return;
+
+  const all = base.rows.slice();
+  // 排序（按时间）
+  all.sort((a, b) => {
+    const ta = _hcmTime(a), tb = _hcmTime(b);
+    const cmp = ta < tb ? -1 : ta > tb ? 1 : 0;
+    return HCM_SORT_DIR === 'asc' ? cmp : -cmp;
+  });
+
+  // 客户端实时过滤（内容 + 时间）
+  const q = (document.getElementById('hcm-search-input').value || '').trim();
+  const caseSensitive = document.getElementById('hcm-search-case').checked;
+  let filtered = all;
+  if (q) {
+    const needle = caseSensitive ? q : q.toLowerCase();
+    filtered = all.filter(r => {
+      const content = caseSensitive ? _hcmContent(r) : _hcmContent(r).toLowerCase();
+      const time = caseSensitive ? _hcmTime(r) : _hcmTime(r).toLowerCase();
+      return content.includes(needle) || time.includes(needle);
+    });
+  }
+
+  // 显示搜索栏 + 更新计数 / 排序按钮文案
+  if (searchBar) searchBar.style.display = '';
+  const cntEl = document.getElementById('hcm-search-count');
+  if (cntEl) cntEl.innerHTML = q ? `匹配 <b>${filtered.length}</b> / 本页 ${all.length}` : `本页 ${all.length} 条`;
+  const sortBtn = document.getElementById('hcm-btn-sort-time');
+  if (sortBtn) sortBtn.textContent = HCM_SORT_DIR === 'asc' ? '时间 ↑' : '时间 ↓';
+
+  if (!filtered.length) {
+    resultsEl.innerHTML = `<div class="empty-hint">${q ? '没有匹配当前搜索条件的日志' : '未找到匹配的日志记录'}</div>`;
+    return;
+  }
+
+  const logType = base.log_type || '';
+  let html = `
+    <div class="hcm-result-meta">
+      <span class="hcm-result-count">${all.length} 条结果</span>
+      <span>第 ${base.page_index || 1} 页</span>
+      ${logType ? `<span>log_type: ${esc(logType)}</span>` : '<span>全部 log_type</span>'}
+    </div>
+    <table class="hcm-log-table">
+      <thead>
+        <tr>
+          <th style="width:60px">#</th>
+          <th style="width:180px">时间</th>
+          <th>内容</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+  filtered.forEach((row, i) => {
+    const createTime = _hcmTime(row);
+    const content = _hcmContent(row);
+    const contentFull = _hcmContentFull(row);
+    const idx = i + 1;
+    html += `
+      <tr class="hcm-log-row" data-idx="${i}">
+        <td>${idx}</td>
+        <td class="hcm-log-time">${esc(createTime)}</td>
+        <td class="hcm-log-content">${esc(content)}</td>
+      </tr>
+      <tr class="hcm-log-detail-row" id="hcm-detail-${i}" style="display:none">
+        <td colspan="3">
+          <div class="hcm-log-content-full">${esc(contentFull)}</div>
+        </td>
+      </tr>
+    `;
+  });
+  html += '</tbody></table>';
+
+  // 服务端分页（按 total 计算；搜索为当前页内过滤）
+  const pageSize = base.page_size || 200;
+  const pageIndex = base.page_index || 1;
+  const total = base.total != null ? base.total : all.length;
+  const totalPages = Math.ceil(total / pageSize);
+  if (totalPages > 1) {
+    html += '<div class="hcm-pagination">';
+    if (pageIndex > 1) {
+      html += `<button class="btn btn-sm" onclick="document.getElementById('hcm-page-index').value=${pageIndex - 1};queryHcmLogs()">上一页</button>`;
+    }
+    html += `<span style="font-size:12px;color:var(--muted)">${pageIndex} / ${totalPages}</span>`;
+    if (pageIndex < totalPages) {
+      html += `<button class="btn btn-sm" onclick="document.getElementById('hcm-page-index').value=${pageIndex + 1};queryHcmLogs()">下一页</button>`;
+    }
+    html += '</div>';
+  }
+  resultsEl.innerHTML = html;
+
+  // 绑定行点击展开/收起
+  document.querySelectorAll('.hcm-log-row').forEach(tr => {
+    tr.onclick = () => {
+      const idx = tr.dataset.idx;
+      const detail = document.getElementById(`hcm-detail-${idx}`);
+      if (detail) {
+        const visible = detail.style.display !== 'none';
+        detail.style.display = visible ? 'none' : '';
+        tr.classList.toggle('expanded', !visible);
+      }
+    };
+  });
 }
 
 // HCM 事件绑定
@@ -2698,6 +2759,13 @@ document.getElementById('hcm-btn-refresh-captcha').onclick = fetchHcmCaptcha;
 document.getElementById('hcm-captcha-img').addEventListener('click', fetchHcmCaptcha);
 document.getElementById('hcm-log-type').addEventListener('keydown', e => {
   if (e.key === 'Enter') queryHcmLogs();
+});
+// 云函数日志搜索栏：实时过滤 + 时间排序
+document.getElementById('hcm-search-input').addEventListener('input', renderHcmResults);
+document.getElementById('hcm-search-case').addEventListener('change', renderHcmResults);
+document.getElementById('hcm-btn-sort-time').addEventListener('click', () => {
+  HCM_SORT_DIR = HCM_SORT_DIR === 'asc' ? 'desc' : 'asc';
+  renderHcmResults();
 });
 loadHcmCfg();
 
