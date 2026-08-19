@@ -2687,6 +2687,42 @@ function _hcmContentFull(row) {
   if (c == null) return '';
   return typeof c === 'object' ? JSON.stringify(c, null, 2) : String(c);
 }
+// 拉取剩余分页，合并为全量日志集（供「按时间排序所有日志」使用，避免只排当前页）
+async function ensureAllHcmLogs() {
+  const base = HCM_LAST_LOG_RESULT;
+  if (!base || !base.rows) return;
+  const total = base.total || 0;
+  if (total === 0 || base.rows.length >= total) return;  // 已全量或未知总量
+  const statusEl = document.getElementById('hcm-query-status');
+  const token = document.getElementById('hcm-token').value.trim();
+  const proxy = document.getElementById('hcm-proxy').value.trim();
+  const pageSize = base.page_size || 200;
+  let nextPage = Math.floor(base.rows.length / pageSize) + 1;
+  if (nextPage < 2) nextPage = 2;
+  try {
+    while (base.rows.length < total && nextPage <= 500) {
+      statusEl.textContent = `正在加载全部日志用于排序…（${base.rows.length}/${total}）`;
+      statusEl.className = 'hcm-query-status';
+      const res = await apiPost('/api/hcm/logs', {
+        server_url: base.server_url,
+        token,
+        log_type: base.log_type,
+        page_index: nextPage,
+        page_size: pageSize,
+        proxy,
+      });
+      const payload = res.data || res.result || res;
+      const pageRows = payload.list || payload.data || payload.items || res.list || res.data || [];
+      if (!pageRows.length) break;
+      base.rows = base.rows.concat(pageRows);
+      nextPage += 1;
+    }
+  } catch (e) {
+    statusEl.textContent = `加载全部日志失败：${e.message}（已对当前已加载 ${base.rows.length} 条排序）`;
+    statusEl.className = 'hcm-query-status error';
+  }
+}
+
 function renderHcmResults() {
   const base = HCM_LAST_LOG_RESULT;
   const resultsEl = document.getElementById('hcm-results');
@@ -2694,6 +2730,8 @@ function renderHcmResults() {
   if (!base || !base.rows) return;
 
   const all = base.rows.slice();
+  // 是否已加载全部日志（用于排序/计数提示）
+  const isFull = (base.total || 0) > 0 && base.rows.length >= base.total;
   // 排序（按时间）
   all.sort((a, b) => {
     const ta = _hcmTime(a), tb = _hcmTime(b);
@@ -2717,7 +2755,9 @@ function renderHcmResults() {
   // 显示搜索栏 + 更新计数 / 排序按钮文案
   if (searchBar) searchBar.style.display = '';
   const cntEl = document.getElementById('hcm-search-count');
-  if (cntEl) cntEl.innerHTML = q ? `匹配 <b>${filtered.length}</b> / 本页 ${all.length}` : `本页 ${all.length} 条`;
+  if (cntEl) cntEl.innerHTML = q
+    ? `匹配 <b>${filtered.length}</b> / ${isFull ? '全部' : '本页'} ${all.length}`
+    : (isFull ? `共 ${all.length} 条` : `本页 ${all.length} / 共 ${base.total} 条`);
   const sortBtn = document.getElementById('hcm-btn-sort-time');
   if (sortBtn) sortBtn.textContent = HCM_SORT_DIR === 'asc' ? '时间 ↑' : '时间 ↓';
 
@@ -2730,7 +2770,7 @@ function renderHcmResults() {
   let html = `
     <div class="hcm-result-meta">
       <span class="hcm-result-count">${all.length} 条结果</span>
-      <span>第 ${base.page_index || 1} 页</span>
+      <span>${isFull ? '已加载全部（本地排序）' : `第 ${base.page_index || 1} 页`}</span>
       ${logType ? `<span>log_type: ${esc(logType)}</span>` : '<span>全部 log_type</span>'}
     </div>
     <table class="hcm-log-table">
@@ -2764,11 +2804,12 @@ function renderHcmResults() {
   html += '</tbody></table>';
 
   // 服务端分页（按 total 计算；搜索为当前页内过滤）
+  // 已加载全部日志（本地排序）时不再显示服务端翻页，避免与本地全量视图冲突
   const pageSize = base.page_size || 200;
   const pageIndex = base.page_index || 1;
   const total = base.total != null ? base.total : all.length;
   const totalPages = Math.ceil(total / pageSize);
-  if (totalPages > 1) {
+  if (totalPages > 1 && !isFull) {
     html += '<div class="hcm-pagination">';
     if (pageIndex > 1) {
       html += `<button class="btn btn-sm" onclick="document.getElementById('hcm-page-index').value=${pageIndex - 1};queryHcmLogs()">上一页</button>`;
@@ -2823,9 +2864,17 @@ document.getElementById('hcm-log-type').addEventListener('keydown', e => {
 // 云函数日志搜索栏：实时过滤 + 时间排序
 document.getElementById('hcm-search-input').addEventListener('input', renderHcmResults);
 document.getElementById('hcm-search-case').addEventListener('change', renderHcmResults);
-document.getElementById('hcm-btn-sort-time').addEventListener('click', () => {
+document.getElementById('hcm-btn-sort-time').addEventListener('click', async () => {
   HCM_SORT_DIR = HCM_SORT_DIR === 'asc' ? 'desc' : 'asc';
-  renderHcmResults();
+  const btn = document.getElementById('hcm-btn-sort-time');
+  if (btn) btn.disabled = true;
+  try {
+    // 排序前先拉取剩余分页，确保排序覆盖「所有日志」而非仅当前页
+    await ensureAllHcmLogs();
+    renderHcmResults();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 });
 loadHcmCfg();
 
