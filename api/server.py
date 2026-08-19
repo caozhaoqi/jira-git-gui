@@ -34,7 +34,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from core.client import JiraGitClient, DEFAULT_DOWNLOAD_WORKERS, NetworkWatchdog
-from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config
+from core.config import load_config, load_session, save_session, clear_session, get_session_path, load_merge_config, load_hcm_accounts
 from core.constants import DEFAULT_REQUEST_QPS, DOWNLOAD_DIR
 from core.models import ConnectConfig, RepoInfo, TreeEntry, Commit, CommitFile
 
@@ -1736,10 +1736,25 @@ def _commit_to_dict(c: Commit) -> dict:
 # --------------------------------------------------------------------------- #
 #  HCM 云函数日志查询
 # --------------------------------------------------------------------------- #
+@app.get("/api/hcm/accounts")
+async def api_hcm_accounts():
+    """返回本地配置文件中的 HCM 账号列表（含密码，仅供本机前端自动填充）。
+
+    来源为 hcm_accounts.local.json（已被 .gitignore 忽略，含真实账号密码，
+    绝不进入 git）。找不到时回退 example 模板（无真实密码）。
+    """
+    try:
+        accounts = load_hcm_accounts()
+    except Exception as e:
+        logger.exception(f"[HCM] 读取账号配置失败: {e}")
+        accounts = []
+    return {"accounts": accounts}
+
+
 import httpx
 
 class HcmLogReq(BaseModel):
-    server_url: str = "http://73.2.3.27"
+    server_url: str = ""
     token: str = ""
     log_type: str = ""
     page_index: int = 1

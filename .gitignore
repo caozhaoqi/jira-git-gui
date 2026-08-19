@@ -15,6 +15,9 @@ __pycache__/
 .env
 .session.json
 
+# HCM 云函数账号本地配置（含真实密码，绝不入库）
+hcm_accounts.local.json
+
 # 运行期缓存（含拉取的文件树/内容，可能含敏感信息）
 cache/
 # 同步历史记录（含本地路径等，不入库）

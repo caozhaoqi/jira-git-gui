@@ -2265,69 +2265,68 @@ loadK8sEnvs();
 // ===== HCM 云函数日志 =====
 const HCM_CFG_KEY = 'jgg-hcm-cfg';
 // 预置环境（可直接切换，地址/账号密码用户填全）
-const HCM_PRESETS = {
-  public: {
-    name: '公有云',
-    server_url: 'https://21qor.hcmcloud.cn',
-    mobile: '666666',
-    password: 'Ab666666',
-  },
-  test1: {
-    name: '测试地址',
-    server_url: 'http://73.2.3.27',
-    mobile: '666666',
-    password: 'Ab666666',
-  },
-  test2: {
-    name: '测试环境',
-    server_url: 'http://73.2.192',
-    mobile: '666666',
-    password: 'Ab666666',
-  },
-  dev: {
-    name: '开发环境',
-    server_url: '',
-    mobile: '666666',
-    password: 'Ab666666',
-  },
-};
-function switchHcmEnv(key) {
-  if (!key || !HCM_PRESETS[key]) {
-    // custom / 空：不填地址，其他填默认
-    if (key === 'custom') {
-      document.getElementById('hcm-username').value = '666666';
-      document.getElementById('hcm-password').value = 'Ab666666';
-    }
-    return;
+// HCM 账号列表：运行时从后端 /api/hcm/accounts 加载。
+// 来源为本地配置文件 hcm_accounts.local.json（已被 .gitignore 忽略，含真实
+// 账号密码，绝不进 git）。前端仅用于自动填充，密码不会写回任何仓库。
+let HCM_ACCOUNTS = [];
+
+async function loadHcmAccounts() {
+  try {
+    const data = await api('/api/hcm/accounts');
+    HCM_ACCOUNTS = Array.isArray(data.accounts) ? data.accounts : [];
+  } catch (e) {
+    HCM_ACCOUNTS = [];
   }
-  const p = HCM_PRESETS[key];
-  document.getElementById('hcm-server-url').value = p.server_url || '';
-  document.getElementById('hcm-username').value = p.mobile || '';
-  document.getElementById('hcm-password').value = p.password || '';
-  toast(`已切换到「${p.name}」环境，账号密码已预填，地址：${p.server_url || '请手动填写'}`, 'info');
+  const sel = document.getElementById('hcm-env-select');
+  if (!sel) return;
+  // 清掉上一轮动态注入的账号选项（保留「选择环境…」与「自定义」）
+  Array.from(sel.options).forEach(o => { if (o.dataset.dyn) o.remove(); });
+  const customOpt = Array.from(sel.options).find(o => o.value === 'custom');
+  HCM_ACCOUNTS.forEach(acc => {
+    const opt = document.createElement('option');
+    opt.value = acc.name;
+    opt.textContent = acc.name;
+    opt.dataset.dyn = '1';
+    if (customOpt) sel.insertBefore(opt, customOpt);
+    else sel.appendChild(opt);
+  });
+  // 自动匹配当前已填写的服务器地址
+  const curUrl = (document.getElementById('hcm-server-url').value || '').trim();
+  if (curUrl) {
+    const m = HCM_ACCOUNTS.find(a => a.server_url && curUrl === a.server_url);
+    if (m) sel.value = m.name;
+  }
+}
+
+function switchHcmEnv(key) {
+  if (!key || key === 'custom') return;
+  const acc = HCM_ACCOUNTS.find(a => a.name === key);
+  if (!acc) return;
+  document.getElementById('hcm-server-url').value = acc.server_url || '';
+  document.getElementById('hcm-username').value = acc.username || '';
+  document.getElementById('hcm-password').value = acc.password || '';
+  toast(`已切换到「${acc.name}」环境，账号密码已预填`, 'info');
   saveHcmCfg();
 }
 
 function loadHcmCfg() {
   try {
     const cfg = JSON.parse(localStorage.getItem(HCM_CFG_KEY) || '{}');
-    document.getElementById('hcm-server-url').value = cfg.server_url || 'https://21qor.hcmcloud.cn';
-    document.getElementById('hcm-username').value = cfg.mobile || cfg.username || '666666';
-    document.getElementById('hcm-password').value = cfg.password || 'Ab666666';
+    document.getElementById('hcm-server-url').value = cfg.server_url || '';
+    document.getElementById('hcm-username').value = cfg.mobile || cfg.username || '';
+    document.getElementById('hcm-password').value = cfg.password || '';
     document.getElementById('hcm-token').value = cfg.token || '';
     document.getElementById('hcm-proxy').value = cfg.proxy || '';
     document.getElementById('hcm-log-type').value = cfg.log_type || '';
     document.getElementById('hcm-page-size').value = cfg.page_size || 200;
     document.getElementById('hcm-page-index').value = cfg.page_index || 1;
-    // 自动选中匹配的预置环境
+    // 自动选中匹配的本地配置环境（选项由 loadHcmAccounts 注入）
     const sel = document.getElementById('hcm-env-select');
     const url = cfg.server_url || '';
-    let matched = 'custom';
-    for (const k of Object.keys(HCM_PRESETS)) {
-      if (HCM_PRESETS[k].server_url && url && HCM_PRESETS[k].server_url === url) { matched = k; break; }
-      if (HCM_PRESETS[k].server_url && url && url.startsWith(HCM_PRESETS[k].server_url)) { matched = k; break; }
+    if (sel) {
+      const m = HCM_ACCOUNTS.find(a => a.server_url && url && url === a.server_url);
+      sel.value = m ? m.name : 'custom';
     }
-    if (sel) sel.value = matched;
   } catch (_) {}
 }
 
@@ -2886,7 +2885,7 @@ document.getElementById('hcm-btn-sort-time').addEventListener('click', async () 
     if (btn) btn.disabled = false;
   }
 });
-loadHcmCfg();
+loadHcmAccounts().then(loadHcmCfg);
 
 // ===== 差异对比 =====
 const diffState = {
