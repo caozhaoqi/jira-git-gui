@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Jira Git 通用拉取工具</title>
-  <link rel="stylesheet" href="/web/styles.css">
-  <link rel="stylesheet" href="/web/k8s.css">
+  <link rel="stylesheet" href="/web/styles.css?v=20260818-01">
+  <link rel="stylesheet" href="/web/k8s.css?v=20260818-01">
 </head>
 <body>
   <div class="app-shell">
@@ -35,6 +38,7 @@
           <button class="tab" data-tab="diff"><span class="tab-ico">🔀</span><span class="tab-txt">差异对比</span></button>
           <button class="tab" data-tab="logs"><span class="tab-ico">📋</span><span class="tab-txt">日志</span></button>
           <button class="tab" data-tab="k8s"><span class="tab-ico">☸</span><span class="tab-txt">K8s 快照</span></button>
+          <button class="tab" data-tab="hcm"><span class="tab-ico">🔬</span><span class="tab-txt">云函数日志</span></button>
         </nav>
         <div class="sidebar-foot">
           <div class="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
@@ -652,6 +656,92 @@
             </div>
           </div>
 
+          <!-- 云函数日志 -->
+          <div id="tab-hcm" class="tab-pane">
+            <div class="tab-inner">
+
+              <!-- 配置区 -->
+              <div class="card-soft hcm-cfg-card">
+                <div class="panel-header">
+                  <h2 class="section-title">HCM 云函数日志</h2>
+                  <button id="hcm-cfg-toggle" class="btn btn-ghost btn-sm">配置 ▸</button>
+                </div>
+
+                <div id="hcm-cfg-body" class="hcm-cfg-body" style="display:none;">
+                  <div class="hcm-cfg-row">
+                    <div class="hcm-cfg-field">
+                      <label>服务器地址</label>
+                      <input type="text" id="hcm-server-url" class="input" placeholder="http://73.2.3.27">
+                    </div>
+                  </div>
+                  <div class="hcm-cfg-row">
+                    <div class="hcm-cfg-field">
+                      <label>手机号</label>
+                      <input type="text" id="hcm-username" class="input" placeholder="666666">
+                    </div>
+                    <div class="hcm-cfg-field">
+                      <label>密码</label>
+                      <input type="password" id="hcm-password" class="input" placeholder="Ab666666">
+                    </div>
+                    <div class="hcm-cfg-field" style="flex:2">
+                      <label>Token</label>
+                      <input type="text" id="hcm-token" class="input" placeholder="2|1:0|10:...|5:token|...">
+                    </div>
+                  </div>
+                  <div class="hcm-cfg-row">
+                    <div class="hcm-cfg-field" style="flex:1 1 100%">
+                      <label>代理地址（留空直连；例：http://127.0.0.1:7890 或 socks5://127.0.0.1:7891）</label>
+                      <input type="text" id="hcm-proxy" class="input" placeholder="http://127.0.0.1:7890">
+                    </div>
+                  </div>
+                  <div class="hcm-cfg-row hcm-captcha-row">
+                    <div class="hcm-cfg-field" style="flex:0 0 auto;min-width:130px;">
+                      <label>图片验证码</label>
+                      <div class="hcm-captcha-img-wrap">
+                        <img id="hcm-captcha-img" alt="验证码" title="点击刷新">
+                        <button type="button" id="hcm-btn-refresh-captcha" class="btn btn-ghost btn-xs">刷新</button>
+                      </div>
+                    </div>
+                    <div class="hcm-cfg-field" style="flex:1">
+                      <label>&nbsp;</label>
+                      <input type="text" id="hcm-captcha-code" class="input" placeholder="请输入图中验证码" maxlength="8" autocomplete="off">
+                    </div>
+                  </div>
+                  <div class="hcm-cfg-actions">
+                    <button id="hcm-btn-login" class="btn btn-sm">登录获取 Token</button>
+                    <button id="hcm-btn-save" class="btn btn-sm btn-primary">保存配置</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 查询区 -->
+              <div class="card-soft hcm-query-card">
+                <div class="hcm-query-row">
+                  <div class="hcm-cfg-field" style="flex:1">
+                    <label>log_type</label>
+                    <input type="text" id="hcm-log-type" class="input" placeholder="salary_seal_delay_payment_vvv1">
+                  </div>
+                  <div class="hcm-cfg-field" style="width:100px">
+                    <label>每页条数</label>
+                    <input type="number" id="hcm-page-size" class="input" value="200" min="1" max="12000">
+                  </div>
+                  <div class="hcm-cfg-field" style="width:80px">
+                    <label>页码</label>
+                    <input type="number" id="hcm-page-index" class="input" value="1" min="1">
+                  </div>
+                  <button id="hcm-btn-query" class="btn btn-primary" style="align-self:flex-end">查询日志</button>
+                </div>
+                <div id="hcm-query-status" class="hcm-query-status"></div>
+              </div>
+
+              <!-- 结果区 -->
+              <div id="hcm-results" class="hcm-results">
+                <div class="empty-hint">输入 log_type 后点击「查询日志」</div>
+              </div>
+
+            </div>
+          </div>
+
         </div>
       </main>
     </div>
@@ -769,6 +859,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js"></script>
+  <script src="/web/app.js?v=20260818-01"></script>
 </body>
 </html>

@@ -1734,11 +1734,376 @@ def _commit_to_dict(c: Commit) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+#  HCM 云函数日志查询
+# --------------------------------------------------------------------------- #
+import httpx
+
+class HcmLogReq(BaseModel):
+    server_url: str = "http://73.2.3.27"
+    token: str = ""
+    log_type: str = ""
+    page_index: int = 1
+    page_size: int = 200
+    proxy: str = ""  # 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
+
+
+class HcmLoginReq(BaseModel):
+    server_url: str = ""
+    mobile: str = ""
+    password: str = ""
+    proxy: str = ""
+    image_code: str = ""  # 图片验证码（用户输入）
+    image_code_index: str = ""  # 验证码索引，与拉取验证码图片时一致
+    captcha_id: str = ""  # 后端返回的验证码会话ID（关联 httpx cookie jar）
+
+
+class HcmCaptchaReq(BaseModel):
+    server_url: str = ""
+    proxy: str = ""
+
+
+# HCM 验证码会话缓存：captcha_id -> {"jar": cookie jar, "index": image_code_index}
+_HCM_CAPTCHA_CACHE: dict[str, object] = {}
+_HCM_CAPTCHA_TTL: dict[str, float] = {}
+_HCM_CAPTCHA_MAX = 200
+
+
+def _sniff_image_type(data: bytes) -> str | None:
+    """按 magic bytes 判定图片真实类型（HCM 验证码端点常把 content-type 错标为 text/html）。"""
+    if not data or len(data) < 4:
+        return None
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if data[:6] in (b"RIFF",) and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _new_hcm_client(req_proxy: str, existing_cookies=None):
+    """创建 httpx 客户端；existing_cookies 可选 CookieJar（验证码→登录同会话）。"""
+    kwargs = dict(timeout=15, follow_redirects=True)
+    if req_proxy:
+        kwargs["proxy"] = req_proxy
+    else:
+        kwargs["transport"] = httpx.AsyncHTTPTransport()
+    if existing_cookies is not None:
+        kwargs["cookies"] = existing_cookies
+    return httpx.AsyncClient(**kwargs)
+
+
+@app.post("/api/hcm/captcha")
+async def api_hcm_captcha(req: HcmCaptchaReq):
+    """获取 HCM 登录图片验证码。
+
+    参考 hcm-cloud-vue 前端源码：验证码图片端点为 /img/imagevalidatecode?index={index}&v={random}，
+    登录时需回传同一个 image_code_index + 用户输入的 image_code。
+    返回：{captcha_id, image_code_index, image: "data:image/xxx;base64,xxxxx"}
+    """
+    if not req.server_url:
+        raise HTTPException(400, "请先配置服务器地址")
+    base = req.server_url.rstrip("/")
+    # HCM 验证码图片端点（参考 controller.login.js: init_image_code）
+    url = f"{base}/img/imagevalidatecode"
+
+    # 清理过期的 captcha 缓存（3 分钟 TTL）
+    import time as _time
+    now = _time.time()
+    for cid in list(_HCM_CAPTCHA_TTL.keys()):
+        if now - _HCM_CAPTCHA_TTL[cid] > 180:
+            _HCM_CAPTCHA_CACHE.pop(cid, None)
+            _HCM_CAPTCHA_TTL.pop(cid, None)
+    if len(_HCM_CAPTCHA_CACHE) > _HCM_CAPTCHA_MAX:
+        oldest = sorted(_HCM_CAPTCHA_TTL, key=_HCM_CAPTCHA_TTL.get)
+        for cid in oldest[:100]:
+            _HCM_CAPTCHA_CACHE.pop(cid, None)
+            _HCM_CAPTCHA_TTL.pop(cid, None)
+
+    import secrets, base64
+    captcha_id = secrets.token_urlsafe(12)
+    # image_code_index 关联验证码图与登录请求，参考 hcm-cloud-vue 的 window.image_code_index
+    image_code_index = secrets.token_hex(4)
+    try:
+        jar = httpx.Cookies()
+        async with _new_hcm_client(req.proxy, existing_cookies=jar) as client:
+            # 先访问登录页获取初始 cookie（有些部署必须先有 session cookie 才能拿验证码图）
+            try:
+                await client.get(f"{base}/login")
+            except Exception:
+                pass
+            resp = await client.get(url, params={"index": image_code_index, "v": secrets.token_hex(4)})
+            resp.raise_for_status()
+            if not resp.content or len(resp.content) < 10:
+                raise HTTPException(502, "服务器未返回验证码图片")
+            # 注意：HCM 该端点常把图片 content-type 错标为 text/html，必须按 magic bytes 判定真实图片类型
+            ctype = _sniff_image_type(resp.content)
+            if ctype is None:
+                snippet = resp.content[:200].decode("utf-8", "ignore")
+                raise HTTPException(502, f"服务器未返回有效图片验证码，响应前200字符: {snippet}")
+            b64 = base64.b64encode(resp.content).decode("ascii")
+            _HCM_CAPTCHA_CACHE[captcha_id] = {"jar": jar.jar, "index": image_code_index}
+            _HCM_CAPTCHA_TTL[captcha_id] = _time.time()
+            return {
+                "captcha_id": captcha_id,
+                "image_code_index": image_code_index,
+                "image": f"data:{ctype};base64,{b64}",
+            }
+    except httpx.ConnectError as e:
+        raise HTTPException(502, f"无法连接服务器 {base}: {e}")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "获取验证码超时")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[HCM] 获取验证码异常: {e}")
+        raise HTTPException(500, f"获取验证码失败: {type(e).__name__}: {e}")
+
+
+@app.post("/api/hcm/logs")
+async def api_hcm_logs(req: HcmLogReq):
+    """代理查询 HCM 平台 dynamic_log 日志。
+
+    通过后端代理请求目标服务器，避免浏览器跨域限制。
+    认证方式（依次尝试）：
+      1) Cookie: token=xxx（最常见的前端登录态形式）
+      2) Authorization: Bearer {token} + hcminner: 1（内部 OpenAPI 形式）
+    查询接口：POST /api/hcm.model.list (JSON body)
+    """
+    if not req.token:
+        raise HTTPException(400, "请先配置 token")
+    if not req.log_type:
+        raise HTTPException(400, "请输入 log_type")
+    # 保护：明显不是 token 的值（HTML片段、input属性值片段）直接报错
+    suspicious = ("<html", "<!doctype", "__image_validate_index", "input ", "name=")
+    low = req.token.lower()
+    for s in suspicious:
+        if s in low:
+            raise HTTPException(400, "Token 格式异常，请重新获取 Token 后再查询（当前值疑似 HTML/验证码片段，而非登录 Token）")
+
+    base = req.server_url.rstrip("/")
+    url = f"{base}/api/hcm.model.list"
+    base_headers_json = {"Content-Type": "application/json"}
+    # 参考 hcm-core/test/test_avoid_check.py: dynamic_log 用 filter_dict + 直接值（非 advance_filter_dict + {eq}）
+    payload = {
+        "model": "dynamic_log",
+        "page_index": req.page_index,
+        "page_size": req.page_size,
+        "filter_dict": {
+            "log_type": req.log_type,
+        },
+    }
+
+    # 构造三种认证方式，依次尝试
+    attempts = [
+        # 方式1：Cookie（最常见）
+        {"name": "cookie", "headers": base_headers_json, "cookies": {"token": req.token}},
+        # 方式2：Bearer + hcminner
+        {"name": "bearer_hcminner",
+         "headers": {**base_headers_json, "Authorization": f"Bearer {req.token}", "hcminner": "1"}},
+        # 方式3：Header token（有些部署是 x-token / 纯 token header）
+        {"name": "header_token",
+         "headers": {**base_headers_json, "token": req.token}},
+    ]
+
+    def _client_kwargs():
+        kw = dict(timeout=30, follow_redirects=True)
+        if req.proxy:
+            kw["proxy"] = req.proxy
+        else:
+            kw["transport"] = httpx.AsyncHTTPTransport()
+        return kw
+
+    logger.info(f"[HCM] 查询: base={base} model=dynamic_log log_type={req.log_type} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
+
+    last_error = None
+    for i, att in enumerate(attempts):
+        try:
+            logger.info(f"[HCM] 尝试方式{i+1}: {att['name']}")
+            client_kw = _client_kwargs()
+            if "cookies" in att:
+                client_kw["cookies"] = att["cookies"]
+            async with httpx.AsyncClient(**client_kw) as client:
+                resp = await client.post(url, json=payload, headers=att["headers"])
+                logger.info(f"[HCM] 方式{i+1} 响应: status={resp.status_code} len={len(resp.content)}")
+                if resp.status_code == 405:
+                    last_error = HTTPException(resp.status_code, f"[{att['name']}] HTTP 405 Method Not Allowed: {resp.text[:300]}")
+                    continue  # 方法不对，换下一种
+                if resp.status_code >= 400:
+                    # 解析 HCM 错误响应：{errcode, errmsg, description} 或 {success, message}
+                    try:
+                        err_body = resp.json()
+                    except ValueError:
+                        err_body = None
+                    eb = err_body if isinstance(err_body, dict) else {}
+                    errcode = eb.get("errcode")
+                    errmsg = eb.get("errmsg") or eb.get("description") or eb.get("message") or resp.text[:400]
+                    # 80001 model 不存在：换认证方式也无法解决，直接给出明确提示
+                    if errcode == 80001 or (isinstance(errmsg, str) and "Unknown Model Name" in errmsg):
+                        raise HTTPException(400, f"[{att['name']}] {errmsg}（model「dynamic_log」在当前部署/租户不存在，请确认日志 model 名或租户是否启用云函数日志）")
+                    # 17003 执行错误 / 未登录类：通常是会话上下文失效，换认证方式再试
+                    session_like = errcode == 17003 or any(k in str(errmsg) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录"))
+                    if session_like or resp.status_code in (401, 403):
+                        hint = "（token 可能已失效，建议重新登录获取 Token）" if errcode == 17003 else ""
+                        last_error = HTTPException(resp.status_code, f"[{att['name']}] HTTP {resp.status_code}: {errmsg[:400]}{hint}")
+                        continue
+                    raise HTTPException(resp.status_code, f"[{att['name']}] HTTP {resp.status_code}: {errmsg[:400] or resp.text[:400]}")
+                try:
+                    data = resp.json()
+                except ValueError:
+                    raw = resp.text[:1000]
+                    raise HTTPException(502, f"[{att['name']}] 返回非JSON: {raw[:600]}")
+                # 业务失败判断（兼容 {success:false,...} 与 {errcode:...} 两种格式）
+                biz_fail = (isinstance(data, dict) and data.get("success") is False) or \
+                           (isinstance(data, dict) and data.get("errcode") and data.get("errcode") != 0)
+                if biz_fail:
+                    msg = (
+                        data.get("errmsg") or data.get("description") or data.get("message") or data.get("msg") or
+                        (isinstance(data.get("result"), dict) and data["result"].get("message")) or
+                        str(data)[:500]
+                    )
+                    # 80001 model 不存在直接提示
+                    if data.get("errcode") == 80001 or "Unknown Model Name" in str(msg):
+                        raise HTTPException(400, f"[{att['name']}] {msg}（model「dynamic_log」在当前部署/租户不存在）")
+                    # 常见 "未登录/登录过期/17003执行错误" 等 — 继续下一种方式
+                    if data.get("errcode") == 17003 or any(k in str(msg) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录")):
+                        last_error = HTTPException(401, f"[{att['name']}] 业务失败: {msg}（token 可能已失效，建议重新登录获取 Token）")
+                        continue
+                    raise HTTPException(400, f"[{att['name']}] 业务失败: {msg}")
+                logger.info(f"[HCM] 方式{i+1} 成功")
+                if isinstance(data, dict) and "result" in data:
+                    return {"method": att["name"], "raw": data, "data": data["result"]}
+                return {"method": att["name"], **data} if isinstance(data, dict) else data
+        except httpx.ConnectError as e:
+            last_error = HTTPException(502, f"[{att['name']}] 无法连接服务器 {base}: {e}")
+            # 连接失败所有方式都失败 — 直接中断
+            raise last_error
+        except httpx.TimeoutException as e:
+            last_error = HTTPException(504, f"[{att['name']}] 请求超时: {e}")
+            continue
+        except HTTPException as e:
+            last_error = e
+            if (i == len(attempts) - 1):
+                raise
+            continue
+        except Exception as e:
+            logger.exception(f"[HCM] 方式{i+1} 异常: {e}")
+            last_error = HTTPException(500, f"[{att['name']}] {type(e).__name__}: {e}")
+            if i == len(attempts) - 1:
+                raise last_error
+
+    raise last_error if last_error else HTTPException(500, "查询失败，未知错误")
+
+
+@app.post("/api/hcm/login")
+async def api_hcm_login(req: HcmLoginReq):
+    """使用账号密码登录 HCM 平台，获取 token。
+
+    登录接口：POST /login (form data, NOT JSON)
+    字段：mobile / password / pure_result=true / transfer_strategy=no / un_redirect=true
+    Token 返回在 response body 的 token 字段中（pure_result=true 时）。
+    """
+    if not req.server_url or not req.mobile or not req.password:
+        raise HTTPException(400, "请填写服务器地址、手机号和密码")
+
+    base = req.server_url.rstrip("/")
+    url = f"{base}/login"
+    logger.info(f"[HCM] 发起登录: url={url} mobile={req.mobile} proxy={req.proxy or '(直连)'} need_captcha={bool(req.image_code)}")
+    try:
+        # 如果有 captcha_id，复用同一会话 cookie jar 与 image_code_index
+        jar_override = None
+        cached_index = ""
+        if req.captcha_id and req.captcha_id in _HCM_CAPTCHA_CACHE:
+            entry = _HCM_CAPTCHA_CACHE[req.captcha_id]
+            jar_override = entry.get("jar") if isinstance(entry, dict) else entry
+            cached_index = entry.get("index", "") if isinstance(entry, dict) else ""
+            _HCM_CAPTCHA_CACHE.pop(req.captcha_id, None)
+            _HCM_CAPTCHA_TTL.pop(req.captcha_id, None)
+        # image_code_index 优先用前端显式传入的，否则用拉取验证码时缓存的
+        image_code_index = req.image_code_index or cached_index
+        kwargs = dict(timeout=15, follow_redirects=True)
+        if req.proxy:
+            kwargs["proxy"] = req.proxy
+        else:
+            kwargs["transport"] = httpx.AsyncHTTPTransport()
+        if jar_override is not None:
+            kwargs["cookies"] = jar_override
+        # 登录表单：带图片验证码参数（如果有），参考 hcm-cloud-vue baseservices.js login()
+        form_data = {
+            "mobile": req.mobile,
+            "password": req.password,
+            "pure_result": "true",
+            "transfer_strategy": "no",
+            "un_redirect": "true",
+            "mode": "PWD",
+        }
+        if req.image_code:
+            form_data["image_code"] = req.image_code
+        if image_code_index:
+            form_data["image_code_index"] = image_code_index
+        async with httpx.AsyncClient(**kwargs) as client:
+            resp = await client.post(url, data=form_data)
+            logger.info(f"[HCM] 登录响应: status={resp.status_code} content-type={resp.headers.get('content-type')} len={len(resp.content)}")
+            if resp.status_code >= 400:
+                detail = resp.text[:800]
+                logger.error(f"[HCM] 登录失败 HTTP {resp.status_code}: {detail}")
+                raise HTTPException(resp.status_code, f"HCM服务器返回HTTP {resp.status_code}：{detail}")
+            try:
+                data = resp.json()
+            except ValueError as e:
+                raw = resp.text[:1200]
+                logger.error(f"[HCM] 登录返回非JSON: {raw[:300]}")
+                raise HTTPException(502, f"登录返回非JSON内容（可能是登录页HTML）: {raw[:500]}")
+            # 登录失败（如账号密码错误、需图片验证码）：透传 need_img_valid/message，前端据此拉验证码
+            if isinstance(data, dict) and data.get("success") is False:
+                msg = data.get("message", "登录失败")
+                need_img = bool(data.get("need_img_valid"))
+                logger.warning(f"[HCM] 登录被拒: status={data.get('status')} need_img_valid={need_img} msg={msg}")
+                return JSONResponse({"ok": False, "need_img_valid": need_img, "message": msg})
+            token = ""
+            if isinstance(data, dict):
+                token = data.get("token", "")
+                if not token and isinstance(data.get("result"), dict):
+                    token = data["result"].get("token", "")
+            if not token:
+                for cookie in resp.cookies.jar:
+                    if cookie.name == "token":
+                        token = cookie.value
+                        break
+            if not token:
+                logger.error(f"[HCM] 登录成功但未取到token，响应: {str(data)[:500]}")
+                raise HTTPException(500, f"登录成功但未获取到 token，响应内容: {str(data)[:500]}")
+            logger.info(f"[HCM] 登录成功，token长度={len(token)}")
+            return {"ok": True, "token": token, "server_url": base}
+    except httpx.ConnectError as e:
+        logger.error(f"[HCM] 登录连接失败: {e}")
+        raise HTTPException(502, f"无法连接服务器 {base}: {e}")
+    except httpx.TimeoutException as e:
+        logger.error(f"[HCM] 登录超时: {e}")
+        raise HTTPException(504, "登录请求超时")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[HCM] 登录异常: {e}")
+        raise HTTPException(500, f"登录失败: {type(e).__name__}: {e}")
+
+
+# --------------------------------------------------------------------------- #
 #  静态前端（web/ 目录）
 # --------------------------------------------------------------------------- #
 WEB_DIR = _PROJECT_ROOT / "web"
 if WEB_DIR.exists():
-    app.mount("/web", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
+    class _NoCacheStaticFiles(StaticFiles):
+        """禁用浏览器/中间缓存的静态文件提供器，避免前端改完还加载旧文件。"""
+        def file_response(self, *a, **kw):
+            resp = super().file_response(*a, **kw)
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+            return resp
+    app.mount("/web", _NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 
 @app.get("/")
@@ -1746,7 +2111,11 @@ async def index():
     """默认返回 Web 前端首页。"""
     index_path = WEB_DIR / "index.html"
     if index_path.exists():
-        return FileResponse(str(index_path))
+        resp = FileResponse(str(index_path))
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     return JSONResponse({"msg": "Web frontend not found. API is running at /api/"})
 
 
