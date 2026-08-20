@@ -30,6 +30,7 @@ class TreeEntry:
     type: str              # "dir" | "file"
     size: Optional[int] = None
     has_children: bool = False
+    mtime: Optional[float] = None   # 修改时间戳（本地模式可用；远端无则 None）
 
 
 @dataclass

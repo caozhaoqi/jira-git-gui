@@ -278,6 +278,36 @@ button { font-family: inherit; }
 @keyframes pane-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .tab-inner { max-width: 1120px; margin: 0 auto; }
 
+/* ---------- 仓库三栏布局（仓库 | 文件树 | 文件预览） ---------- */
+#tab-repo .tab-inner { max-width: none; }
+.repo-three-col {
+  display: flex; gap: 12px; align-items: stretch;
+  min-height: calc(100vh - 180px);
+}
+.repo-col {
+  display: flex; flex-direction: column; min-width: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 14px;
+}
+.repo-col-left  { width: 280px; flex-shrink: 0; }
+.repo-col-mid   { flex: 1; min-width: 200px; }
+.repo-col-right { width: 500px; flex-shrink: 0; transition: width .2s var(--ease-out); }
+.repo-resizer {
+  width: 6px; margin: 0 -3px; cursor: col-resize; flex-shrink: 0;
+  border-radius: 3px; transition: background .15s ease; z-index: 2;
+}
+.repo-resizer:hover, .repo-resizer.dragging { background: var(--primary); }
+.repo-col-fullscreen {
+  position: fixed !important; inset: 0; width: 100vw !important; height: 100vh;
+  z-index: 100; border-radius: 0; border: none;
+}
+.repo-col-right .preview-pane {
+  flex: 1; min-height: 0; max-height: none; overflow: auto; margin: 0;
+}
+.repo-col-right .panel-header { flex-shrink: 0; }
+.repo-col .tree-container { flex: 1; min-height: 200px; }
+.repo-col .tree-toolbar { flex-shrink: 0; }
+
 /* ---------- 通用组件 ---------- */
 .panel-header {
   display: flex;
@@ -444,6 +474,45 @@ button { font-family: inherit; }
   padding: 8px;
   min-height: 200px;
 }
+.tree-toolbar { margin-bottom: 8px; }
+.tree-toolbar-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.tree-search-wrap { display: flex; gap: 4px; flex: 1; min-width: 280px; }
+.tree-search-input { flex: 1; }
+.tree-scope-toggle {
+  display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--surface);
+}
+.tree-scope-btn {
+  padding: 4px 10px; background: transparent; border: none; cursor: pointer;
+  font-size: 12px; color: var(--text-2); transition: background .15s ease;
+}
+.tree-scope-btn:hover { background: var(--surface-2); }
+.tree-scope-btn.active { background: var(--primary); color: #fff; }
+.tree-sort-wrap { display: flex; gap: 4px; align-items: center; }
+.tree-sort-key { padding: 4px 8px; font-size: 12px; }
+.tree-search-status { font-size: 11px; color: var(--muted); padding: 4px 2px 0; min-height: 18px; }
+.tree-search-results {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); max-height: 220px; overflow: auto;
+  margin-top: 4px; padding: 4px;
+}
+.tree-search-loading, .tree-search-empty, .tree-search-error, .tree-search-more {
+  padding: 6px 8px; font-size: 12px; color: var(--muted);
+}
+.tree-search-error { color: var(--danger); }
+.tree-search-more { color: var(--muted); font-style: italic; }
+.tree-search-item {
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 4px 8px; border-radius: var(--radius-xs);
+  cursor: pointer; transition: background .12s ease;
+  font-family: var(--mono); font-size: 12px;
+  flex-wrap: wrap;
+}
+.tree-search-item:hover { background: var(--surface-2); }
+.tree-search-item .tsr-icon { flex-shrink: 0; }
+.tree-search-item .tsr-path { flex: 1; color: var(--text); word-break: break-all; }
+.tree-search-item .tsr-line { color: var(--muted); flex-shrink: 0; }
+.tree-search-item .tsr-snippet { width: 100%; color: var(--text-2); font-size: 11px; padding-left: 18px; word-break: break-all; }
 .tree-node { position: relative; }
 .tree-children { margin-left: 18px; border-left: 1px dashed var(--border); padding-left: 6px; }
 .tree-row {
@@ -461,6 +530,7 @@ button { font-family: inherit; }
 .tree-icon { font-size: 14px; flex-shrink: 0; }
 .tree-name { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-size { font-size: 11px; color: var(--muted); font-family: var(--mono); flex-shrink: 0; }
+.tree-mtime { font-size: 10px; color: var(--muted); font-family: var(--mono); flex-shrink: 0; padding-left: 8px; }
 .tree-checkbox { flex-shrink: 0; width: 15px; height: 15px; accent-color: var(--primary); }
 .tree-loading { padding: 8px 12px; color: var(--muted); font-size: 13px; }
 
@@ -509,6 +579,10 @@ button { font-family: inherit; }
 .commit-detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .commit-detail-text { max-height: 240px; }
 .commit-files { display: flex; flex-direction: column; gap: 4px; }
+.commit-file-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--muted); padding: 4px 2px;
+}
 .commit-file-item {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 10px; border-radius: var(--radius-xs);
@@ -517,6 +591,29 @@ button { font-family: inherit; }
   cursor: pointer; transition: background .12s ease, border-color .12s ease;
 }
 .commit-file-item:hover { background: var(--surface-2); border-color: var(--muted); color: var(--text); }
+.commit-file-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commit-stats { font-family: var(--mono); font-size: 11px; flex-shrink: 0; display: inline-flex; gap: 4px; }
+.commit-stats b.add { color: var(--success); }
+.commit-stats b.del { color: var(--danger); }
+
+/* GitHub 风格 commit 列表行 */
+.commit-item-row { display: flex; align-items: center; gap: 10px; }
+.commit-item-body { flex: 1; min-width: 0; }
+.commit-badge {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 600; font-size: 12px; flex-shrink: 0;
+  font-family: var(--mono);
+}
+.commit-meta {
+  font-size: 11px; color: var(--muted); margin-top: 3px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.commit-author { color: var(--text-2); }
+.commit-hash { font-family: var(--mono); color: var(--primary); }
+.commit-when { color: var(--muted); }
+.commit-repo { color: var(--muted); }
+.commit-files-count { color: var(--muted); }
 .change-badge {
   width: 18px; height: 18px; border-radius: 4px;
   display: inline-flex; align-items: center; justify-content: center;
@@ -532,6 +629,57 @@ button { font-family: inherit; }
 .diff-summary { font-size: 12px; color: var(--text-2); }
 .diff-show-same { font-size: 12px; color: var(--text-2); cursor: pointer; }
 .badge-modified { color: var(--warning); font-weight: 600; }
+
+/* ---------- Commit Diff（行级红绿） ---------- */
+.commit-diff {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); overflow: hidden;
+}
+.commit-diff .diff-title {
+  padding: 8px 12px; font-family: var(--mono); font-size: 12px;
+  color: var(--text-2); background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+.commit-diff .diff-loading,
+.commit-diff .diff-error,
+.commit-diff .diff-truncated {
+  padding: 10px 14px; font-size: 12px;
+}
+.commit-diff .diff-loading { color: var(--muted); }
+.commit-diff .diff-error { color: var(--danger); }
+.commit-diff .diff-truncated { color: var(--warning); background: var(--warning-bg); }
+.commit-diff .diff-stats {
+  padding: 6px 12px; font-family: var(--mono); font-size: 11px;
+  background: var(--surface-2); border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+.commit-diff .diff-body {
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  max-height: 480px; overflow: auto;
+}
+.commit-diff .diff-row {
+  display: flex; align-items: stretch; min-width: 100%;
+}
+.commit-diff .diff-gutter {
+  flex-shrink: 0; width: 44px; padding: 0 6px;
+  color: var(--muted); text-align: right; user-select: none;
+  border-right: 1px solid var(--border); background: var(--surface-2);
+}
+.commit-diff .diff-gutter-new { border-right: none; }
+.commit-diff .diff-sign {
+  flex-shrink: 0; width: 18px; text-align: center; color: var(--muted);
+  user-select: none;
+}
+.commit-diff .diff-text {
+  flex: 1; padding: 0 8px; white-space: pre-wrap; word-break: break-all;
+  color: var(--text);
+}
+.commit-diff .diff-add { background: var(--success-bg); }
+.commit-diff .diff-add .diff-sign { color: var(--success); font-weight: 700; }
+.commit-diff .diff-add .diff-text { color: var(--text); }
+.commit-diff .diff-del { background: var(--danger-bg); }
+.commit-diff .diff-del .diff-sign { color: var(--danger); font-weight: 700; }
+.commit-diff .diff-del .diff-text { color: var(--text); }
 .badge-local { color: var(--primary); font-weight: 600; }
 .badge-remote { color: var(--success); font-weight: 600; }
 .badge-eol { color: var(--info); font-weight: 600; }

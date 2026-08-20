@@ -876,10 +876,10 @@ class JiraGitClient:
             rel = (path + "/" + it.name).lstrip("/")
             if it.is_dir():
                 out.append(TreeEntry(it.name, rel, "dir",
-                                     None, True))
+                                     None, True, it.stat().st_mtime))
             else:
                 out.append(TreeEntry(it.name, rel, "file",
-                                     it.stat().st_size, False))
+                                     it.stat().st_size, False, it.stat().st_mtime))
         return out
 
     # ----------------------------------------------------------- 提交记录

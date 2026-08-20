@@ -268,7 +268,18 @@
   width: min(680px, 96vw); max-height: 90vh; overflow: auto; padding: 18px 20px;
   box-shadow: var(--shadow-xl);
   animation: modal-box-in .25s var(--ease-out);
+  transition: width .2s var(--ease-out), max-height .2s var(--ease-out), border-radius .2s var(--ease-out);
 }
+/* 弹窗最大化：占满视口，去圆角，允许内部自适应 */
+.modal-fullscreen .modal-box,
+.modal-box.modal-fullscreen {
+  width: 100vw !important; max-width: none; max-height: 100vh;
+  height: 100vh; border-radius: 0; border: none;
+}
+.modal-fullscreen .modal-box .k8s-yaml-editor,
+.modal-box.modal-fullscreen .k8s-yaml-editor { min-height: calc(100vh - 180px) !important; }
+/* 弹窗头部按钮组（最大化 + 关闭并排） */
+.panel-header-actions { display: flex; gap: 6px; align-items: center; }
 @keyframes modal-box-in {
   from { opacity: 0; transform: translateY(12px) scale(.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
@@ -412,9 +423,23 @@
 .k8s-files-crumb:hover { background: var(--primary-050); color: var(--primary); }
 .k8s-files-sep { color: var(--muted); flex-shrink: 0; }
 .k8s-files-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.k8s-files-search {
+  display: flex; gap: 6px; align-items: center;
+  margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border);
+  flex-wrap: wrap;
+}
+.k8s-files-search-input { flex: 1; min-width: 240px; }
+.k8s-files-search-results {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); max-height: 260px; overflow: auto;
+  margin-bottom: 8px; padding: 4px;
+}
 
 .k8s-files-list-wrap { padding: 0; }
 .k8s-files-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.k8s-files-table th.k8s-sortable { cursor: pointer; user-select: none; transition: color .12s ease; }
+.k8s-files-table th.k8s-sortable:hover { color: var(--primary); }
+.k8s-files-table th .k8s-sort-ind { color: var(--primary); font-size: 10px; padding-left: 3px; }
 .k8s-files-table th, .k8s-files-table td {
   padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap;
 }
