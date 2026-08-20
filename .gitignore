@@ -16,6 +16,7 @@ __pycache__/
 .session.json
 
 cf_accounts.local.json
+config/cf_accounts.local.json
 
 # 运行期缓存（含拉取的文件树/内容，可能含敏感信息）
 cache/
@@ -53,3 +54,4 @@ deliverables/
 *.DS_Store.DS_Store
 
 hcm_whitelist.json
+config/hcm_whitelist.json

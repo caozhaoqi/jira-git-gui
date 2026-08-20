@@ -14,11 +14,12 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const http = require('http');
+const net = require('net');
 
 let pyProc = null;
 let mainWindow = null;
-const BACKEND_PORT = 8787;
-const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+let BACKEND_PORT = 8787;
+let BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
 // ---- 日志：终端 + 文件 + 渲染进程广播 ----
 const PROJECT_ROOT = path.join(__dirname, '..');
@@ -33,6 +34,33 @@ function getDataDir() {
     return path.join(os.homedir(), '.jira-git-gui');
   }
   return PROJECT_ROOT;
+}
+
+// 端口探测：优先 8787，被占用则向后顺延，最多尝试 20 个（与 Tauri 版行为一致）。
+// 返回实际可用端口（Promise<number>）。
+function pickFreePort(startPort = 8787, maxAttempts = 20) {
+  return new Promise((resolve, reject) => {
+    let attempt = 0;
+    const tryPort = (port) => {
+      attempt += 1;
+      const server = net.createServer();
+      server.unref();
+      server.on('error', () => {
+        try { server.close(); } catch (_) {}
+        if (attempt >= maxAttempts) {
+          reject(new Error(`未找到可用端口：从 ${startPort} 起尝试 ${maxAttempts} 个均被占用`));
+        } else {
+          tryPort(port + 1);
+        }
+      });
+      server.listen(port, '127.0.0.1', () => {
+        const used = server.address().port;
+        // 探测成功即释放，随后由 Python 后端占用；竞态窗口极小，可接受
+        server.close(() => resolve(used));
+      });
+    };
+    tryPort(startPort);
+  });
 }
 
 // Initialize paths lazily to avoid accessing app before it's ready
@@ -85,7 +113,7 @@ log(`========== Jira Git GUI (Electron) 启动 ==========`);
 log(`Node.js: ${process.version}  Electron: ${process.versions.electron ?? 'unknown'}  Platform: ${process.platform}`);
 log(`Project root: ${PROJECT_ROOT}`);
 log(`Log file: ${LOG_FILE}`);
-log(`Backend URL: ${BACKEND_URL}  Dev mode: ${isDev}`);
+log(`Backend URL: http://127.0.0.1:8787 (默认端口，被占用时自动顺延)  Dev mode: ${isDev}`);
 
 // Check if we're running in a proper Electron environment
 if (!app || typeof app.whenReady !== 'function') {
@@ -94,7 +122,7 @@ if (!app || typeof app.whenReady !== 'function') {
   logErr('To run Electron from command line:');
   logErr('  1. Open a native terminal (not VS Code terminal)');
   logErr('  2. cd /Users/caozhaoqi/PycharmProjects/jira-git-gui');
-  logErr('  3. ./run_web.sh --electron');
+  logErr('  3. ./scripts/run_web.sh --electron');
   process.exit(1);
 }
 
@@ -105,7 +133,6 @@ function registerIpcHandlers() {
     _logRaw(`[renderer] [${level}] ${msg ?? ''}`);
   });
 
-  ipcMain.handle('log:get-path', () => LOG_FILE);
   ipcMain.handle('app:get-info', () => ({
     platform: process.platform,
     isElectron: true,
@@ -131,7 +158,20 @@ function getBackendLaunch() {
     const cmd = path.join(process.resourcesPath, 'backend', exeName);
     return { cmd, args: ['--port', port] };
   }
-  return { cmd: path.join(PROJECT_ROOT, 'venv', 'bin', 'python'), args: ['-m', 'api.server', '--port', port] };
+  // 开发态 Python：Windows 的 venv 布局是 Scripts/python.exe，macOS/Linux 是 bin/python；
+  // venv 不存在时回退到 PATH 上的 python/python3，避免直接 spawn 失败。
+  const venvRoot = path.join(PROJECT_ROOT, 'venv');
+  const winPy = path.join(venvRoot, 'Scripts', 'python.exe');
+  const unixPy = path.join(venvRoot, 'bin', 'python');
+  let cmd;
+  if (fs.existsSync(winPy)) {
+    cmd = winPy;
+  } else if (fs.existsSync(unixPy)) {
+    cmd = unixPy;
+  } else {
+    cmd = process.platform === 'win32' ? 'python' : 'python3';
+  }
+  return { cmd, args: ['-m', 'api.server', '--port', port] };
 }
 
 function startPythonBackend() {
@@ -262,8 +302,36 @@ function createWindow() {
 
 // Only set up event listeners if app is available (it should be after require)
 if (app && app.whenReady) {
+  // 单实例锁：第二次启动时聚焦已有窗口并退出新实例，
+  // 避免双份后端进程/双份日志写入同一数据目录（与 Tauri 版行为一致）。
+  if (!app.requestSingleInstanceLock()) {
+    log('已有实例在运行，退出当前实例');
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      log('second-instance：聚焦已有窗口');
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+  }
+
   app.whenReady().then(async () => {
     initializePaths(); // Initialize paths now that app is ready
+
+    // 端口探测：8787 被占用时顺延（与 Tauri 版行为一致），避免启动即失败
+    try {
+      BACKEND_PORT = await pickFreePort();
+      BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+      log(`后端端口探测完成：${BACKEND_PORT}`);
+    } catch (err) {
+      logErr(`端口探测失败：${err.message}`);
+      dialog.showErrorBox('端口不可用', `${err.message}\n\n请释放 8787 附近的端口后重试。`);
+      app.quit();
+      return;
+    }
+
     registerIpcHandlers(); // Register IPC handlers
     log('app.whenReady() 触发');
     startPythonBackend();

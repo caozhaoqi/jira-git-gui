@@ -2,12 +2,12 @@
 
 > 📗 English docs: [README.md](README.md)
 
-面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供两种桌面形态，共用同一个 Python 后端：
+面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供 **两种桌面形态**，共用同一个 Python 后端与同一套原生 Web 前端：
 
-- **PyQt6 桌面版**（`main.py`）：纯 Python + PyQt6，无需浏览器；所有网络请求在后台线程执行，界面不卡顿。
-- **Electron / Web 版**（`electron/` + `web/`）：Electron 加载同一套 Web 前端，便于跨平台打包；也可以直接在浏览器里打开访问本地后端。
+- **Electron 版**（`electron/` + `web/`）：基于 Electron + Chromium/WebKit webview 的跨平台桌面应用。
+- **Tauri 版**（`tauri/` + `web/`）：使用操作系统原生 WebView 的轻量桌面应用——包体小得多（几十 MB 对比几百 MB）。
 
-> 两种前端共用同一后端（`api/server.py`，默认端口 8787），功能等价。
+两种形态都加载同一套 Web 前端、对接同一个共享 Python 后端（`api/server.py`，默认端口 8787），功能等价。Python 后端（FastAPI）会被打包进每个桌面应用，最终用户无需单独起服务或开浏览器。
 
 ## 功能总览
 
@@ -45,10 +45,11 @@
 
 ```
 jira-git-gui/
-├── main.py                 # 入口：创建 QApplication + MainWindow（PyQt6 桌面版）
 ├── run_merge.py            # CLI：把远端仓库最新代码合并到本地（缓存优先 + 同步历史）
-├── k8s_preview.html        # K8s YAML 清洗的自包含演示页（无需集群）
-├── requirements.txt        # PyQt6 / httpx / fastapi / uvicorn
+├── scripts/                # 启动/构建脚本（跨平台：*.sh + *.ps1）
+├── config/                 # 本地配置 JSON（cf_accounts.*、hcm_whitelist.*）—— 见 .gitignore
+├── tools/k8s_preview.html  # K8s YAML 清洗的自包含演示页（无需集群）
+├── requirements.txt        # fastapi / uvicorn / httpx / pyinstaller
 ├── core/                   # 核心逻辑层（无 GUI 依赖，可独立测试）
 │   ├── app_paths.py        # 运行时可写目录（打包后重定位到 ~/.jira-git-gui）
 │   ├── constants.py        # 目录 / 代理 / 超时
@@ -59,40 +60,27 @@ jira-git-gui/
 │   ├── differ.py           # 差异引擎：compute_diff / scan_local / merge_to_local / file_diff / canonical_text
 │   ├── throttle.py         # 全局令牌桶限流器（DEFAULT_REQUEST_QPS）
 │   ├── sync_history.py     # 同步历史（git-log 风格）
-│   ├── logger.py           # 轮转文件日志 + LogBridge（UI 桥）+ 全局 excepthook（PyQt6 惰性加载）
+│   ├── logger.py           # 轮转文件日志 + LogBridge（UI 桥）+ 全局 excepthook
 │   ├── safe.py             # safe_slot 装饰器：捕获槽异常，防止 UI 崩溃
 │   ├── errors.py           # 统一异常类型
 │   ├── k8s_manager.py      # K8s 核心：环境/kubeconfig 解析、YAML get-apply 清洗、
 │   │                       #   事件 / 描述 / Top、exec 与文件操作、kubectl 自动定位
 │   └── k8s_snapshot.py     # 快照引擎：Pod 状态 + 日志抓取、分级、HTML/JSON 报告
-├── gui/                    # UI 层（PyQt6 控件）
-│   ├── main_window.py      # 布局 + 信号绑定 + 异步任务编排
-│   ├── connect_dialog.py   # 连接设置（url / 账号 / 模式 / PAT / Cookie / 仓库）
-│   ├── repo_panel.py       # 发现仓库 / 手动指定仓库
-│   ├── tree_panel.py       # 惰性文件树（O(1) 索引）
-│   ├── preview_panel.py    # 代码预览
-│   ├── diff_panel.py       # 差异视图（零依赖语法高亮）
-│   ├── highlighter.py      # 零依赖语法高亮器（QSyntaxHighlighter）
-│   ├── styles.py           # 浅色 / 深色双主题 QSS
-│   ├── commit_panel.py     # 提交记录
-│   ├── log_panel.py        # 日志
-│   └── k8s_panel.py        # K8s 标签页（快照 / YAML / 网络 / 事件 / Top / Shell / 文件）
-├── workers/                # 异步任务层
-│   └── tasks.py            # 通用 QThread Worker（自动 on_log 回调；错误带完整堆栈）
 ├── api/                    # Web / Electron / Tauri 共用的后端
 │   └── server.py           # FastAPI：50+ REST 端点 + SSE 推送 + WebSocket Shell，端口 8787
-├── electron/               # Electron 桌面应用
-│   ├── main.js             # 主进程：Python 后端生命周期 + BrowserWindow + 日志桥
-│   ├── preload.js          # 暴露 window.electronAPI（contextIsolation 隔离）
-│   └── package.json        # name / version / start|dev|dist 脚本 + electron-builder 配置
-├── web/                    # Web 前端（Electron / 浏览器共用，零框架依赖）
+├── web/                    # Web 前端（Electron / Tauri / 浏览器共用，零框架依赖）
 │   ├── index.html          # 页面结构（标签页 + K8s 面板 + 连接设置弹窗）
 │   ├── app.js              # 前端逻辑（REST + SSE + WebSocket，纯 vanilla JS）
 │   ├── styles.css          # 设计系统（CSS 变量，浅色 / 深色双主题）
 │   ├── k8s.css             # K8s 专属布局与视觉
 │   └── log_viewer.*        # 独立全屏日志页（搜索 / 高亮 / Pod 与容器切换）
-├── tauri/                  # Tauri 壳（可选的第三种桌面形态）
-├── build/                  # PyInstaller 配置（gui / backend）
+├── electron/               # Electron 桌面应用（已发布）
+│   ├── main.js             # 主进程：Python 后端生命周期 + BrowserWindow + 日志桥
+│   ├── preload.js          # 暴露 window.electronAPI（contextIsolation 隔离）
+│   └── package.json        # name / version / start|dev|dist 脚本 + electron-builder 配置
+├── tauri/                  # Tauri 桌面应用（已发布）
+│   └── src-tauri/          # Rust 壳：Python 后端生命周期 + WebView 窗口
+├── build/                  # 冻结后端的 PyInstaller 配置（Electron / Tauri 共用）
 ├── tests/                  # 单元测试（先单测后集成，受版本控制）
 ├── store/                  # 运行时产物（git clone / 下载，gitignored）
 ├── logs/                   # 运行时日志（完整堆栈，gitignored）
@@ -100,11 +88,13 @@ jira-git-gui/
     └── PACKAGING.md        # 打包与跨平台发布细节
 ```
 
+> **遗留说明**：`main.py`、`gui/`、`workers/` 是较早上一代的 PyQt6 桌面实现，保留用于参考 / 本地开发，但**不属于**已发布的发行版（发行版为 Electron + Tauri）。根目录废弃的 `server.py` 同样仅作历史兼容保留，所有发行构建均使用 `api/server.py`。
+
 依赖方向：`gui → workers → core`；`core` 不反向依赖 GUI，可独立复用与测试。
 
 ## 运行方式
 
-### PyQt6 桌面版
+### Web / Electron 版（共用后端）
 
 ```bash
 # 1. 创建并激活虚拟环境（已存在可跳过）
@@ -114,21 +104,19 @@ source venv/bin/activate
 # 2. 安装依赖
 pip install -r requirements.txt
 
-# 3. 启动（任选其一）
-./venv/bin/python main.py     # 直接用项目 venv
-python3 main.py              # 任意 python 均可：main.py 会自动切换进 venv
-./run.sh                     # 一键启动（macOS / Linux）
-```
-
-> **自愈式启动**：`main.py` 内置 venv 自检——若当前解释器缺少 PyQt6，会自动 re-exec 进项目自己的 `venv` 解释器再启动。
-
-### Web / Electron 版（共用后端）
-
-```bash
-# 启动后端（浏览器打开 http://127.0.0.1:8787）
+# 3. 启动后端（浏览器打开 http://127.0.0.1:8787）
 PYTHONPATH=. ./venv/bin/python -m api.server                # 默认端口 8787
 PYTHONPATH=. ./venv/bin/python -m api.server --port 9000    # 自定义端口
+
+# 或一键启动
+./scripts/run.sh                   # 起后端并打开浏览器（macOS / Linux / Windows-Git-Bash）
+./scripts/run_web.sh               # 同上
+./scripts/run_web.sh --electron    # 改为启动 Electron 桌面应用
 ```
+
+若 `npm` / Electron 下载被网络阻断，直接启动后端后在任意浏览器打开 `http://127.0.0.1:8787/` 即可——与 Electron / Tauri 加载的是同一页面。
+
+### Electron 桌面版
 
 ```bash
 cd electron
@@ -140,7 +128,18 @@ npm run dist:win   # 打包 Windows 安装包（nsis）
 npm run dist:linux # 打包 Linux 安装包（AppImage + deb）
 ```
 
-> 若 `npm` / Electron 下载被网络阻断，直接启动后端后在任意浏览器打开 `http://127.0.0.1:8787/` 即可——与 Electron 加载的是同一页面。
+### Tauri 桌面版
+
+```bash
+# 需要 Rust（https://rustup.rs）与系统 WebView 开发库
+./scripts/build-tauri.sh            # release 构建 → .app/.dmg（macOS）、.msi（Windows）、.AppImage+.deb（Linux）
+cargo tauri dev                     # 实时开发（热重载），在 tauri/ 下执行
+
+# Windows (PowerShell)
+.\scripts\build-tauri.ps1
+```
+
+> Tauri 构建会内嵌同一份冻结后的 Python 后端，运行时无需单独起服务。
 
 ## K8s 运维模块
 
@@ -150,10 +149,10 @@ npm run dist:linux # 打包 Linux 安装包（AppImage + deb）
 
 ### 日志查看（`web/log_viewer.html`）
 
-从快照日志面板点「⧉ 新页面打开」，或直接访问：
+从快照日志面板点「⧉ 新页面打开」，或直接访问（端口以实际运行端口为准，默认 8787）：
 
 ```
-http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
+/web/log_viewer.html?pod=<pod>&env=<env>
 ```
 
 - **Pod 自由切换**：顶栏下拉选择任意 Pod，日志、容器、命名空间自动切换。
@@ -187,7 +186,7 @@ http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
 
 - JSON / JSONC / XML 家族在生成统一 diff 前先归一化展开（JSON `indent=2`、XML `minidom.toprettyxml`）。
 - 单行压缩文件因此变成逐行可读的 diff——只有实际变更的字段行被高亮，而非整行标红。
-- **相等性判断与合并都用原始字节**：压缩单行与美化多行（内容相同）仍按原始 MD5 / 大小判为"已修改"；合并始终写入远端原始字节，绝不"顺手格式化"污染远端。
+- **相等性判断与合并都用原始字节**：合并始终写入远端原始字节，绝不"顺手格式化"污染远端。
 - 解析失败一律原样返回，不抛异常。支持：JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL。
 
 ## 性能
@@ -211,28 +210,27 @@ http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
 | `username` | 账号名 | PAT clone 时用 PAT 持有者的账号 |
 | `mode` | 模式 | `pat`（默认）或 `cookie` |
 | `personal_access_token` | PAT | 也容忍旧拼写 `persoanl_access_token` |
-| `cookie` | 会话 Cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
+| `cookie` | 会话 Cookie | 格式：`JSESSIONID=...; atlassian.xsrf.token=...` |
 
 > 真实环境变量（大写键，如 `JIRA_URL`）优先于 `.env`，便于 CI / 临时覆盖。打包后 `.env` 会在用户数据目录 `~/.jira-git-gui` 与可执行文件目录两处查找。
 
 ## 打包与发布（跨平台）
 
-三种发布形态，共用同一 Python 后端：
+仅发布**两种桌面形态**，两者均内嵌同一份冻结后的 Python 后端：
 
 | 形态 | 入口 | 打包方式 | 产物 |
 | --- | --- | --- | --- |
-| PyQt6 桌面版 | `main.py` | `pyinstaller build/pyinstaller_gui.spec` | `.app`（macOS）/ `.exe`（Windows） |
-| Web 版 | 浏览器 | `pyinstaller build/pyinstaller_backend.spec` | 单文件后端 `jira-git-backend` |
-| Electron 桌面版 | `electron/` | electron-builder（内嵌冻结后端） | `.dmg` / `.exe`(nsis) / `.AppImage`+`.deb` |
+| Electron 桌面版 | `electron/` | electron-builder（内嵌冻结后端） | `.dmg`（macOS）/ `.exe`(nsis)（Windows）/ `.AppImage`+`.deb`（Linux） |
+| Tauri 桌面版 | `tauri/` | `cargo tauri build`（内嵌冻结后端） | `.app`+`.dmg`（macOS）/ `.msi`（Windows）/ `.AppImage`+`.deb`（Linux） |
 
-**关键约束**：PyInstaller 与 electron-builder 均**不支持交叉编译**——各平台产物必须在对应系统上构建。已配置 `.github/workflows/release.yml`：推送 `vX.Y.Z` 标签时在 macOS / Windows / Ubuntu runner 上自动构建。
+**关键约束**：electron-builder 与 `cargo tauri` 均**不支持交叉编译**——各平台产物必须在对应系统上构建。已配置 `.github/workflows/release.yml`：推送 `vX.Y.Z` 标签时在 macOS / Windows / Ubuntu runner 上自动构建。
 
 本地构建步骤、CI 流程、产物清单与签名说明详见 **[docs/PACKAGING.md](docs/PACKAGING.md)**。
 
 ## 测试
 
 ```bash
-# 先激活装有 PyQt6 的 venv
+# 先激活装有 PyQt6 的 venv（部分用例需要）
 QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "test_*.py"
 ```
 
@@ -242,6 +240,7 @@ QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "te
 
 - **未签名**：本地 / CI 产物为 ad-hoc 签名，首次打开会被 Gatekeeper / SmartScreen 拦截。正式发布需配置证书。
 - **根目录 `server.py` 已废弃**：硬编码绝对路径，仅保留历史兼容；新功能与打包均使用 `api/server.py`。
+- **PyQt6 桌面版（`main.py` / `gui/`）为遗留实现**：不再是发布目标，发行版为 Electron + Tauri。
 - **Python 版本**：开发环境 3.9 已做兼容加固；CI 与正式打包推荐 **Python ≥ 3.10**（3.11 已验证）。
-- **Linux 运行依赖**：桌面版需要系统库 `libgl1` / `libnss3` 等（CI 中已安装）。
+- **Linux 运行依赖**：桌面版需要系统库 `libnss3`（Electron）/ WebView 开发库（Tauri）等（CI 中已安装）。
 - **K8s Shell 非 TTY**：命令经 `sh -c` 管道执行（不支持交互式编辑器 / `top` 全屏）；交互式终端列入 P2 路线。

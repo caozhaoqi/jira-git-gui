@@ -25,9 +25,11 @@ const state = {
          files: { path: '/', selected: null, editPath: null, entries: [] } },
 };
 
-// Tauri 模式下前端由 Tauri 本体提供，后端在 127.0.0.1:8787；
-// Electron / Web 模式前后端同源，直接用 location.origin。
-const API = window.__TAURI__ ? 'http://127.0.0.1:8787' : location.origin;
+// 统一用 location.origin：
+// - Electron / Web：前后端同源（后端提供页面）；
+// - Tauri：窗口加载的就是后端 URL（端口由 Rust 探测，可能是顺延后的备用端口），
+//   location.origin 天然等于后端地址。不再硬编码 8787，避免端口顺延时连错。
+const API = location.origin;
 
 // ===== API 封装 =====
 async function api(path, opts = {}) {
@@ -212,13 +214,9 @@ function log(msg, level = 'info') {
   if (window.electronAPI?.log) {
     try { window.electronAPI.log(level, msg); } catch (_) {}
   }
-  // Tauri：转发到 Rust 主进程统一落盘
-  if (window.__TAURI__) {
-    try {
-      import('@tauri-apps/api/core').then(m =>
-        m.invoke('log_message', { level, msg })
-      ).catch(() => {});
-    } catch (_) {}
+  // Tauri：转发到 Rust 主进程统一落盘（withGlobalTauri 注入的全局 API）
+  if (window.__TAURI__?.core) {
+    try { window.__TAURI__.core.invoke('log_message', { level, msg }).catch(() => {}); } catch (_) {}
   }
 }
 
@@ -2453,23 +2451,44 @@ async function exportCfLogs() {
   }
 }
 
+// ===== 剪贴板（三端统一） =====
+// Electron 走 preload 暴露的原生 clipboard；Tauri 走 Rust clipboard-manager 插件；
+// 纯 Web 回退浏览器 navigator.clipboard（受页面权限限制，需用户授权）。
+async function readClipboardText() {
+  if (window.electronAPI?.isElectron) {
+    return await window.electronAPI.readClipboardText();
+  }
+  if (window.__TAURI__?.core) {
+    return await window.__TAURI__.core.invoke('plugin:clipboard-manager|read_text');
+  }
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    return await navigator.clipboard.readText();
+  }
+  throw new Error('当前环境不支持剪贴板读取 API');
+}
+
+async function writeClipboardText(text) {
+  if (window.electronAPI?.isElectron) {
+    await window.electronAPI.writeClipboardText(text);
+    return;
+  }
+  if (window.__TAURI__?.core) {
+    await window.__TAURI__.core.invoke('plugin:clipboard-manager|write_text', { text });
+    return;
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+  }
+}
+
 async function saveClipboardToFile() {
   const statusEl = document.getElementById('cf-query-status');
   const btn = document.getElementById('cf-btn-clipboard-save');
 
-  // 1) 读取系统剪贴板文本
-  //    Electron 环境优先走原生 clipboard 模块（不受浏览器 clipboard-read 权限限制），
-  //    纯 Web / HTTPS 环境回退到 navigator.clipboard.readText()。
-  const isElectron = !!(window.electronAPI && window.electronAPI.isElectron);
+  // 1) 读取系统剪贴板文本（统一入口见上方 readClipboardText：Electron / Tauri / 浏览器）
   let text = '';
   try {
-    if (isElectron) {
-      text = await window.electronAPI.readClipboardText();
-    } else if (navigator.clipboard && navigator.clipboard.readText) {
-      text = await navigator.clipboard.readText();
-    } else {
-      throw new Error('当前环境不支持剪贴板读取 API');
-    }
+    text = await readClipboardText();
   } catch (e) {
     statusEl.textContent = `读取剪贴板失败：${e.message}（请先复制文本，并点击本窗口使其获得焦点，再重试）`;
     statusEl.className = 'cf-query-status error';
@@ -2490,13 +2509,8 @@ async function saveClipboardToFile() {
       // 复制文件路径到剪贴板，便于直接粘贴
       let copied = false;
       try {
-        if (isElectron) {
-          await window.electronAPI.writeClipboardText(res.path);
-          copied = true;
-        } else if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(res.path);
-          copied = true;
-        }
+        await writeClipboardText(res.path);
+        copied = true;
       } catch (_) {}
       statusEl.textContent = `已保存剪贴板内容（${res.size} 字符）→ ${res.path}${copied ? '（路径已复制到剪贴板）' : ''}`;
       statusEl.className = 'cf-query-status success';
@@ -3264,31 +3278,28 @@ connectSSE();
 loadRepoMappings(); // 后台加载 .env 仓库映射，供后续自动填充本地目录
 
 // Tauri 特有：接收 Rust 主进程和 Python 日志，同步到 UI 日志面板
-if (window.__TAURI__) {
+// （withGlobalTauri 注入 window.__TAURI__，纯静态页无需打包器即可调用 IPC）
+if (window.__TAURI__?.core) {
   try {
-    import('@tauri-apps/api/core').then(m =>
-      m.invoke('get_app_info').then(info => {
-        if (info?.log_file) {
-          log(`[Tauri] 运行环境：${info.platform}  日志文件：${info.log_file}`);
-        }
-      }).catch(() => {})
-    ).catch(() => {});
-    import('@tauri-apps/api/event').then(m =>
-      m.listen('log:append', (event) => {
-        const text = event.payload?.text || '';
-        if (!text) return;
-        const el = document.getElementById('log-content');
-        if (!el) return;
-        const line = document.createElement('div');
-        line.className = 'log-line';
-        if (/\[error\]|\[py:err\]/.test(text)) line.classList.add('error');
-        else if (/\[warning\]/.test(text)) line.classList.add('warning');
-        line.textContent = text;
-        el.appendChild(line);
-        while (el.children.length > 3000) el.removeChild(el.firstChild);
-        el.scrollTop = el.scrollHeight;
-      })
-    ).catch(() => {});
+    window.__TAURI__.core.invoke('get_app_info').then(info => {
+      if (info?.log_file) {
+        log(`[Tauri] 运行环境：${info.platform}  日志文件：${info.log_file}`);
+      }
+    }).catch(() => {});
+    window.__TAURI__.event.listen('log:append', (event) => {
+      const text = event.payload?.text || '';
+      if (!text) return;
+      const el = document.getElementById('log-content');
+      if (!el) return;
+      const line = document.createElement('div');
+      line.className = 'log-line';
+      if (/\[error\]|\[py:err\]/.test(text)) line.classList.add('error');
+      else if (/\[warning\]/.test(text)) line.classList.add('warning');
+      line.textContent = text;
+      el.appendChild(line);
+      while (el.children.length > 3000) el.removeChild(el.firstChild);
+      el.scrollTop = el.scrollHeight;
+    }).catch(() => {});
   } catch (_) {}
 }
 

@@ -4,7 +4,7 @@
 运行（任选其一）：
     ./venv/bin/python main.py        # 直接用项目 venv
     python3 main.py                  # 任意 python 亦可，main.py 会自动切到 venv
-    ./run.sh                         # 一键启动脚本（macOS / Linux）
+    ./scripts/run.sh                # 一键启动脚本（macOS / Linux / Windows-Git-Bash）
     open run.command                 # macOS 双击启动
 """
 import os

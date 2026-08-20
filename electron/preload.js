@@ -33,10 +33,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('clipboard:write-text', text);
   },
 
-  getLogPath() {
-    return ipcRenderer.invoke('log:get-path');
-  },
-
   /** @param {(text: string) => void} cb */
   onAppLog(cb) {
     const handler = (_ev, payload) => {

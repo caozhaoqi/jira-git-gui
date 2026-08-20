@@ -2,12 +2,12 @@
 
 > 📘 中文文档：[README.zh-CN.md](README.zh-CN.md)
 
-A unified desktop console for **Jira Git Integration** (Xiplink / BigBrassBand) **and Kubernetes daily operations**. It ships in two desktop flavors that share the same Python backend:
+A unified desktop console for **Jira Git Integration** (Xiplink / BigBrassBand) **and Kubernetes daily operations**. It ships in **two desktop flavors** that share the same Python backend and vanilla web frontend:
 
-- **PyQt6 desktop app** (`main.py`): pure Python + PyQt6, no browser required; all network requests run on background threads so the UI never freezes.
-- **Electron / Web app** (`electron/` + `web/`): Electron loads the same Web frontend for cross-platform packaging; you can also just open it in any browser against the local backend.
+- **Electron** (`electron/` + `web/`): cross-platform desktop app built on Electron + a Chromium/WebKit webview.
+- **Tauri** (`tauri/` + `web/`): lightweight desktop app using the OS-native WebView — far smaller bundle (tens of MB vs. hundreds of MB).
 
-> Both frontends share the same Python backend (`api/server.py`, default port 8787) and are feature-equivalent.
+Both load the same web frontend against the shared Python backend (`api/server.py`, default port 8787) and are feature-equivalent. The Python backend (FastAPI) is bundled into each desktop app, so no separate server process or browser is required by end users.
 
 ## Features at a glance
 
@@ -45,10 +45,11 @@ A unified desktop console for **Jira Git Integration** (Xiplink / BigBrassBand) 
 
 ```
 jira-git-gui/
-├── main.py                 # Entry: creates QApplication + MainWindow (PyQt6 desktop app)
 ├── run_merge.py            # CLI: merge remote repos' latest code into local (cache-first + sync history)
-├── k8s_preview.html        # Self-contained demo of the K8s YAML cleaning (no cluster needed)
-├── requirements.txt        # PyQt6 / httpx / fastapi / uvicorn
+├── scripts/                # Launchers & build scripts (cross-platform: *.sh + *.ps1)
+├── config/                 # Local config JSON (cf_accounts.*, hcm_whitelist.*) — see .gitignore
+├── tools/k8s_preview.html  # Self-contained demo of the K8s YAML cleaning (no cluster needed)
+├── requirements.txt        # fastapi / uvicorn / httpx / pyinstaller
 ├── core/                   # Core logic layer (no GUI dependency, independently testable)
 │   ├── app_paths.py        # Runtime writable dirs (relocates to ~/.jira-git-gui when frozen)
 │   ├── constants.py        # Directories / proxy / timeouts
@@ -59,40 +60,27 @@ jira-git-gui/
 │   ├── differ.py           # Diffing: compute_diff / scan_local / merge_to_local / file_diff / canonical_text
 │   ├── throttle.py         # Global token-bucket rate limiter (DEFAULT_REQUEST_QPS)
 │   ├── sync_history.py     # Sync history (git-log-like)
-│   ├── logger.py           # Rotating file log + LogBridge (UI bridge) + global excepthook (PyQt6 lazy-loaded)
+│   ├── logger.py           # Rotating file log + LogBridge (UI bridge) + global excepthook
 │   ├── safe.py             # safe_slot decorator: catches slot exceptions, prevents UI crashes
 │   ├── errors.py           # Unified exception types
 │   ├── k8s_manager.py      # K8s core: env/kubeconfig resolution, YAML get-apply with cleaning,
 │   │                       #   events / describe / top, exec & file ops, kubectl auto-location
 │   └── k8s_snapshot.py     # Snapshot engine: Pod status + log grabbing, severity, HTML/JSON report
-├── gui/                    # UI layer (PyQt6 widgets)
-│   ├── main_window.py      # Layout + signal binding + async task orchestration
-│   ├── connect_dialog.py   # Connection settings (url / account / mode / PAT / Cookie / repo)
-│   ├── repo_panel.py       # Discover repos / specify repo manually
-│   ├── tree_panel.py       # Lazy file tree (O(1) index)
-│   ├── preview_panel.py    # Code preview
-│   ├── diff_panel.py       # Diff view (zero-dependency syntax highlight)
-│   ├── highlighter.py      # Zero-dependency syntax highlighter (QSyntaxHighlighter)
-│   ├── styles.py           # Light / dark dual-theme QSS
-│   ├── commit_panel.py     # Commit history
-│   ├── log_panel.py        # Logs
-│   └── k8s_panel.py        # K8s tab (snapshot / YAML / network / events / top / shell / files)
-├── workers/                # Async task layer
-│   └── tasks.py            # Generic QThread Worker (auto on_log callback; full traceback on error)
-├── api/                    # Backend shared by Web / Electron / Tauri
+├── api/                    # Python backend, shared by Web / Electron / Tauri
 │   └── server.py           # FastAPI: 50+ REST endpoints + SSE push + WebSocket shell, port 8787
-├── electron/               # Electron desktop app
-│   ├── main.js             # Main process: Python backend lifecycle + BrowserWindow + log bridge
-│   ├── preload.js          # Exposes window.electronAPI (contextIsolation isolated)
-│   └── package.json        # name / version / start|dev|dist scripts + electron-builder config
-├── web/                    # Web frontend (shared by Electron / browser, zero framework deps)
+├── web/                    # Web frontend (shared by Electron / Tauri / browser, zero framework deps)
 │   ├── index.html          # Page structure (tabs + K8s panes + connection dialog)
 │   ├── app.js              # Frontend logic (REST + SSE + WebSocket, pure vanilla JS)
 │   ├── styles.css          # Design system (CSS variables, light / dark dual theme)
 │   ├── k8s.css             # K8s-specific layout & visuals
 │   └── log_viewer.*        # Dedicated full-screen log page (search / highlight / pod & container switch)
-├── tauri/                  # Tauri shell (optional 3rd desktop flavor)
-├── build/                  # PyInstaller specs (gui / backend)
+├── electron/               # Electron desktop app (released)
+│   ├── main.js             # Main process: Python backend lifecycle + BrowserWindow + log bridge
+│   ├── preload.js          # Exposes window.electronAPI (contextIsolation isolated)
+│   └── package.json        # name / version / start|dev|dist scripts + electron-builder config
+├── tauri/                  # Tauri desktop app (released)
+│   └── src-tauri/          # Rust shell: Python backend lifecycle + WebView window
+├── build/                  # PyInstaller spec for the frozen backend (shared by Electron & Tauri)
 ├── tests/                  # Unit tests (unit before integration, version-controlled)
 ├── store/                  # Runtime artifacts (git clone / downloads, gitignored)
 ├── logs/                   # Runtime logs (full traceback, gitignored)
@@ -100,11 +88,13 @@ jira-git-gui/
     └── PACKAGING.md        # Packaging & cross-platform release details
 ```
 
+> **Legacy note**: `main.py`, `gui/` and `workers/` contain the older PyQt6 desktop implementation. They are kept for reference / local development but are **not** part of the published releases (which are Electron + Tauri). The deprecated root `server.py` is also retained only for historical compatibility; all released builds use `api/server.py`.
+
 Dependency direction: `gui → workers → core`; `core` does not depend back on GUI, so it can be reused and tested in isolation.
 
 ## Running
 
-### PyQt6 desktop app
+### Web / Electron app (shared backend)
 
 ```bash
 # 1. Create and activate a venv (skip if venv already exists)
@@ -114,21 +104,19 @@ source venv/bin/activate
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Launch (any one)
-./venv/bin/python main.py     # directly with project venv
-python3 main.py              # any python works: main.py auto-switches to venv
-./run.sh                     # one-click launcher (macOS / Linux)
-```
-
-> **Self-healing launch**: `main.py` has a built-in venv self-check — if the current interpreter lacks `PyQt6`, it auto re-execs into the project's own `venv` interpreter before starting.
-
-### Web / Electron app (shared backend)
-
-```bash
-# Start the backend (open http://127.0.0.1:8787 in a browser)
+# 3. Start the backend (open http://127.0.0.1:8787 in a browser)
 PYTHONPATH=. ./venv/bin/python -m api.server                # default port 8787
 PYTHONPATH=. ./venv/bin/python -m api.server --port 9000    # custom port
+
+# Or use the one-click launcher
+./scripts/run.sh             # Web backend + opens browser (macOS / Linux / Windows-Git-Bash)
+./scripts/run_web.sh         # same as above
+./scripts/run_web.sh --electron   # launch the Electron desktop app instead
 ```
+
+If `npm` / Electron download is blocked on your machine, just start the backend and open `http://127.0.0.1:8787/` in any browser — the frontend is the same page Electron / Tauri load.
+
+### Electron desktop app
 
 ```bash
 cd electron
@@ -140,7 +128,18 @@ npm run dist:win   # package Windows installer (nsis)
 npm run dist:linux # package Linux installer (AppImage + deb)
 ```
 
-> If `npm` / Electron download is blocked on your machine, just start the backend and open `http://127.0.0.1:8787/` in any browser — the frontend is the same page Electron loads.
+### Tauri desktop app
+
+```bash
+# Requires Rust (https://rustup.rs) and system WebView dev libs
+./scripts/build-tauri.sh            # release build → .app / .dmg (macOS), .msi (Windows), .AppImage+.deb (Linux)
+cargo tauri dev                     # live dev (hot-reload) from tauri/
+
+# Windows (PowerShell)
+.\scripts\build-tauri.ps1
+```
+
+> The Tauri build embeds the same frozen Python backend, so no separate server is needed at runtime.
 
 ## K8s Ops Module
 
@@ -150,10 +149,10 @@ Environments (dev / test / prod …) are stored in `~/.config/jira-git-gui/k8s_e
 
 ### Log viewer (`web/log_viewer.html`)
 
-Open from the snapshot log panel ("⧉ open in new page") or directly:
+Open from the snapshot log panel ("⧉ open in new page") or directly (port is the actual runtime port, default 8787):
 
 ```
-http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
+/web/log_viewer.html?pod=<pod>&env=<env>
 ```
 
 - **Pod switching**: pick any Pod from the top dropdown — logs, containers and namespace switch automatically.
@@ -210,21 +209,20 @@ The app **auto-reads `.env` at the project root** as the default connection conf
 | `username` | Account name | for PAT clone, use the PAT owner's account |
 | `mode` | Mode | `pat` (default) or `cookie` |
 | `personal_access_token` | PAT | also tolerates `persoanl_access_token` |
-| `cookie` | Session cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
+| `cookie` | Session cookie | format: `JSESSIONID=...; atlassian.xsrf.token=...` |
 
 > Real environment variables (uppercase keys, e.g. `JIRA_URL`) take priority over `.env`. After frozen packaging, `.env` is searched in both `~/.jira-git-gui` and the executable's directory.
 
 ## Packaging & Release (Cross-platform)
 
-Three release flavors, all sharing the same Python backend:
+Two released desktop flavors, both embedding the same frozen Python backend:
 
 | Flavor | Entry | Packaging | Artifact |
 | --- | --- | --- | --- |
-| PyQt6 desktop app | `main.py` | `pyinstaller build/pyinstaller_gui.spec` | `.app` (macOS) / `.exe` (Windows) |
-| Web app | Browser | `pyinstaller build/pyinstaller_backend.spec` | single-file backend `jira-git-backend` |
-| Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` / `.exe` (nsis) / `.AppImage`+`.deb` |
+| Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` (macOS) / `.exe` (Windows, nsis) / `.AppImage`+`.deb` (Linux) |
+| Tauri desktop app | `tauri/` | `cargo tauri build` (embeds frozen backend) | `.app`+`.dmg` (macOS) / `.msi` (Windows) / `.AppImage`+`.deb` (Linux) |
 
-**Key constraint**: neither PyInstaller nor electron-builder supports cross-compilation — each platform's artifact must be built on that OS. A `.github/workflows/release.yml` auto-builds on macOS / Windows / Ubuntu runners when a `vX.Y.Z` tag is pushed.
+**Key constraint**: neither electron-builder nor `cargo tauri` supports cross-compilation — each platform's artifact must be built on that OS. A `.github/workflows/release.yml` auto-builds on macOS / Windows / Ubuntu runners when a `vX.Y.Z` tag is pushed.
 
 Detailed local build steps, CI flow, artifact table, and signing notes are in **[docs/PACKAGING.md](docs/PACKAGING.md)**.
 
@@ -240,6 +238,7 @@ Coverage: resume download, client optimizations (binary download / branch cache 
 
 - **Unsigned**: local / CI artifacts are ad-hoc; first open is blocked by Gatekeeper / SmartScreen. Configure a cert for official release.
 - **Root `server.py` is deprecated**: hardcoded absolute path, kept only for historical compatibility; new features use `api/server.py`.
+- **PyQt6 desktop (`main.py` / `gui/`) is legacy**: no longer a release target; the shipped apps are Electron + Tauri.
 - **Python version**: dev env 3.9 is compatibility-hardened; CI and official packaging recommend **Python ≥ 3.10** (3.11 verified).
-- **Linux runtime deps**: the desktop app needs system libs `libgl1` / `libnss3` etc.
+- **Linux runtime deps**: the desktop apps need system libs `libnss3` (Electron) / WebView dev libs (Tauri) etc.
 - **K8s shell is non-TTY**: commands run via `sh -c` pipes (no interactive editor / `top` full-screen); interactive terminals are a P2 roadmap item.
