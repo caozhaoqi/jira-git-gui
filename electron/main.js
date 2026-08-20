@@ -94,7 +94,7 @@ if (!app || typeof app.whenReady !== 'function') {
   logErr('To run Electron from command line:');
   logErr('  1. Open a native terminal (not VS Code terminal)');
   logErr('  2. cd /Users/caozhaoqi/PycharmProjects/jira-git-gui');
-  logErr('  3. ./run_web.sh --electron');
+  logErr('  3. ./scripts/run_web.sh --electron');
   process.exit(1);
 }
 
@@ -131,7 +131,20 @@ function getBackendLaunch() {
     const cmd = path.join(process.resourcesPath, 'backend', exeName);
     return { cmd, args: ['--port', port] };
   }
-  return { cmd: path.join(PROJECT_ROOT, 'venv', 'bin', 'python'), args: ['-m', 'api.server', '--port', port] };
+  // 开发态 Python：Windows 的 venv 布局是 Scripts/python.exe，macOS/Linux 是 bin/python；
+  // venv 不存在时回退到 PATH 上的 python/python3，避免直接 spawn 失败。
+  const venvRoot = path.join(PROJECT_ROOT, 'venv');
+  const winPy = path.join(venvRoot, 'Scripts', 'python.exe');
+  const unixPy = path.join(venvRoot, 'bin', 'python');
+  let cmd;
+  if (fs.existsSync(winPy)) {
+    cmd = winPy;
+  } else if (fs.existsSync(unixPy)) {
+    cmd = unixPy;
+  } else {
+    cmd = process.platform === 'win32' ? 'python' : 'python3';
+  }
+  return { cmd, args: ['-m', 'api.server', '--port', port] };
 }
 
 function startPythonBackend() {

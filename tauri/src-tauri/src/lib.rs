@@ -10,23 +10,53 @@ use tauri::Emitter;
 use tauri::Manager;
 
 // ---------------------------------------------------------------------------
+//  Constants
+// ---------------------------------------------------------------------------
+/// 后端首选端口；被占用时自动向后探测（见 pick_backend_port）。
+const BACKEND_PORT: u16 = 8787;
+/// 端口被占用时最多向后尝试的候选个数。
+const PORT_SCAN_RANGE: u16 = 20;
+
+// ---------------------------------------------------------------------------
 //  State
 // ---------------------------------------------------------------------------
 struct BackendProcess(Mutex<Option<Child>>);
 
+/// 实际生效的后端端口（启动时探测确定，供 IPC 查询）。
+struct BackendPort(u16);
+
+// ---------------------------------------------------------------------------
+//  Port helpers
+// ---------------------------------------------------------------------------
+fn is_port_free(port: u16) -> bool {
+    std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+}
+
+/// 从 BACKEND_PORT 起找第一个空闲端口；范围内全被占用则返回 None。
+fn pick_backend_port() -> Option<u16> {
+    (BACKEND_PORT..BACKEND_PORT.saturating_add(PORT_SCAN_RANGE)).find(|p| is_port_free(*p))
+}
+
+fn backend_origin(port: u16) -> String {
+    format!("http://127.0.0.1:{}", port)
+}
+
 // ---------------------------------------------------------------------------
 //  Path helpers (mirrors electron/main.js)
 // ---------------------------------------------------------------------------
+/// 定位项目根目录（= 仓库根，含 web/、api/、venv/ 等）。
+/// CARGO_MANIFEST_DIR = <项目根>/tauri/src-tauri，向上两级即项目根。
+/// 用 canonicalize 规范化，避免软链接/相对路径导致层级偏差。
 fn project_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR = .../jira-git-gui/tauri/src-tauri
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent() // src-tauri
-        .unwrap()
-        .parent() // tauri
-        .unwrap()
-        .parent() // jira-git-gui
-        .unwrap()
-        .to_path_buf()
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    std::fs::canonicalize(
+        manifest
+            .parent() // src-tauri
+            .unwrap()
+            .parent() // tauri
+            .unwrap(),
+    )
+    .unwrap_or_else(|_| manifest.parent().unwrap().parent().unwrap().to_path_buf())
 }
 
 fn data_dir() -> PathBuf {
@@ -78,12 +108,35 @@ fn log_main(app_handle: &tauri::AppHandle, log_file: &PathBuf, msg: &str, level:
 // ---------------------------------------------------------------------------
 //  Backend process management
 // ---------------------------------------------------------------------------
-fn get_backend_launch(project_root: &PathBuf, resource_dir: &PathBuf) -> (PathBuf, Vec<String>) {
-    let port = "8787".to_string();
+/// 定位开发态使用的 Python 解释器：优先项目 venv（按平台区分目录布局），
+/// venv 不存在时回退到 PATH 上的 python3 / python，避免直接 spawn 失败。
+fn dev_python(project_root: &PathBuf) -> PathBuf {
+    let venv = project_root.join("venv");
+    let candidates: [PathBuf; 2] = [
+        venv.join("bin").join("python"),          // macOS / Linux
+        venv.join("Scripts").join("python.exe"),  // Windows
+    ];
+    for c in candidates.iter() {
+        if c.exists() {
+            return c.clone();
+        }
+    }
+    if cfg!(target_os = "windows") {
+        PathBuf::from("python")
+    } else {
+        PathBuf::from("python3")
+    }
+}
+
+fn get_backend_launch(
+    project_root: &PathBuf,
+    resource_dir: &PathBuf,
+    port: u16,
+) -> (PathBuf, Vec<String>) {
+    let port = port.to_string();
     if cfg!(debug_assertions) {
-        let python = project_root.join("venv").join("bin").join("python");
         (
-            python,
+            dev_python(project_root),
             vec!["-m".into(), "api.server".into(), "--port".into(), port],
         )
     } else {
@@ -98,8 +151,13 @@ fn get_backend_launch(project_root: &PathBuf, resource_dir: &PathBuf) -> (PathBu
     }
 }
 
-fn start_backend(project_root: &PathBuf, data_dir: &PathBuf, resource_dir: &PathBuf) -> std::io::Result<Child> {
-    let (cmd, args) = get_backend_launch(project_root, resource_dir);
+fn start_backend(
+    project_root: &PathBuf,
+    data_dir: &PathBuf,
+    resource_dir: &PathBuf,
+    port: u16,
+) -> std::io::Result<Child> {
+    let (cmd, args) = get_backend_launch(project_root, resource_dir, port);
 
     Command::new(&cmd)
         .args(&args)
@@ -110,13 +168,13 @@ fn start_backend(project_root: &PathBuf, data_dir: &PathBuf, resource_dir: &Path
         .spawn()
 }
 
-async fn wait_for_backend(max_retries: u32) -> Result<(), String> {
+async fn wait_for_backend(max_retries: u32, port: u16) -> Result<(), String> {
     let client = reqwest::Client::new();
-    let url = "http://127.0.0.1:8787/api/status";
+    let url = format!("{}/api/status", backend_origin(port));
 
     for i in 0..max_retries {
         let result = client
-            .get(url)
+            .get(url.as_str())
             .timeout(Duration::from_millis(800))
             .send()
             .await;
@@ -191,6 +249,49 @@ fn pipe_child_output(
 }
 
 // ---------------------------------------------------------------------------
+//  Backend shutdown
+// ---------------------------------------------------------------------------
+/// 优雅关闭 Python 后端：Unix 先送 SIGTERM 等其自行退出，超时再 SIGKILL；
+/// Windows 直接 TerminateProcess。对齐 Electron 的 pyProc.kill('SIGTERM') 行为，
+/// 避免关闭窗口后 Python 进程变成孤儿进程继续占用端口。
+fn kill_backend(app_handle: &tauri::AppHandle) {
+    let Some(state) = app_handle.try_state::<BackendProcess>() else {
+        return;
+    };
+    let Ok(mut guard) = state.0.lock() else {
+        return;
+    };
+    let Some(mut child) = guard.take() else {
+        return; // 已经清理过，避免重复 kill
+    };
+
+    let pid = child.id();
+
+    #[cfg(unix)]
+    {
+        // SIGTERM：让 uvicorn 执行 shutdown 钩子，落盘未写完的日志/缓存
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
+        for _ in 0..20 {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    println!("Backend exited after SIGTERM (pid={})", pid);
+                    return;
+                }
+                Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+                Err(_) => break,
+            }
+        }
+        println!("Backend ignored SIGTERM, sending SIGKILL (pid={})", pid);
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+    println!("Backend terminated (pid={})", pid);
+}
+
+// ---------------------------------------------------------------------------
 //  Tauri commands (IPC → frontend)
 // ---------------------------------------------------------------------------
 
@@ -204,11 +305,14 @@ struct AppInfo {
 }
 
 #[tauri::command]
-fn get_app_info(state: tauri::State<'_, LogFilePath>) -> AppInfo {
+fn get_app_info(
+    state: tauri::State<'_, LogFilePath>,
+    port: tauri::State<'_, BackendPort>,
+) -> AppInfo {
     AppInfo {
         platform: std::env::consts::OS.to_string(),
         is_tauri: true,
-        backend_url: "http://127.0.0.1:8787".to_string(),
+        backend_url: backend_origin(port.0),
         log_file: state.0.to_string_lossy().to_string(),
         is_dev: cfg!(debug_assertions),
     }
@@ -243,12 +347,60 @@ pub fn run() {
     );
     log::info!("Project root: {}", project_root.display());
     log::info!("Log file: {}", log_file.display());
-    log::info!("Backend URL: http://127.0.0.1:8787");
+
+    // 端口探测：首选 8787，被占用则向后顺延，避免"端口已被占用"直接启动失败
+    // （常见于上次异常退出留下的残留后端，或用户手动跑了 run_web.sh）。
+    let port = match pick_backend_port() {
+        Some(p) => p,
+        None => {
+            log::error!(
+                "No free port in range {}..{}, aborting.",
+                BACKEND_PORT,
+                BACKEND_PORT + PORT_SCAN_RANGE
+            );
+            eprintln!(
+                "启动失败：端口 {}..{} 全部被占用，请先关闭占用这些端口的进程。",
+                BACKEND_PORT,
+                BACKEND_PORT + PORT_SCAN_RANGE
+            );
+            std::process::exit(1);
+        }
+    };
+    if port != BACKEND_PORT {
+        log::warn!("Port {} busy, falling back to {}", BACKEND_PORT, port);
+    }
+    log::info!("Backend URL: {}", backend_origin(port));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(LogFilePath(log_file.clone()))
+        .manage(BackendPort(port))
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // SIGTERM / SIGINT 兜底：外部 kill（如系统关机、进程管理工具）时
+            // 走正常退出流程，让 RunEvent::Exit 的清理逻辑得以执行。
+            #[cfg(unix)]
+            {
+                let h = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    use tokio::signal::unix::{signal, SignalKind};
+                    let mut term = match signal(SignalKind::terminate()) {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    };
+                    let mut int = match signal(SignalKind::interrupt()) {
+                        Ok(s) => s,
+                        Err(_) => return,
+                    };
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                    }
+                    log::info!("Received SIGTERM/SIGINT, exiting gracefully.");
+                    h.exit(0);
+                });
+            }
 
             // Resolve resource directory for backend binary
             let resource_dir = app
@@ -259,7 +411,7 @@ pub fn run() {
             // ---- Launch Python backend ----
             log_main(&app_handle, &log_file, "Launching Python backend...", "info");
 
-            let mut child = match start_backend(&project_root, &data_dir, &resource_dir) {
+            let mut child = match start_backend(&project_root, &data_dir, &resource_dir, port) {
                 Ok(c) => {
                     log_main(
                         &app_handle,
@@ -290,7 +442,7 @@ pub fn run() {
             let wait_result = tauri::async_runtime::block_on(async {
                 tokio::time::timeout(
                     Duration::from_millis(timeout_ms),
-                    wait_for_backend(30),
+                    wait_for_backend(30, port),
                 )
                 .await
             });
@@ -326,9 +478,10 @@ pub fn run() {
             }
 
             // ---- Create window ----
-            // 始终加载后端 URL，由 Python 后端提供前端（与 Electron 行为一致）
+            // 始终加载后端 URL，由 Python 后端提供前端（与 Electron 行为一致）。
+            // 端口来自启动时探测结果，可能是顺延后的备用端口。
             let url = tauri::WebviewUrl::External(
-                "http://127.0.0.1:8787".parse().unwrap(),
+                backend_origin(port).parse().unwrap(),
             );
 
             tauri::WebviewWindowBuilder::new(app, "main", url)
@@ -345,8 +498,46 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 log::info!("Window destroyed: {}", window.label());
+                // 窗口销毁即清理 Python 后端，防止残留孤儿进程。
+                // 若随后应用退出（on_exit）会再次调用，kill_backend 幂等。
+                kill_backend(window.app_handle());
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // 兜底清理：进程真正退出时确保 Python 后端被终止。
+            // 窗口 Destroyed 时已 kill 过一次，这里幂等。
+            if let tauri::RunEvent::Exit = event {
+                log::info!("App exiting, cleaning up Python backend.");
+                kill_backend(app_handle);
+            }
+        });
+}
+
+// ---------------------------------------------------------------------------
+//  Unit tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backend_origin_format() {
+        assert_eq!(backend_origin(8787), "http://127.0.0.1:8787");
+        assert_eq!(backend_origin(8791), "http://127.0.0.1:8791");
+    }
+
+    #[test]
+    fn test_pick_backend_port_skips_busy() {
+        // 占用一个端口，验证探测会跳过它
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let busy_port = listener.local_addr().unwrap().port();
+        assert!(!is_port_free(busy_port));
+        // 探测应从 BACKEND_PORT 起找空闲端口，必然可用
+        let picked = pick_backend_port();
+        assert!(picked.is_some());
+        assert!(is_port_free(picked.unwrap()));
+        drop(listener);
+    }
 }

@@ -207,15 +207,19 @@ def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
     local = None
     example = None
     for root in roots:
-        p = root / "cf_accounts.local.json"
-        if p.exists():
-            local = p
+        for cand in (root / "cf_accounts.local.json", root / "config" / "cf_accounts.local.json"):
+            if cand.exists():
+                local = cand
+                break
+        if local is not None:
             break
     if local is None:
         for root in roots:
-            p = root / "cf_accounts.example.json"
-            if p.exists():
-                example = p
+            for cand in (root / "cf_accounts.example.json", root / "config" / "cf_accounts.example.json"):
+                if cand.exists():
+                    example = cand
+                    break
+            if example is not None:
                 break
     src = local or example
     if src is None:
@@ -272,17 +276,17 @@ def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
     }
     roots = _env_search_roots(project_root)
     for root in roots:
-        p = root / "hcm_whitelist.json"
-        if p.exists():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                return defaults
-            if not isinstance(data, dict):
-                return defaults
-            merged = {k: dict(v) for k, v in defaults.items()}
-            for k, v in data.items():
-                if k in merged and isinstance(v, dict):
-                    merged[k].update(v)
-            return merged
+        for p in (root / "hcm_whitelist.json", root / "config" / "hcm_whitelist.json"):
+            if p.exists():
+                try:
+                    data = json.loads(p.read_text(encoding="utf-8"))
+                except Exception:
+                    return defaults
+                if not isinstance(data, dict):
+                    return defaults
+                merged = {k: dict(v) for k, v in defaults.items()}
+                for k, v in data.items():
+                    if k in merged and isinstance(v, dict):
+                        merged[k].update(v)
+                return merged
     return defaults

@@ -1,14 +1,13 @@
 # 打包与发布指南（jira-git-gui）
 
-本工具提供 **三种发布形态**，共用同一个 Python 后端（`api/server.py`）：
+本项目**发布两种桌面形态**，两者共用同一个冻结后的 Python 后端（`api/server.py`）：
 
 | 形态 | 入口 | 适用场景 | 打包方式 |
 |------|------|---------|---------|
-| **PyQt6 桌面版** | `main.py` → `gui/main_window.py` | 原生桌面体验，独立运行（不依赖后端服务） | PyInstaller（`build/pyinstaller_gui.spec`） |
-| **Web 版** | 浏览器访问 `127.0.0.1:8787` | 最轻量、最易跨平台 | PyInstaller 冻结后端（`build/pyinstaller_backend.spec`） |
-| **Electron 桌面版** | `electron/main.js` | 原生壳 + 浏览器引擎，体验接近独立 App | electron-builder（打包冻结后的后端） |
+| **Electron 桌面版** | `electron/main.js` | 原生壳 + Chromium/WebKit 引擎，体验接近独立 App | electron-builder（内嵌冻结后的后端） |
+| **Tauri 桌面版** | `tauri/src-tauri/` | 原生壳 + 系统 WebView，包体小（几十 MB） | `cargo tauri build`（内嵌冻结后的后端） |
 
-> 跨平台结论：**可以跨平台，但必须按目标系统分别构建**。PyInstaller 与 electron-builder
+> 跨平台结论：**可以跨平台，但必须按目标系统分别构建**。electron-builder 与 `cargo tauri`
 > 均**不支持交叉编译**——macOS 出 `.app`/`.dmg`、Windows 出 `.exe`/`.msi`、Linux 出
 > `AppImage`/`deb` 需在各自系统（或对应 CI runner）上构建。推荐用 GitHub Actions
 > 三条 runner 自动出包（见 `.github/workflows/release.yml`）。
@@ -19,96 +18,80 @@
 
 项目内置跨平台编排脚本 `build/build.py`，会**自动识别当前操作系统**并构建该平台的产物
 （在 macOS 上出 `.app`/`.dmg`、Windows 上出 `.exe`/`.msi`、Linux 上出可执行/`AppImage`）。
-缺失的 Python 依赖会被自动补装，Electron 形态会自动先把冻结后端嵌入资源目录。
+缺失的 Python 依赖会被自动补装，Electron / Tauri 形态会自动先把冻结后端嵌入资源目录。
 
 ```bash
 # macOS / Linux
-./build.sh --flavor all           # 构建本机支持的全部形态（gui + backend + electron）
-./build.sh --flavor backend       # 仅 Web 版后端
-./build.sh --list                 # 列出本机可构建形态
+./scripts/build.sh --flavor electron   # 构建 Electron 桌面版
+./scripts/build.sh --flavor tauri      # 构建 Tauri 桌面版
+./scripts/build.sh --flavor all        # 构建本机支持的全部发布形态
+./scripts/build.sh --list              # 列出本机可构建形态
 
 # Windows (PowerShell)
-.\build.ps1 --flavor all
-.\build.ps1 --flavor gui
+.\scripts\build.ps1 --flavor electron
+.\scripts\build.ps1 --flavor tauri
 
 # 也可直接调 Python（等价）
-python build/build.py --flavor all
+python build/build.py --flavor tauri
 python build/build.py --no-deps    # 跳过依赖自动安装（假定已装好 requirements.txt + pyinstaller）
 ```
 
 | 参数 | 含义 |
 |------|------|
-| `--flavor gui` | PyQt6 桌面版（`.app` / `.exe` / 可执行） |
-| `--flavor backend` | 单文件后端（Web 版） |
-| `--flavor electron` | Electron 桌面版（会先内置冻结后端） |
-| `--flavor all` | 上述三种（默认） |
+| `--flavor electron` | Electron 桌面版 |
+| `--flavor tauri` | Tauri 桌面版 |
+| `--flavor all` | 本机支持的全部发布形态（默认） |
 | `--list` | 仅列出本机可构建形态 |
 | `--no-deps` | 跳过依赖自动安装 |
 
-> 脚本逻辑见 `build/build.py`；`build.sh` / `build.ps1` 只是切到项目根后转发参数的薄包装。
+> 脚本逻辑见 `build/build.py`；`scripts/build.sh` / `scripts/build.ps1` 只是切到项目根后转发参数的薄包装。
 > **仍需按 OS 构建**：它不是交叉编译器，只负责「在本机一键出本机包」。三端齐发请用 CI。
 
 ---
 
-## 一、前置准备（三种形态通用）
+## 一、前置准备（两种形态通用）
 
 ```bash
-# 1) Python 依赖（fastapi/uvicorn 仅 Web/Electron 形态需要，本地开发也可能缺失）
+# 1) Python 依赖
 python -m pip install -r requirements.txt
-pip install pyinstaller                       # GUI / 后端冻结
+pip install pyinstaller                       # 冻结后端用
 
 # 2) Node 依赖（仅 Electron 形态）
 cd electron && npm install && cd ..
+
+# 3) Rust 工具链（仅 Tauri 形态）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # 安装 rustup
+cargo install tauri-cli                                        # 安装 Tauri CLI
 ```
 
 - **Python 版本**：代码使用 PEP 604 联合类型（`X | None`），需 **Python ≥ 3.10**；
-  `gui/highlighter.py`、`gui/repo_panel.py` 已加 `from __future__ import annotations` 以兼容 3.9。
   CI 使用 `3.11`，本地建议 ≥ 3.10。
 - **运行时数据目录**：冻结后程序位于只读包内，日志 / 缓存 / 下载 / 会话统一写到
   `~/.jira-git-gui/`（开发态写到项目根）。由 `core/app_paths.get_data_root()` 控制，
-  可通过环境变量 `JIRA_GIT_DATA_DIR` 覆盖（Electron 壳据此与后端对齐目录）。
+  可通过环境变量 `JIRA_GIT_DATA_DIR` 覆盖（桌面壳据此与后端对齐目录）。
 
 ---
 
-## 二、PyQt6 桌面版
+## 二、冻结 Python 后端（两种形态共用的前置步骤）
 
-```bash
-pyinstaller build/pyinstaller_gui.spec --noconfirm
-```
-
-产出：
-- macOS：`dist/JiraGitGUI.app`
-- Windows：`dist/JiraGitGUI/JiraGitGUI.exe`
-- Linux ：`dist/JiraGitGUI/`（可再用 `linuxdeploy` 包成 AppImage）
-
-验证（macOS，无显示器时用 offscreen）：
-```bash
-QT_QPA_PLATFORM=offscreen dist/JiraGitGUI.app/Contents/MacOS/JiraGitGUI &
-# 日志落在 ~/.jira-git-gui/logs/jira_git_gui.log
-```
-
----
-
-## 三、Web 版（冻结后端）
+Electron 与 Tauri 都不直接打包 Python 源码，而是把**冻结好的后端可执行**作为资源嵌入安装包。
 
 ```bash
 pyinstaller build/pyinstaller_backend.spec --noconfirm
 # 产出：dist/jira-git-backend（macOS / Linux）或 dist/jira-git-backend.exe（Windows）
-./dist/jira-git-backend --port 8787
-# 浏览器打开 http://127.0.0.1:8787
+# 浏览器打开 http://127.0.0.1:8787 即可验证
 ```
 
 `web/` 静态资源与 `.env` 已被收集进包内（`sys._MEIPASS`），后端自动从包内加载。
 
 ---
 
-## 四、Electron 桌面版
+## 三、Electron 桌面版
 
-Electron 不直接打包 Python，而是把**第三节冻结好的后端可执行**作为 `extraResource` 嵌入安装包。
+Electron 把**第二节冻结好的后端可执行**作为 `extraResource` 嵌入安装包。
 
 ```bash
-# 1) 先冻结后端，放到 Electron 资源目录
-pyinstaller build/pyinstaller_backend.spec --noconfirm
+# 1) 先冻结后端（见第二节），放到 Electron 资源目录
 mkdir -p electron/resources/backend
 cp dist/jira-git-backend electron/resources/backend/jira-git-backend   # Windows 用 .exe
 
@@ -125,17 +108,38 @@ npm run dist:mac      # 或 dist:win / dist:linux
 
 ---
 
+## 四、Tauri 桌面版
+
+Tauri 同样内嵌冻结后的后端，区别在于壳用 Rust 实现、窗口用系统 WebView。
+
+```bash
+# 1) 先冻结后端（见第二节），放到 Tauri 资源目录
+mkdir -p tauri/src-tauri/resources/backend
+cp dist/jira-git-backend tauri/src-tauri/resources/backend/jira-git-backend   # Windows 用 .exe
+
+# 2) 打包 Tauri 安装包
+./scripts/build-tauri.sh          # release 构建（macOS 出 .app/.dmg；Windows 出 .msi；Linux 出 .AppImage/.deb）
+# 或等价：
+cd tauri && cargo tauri build
+```
+
+> 注：Tauri 自带的 DMG 打包依赖 `create-dmg` 的 support 模板，未安装时 `cargo tauri build`
+> 会在最后一步报 "failed to run bundle_dmg.sh"。此时可改用系统 `hdiutil` 兜底生成 DMG，
+> `.app` 本身已构建成功。`scripts/build-tauri.sh` 已内置该兜底逻辑。
+
+---
+
 ## 五、CI 一键发布
 
 推送 `vX.Y.Z` 标签（或手动 `workflow_dispatch`）触发 `.github/workflows/release.yml`：
-三条 runner（macos / windows / ubuntu）各自构建 **后端 + GUI + Electron** 并上传 artifact。
+三条 runner（macos / windows / ubuntu）各自构建 **后端 + Electron + Tauri** 并上传 artifact。
 产物的跨平台对应：
 
-| Runner | 后端 | GUI | Electron |
-|--------|------|-----|---------|
-| macos-latest | `jira-git-backend` | `JiraGitGUI.app` | `*.dmg` |
-| windows-latest | `jira-git-backend.exe` | `JiraGitGUI/` | `*-setup.exe` (nsis) |
-| ubuntu-latest | `jira-git-backend` | `JiraGitGUI/` | `*.AppImage` / `*.deb` |
+| Runner | 后端 | Electron | Tauri |
+|--------|------|----------|-------|
+| macos-latest | `jira-git-backend` | `*.dmg` | `*.app` + `*.dmg` |
+| windows-latest | `jira-git-backend.exe` | `*-setup.exe` (nsis) | `*.msi` |
+| ubuntu-latest | `jira-git-backend` | `*.AppImage` / `*.deb` | `*.AppImage` / `*.deb` |
 
 ---
 
@@ -143,8 +147,9 @@ npm run dist:mac      # 或 dist:win / dist:linux
 
 - **代码签名**：CI 未配置证书，macOS/Windows 产物为「ad-hoc / 未签名」，首次打开会被
   Gatekeeper / SmartScreen 拦截，需用户手动允许。正式发布请配置 `codesign` / 证书。
-- **Linux 系统库**：PyQt6 需 `libgl1` 等；Electron 需 `libnss3` 等。CI 已 `apt-get install`，
-  终端用户若缺库会启动失败。
+- **Linux 系统库**：Electron 需 `libnss3` 等；Tauri 需系统 WebView 开发库（如
+  `libwebkit2gtk-4.1-dev`）。CI 已 `apt-get install`，终端用户若缺库会启动失败。
 - **不动原始字节**：无论哪种形态，合并时的写入内容永远来自**原始远程字节**，格式化/规范化
   仅用于 diff 展示，不会污染远端仓库风格。
 - **`.env` 含敏感信息**：虽被收集进包，但建议正式发布时改用「连接设置」UI 录入，避免硬编码密钥。
+- **PyQt6 桌面版（`main.py` / `gui/`）为遗留实现**：已不再作为发布目标，发行版仅 Electron + Tauri。

@@ -2,9 +2,9 @@
 
 ## 概述
 
-将 Electron 桌面版迁移到 Tauri 2.x，运行时从 231MB 降到 ~3MB（系统 WebView），总包体从 247MB 降到 ~20MB。
+在既有 Electron 桌面版之外，**新增 Tauri 2.x 作为第二种桌面发布形态**。运行时从 Electron 的 231MB（Chromium）降到系统 WebView（额外体积接近 0），单个安装包从 ~247MB 降到 ~20MB。
 
-前端 HTML/CSS/JS **完全复用**，仅需重写 Electron 主进程的少量 Rust 代码。
+前端 HTML/CSS/JS **完全复用**，仅需新增一份 Rust 主进程代码（`tauri/src-tauri/`）来替代 Electron 主进程。Electron 与 Tauri **并列发布、长期共存**，用户可按需选择。
 
 ---
 
@@ -50,7 +50,7 @@ Electron 架构                          Tauri 架构
 |------|----------|--------|
 | `web/app.js` | 三处 `window.electronAPI` 替换为 `window.__TAURI__` 兼容层 | ~10 行 |
 | `build/build.py` | 新增 `build_tauri()` 函数，集成 `cargo tauri build` | ~40 行 |
-| `build.sh` | 无需改动（自动调用 build.py） | 0 行 |
+| `scripts/build.sh` | 无需改动（自动调用 build.py） | 0 行 |
 
 ### 三、不变文件（完全复用）
 
@@ -64,14 +64,20 @@ Electron 架构                          Tauri 架构
 | `build/pyinstaller_backend.spec` | 后端打包完全不变 |
 | `build/run_backend.py` | 后端启动入口不变 |
 
-### 四、删除文件（Electron 专属）
+### 四、Electron 保留为并列发布形态
 
-| 文件 | 说明 |
-|------|------|
-| `electron/main.js` | 被 `tauri/src-tauri/src/main.rs` 替代 |
-| `electron/preload.js` | Tauri 内置 IPC，无需 contextBridge |
-| `electron/package.json` | 被 `tauri/src-tauri/Cargo.toml` 替代 |
-| `electron/node_modules/` | 不再需要 npm 依赖 |
+Tauri 是**新增**的第二种形态，而非替换 Electron。Electron 的全部文件（`electron/main.js`、`preload.js`、`package.json`、`node_modules/`）**保留不动**，仍作为发行版之一。两者的差异仅在于「桌面壳」的实现（Node.js vs Rust），共用同一套 `web/` 前端与 `api/` 后端。
+
+---
+
+## Tauri 运行时关键实现（已落地，改代码前必读）
+
+以下约定已实现于 `tauri/src-tauri/src/lib.rs`，后续改动需保持：
+
+1. **动态端口**：后端端口以 `BACKEND_PORT = 8787` 为首选，启动时经 `pick_backend_port()` 探测，被占用则向后顺延最多 20 个端口。窗口用 `WebviewUrl::External(后端 URL)` 加载，前端统一以 `location.origin` 作为 API 地址（不再硬编码 8787），因此**改端口或端口顺延无需动前端**。`get_app_info` 通过 `BackendPort` state 返回实际端口。
+2. **进程生命周期**：`kill_backend()` 幂等清理——窗口 `Destroyed` 事件触发一次，`App::run` 回调收到 `RunEvent::Exit` 再兜底一次。Unix 先 SIGTERM 等待 1s（让 uvicorn 落盘日志），超时再 SIGKILL；Windows 直接 terminate。**切勿移除**，否则关窗后 Python 后端残留成孤儿进程占用端口。
+3. **IPC 通道**：`tauri.conf.json` 开启 `withGlobalTauri: true`（前端是纯静态页，无打包器）；`capabilities/default.json` 配 `remote.urls: ["http://127.0.0.1:*", "http://localhost:*"]` 放行回环地址访问 IPC，并授予 `clipboard-manager:allow-read-text` / `allow-write-text`。
+4. **剪贴板三端统一**：前端 `readClipboardText()` / `writeClipboardText()` helper 依次走 Electron preload → Tauri clipboard-manager 插件 → 浏览器 `navigator.clipboard` 兜底。
 
 ---
 
@@ -84,11 +90,11 @@ Electron 架构                          Tauri 架构
 | `spawn(cmd, args)` 启动 Python 后端 | `std::process::Command::new(cmd).args(args).spawn()` |
 | `http.get()` 等待后端就绪 | `reqwest::get()` 轮询 `/api/status` |
 | `BrowserWindow` 创建窗口 | `tauri::WebviewWindowBuilder` |
-| `mainWindow.loadURL()` | `tauri.conf.json` 中 `frontendDist` 配置自动加载 |
+| `mainWindow.loadURL()` | `WebviewUrl::External(后端 URL)`（见「Tauri 运行时关键实现」） |
 | `ipcMain.handle('app:get-info')` | `#[tauri::command] fn get_app_info()` |
 | `mainWindow.webContents.send('log:append')` | `window.app_handle().emit("log:append", payload)` |
 | `dialog.showErrorBox()` | `tauri::api::dialog::message()` |
-| `app.on('before-quit')` 杀进程 | `Drop` trait 或 `app.on_event(|e| ...)` |
+| `app.on('before-quit')` 杀进程 | 窗口 `Destroyed` 事件 + `App::run` 回调里的 `kill_backend()`（幂等） |
 | `app.on('activate')` 重建窗口 | Tauri 自带 macOS 窗口恢复 |
 | `fs.appendFileSync()` 写日志 | `std::fs::OpenOptions::new().append(true)` |
 | `process.platform` | `std::env::consts::OS` |
@@ -96,16 +102,20 @@ Electron 架构                          Tauri 架构
 
 ### 2. `electron/preload.js` → 无需文件
 
-Tauri 2.x 前端通过 `@tauri-apps/api` 直接调用 Rust 命令：
+Tauri 2.x 前端直接调用 Rust 命令。本项目的 `web/` 是**纯静态目录（无打包器、无 node_modules）**，因此启用 `withGlobalTauri: true`（`tauri.conf.json`）注入全局 `window.__TAURI__`，前端无需 import 任何 JS 包：
 
 ```javascript
 // Electron 方式
 const info = await window.electronAPI.getAppInfo();
 
-// Tauri 方式
-import { invoke } from '@tauri-apps/api/core';
-const info = await invoke('get_app_info');
+// Tauri 方式（全局注入，纯静态页可用）
+const info = await window.__TAURI__.core.invoke('get_app_info');
+// 剪贴板（clipboard-manager 插件）
+const text = await window.__TAURI__.core.invoke('plugin:clipboard-manager|read_text');
+await window.__TAURI__.core.invoke('plugin:clipboard-manager|write_text', { text });
 ```
+
+> **远程 URL 访问 IPC 需要配 `remote.urls`**（`capabilities/default.json`）。本项目窗口加载的是 `http://127.0.0.1:<port>`，已在 `remote.urls` 中放行本机回环地址，并把 `clipboard-manager:allow-read-text` / `allow-write-text` 加入 `permissions`。
 
 ### 3. `web/app.js` 改动（仅 3 处）
 
@@ -131,11 +141,9 @@ if (window.__TAURI__) {
 // 旧：Electron
 if (window.electronAPI?.onAppLog) { ... }
 
-// 新：兼容
-if (window.__TAURI__) {
-  import('@tauri-apps/api/event').then(m => {
-    m.listen('log:append', (event) => { /* 同 Electron 逻辑 */ });
-  });
+// 新：兼容（Tauri 用全局注入，Electron 走 preload）
+if (window.__TAURI__?.core) {
+  window.__TAURI__.event.listen('log:append', (event) => { /* 同 Electron 逻辑 */ });
 } else if (window.electronAPI?.onAppLog) { ... }
 ```
 
@@ -147,7 +155,7 @@ window.electronAPI.getAppInfo?.().then(info => { ... });
 
 // 新：兼容
 const getInfo = window.__TAURI__
-  ? import('@tauri-apps/api/core').then(m => m.invoke('get_app_info'))
+  ? window.__TAURI__.core.invoke('get_app_info')
   : window.electronAPI?.getAppInfo?.();
 ```
 
@@ -206,5 +214,5 @@ def build_tauri(venv_py, os_name, no_deps):
 1. **Rust 编译**：首次 `cargo build` 需要下载依赖（~200MB），需网络可达 `crates.io`
 2. **WebView 兼容性**：Tauri 2.x 用系统 WebView，不同 OS 版本可能有细微渲染差异，但你的纯 CSS 界面兼容性很好
 3. **Python 后端不变**：完全不影响现有后端逻辑，Tauri 仅负责启动进程 + 加载页面
-4. **Electron 可保留**：两个版本可以共存，`build.sh --flavor electron` 和 `build.sh --flavor tauri` 互不干扰
+4. **Electron 可保留**：两个版本可以共存，`scripts/build.sh --flavor electron` 和 `scripts/build.sh --flavor tauri` 互不干扰
 5. **日志**：Tauri 的日志写入 `~/.jira-git-gui/logs/`，与 Electron 版对齐
