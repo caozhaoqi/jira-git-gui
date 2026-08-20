@@ -32,8 +32,6 @@
       <aside class="sidebar">
         <nav class="tabs" aria-label="主导航">
           <button class="tab active" data-tab="repo"><span class="tab-ico">📦</span><span class="tab-txt">仓库</span></button>
-          <button class="tab" data-tab="tree"><span class="tab-ico">🌳</span><span class="tab-txt">文件树</span></button>
-          <button class="tab" data-tab="preview"><span class="tab-ico">👁</span><span class="tab-txt">文件预览</span></button>
           <button class="tab" data-tab="commits"><span class="tab-ico">📜</span><span class="tab-txt">提交记录</span></button>
           <button class="tab" data-tab="diff"><span class="tab-ico">🔀</span><span class="tab-txt">差异对比</span></button>
           <button class="tab" data-tab="logs"><span class="tab-ico">📋</span><span class="tab-txt">日志</span></button>
@@ -81,53 +79,86 @@
              onclick="this.style.display='none'">⚠ 网络中断</div>
 
         <div class="tab-content">
-          <!-- 仓库 -->
+          <!-- 仓库：三栏布局（仓库列表 | 文件树 | 文件预览） -->
           <div id="tab-repo" class="tab-pane active">
-            <div class="tab-inner">
-              <div class="panel-header">
-                <h2 class="section-title">仓库列表</h2>
-              </div>
-              <p class="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
-              <div class="repo-toolbar">
-                <input type="text" id="repo-search" class="input repo-search-input" placeholder="🔍 搜索仓库名 / ID / 分支…">
-                <button id="btn-discover" class="btn btn-primary">发现仓库</button>
-                <button id="btn-view-files" class="btn">查看文件</button>
-              </div>
-              <div id="repo-list" class="repo-list">
-                <div class="empty-hint">点击「发现仓库」加载列表</div>
-              </div>
-              <details class="manual-group">
-                <summary>手动指定仓库</summary>
-                <div class="form-rows">
-                  <label>仓库 ID<input type="text" id="inp-repo-id" class="input"></label>
-                  <label>仓库名<input type="text" id="inp-repo-name" class="input" placeholder="PAT 克隆需要"></label>
-                  <label>分支<input type="text" id="inp-branch" class="input" placeholder="(默认)"></label>
-                  <button id="btn-load-tree" class="btn btn-primary btn-block">加载文件树</button>
+            <div class="repo-three-col">
+              <!-- 左：仓库列表 -->
+              <section class="repo-col repo-col-left">
+                <div class="panel-header">
+                  <h2 class="section-title">仓库列表</h2>
                 </div>
-              </details>
-            </div>
-          </div>
+                <p class="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
+                <div class="repo-toolbar">
+                  <input type="text" id="repo-search" class="input repo-search-input" placeholder="🔍 搜索仓库名 / ID / 分支…">
+                  <button id="btn-discover" class="btn btn-primary">发现仓库</button>
+                  <button id="btn-view-files" class="btn">查看文件</button>
+                </div>
+                <div id="repo-list" class="repo-list">
+                  <div class="empty-hint">点击「发现仓库」加载列表</div>
+                </div>
+                <details class="manual-group">
+                  <summary>手动指定仓库</summary>
+                  <div class="form-rows">
+                    <label>仓库 ID<input type="text" id="inp-repo-id" class="input"></label>
+                    <label>仓库名<input type="text" id="inp-repo-name" class="input" placeholder="PAT 克隆需要"></label>
+                    <label>分支<input type="text" id="inp-branch" class="input" placeholder="(默认)"></label>
+                    <button id="btn-load-tree" class="btn btn-primary btn-block">加载文件树</button>
+                  </div>
+                </details>
+              </section>
 
-          <!-- 文件树 -->
-          <div id="tab-tree" class="tab-pane">
-            <div class="tab-inner">
-              <div class="panel-header">
-                <h2 class="section-title">文件浏览器</h2>
-                <span class="panel-sub">勾选文件后可「下载选中」</span>
-              </div>
-              <div id="tree-container" class="tree-container">
-                <div class="empty-hint">选择仓库后加载文件树</div>
-              </div>
-            </div>
-          </div>
+              <div class="repo-resizer" data-side="left" title="拖动调整列宽"></div>
 
-          <!-- 文件预览 -->
-          <div id="tab-preview" class="tab-pane">
-            <div class="tab-inner">
-              <div class="panel-header">
-                <h2 id="preview-title" class="section-title">预览</h2>
-              </div>
-              <pre id="preview-content" class="code-block"></pre>
+              <!-- 中：文件树 + 工具栏 -->
+              <section class="repo-col repo-col-mid">
+                <div class="panel-header">
+                  <h2 class="section-title">文件浏览器</h2>
+                  <span class="panel-sub">勾选文件后可「下载选中」</span>
+                </div>
+                <div class="tree-toolbar">
+                  <div class="tree-toolbar-row">
+                    <div class="tree-search-wrap">
+                      <input type="text" id="tree-search-input" class="input tree-search-input"
+                             placeholder="🔍 搜索文件（名称 / 内容）">
+                      <div class="tree-scope-toggle" role="tablist">
+                        <button class="tree-scope-btn active" data-scope="filename" title="仅搜索文件名">文件名</button>
+                        <button class="tree-scope-btn" data-scope="content" title="搜索文件内容（需已克隆仓库）">内容</button>
+                      </div>
+                    </div>
+                    <div class="tree-sort-wrap">
+                      <label class="field field-inline">
+                        排序
+                        <select id="tree-sort-key" class="sel tree-sort-key">
+                          <option value="name">按名称</option>
+                          <option value="mtime">按修改时间</option>
+                          <option value="type">按类型</option>
+                          <option value="size">按大小</option>
+                        </select>
+                      </label>
+                      <button id="tree-sort-dir" class="btn btn-sm btn-ghost" title="切换升/降序" data-dir="asc">↑</button>
+                    </div>
+                  </div>
+                  <div id="tree-search-status" class="tree-search-status"></div>
+                  <div id="tree-search-results" class="tree-search-results" style="display:none;"></div>
+                </div>
+                <div id="tree-container" class="tree-container">
+                  <div class="empty-hint">选择仓库后加载文件树</div>
+                </div>
+              </section>
+
+              <div class="repo-resizer" data-side="right" title="拖动调整列宽"></div>
+
+              <!-- 右：文件预览 -->
+              <section class="repo-col repo-col-right" id="repo-preview-col">
+                <div class="panel-header">
+                  <h2 id="preview-title" class="section-title">预览</h2>
+                  <div class="panel-header-actions">
+                    <button id="preview-maximize" class="btn btn-ghost btn-sm" title="最大化 / 还原">⛶</button>
+                    <button id="preview-copy-path" class="btn btn-ghost btn-sm" title="复制文件路径">📋</button>
+                  </div>
+                </div>
+                <pre id="preview-content" class="code-block preview-pane"></pre>
+              </section>
             </div>
           </div>
 
@@ -153,6 +184,7 @@
                 <div class="commit-detail">
                   <pre id="commit-detail-text" class="code-block commit-detail-text"></pre>
                   <div id="commit-files" class="commit-files"></div>
+                  <div id="commit-diff" class="commit-diff" style="display:none;"></div>
                 </div>
               </div>
             </div>
@@ -552,12 +584,24 @@
                 <button id="k8s-files-upload" class="btn btn-sm">上传</button>
                 <button id="k8s-files-delete" class="btn btn-sm btn-ghost">删除</button>
               </div>
+              <div class="k8s-files-search">
+                <input type="text" id="k8s-files-search-input" class="input k8s-files-search-input"
+                       placeholder="🔍 在容器内搜索文件内容（grep，当前目录起）">
+                <button id="k8s-files-search-btn" class="btn btn-sm btn-primary">搜索</button>
+                <span id="k8s-files-search-status" class="panel-sub"></span>
+              </div>
             </div>
+            <div id="k8s-files-search-results" class="k8s-files-search-results" style="display:none;"></div>
             <div class="k8s-files-list-wrap card-soft">
               <div class="k8s-table-scroll">
                 <table class="k8s-files-table">
                   <thead>
-                    <tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th></tr>
+                    <tr>
+                      <th class="k8s-sortable" data-sort="name">名称 <span class="k8s-sort-ind">▲</span></th>
+                      <th class="k8s-sortable" data-sort="type">类型 <span class="k8s-sort-ind"></span></th>
+                      <th class="k8s-sortable" data-sort="size">大小 <span class="k8s-sort-ind"></span></th>
+                      <th class="k8s-sortable" data-sort="mtime">修改时间 <span class="k8s-sort-ind"></span></th>
+                    </tr>
                   </thead>
                   <tbody id="k8s-files-list">
                     <tr><td colspan="4" class="empty-hint">先在上方选择 Pod，然后点击「刷新」</td></tr>
@@ -569,10 +613,13 @@
 
             <!-- 文件编辑弹窗 -->
             <div id="k8s-file-edit-modal" class="modal" style="display:none;">
-              <div class="modal-box" style="width:min(820px,96vw)">
+              <div class="modal-box" id="k8s-file-edit-box" style="width:min(820px,96vw)">
                 <div class="panel-header">
                   <h3 class="section-title" id="k8s-file-edit-title">编辑文件</h3>
-                  <button id="k8s-file-edit-close" class="btn btn-ghost btn-sm">关闭</button>
+                  <div class="panel-header-actions">
+                    <button id="k8s-file-edit-maximize" class="btn btn-ghost btn-sm" title="最大化 / 还原">⛶</button>
+                    <button id="k8s-file-edit-close" class="btn btn-ghost btn-sm">关闭</button>
+                  </div>
                 </div>
                 <textarea id="k8s-file-edit-area" class="k8s-yaml-editor" spellcheck="false" style="min-height:300px"></textarea>
                 <div class="k8s-actions">
@@ -878,6 +925,13 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260818-01"></script>
+  <!-- 前端逻辑：按依赖顺序加载（01 最先，07 最后执行绑定/初始化） -->
+  <script src="/web/js/01-core.js?v=20260820-01"></script>
+  <script src="/web/js/02-repo.js?v=20260820-01"></script>
+  <script src="/web/js/03-commits.js?v=20260820-01"></script>
+  <script src="/web/js/04-diff.js?v=20260820-01"></script>
+  <script src="/web/js/05-k8s.js?v=20260820-01"></script>
+  <script src="/web/js/06-cf.js?v=20260820-01"></script>
+  <script src="/web/js/07-init.js?v=20260820-01"></script>
 </body>
 </html>
