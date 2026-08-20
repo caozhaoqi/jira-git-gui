@@ -11,7 +11,13 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket
 
+import os
+import re
+import time
+from pathlib import Path
+from fastapi.responses import FileResponse, PlainTextResponse
 from core import k8s_manager as _k8s_mgr
+from core.k8s_manager import run_kubectl as _k8s_run_kubectl
 from api.schemas import K8sEnvReq, K8sExecReq, K8sFileDeleteReq, K8sFileListReq, K8sFileMkdirReq, K8sFileReadReq, K8sFileSearchReq, K8sFileUploadReq, K8sFileWriteReq, K8sNetworkReq, K8sSnapshotReq, K8sYamlReq
 
 router = APIRouter()
@@ -51,10 +57,10 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
             _k8s_snap_meta["namespace"] = opts.get("namespace")
             result = _k8s_run_snapshot(
                 opts,
-                on_log=lambda m: _broadcast(
+                on_log=lambda m: S._broadcast(
                     "k8s_log", {"msg": m, "ts": time.strftime("%H:%M:%S")}
                 ),
-                on_progress=lambda done, total, name: _broadcast(
+                on_progress=lambda done, total, name: S._broadcast(
                     "k8s_progress",
                     {
                         "done": done,
@@ -66,7 +72,7 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
                 should_cancel=_k8s_cancel.is_set,
             )
             _k8s_out_dir["dir"] = result["out_dir"]
-            _broadcast(
+            S._broadcast(
                 "k8s_done",
                 {
                     "summary": result["summary"],
@@ -75,14 +81,14 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
                     "report": result["report"],
                 },
             )
-            logger.info("K8s 快照完成: %s", result["out_dir"])
+            S.logger.info("K8s 快照完成: %s", result["out_dir"])
         except Exception as ex:  # 含 UserError（配置类错误）
             msg = getattr(ex, "message", None) or str(ex)
-            _broadcast("k8s_error", {"message": msg})
-            logger.error("K8s 快照失败: %s", ex)
+            S._broadcast("k8s_error", {"message": msg})
+            S.logger.error("K8s 快照失败: %s", ex)
         finally:
             _k8s_running = False
-            _broadcast("k8s_finished", {"running": False})
+            S._broadcast("k8s_finished", {"running": False})
 
     threading.Thread(target=_do, name="k8s-snapshot", daemon=True).start()
     return {"ok": True, "msg": "快照任务已启动"}
