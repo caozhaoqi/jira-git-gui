@@ -75,9 +75,10 @@ Tauri 是**新增**的第二种形态，而非替换 Electron。Electron 的全�
 以下约定已实现于 `tauri/src-tauri/src/lib.rs`，后续改动需保持：
 
 1. **动态端口**：后端端口以 `BACKEND_PORT = 8787` 为首选，启动时经 `pick_backend_port()` 探测，被占用则向后顺延最多 20 个端口。窗口用 `WebviewUrl::External(后端 URL)` 加载，前端统一以 `location.origin` 作为 API 地址（不再硬编码 8787），因此**改端口或端口顺延无需动前端**。`get_app_info` 通过 `BackendPort` state 返回实际端口。
-2. **进程生命周期**：`kill_backend()` 幂等清理——窗口 `Destroyed` 事件触发一次，`App::run` 回调收到 `RunEvent::Exit` 再兜底一次。Unix 先 SIGTERM 等待 1s（让 uvicorn 落盘日志），超时再 SIGKILL；Windows 直接 terminate。**切勿移除**，否则关窗后 Python 后端残留成孤儿进程占用端口。
+2. **进程生命周期**：`kill_backend()` 幂等清理，**只挂在真正退出路径**——`App::run` 回调收到 `RunEvent::Exit` 兜底 + SIGTERM/SIGINT 信号监听（外部 `kill` 也走正常退出流程）。窗口 `Destroyed` 事件**不**清理：macOS 上关窗默认不退出应用（与 Electron 一致），若在关窗时杀后端，重开窗口加载 `http://127.0.0.1:<port>` 会失败。Windows/Linux 关窗会触发 `ExitRequested → Exit` 自动清理，macOS 上 Cmd+Q 退出时同样触发。Unix 先 SIGTERM 等待 1s（让 uvicorn 落盘日志），超时再 SIGKILL；Windows 直接 terminate。**切勿移除**，否则退出后 Python 后端残留成孤儿进程占用端口。
 3. **IPC 通道**：`tauri.conf.json` 开启 `withGlobalTauri: true`（前端是纯静态页，无打包器）；`capabilities/default.json` 配 `remote.urls: ["http://127.0.0.1:*", "http://localhost:*"]` 放行回环地址访问 IPC，并授予 `clipboard-manager:allow-read-text` / `allow-write-text`。
 4. **剪贴板三端统一**：前端 `readClipboardText()` / `writeClipboardText()` helper 依次走 Electron preload → Tauri clipboard-manager 插件 → 浏览器 `navigator.clipboard` 兜底。
+5. **单实例锁**：Tauri 注册 `tauri-plugin-single-instance`（第二次启动聚焦已有 `main` 窗口并退出新实例），Electron 用 `app.requestSingleInstanceLock()` + `second-instance` 事件。两者行为一致，防止双份后端进程/双份日志写入同一数据目录。`log_viewer.js` 等独立页面同样统一用 `location.origin`（不再有任何 `__TAURI__ ? 'http://127.0.0.1:8787'` 硬编码分支）。
 
 ---
 
@@ -94,7 +95,7 @@ Tauri 是**新增**的第二种形态，而非替换 Electron。Electron 的全�
 | `ipcMain.handle('app:get-info')` | `#[tauri::command] fn get_app_info()` |
 | `mainWindow.webContents.send('log:append')` | `window.app_handle().emit("log:append", payload)` |
 | `dialog.showErrorBox()` | `tauri::api::dialog::message()` |
-| `app.on('before-quit')` 杀进程 | 窗口 `Destroyed` 事件 + `App::run` 回调里的 `kill_backend()`（幂等） |
+| `app.on('before-quit')` 杀进程 | `App::run` 回调的 `RunEvent::Exit` + SIGTERM/SIGINT 信号兜底（`kill_backend()` 幂等；窗口 Destroyed 不清理，理由见「进程生命周期」） |
 | `app.on('activate')` 重建窗口 | Tauri 自带 macOS 窗口恢复 |
 | `fs.appendFileSync()` 写日志 | `std::fs::OpenOptions::new().append(true)` |
 | `process.platform` | `std::env::consts::OS` |

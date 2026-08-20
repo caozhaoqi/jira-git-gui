@@ -373,6 +373,18 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
+        // 单实例锁：第二次启动时聚焦已有窗口并退出新实例，
+        // 避免双份后端进程/双份日志写入同一数据目录。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // log::info! 在未初始化 logger 时是 no-op，改用项目的 log_main 落盘
+            if let Some(ls) = app.try_state::<LogFilePath>() {
+                log_main(app, &ls.0, "second-instance: focusing existing window", "info");
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(LogFilePath(log_file.clone()))
         .manage(BackendPort(port))
         .setup(move |app| {
@@ -498,16 +510,19 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 log::info!("Window destroyed: {}", window.label());
-                // 窗口销毁即清理 Python 后端，防止残留孤儿进程。
-                // 若随后应用退出（on_exit）会再次调用，kill_backend 幂等。
-                kill_backend(window.app_handle());
+                // 注意：这里【不】kill 后端。macOS 上关闭窗口默认不退出应用
+                // （与 Electron 行为一致），若在此清理会导致重新打开窗口时
+                // 后端已死、加载 http://127.0.0.1:<port> 失败。
+                // 清理统一交给 RunEvent::Exit 兜底 + SIGTERM/SIGINT 信号兜底：
+                //  - Windows/Linux：关窗触发 ExitRequested → Exit → 清理
+                //  - macOS：Cmd+Q 退出时触发；仅关窗则后端保留，重开窗口正常
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             // 兜底清理：进程真正退出时确保 Python 后端被终止。
-            // 窗口 Destroyed 时已 kill 过一次，这里幂等。
+            // SIGTERM/SIGINT 信号兜底与本回调都调 kill_backend，幂等安全。
             if let tauri::RunEvent::Exit = event {
                 log::info!("App exiting, cleaning up Python backend.");
                 kill_backend(app_handle);

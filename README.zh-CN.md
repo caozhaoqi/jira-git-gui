@@ -149,10 +149,10 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 
 ### 日志查看（`web/log_viewer.html`）
 
-从快照日志面板点「⧉ 新页面打开」，或直接访问：
+从快照日志面板点「⧉ 新页面打开」，或直接访问（端口以实际运行端口为准，默认 8787）：
 
 ```
-http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
+/web/log_viewer.html?pod=<pod>&env=<env>
 ```
 
 - **Pod 自由切换**：顶栏下拉选择任意 Pod，日志、容器、命名空间自动切换。

@@ -26,3 +26,4 @@ tokio = { version = "1", features = ["time", "signal", "macros"] }
 chrono = "0.4"
 libc = "0.2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-single-instance = "2"

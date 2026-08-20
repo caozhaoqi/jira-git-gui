@@ -149,10 +149,10 @@ Environments (dev / test / prod …) are stored in `~/.config/jira-git-gui/k8s_e
 
 ### Log viewer (`web/log_viewer.html`)
 
-Open from the snapshot log panel ("⧉ open in new page") or directly:
+Open from the snapshot log panel ("⧉ open in new page") or directly (port is the actual runtime port, default 8787):
 
 ```
-http://127.0.0.1:8787/web/log_viewer.html?pod=<pod>&env=<env>
+/web/log_viewer.html?pod=<pod>&env=<env>
 ```
 
 - **Pod switching**: pick any Pod from the top dropdown — logs, containers and namespace switch automatically.

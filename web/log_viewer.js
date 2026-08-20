@@ -2,9 +2,11 @@
    独立日志查看页逻辑
    - 全屏浏览 / 分析：搜索高亮、级别高亮、容器切换、tail 控制、
      自动刷新(live tail)、字号、换行、行号、下载
-   - 与主前端保持一致：Tauri 下 API 走 127.0.0.1:8787，Web/Electron 同源
+   - API 统一用 location.origin：Tauri/Electron 窗口加载的就是后端
+     URL（http://127.0.0.1:<port>），本页也由后端 HTTP 提供，同源。
+     不硬编码 8787，避免端口顺延时连错。
    ============================================================ */
-const API = window.__TAURI__ ? 'http://127.0.0.1:8787' : location.origin;
+const API = location.origin;
 const qs = new URLSearchParams(location.search);
 
 const params = {
