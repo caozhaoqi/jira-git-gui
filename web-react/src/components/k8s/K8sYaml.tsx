@@ -6,7 +6,7 @@ import { useK8s } from './context';
 const KINDS = ['pod', 'deployment', 'service', 'configmap', 'secret', 'ingress', 'statefulset', 'daemonset', 'pvc'];
 
 export function K8sYaml() {
-  const { target } = useK8s();
+  const { target, openDescribe } = useK8s();
 
   const [kind, setKind] = useState('pod');
   const [name, setName] = useState('');
@@ -76,6 +76,13 @@ export function K8sYaml() {
         <label className="chk"><input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} /> 清洗 status</label>
         <button className="btn btn-sm" onClick={getYaml}>获取</button>
         <button className="btn btn-sm" onClick={applyYaml}>应用</button>
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={() => {
+            if (!name.trim()) { setMsg('请先填写资源名称'); return; }
+            openDescribe(kind, name.trim(), ns.trim());
+          }}
+        >描述</button>
       </div>
       <div className="k8s-yaml-podlist">
         <label>从 Pod 自动获取：

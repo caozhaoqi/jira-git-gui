@@ -249,14 +249,16 @@ export function K8sFiles() {
       </div>
 
       {editPath && (
-        <div className="modal" style={{ display: 'flex' }}>
-          <div className="modal-box modal-lg">
-            <div className="modal-head">
+        <div className="modal-mask" onClick={() => setEditPath('')}>
+          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
               <h3>编辑 · {editPath.split('/').pop()}{editTruncated ? '（已截断）' : ''}</h3>
               <button className="btn btn-sm btn-ghost" onClick={() => setEditPath('')}>✕</button>
             </div>
-            <textarea className="k8s-file-edit-area" value={editContent} onChange={(e) => setEditContent(e.target.value)} />
-            <div className="modal-foot">
+            <div className="modal-body">
+              <textarea className="k8s-file-edit-area" value={editContent} onChange={(e) => setEditContent(e.target.value)} />
+            </div>
+            <div className="modal-footer">
               <span className="k8s-env-msg">{editMsg}</span>
               <div className="spacer" />
               <button className="btn btn-sm" onClick={saveFile}>保存</button>

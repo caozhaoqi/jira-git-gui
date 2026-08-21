@@ -3,10 +3,12 @@ import { api, apiPost } from '../../api/client';
 import { sse } from '../../api/events';
 import { useAppStore } from '../../store/useAppStore';
 import type { K8sSummary, K8sRecord, K8sLogResp } from '../../api/types';
+import { copyText } from '../../utils/clipboard';
+import { openLogViewer } from '../../utils/logviewer';
 import { useK8s } from './context';
 
 export function K8sSnapshot() {
-  const { target, pushLog } = useK8s();
+  const { target, pushLog, openDescribe } = useK8s();
   const addToast = useAppStore((s) => s.addToast);
   const setProgress = useAppStore((s) => s.setProgress);
 
@@ -167,7 +169,15 @@ export function K8sSnapshot() {
       {reportUrl && (
         <div className="action-bar">
           <a className="btn btn-sm btn-ghost" href={reportUrl} target="_blank" rel="noreferrer">打开报告</a>
-          {outDirText && <button className="btn btn-sm btn-ghost" onClick={() => navigator.clipboard.writeText(outDirText).then(() => appendLog('已复制输出目录：' + outDirText)).catch(() => appendLog('输出目录：' + outDirText))}>复制输出目录</button>}
+          {outDirText && (
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={async () => {
+                const ok = await copyText(outDirText);
+                appendLog((ok ? '已复制输出目录：' : '输出目录：') + outDirText);
+              }}
+            >复制输出目录</button>
+          )}
         </div>
       )}
 
@@ -203,7 +213,28 @@ export function K8sSnapshot() {
       </div>
 
       <div className="k8s-log-wrap">
-        <div className="k8s-log-title">{lastPod ? `日志 · ${lastPod}` : '运行日志'}</div>
+        <div className="k8s-log-title">
+          <span>{lastPod ? `日志 · ${lastPod}` : '运行日志'}</span>
+          <div className="spacer" />
+          <button
+            className="btn btn-sm btn-primary"
+            title="在新页面打开（便于浏览 / 分析）"
+            disabled={!lastPod}
+            onClick={() => {
+              if (!lastPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
+              openLogViewer({ pod: lastPod, env: target.env, namespace: target.namespace });
+            }}
+          >⧉ 新页面打开完整日志</button>
+          <button
+            className="btn btn-sm btn-ghost"
+            title="查看选中 Pod 的 describe（含相关事件）"
+            disabled={!lastPod}
+            onClick={() => {
+              if (!lastPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
+              openDescribe('pod', lastPod, target.namespace);
+            }}
+          >🔍 描述</button>
+        </div>
         <div className="k8s-log">
           {logs.length === 0 ? '(无日志)' : logs.map((l, i) => <div key={i} className="log-line">{l}</div>)}
         </div>

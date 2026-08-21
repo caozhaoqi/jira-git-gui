@@ -43,5 +43,17 @@ export async function writeClipboardText(text: string): Promise<void> {
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     await navigator.clipboard.writeText(text);
+    return;
+  }
+  throw new Error('当前环境不支持剪贴板写入 API');
+}
+
+/** 写剪贴板并返回是否成功（不抛异常），便于 UI 直接给出「已复制 / 复制失败」提示。 */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await writeClipboardText(text);
+    return true;
+  } catch {
+    return false;
   }
 }

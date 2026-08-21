@@ -86,32 +86,34 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="modal" style={{ display: 'flex' }}>
-      <div className="modal-box">
-        <div className="modal-head">
+    <div className="modal-mask" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
           <h3>K8s 环境管理</h3>
           <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
         </div>
-        <div className="k8s-env-list">
-          {list.length === 0 && <div className="empty-hint">暂无环境</div>}
-          {list.map((e) => (
-            <div key={e.name} className="k8s-env-item" onClick={() => fill(e)}>
-              <span className="nm">{e.label || e.name}</span>
-              <span className="nm">({e.name})</span>
-              <span className="kc">{e.kubeconfig || '(无 kubeconfig)'}</span>
-              {e.is_current && <span className="cur">当前</span>}
-            </div>
-          ))}
+        <div className="modal-body">
+          <div className="k8s-env-list">
+            {list.length === 0 && <div className="empty-hint">暂无环境</div>}
+            {list.map((e) => (
+              <div key={e.name} className="k8s-env-item" onClick={() => fill(e)}>
+                <span className="nm">{e.label || e.name}</span>
+                <span className="nm">({e.name})</span>
+                <span className="kc">{e.kubeconfig || '(无 kubeconfig)'}</span>
+                {e.is_current && <span className="cur">当前</span>}
+              </div>
+            ))}
+          </div>
+          <div className="k8s-env-form">
+            <div className="form-row"><label>标识</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="form-row"><label>标签</label><input className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
+            <div className="form-row"><label>kubeconfig</label><input className="input" value={form.kubeconfig} onChange={(e) => setForm({ ...form, kubeconfig: e.target.value })} /></div>
+            <div className="form-row"><label>context</label><input className="input" value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} /></div>
+            <div className="form-row"><label>命名空间</label><input className="input" value={form.namespace} onChange={(e) => setForm({ ...form, namespace: e.target.value })} /></div>
+            <div className="form-row"><label>内网主机</label><textarea className="input" rows={3} value={form.intranet} onChange={(e) => setForm({ ...form, intranet: e.target.value })} /></div>
+          </div>
         </div>
-        <div className="k8s-env-form">
-          <div className="form-row"><label>标识</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-          <div className="form-row"><label>标签</label><input className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
-          <div className="form-row"><label>kubeconfig</label><input className="input" value={form.kubeconfig} onChange={(e) => setForm({ ...form, kubeconfig: e.target.value })} /></div>
-          <div className="form-row"><label>context</label><input className="input" value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} /></div>
-          <div className="form-row"><label>命名空间</label><input className="input" value={form.namespace} onChange={(e) => setForm({ ...form, namespace: e.target.value })} /></div>
-          <div className="form-row"><label>内网主机</label><textarea className="input" rows={3} value={form.intranet} onChange={(e) => setForm({ ...form, intranet: e.target.value })} /></div>
-        </div>
-        <div className="modal-foot">
+        <div className="modal-footer">
           <span className="k8s-env-msg">{msg}</span>
           <div className="spacer" />
           <button className="btn btn-sm" onClick={save}>保存</button>

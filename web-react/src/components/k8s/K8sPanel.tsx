@@ -11,6 +11,7 @@ import { K8sTop } from './K8sTop';
 import { K8sShell } from './K8sShell';
 import { K8sFiles } from './K8sFiles';
 import { K8sEnvModal } from './K8sEnvModal';
+import { K8sDescribeModal, type DescribeSeed } from './K8sDescribeModal';
 
 type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files';
 
@@ -45,6 +46,7 @@ export function K8sPanel() {
   const [target, setTargetState] = useState<K8sTarget>({ env: '', pod: '', container: '', namespace: '' });
   const [sub, setSub] = useState<SubTab>('snapshot');
   const [envModalOpen, setEnvModalOpen] = useState(false);
+  const [describeSeed, setDescribeSeed] = useState<DescribeSeed | null>(null);
   const [kcText, setKcText] = useState('');
 
   const reloadEnvs = useCallback(async () => {
@@ -78,9 +80,13 @@ export function K8sPanel() {
     });
   }, []);
 
+  const openDescribe = useCallback((kind: string, name: string, namespace?: string) => {
+    setDescribeSeed({ kind: kind || 'pod', name: name || '', namespace: namespace || '' });
+  }, []);
+
   const ctx = useMemo(
-    () => ({ envs, target, setTarget, reloadEnvs, pushLog, addToast }),
-    [envs, target, setTarget, reloadEnvs, pushLog, addToast]
+    () => ({ envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe }),
+    [envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe]
   );
 
   const onEnvChange = (name: string) => {
@@ -128,6 +134,7 @@ export function K8sPanel() {
         </div>
 
         {envModalOpen && <K8sEnvModal onClose={() => setEnvModalOpen(false)} />}
+        {describeSeed && <K8sDescribeModal seed={describeSeed} onClose={() => setDescribeSeed(null)} />}
       </div>
     </K8sContext.Provider>
   );

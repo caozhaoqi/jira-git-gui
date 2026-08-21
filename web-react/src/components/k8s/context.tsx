@@ -16,6 +16,8 @@ export interface K8sContextValue {
   reloadEnvs: () => Promise<void>;
   pushLog: (msg: string, level?: string) => void;
   addToast: (msg: string, type?: ToastType) => void;
+  /** 打开「资源描述」弹窗（对应原生 openK8sDescribe），由 K8sPanel 统一承载单例弹窗。 */
+  openDescribe: (kind: string, name: string, namespace?: string) => void;
 }
 
 export const K8sContext = createContext<K8sContextValue | null>(null);
