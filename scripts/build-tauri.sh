@@ -23,8 +23,9 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 # macOS 上 Tauri 需要 pkg-config 能找到系统库（webkit2gtk 等通过 homebrew 提供）。
+# 注意 set -u 下引用未定义变量会报 unbound variable，用 ${VAR:-} 兜底。
 if [ "$(uname -s 2>/dev/null)" = "Darwin" ]; then
-  export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
+  export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 fi
 
 cd "$TAURI_DIR"
@@ -39,7 +40,9 @@ fi
 echo "==> 构建 Tauri (release) ..."
 # 注意: tauri 自带的 dmg 打包依赖 create-dmg 的 support 模板，若未安装会以
 # 「failed to run bundle_dmg.sh」非零退出。这里不让它中断整体流程，后面用 hdiutil 兜底。
-if ! cargo tauri build "${ARGS[@]}"; then
+# 兼容 macOS 自带 bash 3.2：set -u 下空数组 "${ARGS[@]}" 会报 unbound variable，
+# 用 "${ARGS[@]+"${ARGS[@]}"}" 惯用法（有参展开参数，无参展开为空串）。
+if ! cargo tauri build "${ARGS[@]+"${ARGS[@]}"}"; then
   echo "警告: cargo tauri build 返回非零（通常是未安装 create-dmg 导致 DMG 步骤失败）。" >&2
   echo "       继续用系统 hdiutil 兜底生成 DMG，.app 本身已构建成功。" >&2
 fi
