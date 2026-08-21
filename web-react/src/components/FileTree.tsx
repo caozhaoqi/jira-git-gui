@@ -28,6 +28,8 @@ export function FileTree() {
   const selectedRepo = useAppStore((s) => s.selectedRepo);
   const selectedFilePath = useAppStore((s) => s.selectedFilePath);
   const setSelectedFile = useAppStore((s) => s.setSelectedFile);
+  const checkedPaths = useAppStore((s) => s.checkedPaths);
+  const toggleCheckedPath = useAppStore((s) => s.toggleCheckedPath);
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
 
@@ -169,6 +171,15 @@ export function FileTree() {
           }`}
           onClick={() => (isDir ? toggleDir(entry) : onFileClick(entry))}
         >
+          {!isDir && (
+            <input
+              type="checkbox"
+              className="tree-checkbox"
+              checked={checkedPaths.includes(entry.path)}
+              onClick={(e) => e.stopPropagation()}
+              onChange={() => toggleCheckedPath(entry.path)}
+            />
+          )}
           <span className="tree-toggle">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
           <span className="tree-icon">{isDir ? '📁' : '📄'}</span>
           <span className="tree-name">{entry.name}</span>
@@ -195,45 +206,56 @@ export function FileTree() {
 
   return (
     <div className="file-tree-pane">
-      <div className="pane-toolbar tree-toolbar">
-        <div className="tree-search">
-          <input
-            className="search-input"
-            placeholder={searchScope === 'filename' ? '搜索文件名…' : '搜索文件内容…'}
-            value={searchQ}
-            onChange={(e) => setSearchQ(e.target.value)}
-          />
-          <button
-            className={`tree-scope-btn ${searchScope === 'filename' ? 'active' : ''}`}
-            onClick={() => setSearchScope('filename')}
-          >
-            文件名
-          </button>
-          <button
-            className={`tree-scope-btn ${searchScope === 'content' ? 'active' : ''}`}
-            onClick={() => setSearchScope('content')}
-          >
-            内容
-          </button>
-        </div>
-        <div className="tree-sort">
-          <select
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value as SortKey)}
-            title="排序字段"
-          >
-            <option value="name">名称</option>
-            <option value="type">类型</option>
-            <option value="size">大小</option>
-            <option value="mtime">修改时间</option>
-          </select>
-          <button
-            className="btn btn-sm btn-ghost"
-            onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            title={sortDir === 'asc' ? '当前升序，点击降序' : '当前降序，点击升序'}
-          >
-            {sortDir === 'asc' ? '↑' : '↓'}
-          </button>
+      <div className="panel-header">
+        <h2 className="section-title">文件浏览器</h2>
+        <span className="panel-sub">勾选文件后可「下载选中」</span>
+      </div>
+      <div className="tree-toolbar">
+        <div className="tree-toolbar-row">
+          <div className="tree-search-wrap">
+            <input
+              className="input tree-search-input"
+              placeholder="🔍 搜索文件（名称 / 内容）"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+            />
+            <div className="tree-scope-toggle" role="tablist">
+              <button
+                className={`tree-scope-btn ${searchScope === 'filename' ? 'active' : ''}`}
+                onClick={() => setSearchScope('filename')}
+              >
+                文件名
+              </button>
+              <button
+                className={`tree-scope-btn ${searchScope === 'content' ? 'active' : ''}`}
+                onClick={() => setSearchScope('content')}
+              >
+                内容
+              </button>
+            </div>
+          </div>
+          <div className="tree-sort-wrap">
+            <label className="field-inline">
+              排序
+              <select
+                className="sel tree-sort-key"
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+              >
+                <option value="name">按名称</option>
+                <option value="mtime">按修改时间</option>
+                <option value="type">按类型</option>
+                <option value="size">按大小</option>
+              </select>
+            </label>
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              title={sortDir === 'asc' ? '当前升序，点击降序' : '当前降序，点击升序'}
+            >
+              {sortDir === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
         </div>
       </div>
 

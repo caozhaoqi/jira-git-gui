@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { sse } from './api/events';
 import { apiGet } from './api/client';
 import { useAppStore } from './store/useAppStore';
@@ -14,16 +14,17 @@ import type {
 import { normalizeStatus } from './api/types';
 import { TopBar } from './components/TopBar';
 import { Tabs } from './components/Tabs';
+import { ActionBar } from './components/ActionBar';
 import { RepoPanel } from './components/RepoPanel';
 import { CommitsPanel } from './components/CommitsPanel';
 import { DiffPanel } from './components/DiffPanel';
 import { K8sPanel } from './components/k8s/K8sPanel';
 import { CfPanel } from './components/CfPanel';
 import { ToastStack } from './components/Toast';
-import { ProgressBar } from './components/ProgressBar';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
-import { useState } from 'react';
+
+const ACTIONBAR_TABS = new Set(['repo', 'commits', 'diff']);
 
 export default function App() {
   const setStatus = useAppStore((s) => s.setStatus);
@@ -31,10 +32,11 @@ export default function App() {
   const pushLog = useAppStore((s) => s.pushLog);
   const setProgress = useAppStore((s) => s.setProgress);
   const addToast = useAppStore((s) => s.addToast);
+  const setNetworkWarning = useAppStore((s) => s.setNetworkWarning);
+  const networkWarning = useAppStore((s) => s.networkWarning);
   const activeTab = useAppStore((s) => s.activeTab);
   const [connectOpen, setConnectOpen] = useState(false);
 
-  // 初始化：状态 + 仓库列表 + SSE 接线
   useEffect(() => {
     apiGet<StatusResp>('/api/status')
       .then((s) => {
@@ -84,26 +86,37 @@ export default function App() {
         setProgress({ visible: false });
       }),
       sse.on('network_warning', (d: SSENetworkWarning) => {
-        pushLog(d.message || '网络中断', 'error');
-        addToast(d.message || '网络中断', 'warn');
+        const msg = d.message || '网络中断';
+        pushLog(msg, 'error');
+        addToast(msg, 'warn');
+        setNetworkWarning(msg);
       }),
     ];
     return () => offs.forEach((off) => off());
-  }, [setStatus, setRepos, pushLog, setProgress, addToast]);
+  }, [setStatus, setRepos, pushLog, setProgress, addToast, setNetworkWarning]);
 
   return (
     <div className="app-shell">
       <TopBar onOpenConnect={() => setConnectOpen(true)} />
-      <Tabs />
-      <main className="app-main">
-        {activeTab === 'repo' && <RepoPanel />}
-        {activeTab === 'commits' && <CommitsPanel />}
-        {activeTab === 'diff' && <DiffPanel />}
-        {activeTab === 'k8s' && <K8sPanel />}
-        {activeTab === 'cf' && <CfPanel />}
-      </main>
-      <LogPanel />
-      <ProgressBar />
+      <div className="app-body">
+        <Tabs />
+        <main className="workspace">
+          {ACTIONBAR_TABS.has(activeTab) && <ActionBar />}
+          {networkWarning && (
+            <div className="network-warning" onClick={() => setNetworkWarning(null)}>
+              ⚠ {networkWarning}
+            </div>
+          )}
+          <div className="workspace-body">
+            {activeTab === 'repo' && <RepoPanel />}
+            {activeTab === 'commits' && <CommitsPanel />}
+            {activeTab === 'diff' && <DiffPanel />}
+            {activeTab === 'logs' && <LogPanel />}
+            {activeTab === 'k8s' && <K8sPanel />}
+            {activeTab === 'cf' && <CfPanel />}
+          </div>
+        </main>
+      </div>
       <ToastStack />
       {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
     </div>

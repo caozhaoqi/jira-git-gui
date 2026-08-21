@@ -1,30 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 
 export function LogPanel() {
   const logs = useAppStore((s) => s.logs);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const clearLogs = useAppStore((s) => s.clearLogs);
+  const ref = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
-    if (open && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [logs, open]);
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [logs]);
 
   return (
-    <section className={`log-panel ${open ? 'open' : ''}`}>
-      <div className="log-header" onClick={() => setOpen((v) => !v)}>
-        <span>日志 {logs.length > 0 && `(${logs.length})`}</span>
-        <span className="log-toggle">{open ? '▾ 收起' : '▴ 展开'}</span>
+    <section className="logs-pane">
+      <div className="panel-header">
+        <h2 className="section-title">日志</h2>
+        <button className="btn btn-sm btn-ghost" onClick={clearLogs}>
+          清空
+        </button>
       </div>
-      {open && (
-        <div className="log-content" ref={ref} id="log-content">
-          {logs.map((l, i) => (
+      <pre className="log-block" ref={ref}>
+        {logs.length === 0 ? (
+          <span className="empty-hint" style={{ display: 'block', padding: 12 }}>
+            尚无日志。克隆 / 下载 / 扫描过程会在此输出。
+          </span>
+        ) : (
+          logs.map((l, i) => (
             <div key={i} className={`log-line ${l.level}`}>
               {l.msg}
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </pre>
     </section>
   );
 }

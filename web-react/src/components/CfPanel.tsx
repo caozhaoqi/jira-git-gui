@@ -75,6 +75,7 @@ export function CfPanel() {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [status, setStatus] = useState<{ text: string; cls: string }>({ text: '', cls: '' });
   const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [cfgOpen, setCfgOpen] = useState(false);
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -442,169 +443,237 @@ export function CfPanel() {
 
   return (
     <div className="cf-panel">
-      <div className="cf-cfg-card">
-        <div className="cf-cfg-row">
-          <label>环境</label>
-          <select
-            className="sel"
-            value={env}
-            onChange={(e) => switchEnv(e.target.value)}
+      {/* ===== 配置卡片：标题 + 环境切换 + 可折叠配置体 ===== */}
+      <div className="card-soft cf-cfg-card">
+        <div className="panel-header">
+          <h2 className="section-title">CF 云函数日志</h2>
+          <div className="cf-env-switcher">
+            <select
+              className="sel"
+              value={env}
+              onChange={(e) => switchEnv(e.target.value)}
+            >
+              <option value="">选择环境…（从本地配置自动填充）</option>
+              {accounts.map((a) => (
+                <option key={a.name} value={a.name}>
+                  {a.name}
+                </option>
+              ))}
+              <option value="custom">✏️ 自定义</option>
+            </select>
+          </div>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setCfgOpen((v) => !v)}
+            title="展开 / 收起连接配置"
           >
-            <option value="">选择环境…（从本地配置自动填充）</option>
-            {accounts.map((a) => (
-              <option key={a.name} value={a.name}>
-                {a.name}
-              </option>
-            ))}
-            <option value="custom">✏️ 自定义</option>
-          </select>
+            配置 {cfgOpen ? '▾' : '▸'}
+          </button>
         </div>
-        <div className="cf-cfg-row">
-          <label>服务器地址</label>
-          <input
-            className="input"
-            placeholder="从上方环境列表选择后自动填充"
-            value={cfg.server_url}
-            onChange={(e) => setCfg({ ...cfg, server_url: e.target.value })}
-            onBlur={saveCfg}
-          />
-        </div>
-        <div className="cf-cfg-row">
-          <label>手机号</label>
-          <input
-            className="input"
-            placeholder="从上方环境列表选择后自动填充"
-            value={cfg.username}
-            onChange={(e) => setCfg({ ...cfg, username: e.target.value })}
-            onBlur={saveCfg}
-          />
-        </div>
-        <div className="cf-cfg-row">
-          <label>密码</label>
-          <input
-            className="input"
-            type="password"
-            placeholder="从上方环境列表选择后自动填充"
-            value={cfg.password}
-            onChange={(e) => setCfg({ ...cfg, password: e.target.value })}
-            onBlur={saveCfg}
-          />
-        </div>
-        <div className="cf-cfg-row">
-          <label>代理</label>
-          <input
-            className="input"
-            placeholder="可选，如 http://127.0.0.1:7890"
-            value={cfg.proxy}
-            onChange={(e) => setCfg({ ...cfg, proxy: e.target.value })}
-            onBlur={saveCfg}
-          />
-        </div>
-        <div className="cf-cfg-row cf-captcha-row">
-          <div>
-            <label>图片验证码</label>
-            <div className="cf-captcha">
-              {captcha.image ? (
-                <img
-                  className="cf-captcha-img"
-                  src={captcha.image}
-                  alt="captcha"
-                  title="点击刷新"
-                  onClick={fetchCaptcha}
-                  style={{ cursor: 'pointer' }}
+
+        {cfgOpen && (
+          <div className="cf-cfg-body">
+            <div className="cf-cfg-row">
+              <div className="cf-cfg-field">
+                <label>服务器地址</label>
+                <input
+                  className="input"
+                  placeholder="从上方环境列表选择后自动填充"
+                  value={cfg.server_url}
+                  onChange={(e) => setCfg({ ...cfg, server_url: e.target.value })}
+                  onBlur={saveCfg}
                 />
-              ) : (
-                <div className="cf-captcha-img empty" onClick={fetchCaptcha} title="点击获取">
-                  （点击刷新获取）
+              </div>
+            </div>
+            <div className="cf-cfg-row">
+              <div className="cf-cfg-field">
+                <label>手机号</label>
+                <input
+                  className="input"
+                  placeholder="从上方环境列表选择后自动填充"
+                  value={cfg.username}
+                  onChange={(e) => setCfg({ ...cfg, username: e.target.value })}
+                  onBlur={saveCfg}
+                />
+              </div>
+              <div className="cf-cfg-field">
+                <label>密码</label>
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="从上方环境列表选择后自动填充"
+                  value={cfg.password}
+                  onChange={(e) => setCfg({ ...cfg, password: e.target.value })}
+                  onBlur={saveCfg}
+                />
+              </div>
+              <div className="cf-cfg-field cf-cfg-field--token">
+                <label>Token</label>
+                <input
+                  className="input"
+                  placeholder="登录后自动填充，或手动粘贴"
+                  value={cfg.token}
+                  onChange={(e) => setCfg({ ...cfg, token: e.target.value })}
+                  onBlur={saveCfg}
+                />
+              </div>
+            </div>
+            <div className="cf-cfg-row">
+              <div className="cf-cfg-field cf-cfg-field--full">
+                <label>代理地址（留空直连；例：http://127.0.0.1:7890）</label>
+                <input
+                  className="input"
+                  placeholder="http://127.0.0.1:7890"
+                  value={cfg.proxy}
+                  onChange={(e) => setCfg({ ...cfg, proxy: e.target.value })}
+                  onBlur={saveCfg}
+                />
+              </div>
+            </div>
+            <div className="cf-cfg-row cf-captcha-row">
+              <div className="cf-cfg-field cf-cfg-field--captcha">
+                <label>图片验证码</label>
+                <div className="cf-captcha-img-wrap">
+                  {captcha.image ? (
+                    <img
+                      className="cf-captcha-img"
+                      src={captcha.image}
+                      alt="验证码"
+                      title="点击刷新"
+                      onClick={fetchCaptcha}
+                    />
+                  ) : (
+                    <div
+                      className="cf-captcha-img empty"
+                      onClick={fetchCaptcha}
+                      title="点击获取"
+                    >
+                      点击刷新获取
+                    </div>
+                  )}
+                  <button
+                    className="btn btn-ghost btn-xs"
+                    onClick={fetchCaptcha}
+                    disabled={loading.captcha}
+                  >
+                    🔄 刷新
+                  </button>
                 </div>
-              )}
-              <input
-                className="input cf-captcha-code"
-                placeholder="验证码（可选）"
-                value={imageCode}
-                onChange={(e) => setImageCode(e.target.value)}
-              />
+              </div>
+              <div className="cf-cfg-field">
+                <label>验证码</label>
+                <input
+                  className="input"
+                  placeholder="请输入图中验证码（可选）"
+                  maxLength={8}
+                  autoComplete="off"
+                  value={imageCode}
+                  onChange={(e) => setImageCode(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="cf-cfg-actions">
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={login}
+                disabled={loading.login}
+              >
+                {loading.login ? '登录中…' : '登录获取 Token'}
+              </button>
             </div>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={fetchCaptcha} disabled={loading.captcha}>
-            🔄 刷新
-          </button>
-        </div>
-        <div className="cf-cfg-row">
-          <button className="btn btn-sm btn-primary" onClick={login} disabled={loading.login}>
-            {loading.login ? '登录中…' : '登录获取 Token'}
-          </button>
-        </div>
-        <div className="cf-cfg-row">
-          <label>Token</label>
-          <input
-            className="input"
-            placeholder="登录后自动填充，或手动粘贴"
-            value={cfg.token}
-            onChange={(e) => setCfg({ ...cfg, token: e.target.value })}
-            onBlur={saveCfg}
-          />
-        </div>
-        <div className="cf-cfg-row">
-          <label>log_type</label>
-          <input
-            className="input"
-            placeholder="留空=全部（可选）"
-            value={cfg.log_type}
-            onChange={(e) => setCfg({ ...cfg, log_type: e.target.value })}
-            onBlur={saveCfg}
-            onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
-          />
-        </div>
-        <div className="cf-cfg-row cf-cfg-inline">
-          <div>
-            <label>每页</label>
+        )}
+      </div>
+
+      {/* ===== 查询卡片 ===== */}
+      <div className="card-soft cf-query-card">
+        <div className="cf-query-row">
+          <div className="cf-cfg-field cf-cfg-field--main">
+            <label>log_type（留空查全部）</label>
+            <input
+              className="input"
+              placeholder="salary_seal_delay_payment_vvv1"
+              value={cfg.log_type}
+              onChange={(e) => setCfg({ ...cfg, log_type: e.target.value })}
+              onBlur={saveCfg}
+              onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
+            />
+          </div>
+          <div className="cf-cfg-field cf-cfg-field--w100">
+            <label>每页条数</label>
             <input
               className="input input-sm"
               type="number"
+              min={1}
+              max={12000}
               value={cfg.page_size}
               onChange={(e) => setCfg({ ...cfg, page_size: parseInt(e.target.value) || 200 })}
               onBlur={saveCfg}
             />
           </div>
-          <div>
+          <div className="cf-cfg-field cf-cfg-field--w80">
             <label>页码</label>
             <input
               className="input input-sm"
               type="number"
+              min={1}
               value={cfg.page_index}
               onChange={(e) => setCfg({ ...cfg, page_index: parseInt(e.target.value) || 1 })}
               onBlur={saveCfg}
             />
           </div>
-          <button className="btn btn-sm" onClick={queryLogs} disabled={loading.query}>
+          <button
+            className="btn btn-primary cf-query-btn"
+            onClick={queryLogs}
+            disabled={loading.query}
+          >
             {loading.query ? '查询中…' : '查询日志'}
           </button>
-          <button className="btn btn-sm btn-ghost" onClick={exportLogs} disabled={loading.export || !result?.rows.length}>
+          <button
+            className="btn cf-query-btn"
+            onClick={exportLogs}
+            disabled={loading.export || !result?.rows.length}
+          >
             导出 JSON
           </button>
-          <button className="btn btn-sm btn-ghost" onClick={clipboardSave} disabled={loading.clipboard}>
+          <button
+            className="btn btn-ghost cf-query-btn"
+            onClick={clipboardSave}
+            disabled={loading.clipboard}
+          >
             📋 剪贴板转文件
           </button>
         </div>
+        {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
       </div>
 
-      {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
-
+      {/* ===== 日志搜索 / 过滤工具栏 ===== */}
       {result && (
-        <div className="cf-search-bar">
+        <div className="cf-search-bar card-soft">
           <input
-            className="input input-sm"
-            placeholder="搜索内容 / 时间 / 类型…"
+            className="input cf-search-input"
+            placeholder="搜索日志内容、时间、类型…（实时过滤）"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
             }}
           />
-          <label className="cf-search-case">
-            <input type="checkbox" checked={caseSensitive} onChange={(e) => setCaseSensitive(e.target.checked)} /> 区分大小写
+          <label className="cf-search-case" title="区分大小写">
+            <input
+              type="checkbox"
+              checked={caseSensitive}
+              onChange={(e) => setCaseSensitive(e.target.checked)}
+            />{' '}
+            大小写敏感
           </label>
+          <button
+            className="btn btn-sm btn-ghost cf-btn-sort-time"
+            onClick={toggleSort}
+            disabled={loading.sort}
+          >
+            时间 {sortDir === 'asc' ? '↑' : '↓'}
+          </button>
           <span className="cf-search-count">
             {search
               ? `匹配 ${view.all} / ${view.isFull ? '全部' : '本页'} ${result.rows.length}`
@@ -612,65 +681,84 @@ export function CfPanel() {
               ? `共 ${view.all} 条`
               : `本页 ${view.all} / 共 ${result.total} 条`}
           </span>
-          <button className="btn btn-sm btn-ghost" onClick={toggleSort} disabled={loading.sort}>
-            时间 {sortDir === 'asc' ? '↑' : '↓'}
-          </button>
         </div>
       )}
 
-      {!result && <div className="empty-hint">填写环境并登录后，点击「查询日志」。</div>}
+      {!result && <div className="empty-hint">选择环境并登录后，点击「查询日志」。</div>}
 
-      {result && view.rows.length === 0 && <div className="empty-hint">没有匹配当前搜索条件的日志</div>}
-
-      {result && view.rows.length > 0 && (
-        <table className="cf-log-table">
-          <thead>
-            <tr>
-              <th style={{ width: 48 }}>#</th>
-              <th style={{ width: 150 }}>类型</th>
-              <th style={{ width: 170 }}>时间</th>
-              <th>内容</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.rows.map((row, i) => {
-              const createTime = cfTime(row);
-              const content = cfContent(row);
-              const contentFull = cfContentFull(row);
-              const logTypeVal = cfLogType(row, result.log_type);
-              const globalIdx = (result.rows.length - view.rows.length) + i;
-              return (
-                <FragmentRow
-                  key={globalIdx}
-                  idx={i + 1}
-                  type={logTypeVal}
-                  time={createTime}
-                  content={content}
-                  contentFull={contentFull}
-                  rowId={row.id != null ? String(row.id) : row._id != null ? String(row._id) : ''}
-                  expanded={expanded === globalIdx}
-                  onToggle={() => setExpanded(expanded === globalIdx ? null : globalIdx)}
-                />
-              );
-            })}
-          </tbody>
-        </table>
+      {result && view.rows.length === 0 && (
+        <div className="empty-hint">没有匹配当前搜索条件的日志</div>
       )}
 
-      {result && view.isFull && view.totalPages > 1 && (
-        <div className="cf-pagination">
-          {view.localPage > 1 && (
-            <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage - 1)}>
-              上一页
-            </button>
-          )}
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {view.localPage} / {view.totalPages}（本地，第 1 页为最新）
-          </span>
-          {view.localPage < view.totalPages && (
-            <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage + 1)}>
-              下一页
-            </button>
+      {/* ===== 日志结果表 ===== */}
+      {result && view.rows.length > 0 && (
+        <div className="cf-results">
+          <div className="cf-result-meta">
+            <span className="cf-result-count">
+              {search
+                ? `匹配 ${view.all} 条`
+                : view.isFull
+                ? `共 ${view.all} 条`
+                : `本页 ${view.all} / 共 ${result.total} 条`}
+            </span>
+            {view.isFull && <span>已加载全部日志，排序 / 搜索覆盖全量</span>}
+          </div>
+          <div className="table-scroll">
+            <table className="cf-log-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 48 }}>#</th>
+                  <th style={{ width: 150 }}>类型</th>
+                  <th style={{ width: 170 }}>时间</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody>
+                {view.rows.map((row, i) => {
+                  const createTime = cfTime(row);
+                  const content = cfContent(row);
+                  const contentFull = cfContentFull(row);
+                  const logTypeVal = cfLogType(row, result.log_type);
+                  const globalIdx = result.rows.length - view.rows.length + i;
+                  return (
+                    <FragmentRow
+                      key={globalIdx}
+                      idx={i + 1}
+                      type={logTypeVal}
+                      time={createTime}
+                      content={content}
+                      contentFull={contentFull}
+                      rowId={
+                        row.id != null
+                          ? String(row.id)
+                          : row._id != null
+                          ? String(row._id)
+                          : ''
+                      }
+                      expanded={expanded === globalIdx}
+                      onToggle={() => setExpanded(expanded === globalIdx ? null : globalIdx)}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {view.isFull && view.totalPages > 1 && (
+            <div className="cf-pagination">
+              {view.localPage > 1 && (
+                <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage - 1)}>
+                  上一页
+                </button>
+              )}
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {view.localPage} / {view.totalPages}（本地，第 1 页为最新）
+              </span>
+              {view.localPage < view.totalPages && (
+                <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage + 1)}>
+                  下一页
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

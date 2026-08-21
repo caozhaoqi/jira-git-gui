@@ -170,83 +170,193 @@ export function K8sFiles() {
 
   return (
     <div className="k8s-files">
-      <div className="k8s-shell-connbar" style={{ display: 'flex' }}>
-        <select className="sel" value={target.pod} onChange={(e) => setTarget({ pod: e.target.value })}>
-          <option value="">— 选择 Pod —</option>
-          {podList.map((p) => <option key={p.name} value={p.name}>{p.name} · {p.phase || ''}</option>)}
-        </select>
-        <input className="input input-sm" value={target.namespace} onChange={(e) => setTarget({ namespace: e.target.value })} placeholder="命名空间" />
-        <button className="btn btn-sm btn-ghost" onClick={mkdir}>新建目录</button>
-        <button className="btn btn-sm btn-ghost" onClick={() => fileInputRef.current?.click()}>上传</button>
-        <button className="btn btn-sm btn-ghost" onClick={del}>删除</button>
-        <input ref={fileInputRef} type="file" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files && e.target.files[0]; if (f) upload(f); e.target.value = ''; }} />
+      <div className="panel-header">
+        <h2 className="section-title">文件浏览器</h2>
+        <span className="panel-sub">浏览 / 编辑 / 上传 / 删除 Pod 内文件（类似 Xftp）</span>
       </div>
 
-      <div className="k8s-files-breadcrumb">
-        <span className="k8s-files-crumb" onClick={() => listFiles('/')}>📁 /</span>
-        {path.split('/').filter(Boolean).map((p, i, arr) => {
-          const seg = '/' + arr.slice(0, i + 1).join('/');
-          return (<span key={i}><span className="k8s-files-sep">/</span><span className="k8s-files-crumb" onClick={() => listFiles(seg)}>{p}</span></span>);
-        })}
-        <button className="btn btn-sm btn-ghost" onClick={() => listFiles(k8sPathParent(path))}>上级</button>
-        <button className="btn btn-sm btn-ghost" onClick={() => listFiles(path)}>刷新</button>
-      </div>
-
-      <div className="k8s-files-search">
-        <input className="input input-sm" value={searchQ} onChange={(e) => setSearchQ(e.target.value)} placeholder="容器内文件内容搜索（grep）" onKeyDown={(e) => e.key === 'Enter' && doSearch()} />
-        <button className="btn btn-sm" onClick={doSearch}>搜索</button>
-        {searchStatus && <span className="k8s-files-search-status">{searchStatus}</span>}
-        {searchResults.length > 0 && (
-          <div className="k8s-files-search-results">
-            {searchResults.map((r, i) => (
-              <div key={i} className="tree-search-item" onClick={async () => {
-                const dir = r.path.includes('/') ? r.path.slice(0, r.path.lastIndexOf('/')) : path;
-                await listFiles(dir);
-                const name = (r.path.split('/').pop()) || r.path;
-                openFile(name, false);
-              }}>
-                <span className="tsr-icon">📄</span>
-                <span className="tsr-path">{r.path}</span>
-                <span className="tsr-line">:{r.line}</span>
-                <div className="tsr-snippet">{(r.snippet || '').slice(0, 200)}</div>
-              </div>
+      <div className="k8s-files-toolbar card-soft">
+        {/* 连接 + 搜索行 */}
+        <div className="k8s-files-connrow">
+          <select
+            className="sel k8s-files-podsel"
+            value={target.pod}
+            onChange={(e) => setTarget({ pod: e.target.value })}
+          >
+            <option value="">— 选择 Pod —</option>
+            {podList.map((p) => (
+              <option key={p.name} value={p.name}>
+                {p.name} · {p.phase || ''}
+              </option>
             ))}
-          </div>
-        )}
-      </div>
+          </select>
+          <input
+            className="input input-sm k8s-files-ns"
+            value={target.namespace}
+            onChange={(e) => setTarget({ namespace: e.target.value })}
+            placeholder="命名空间"
+          />
+          <div className="spacer" />
+          <input
+            className="input input-sm k8s-files-search-input"
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="🔍 在容器内搜索文件内容（grep，当前目录起）"
+            onKeyDown={(e) => e.key === 'Enter' && doSearch()}
+          />
+          <button className="btn btn-sm btn-primary" onClick={doSearch}>
+            搜索
+          </button>
+          {searchStatus && <span className="k8s-files-search-status">{searchStatus}</span>}
+        </div>
 
-      <div className="k8s-table-wrap">
-        <table className="k8s-files-table">
-          <thead>
-            <tr>
-              <th className={'k8s-sortable' + (sort.key === 'name' ? ' active' : '')} data-sort="name" onClick={() => toggleSort('name')}>名称 {sort.key === 'name' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}</th>
-              <th className={'k8s-sortable' + (sort.key === 'type' ? ' active' : '')} data-sort="type" onClick={() => toggleSort('type')}>类型 {sort.key === 'type' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}</th>
-              <th className={'k8s-sortable' + (sort.key === 'size' ? ' active' : '')} data-sort="size" onClick={() => toggleSort('size')}>大小 {sort.key === 'size' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}</th>
-              <th className={'k8s-sortable' + (sort.key === 'mtime' ? ' active' : '')} data-sort="mtime" onClick={() => toggleSort('mtime')}>修改时间 {sort.key === 'mtime' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {!target.pod ? <tr><td colSpan={4} className="empty-hint">请先在上方选择 Pod / 容器</td></tr> :
-              sorted.length === 0 ? <tr><td colSpan={4} className="empty-hint">空目录</td></tr> :
-              sorted.map((e, i) => {
-                const isDir = e.type === 'dir';
+        {/* 路径 + 操作行 */}
+        <div className="k8s-files-navrow">
+          <div className="k8s-files-breadcrumb">
+            <span className="k8s-files-bc-label">路径</span>
+            <div className="k8s-files-path">
+              <span className="k8s-files-crumb" onClick={() => listFiles('/')}>
+                📁 /
+              </span>
+              {path.split('/').filter(Boolean).map((p, i, arr) => {
+                const seg = '/' + arr.slice(0, i + 1).join('/');
                 return (
-                  <tr
-                    key={e.name + i}
-                    className={'k8s-files-row' + (selected && selected.name === e.name ? ' selected' : '')}
-                    onClick={() => setSelected({ name: e.name, isDir })}
-                    onDoubleClick={() => openFile(e.name, isDir)}
-                  >
-                    <td className="k8s-files-name"><span className="k8s-files-icon">{isDir ? '📁' : '📄'}</span>{e.name}</td>
-                    <td className="k8s-files-type">{isDir ? '目录' : '文件'}</td>
-                    <td className="k8s-files-size">{isDir ? '—' : fmtSize(e.size)}</td>
-                    <td className="k8s-files-time">{(e.modtime || '').replace('T', ' ').replace('Z', '').slice(0, 19)}</td>
-                  </tr>
+                  <span key={i}>
+                    <span className="k8s-files-sep">/</span>
+                    <span className="k8s-files-crumb" onClick={() => listFiles(seg)}>
+                      {p}
+                    </span>
+                  </span>
                 );
               })}
-          </tbody>
-        </table>
+            </div>
+          </div>
+          <div className="k8s-files-actions">
+            <button className="btn btn-sm" onClick={() => listFiles(k8sPathParent(path))} title="返回上一级目录">
+              ↑ 上级
+            </button>
+            <button className="btn btn-sm" onClick={() => listFiles(path)}>
+              刷新
+            </button>
+            <button className="btn btn-sm" onClick={mkdir}>
+              新建文件夹
+            </button>
+            <button className="btn btn-sm" onClick={() => fileInputRef.current?.click()}>
+              上传
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={del}>
+              删除
+            </button>
+          </div>
+        </div>
       </div>
+
+      {searchResults.length > 0 && (
+        <div className="k8s-files-search-results">
+          {searchResults.map((r, i) => (
+            <div
+              key={i}
+              className="tree-search-item"
+              onClick={async () => {
+                const dir = r.path.includes('/')
+                  ? r.path.slice(0, r.path.lastIndexOf('/'))
+                  : path;
+                await listFiles(dir);
+                const name = r.path.split('/').pop() || r.path;
+                openFile(name, false);
+              }}
+            >
+              <span className="tsr-icon">📄</span>
+              <span className="tsr-path">{r.path}</span>
+              <span className="tsr-line">:{r.line}</span>
+              <div className="tsr-snippet">{(r.snippet || '').slice(0, 200)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="k8s-files-list-wrap card-soft">
+        <div className="k8s-table-scroll">
+          <table className="k8s-files-table">
+            <thead>
+              <tr>
+                <th className={'k8s-sortable' + (sort.key === 'name' ? ' active' : '')} onClick={() => toggleSort('name')}>
+                  名称{' '}
+                  <span className="k8s-sort-ind">
+                    {sort.key === 'name' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
+                  </span>
+                </th>
+                <th className={'k8s-sortable' + (sort.key === 'type' ? ' active' : '')} onClick={() => toggleSort('type')}>
+                  类型{' '}
+                  <span className="k8s-sort-ind">
+                    {sort.key === 'type' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
+                  </span>
+                </th>
+                <th className={'k8s-sortable' + (sort.key === 'size' ? ' active' : '')} onClick={() => toggleSort('size')}>
+                  大小{' '}
+                  <span className="k8s-sort-ind">
+                    {sort.key === 'size' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
+                  </span>
+                </th>
+                <th className={'k8s-sortable' + (sort.key === 'mtime' ? ' active' : '')} onClick={() => toggleSort('mtime')}>
+                  修改时间{' '}
+                  <span className="k8s-sort-ind">
+                    {sort.key === 'mtime' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {!target.pod ? (
+                <tr>
+                  <td colSpan={4} className="empty-hint">
+                    请先在上方选择 Pod / 容器
+                  </td>
+                </tr>
+              ) : sorted.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="empty-hint">
+                    空目录
+                  </td>
+                </tr>
+              ) : (
+                sorted.map((e, i) => {
+                  const isDir = e.type === 'dir';
+                  return (
+                    <tr
+                      key={e.name + i}
+                      className={selected && selected.name === e.name ? 'selected' : ''}
+                      onClick={() => setSelected({ name: e.name, isDir })}
+                      onDoubleClick={() => openFile(e.name, isDir)}
+                    >
+                      <td className="k8s-files-name">
+                        <span className="k8s-files-icon">{isDir ? '📁' : '📄'}</span>
+                        {e.name}
+                      </td>
+                      <td className="k8s-files-type">{isDir ? '目录' : '文件'}</td>
+                      <td className="k8s-files-size">{isDir ? '—' : fmtSize(e.size)}</td>
+                      <td className="k8s-files-time">
+                        {(e.modtime || '').replace('T', ' ').replace('Z', '').slice(0, 19)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files && e.target.files[0];
+          if (f) upload(f);
+          e.target.value = '';
+        }}
+      />
 
       {editPath && (
         <div className="modal-mask" onClick={() => setEditPath('')}>

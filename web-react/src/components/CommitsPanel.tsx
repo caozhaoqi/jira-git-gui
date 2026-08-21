@@ -82,26 +82,30 @@ export function CommitsPanel() {
   }, []);
 
   return (
-    <div className="commits-panel">
-      <div className="action-bar">
-        <label className="inline-label">模式</label>
-        <select
-          className="sel"
-          value={mode}
-          onChange={(e) => setMode(e.target.value as 'remote' | 'local')}
-        >
-          <option value="remote">远程（Jira Issue）</option>
-          <option value="local">本地（当前仓库）</option>
-        </select>
-        <input
-          className="input"
-          placeholder={mode === 'local' ? '（当前仓库）' : 'Issue 关键字，如 TST-234'}
-          value={issueKey}
-          onChange={(e) => setIssueKey(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && queryCommits()}
-          style={{ flex: 1, minWidth: 160 }}
-        />
-        <button className="btn btn-sm" onClick={queryCommits} disabled={loading}>
+    <div className="commits-panel tab-inner wide">
+      <div className="diff-cfg-card" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <label className="field-inline">
+          模式
+          <select
+            className="sel"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as 'remote' | 'local')}
+          >
+            <option value="remote">按 Issue 查询</option>
+            <option value="local">本地 Git 仓库</option>
+          </select>
+        </label>
+        <label className="field-inline">
+          Issue
+          <input
+            className="input"
+            placeholder={mode === 'local' ? '（当前仓库）' : 'TST-234'}
+            value={issueKey}
+            onChange={(e) => setIssueKey(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && queryCommits()}
+          />
+        </label>
+        <button className="btn btn-primary" onClick={queryCommits} disabled={loading}>
           {loading ? '查询中…' : '查询'}
         </button>
       </div>

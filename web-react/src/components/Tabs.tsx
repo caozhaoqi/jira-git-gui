@@ -1,29 +1,36 @@
 import { useAppStore } from '../store/useAppStore';
 import type { TabKey } from '../store/useAppStore';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'repo', label: '仓库 / 文件' },
-  { key: 'commits', label: '提交记录' },
-  { key: 'diff', label: '差异对比' },
-  { key: 'k8s', label: 'K8s 运维' },
-  { key: 'cf', label: 'CF 日志' },
+const TABS: { key: TabKey; icon: string; label: string }[] = [
+  { key: 'repo', icon: '📦', label: '仓库' },
+  // { key: 'commits', icon: '📜', label: '提交记录' },
+  { key: 'diff', icon: '🔀', label: '差异对比' },
+  { key: 'logs', icon: '📋', label: '日志' },
+  { key: 'k8s', icon: '☸', label: 'K8s 快照' },
+  { key: 'cf', icon: '🔬', label: '云函数日志' },
 ];
 
 export function Tabs() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
   return (
-    <nav className="tabs">
-      {TABS.map((t) => (
-        <button
-          key={t.key}
-          className={`tab ${activeTab === t.key ? 'active' : ''}`}
-          data-tab={t.key}
-          onClick={() => setTab(t.key)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </nav>
+    <aside className="sidebar">
+      <nav className="tabs" aria-label="主导航">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={`tab ${activeTab === t.key ? 'active' : ''}`}
+            data-tab={t.key}
+            onClick={() => setTab(t.key)}
+          >
+            <span className="tab-ico">{t.icon}</span>
+            <span className="tab-txt">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-foot">
+        <div className="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
+      </div>
+    </aside>
   );
 }

@@ -6,6 +6,7 @@ import { normalizeStatus } from '../api/types';
 
 export function RepoList() {
   const repos = useAppStore((s) => s.repos);
+  const selectedRepo = useAppStore((s) => s.selectedRepo);
   const setRepos = useAppStore((s) => s.setRepos);
   const selectRepo = useAppStore((s) => s.selectRepo);
   const setSelectedFile = useAppStore((s) => s.setSelectedFile);
@@ -14,6 +15,9 @@ export function RepoList() {
   const updateStatus = useAppStore((s) => s.setStatus);
   const [keyword, setKeyword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [manualId, setManualId] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualBranch, setManualBranch] = useState('');
 
   async function discover(force: boolean) {
     setBusy(true);
@@ -59,6 +63,19 @@ export function RepoList() {
     }
   }
 
+  async function loadManual() {
+    if (!manualId.trim()) {
+      addToast('请填写仓库 ID', 'warn');
+      return;
+    }
+    const r: Repo = {
+      repo_id: manualId.trim(),
+      display_name: manualName.trim() || manualId.trim(),
+      default_branch: manualBranch.trim(),
+    };
+    await openRepo(r);
+  }
+
   const kw = keyword.trim().toLowerCase();
   const matched = kw
     ? repos.filter(
@@ -71,30 +88,34 @@ export function RepoList() {
 
   return (
     <div className="repo-list-pane">
-      <div className="pane-toolbar">
+      <div className="panel-header">
+        <h2 className="section-title">仓库列表</h2>
+      </div>
+      <p className="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
+      <div className="repo-toolbar">
         <input
-          className="search-input"
-          placeholder="搜索仓库…"
+          className="input repo-search-input"
+          placeholder="🔍 搜索仓库名 / ID / 分支…"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
         />
-        <button className="btn btn-sm" onClick={() => discover(false)} disabled={busy}>
+        <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
           {busy ? '发现中…' : '发现仓库'}
         </button>
-        <button className="btn btn-sm btn-ghost" onClick={() => discover(true)} disabled={busy} title="绕过 10 分钟缓存，强制重新发现">
-          🔄
+        <button className="btn" onClick={() => selectedRepo && openRepo(selectedRepo)} disabled={!selectedRepo}>
+          查看文件
         </button>
       </div>
       <div className="repo-list">
         {!matched.length && (
           <div className="empty-hint">
-            {repos.length ? `无匹配项（关键字：${kw}）` : '未发现仓库，或该账号无权限'}
+            {repos.length ? `无匹配项（关键字：${kw}）` : '点击「发现仓库」加载列表'}
           </div>
         )}
         {matched.map((r) => (
           <div
             key={r.repo_id}
-            className="repo-item"
+            className={`repo-item ${selectedRepo?.repo_id === r.repo_id ? 'selected' : ''}`}
             onClick={() => openRepo(r)}
           >
             <div className="repo-name">{r.display_name || r.repo_id}</div>
@@ -105,6 +126,36 @@ export function RepoList() {
           </div>
         ))}
       </div>
+      <details className="manual-group">
+        <summary>手动指定仓库</summary>
+        <div className="form-rows">
+          <label>
+            仓库 ID
+            <input className="input" value={manualId} onChange={(e) => setManualId(e.target.value)} />
+          </label>
+          <label>
+            仓库名
+            <input
+              className="input"
+              placeholder="PAT 克隆需要"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+            />
+          </label>
+          <label>
+            分支
+            <input
+              className="input"
+              placeholder="(默认)"
+              value={manualBranch}
+              onChange={(e) => setManualBranch(e.target.value)}
+            />
+          </label>
+          <button className="btn btn-primary btn-block" onClick={loadManual}>
+            加载文件树
+          </button>
+        </div>
+      </details>
     </div>
   );
 }

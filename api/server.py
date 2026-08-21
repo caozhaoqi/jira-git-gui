@@ -1195,6 +1195,8 @@ _HCM_HCMINNER_VALUE = _HCM_WL["hcminner"].get("value", "1")
 _HCM_MODEL_LIST_API = _HCM_WL["model_list_api"].get("path", "/api/hcm.model.list")
 
 
+_CF_CAPTCHA_CACHE = {}
+_CF_CAPTCHA_TTL = {}
 _CF_CAPTCHA_MAX = 200
 
 

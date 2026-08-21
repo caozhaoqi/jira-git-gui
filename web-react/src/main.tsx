@@ -4,6 +4,7 @@ import App from './App';
 import { LogViewer } from './components/LogViewer';
 import './styles/global.css';
 import './styles/panels.css';
+import './styles/shell.css';
 import './styles/logviewer.css';
 
 // 视图路由：原生版把日志查看器做成独立 HTML（web/log_viewer.html）。

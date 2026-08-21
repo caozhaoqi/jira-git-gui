@@ -69,28 +69,31 @@ export function Preview() {
   }
 
   return (
-    <div className={`preview-pane ${maximized ? 'maximized' : ''}`}>
-      <div className="pane-toolbar preview-toolbar">
-        <span className="preview-title">{title}</span>
-        <div className="spacer" />
-        <button
-          className="btn btn-sm btn-ghost"
-          onClick={copyPath}
-          disabled={!selectedFilePath}
-          title="复制文件路径"
-        >
-          📋 复制路径
-        </button>
-        <button
-          className="btn btn-sm btn-ghost"
-          onClick={() => setMaximized((v) => !v)}
-          title="最大化 / 还原"
-        >
-          {maximized ? '⛶ 还原' : '⛶ 最大化'}
-        </button>
+    <div className={`preview-pane ${maximized ? 'maximized repo-col-fullscreen' : ''}`}>
+      <div className="panel-header">
+        <h2 className="section-title" title={title}>
+          {title}
+        </h2>
+        <div className="panel-header-actions">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => setMaximized((v) => !v)}
+            title="最大化 / 还原"
+          >
+            ⛶
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={copyPath}
+            disabled={!selectedFilePath}
+            title="复制文件路径"
+          >
+            📋
+          </button>
+        </div>
       </div>
-      <pre className="preview-content">
-        {loading ? '加载中…' : error ? error : content}
+      <pre className="code-block preview-content">
+        {loading ? '加载中…' : error ? error : content || '选择文件后在此预览'}
       </pre>
     </div>
   );

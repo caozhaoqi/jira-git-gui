@@ -151,7 +151,7 @@ export function K8sSnapshot() {
           <label className="chk"><input type="checkbox" checked={includePrevious} onChange={(e) => setIncludePrevious(e.target.checked)} /> 包含上一次</label>
         </div>
         <div className="action-bar">
-          <button className="btn btn-sm" onClick={run} disabled={running || !target.env} style={{ display: running ? 'none' : '' }}>抓取快照</button>
+          <button className="btn btn-primary" onClick={run} disabled={running || !target.env} style={{ display: running ? 'none' : '' }}>抓取快照</button>
           <button className="btn btn-sm btn-ghost" onClick={cancel} style={{ display: running ? '' : 'none' }}>取消</button>
         </div>
       </div>

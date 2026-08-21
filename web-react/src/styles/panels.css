@@ -1133,3 +1133,495 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
 }
+
+/* ============================================================
+   CF 云函数日志面板 —— 对齐 HTML 参考版结构
+   （cf-cfg-field 字段容器 / 可折叠配置 / 独立查询卡 / 结果表）
+   ============================================================ */
+
+/* 配置卡片头部：标题 + 环境切换 + 折叠开关 */
+.cf-cfg-card .panel-header {
+  gap: 10px;
+  margin-bottom: 0;
+}
+.cf-cfg-card .section-title {
+  margin-right: auto;
+  font-size: 15px;
+}
+.cf-env-switcher .sel {
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  min-width: 200px;
+  transition: all 0.15s;
+}
+.cf-env-switcher .sel:hover {
+  border-color: var(--border-strong);
+}
+.cf-env-switcher .sel:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
+
+/* 可折叠配置体 */
+.cf-cfg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  animation: pane-in 0.25s var(--ease-out);
+}
+
+/* 行 / 字段容器（label 在上、input 通栏） */
+.cf-cfg-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.cf-cfg-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 140px;
+}
+.cf-cfg-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cf-cfg-field .input {
+  width: 100%;
+}
+.cf-cfg-field--full {
+  flex: 1 1 100%;
+  min-width: 100%;
+}
+.cf-cfg-field--token {
+  flex: 2;
+}
+.cf-cfg-field--captcha {
+  flex: 0 0 auto;
+  min-width: 150px;
+}
+.cf-cfg-field--main {
+  flex: 1;
+}
+.cf-cfg-field--w100 {
+  flex: 0 0 100px;
+  min-width: 100px;
+}
+.cf-cfg-field--w80 {
+  flex: 0 0 80px;
+  min-width: 80px;
+}
+.cf-query-btn {
+  align-self: flex-end;
+  white-space: nowrap;
+}
+.cf-cfg-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* 验证码：图片 + 刷新按钮并排 */
+.cf-captcha-row {
+  gap: 16px;
+  align-items: flex-end;
+}
+.cf-captcha-img-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.cf-captcha-img {
+  height: 40px;
+  width: 120px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  cursor: pointer;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--muted);
+  transition: opacity 0.2s;
+}
+.cf-captcha-img.empty {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--surface-2),
+    var(--surface-2) 6px,
+    var(--surface-3) 6px,
+    var(--surface-3) 12px
+  );
+}
+.btn-xs {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  line-height: 1.5;
+}
+
+/* 查询卡片 */
+.cf-query-card {
+  padding: 14px 18px;
+  margin-bottom: 0;
+}
+.cf-query-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.cf-query-status {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  min-height: 18px;
+  line-height: 1.55;
+}
+.cf-query-status.error {
+  color: var(--danger);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.cf-query-status.success {
+  color: var(--success);
+}
+
+/* 结果区 */
+.cf-results {
+  margin-top: 4px;
+}
+.cf-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cf-result-count {
+  font-weight: 600;
+  color: var(--text);
+}
+.cf-pagination {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  justify-content: center;
+}
+
+/* 日志结果表：卡片化 + 吸顶表头 */
+.cf-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.cf-log-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.cf-log-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.cf-log-table tbody tr {
+  transition: background 0.15s var(--ease-out);
+  cursor: pointer;
+}
+.cf-log-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.cf-log-table tbody tr.expanded {
+  background: var(--primary-050);
+}
+.cf-log-type {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--primary);
+  font-weight: 600;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-log-time {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cf-log-content {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 600px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cf-log-content-full {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 12px 14px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  margin: 6px 0;
+  max-height: 400px;
+  overflow: auto;
+  line-height: 1.6;
+}
+.cf-log-detail-row td {
+  padding: 0 14px 12px;
+  background: var(--surface-2);
+}
+.cf-log-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  padding: 2px 0 8px;
+}
+
+/* 搜索工具栏 */
+.cf-search-input {
+  flex: 1 1 240px;
+  min-width: 180px;
+}
+.cf-btn-sort-time {
+  white-space: nowrap;
+}
+
+/* 表格横向滚动容器（窄屏 / 高缩放时不破版） */
+.table-scroll {
+  overflow-x: auto;
+}
+
+/* ============================================================
+   K8s 文件浏览器 —— 对齐 HTML 参考版（类似 Xftp）
+   ============================================================ */
+.k8s-files {
+  gap: 12px;
+  padding: 2px 0 16px;
+}
+.k8s-files .panel-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.k8s-files .panel-sub {
+  font-size: 12px;
+}
+
+/* 工具栏卡片：连接 / 搜索行 + 路径 / 操作行 */
+.k8s-files-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+.k8s-files-connrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.k8s-files-podsel {
+  flex: 0 1 300px;
+  min-width: 180px;
+}
+.k8s-files-ns {
+  width: 150px;
+  flex-shrink: 0;
+}
+.k8s-files-search-input {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+.k8s-files-search-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* 路径面包屑（盒装） + 操作按钮 */
+.k8s-files-navrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.k8s-files-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.k8s-files-bc-label {
+  font-size: 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.k8s-files-path {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+  cursor: default;
+}
+.k8s-files-crumb {
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.k8s-files-crumb:hover {
+  background: var(--primary-050);
+  color: var(--primary);
+}
+.k8s-files-sep {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.k8s-files-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 搜索结果框 */
+.k8s-files-search-results {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 文件列表卡片 + 表 */
+.k8s-files-list-wrap {
+  padding: 0;
+  overflow: hidden;
+}
+.k8s-table-scroll {
+  overflow-x: auto;
+}
+.k8s-files-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 560px;
+}
+.k8s-files-table th,
+.k8s-files-table td {
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.k8s-files-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
+.k8s-files-table th.k8s-sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s ease;
+}
+.k8s-files-table th.k8s-sortable:hover {
+  color: var(--primary);
+}
+.k8s-files-table th .k8s-sort-ind {
+  color: var(--primary);
+  font-size: 10px;
+  padding-left: 3px;
+}
+.k8s-files-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s var(--ease-out);
+}
+.k8s-files-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.k8s-files-table tbody tr.selected {
+  background: var(--primary-050);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.k8s-files-table .k8s-files-icon {
+  margin-right: 6px;
+}
+.k8s-files-table .k8s-files-name {
+  font-family: var(--mono);
+  max-width: min(320px, 38vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.k8s-files-table .k8s-files-type {
+  color: var(--muted);
+}
+.k8s-files-table .k8s-files-size {
+  font-family: var(--mono);
+  color: var(--text-2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.k8s-files-table .k8s-files-time {
+  color: var(--muted);
+  font-family: var(--mono);
+}

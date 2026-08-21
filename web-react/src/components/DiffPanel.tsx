@@ -210,25 +210,28 @@ export function DiffPanel() {
   }, [entries, mergeRemoteOnly, ignoreLineEndings, pushLog, addToast, setProgress]);
 
   return (
-    <div className="diff-panel">
+    <div className="diff-panel tab-inner wide">
       <div className="diff-cfg-card">
         <div className="diff-cfg-row">
-          <label>本地目录</label>
-          <input
-            className="input"
-            placeholder="/path/to/local/repo"
-            value={localDir}
-            onChange={(e) => setLocalDir(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && scanDiff()}
-          />
+          <label className="field-inline">
+            本地目录
+            <input
+              className="input"
+              placeholder="/path/to/local/repo"
+              value={localDir}
+              onChange={(e) => setLocalDir(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && scanDiff()}
+              style={{ minWidth: 280, flex: 1 }}
+            />
+          </label>
+          <button className="btn btn-primary" onClick={scanDiff} disabled={busy || !selectedRepo}>
+            {busy ? '扫描中…' : '扫描差异'}
+          </button>
         </div>
         <div className="diff-cfg-row diff-cfg-inline">
           <label className="chk"><input type="checkbox" checked={ignoreLineEndings} onChange={(e) => setIgnoreLineEndings(e.target.checked)} /> 忽略行尾差异</label>
           <label className="chk"><input type="checkbox" checked={showSame} onChange={(e) => setShowSame(e.target.checked)} /> 显示相同</label>
           <label className="chk"><input type="checkbox" checked={mergeRemoteOnly} onChange={(e) => setMergeRemoteOnly(e.target.checked)} /> 仅合并云端差异</label>
-          <button className="btn btn-sm" onClick={scanDiff} disabled={busy || !selectedRepo}>
-            {busy ? '扫描中…' : '扫描差异'}
-          </button>
         </div>
       </div>
 
@@ -280,10 +283,10 @@ export function DiffPanel() {
           <div className="diff-file-head">
             <span className="diff-file-title">{fileTitle}</span>
             {selectedPath && (
-              <button className="btn btn-sm" onClick={mergeOne} disabled={busy}>合并到本地</button>
+              <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>合并到本地</button>
             )}
             {entries.length > 0 && (
-              <button className="btn btn-sm btn-ghost" onClick={mergeAll} disabled={busy}>
+              <button className="btn btn-sm btn-primary" onClick={mergeAll} disabled={busy}>
                 全部合并到本地
               </button>
             )}

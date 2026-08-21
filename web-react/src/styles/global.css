@@ -875,7 +875,7 @@ body {
   color: #fff;
 }
 .change-A,
-.change-+ {
+.change-\+ {
   background: var(--success);
 }
 .change-M,

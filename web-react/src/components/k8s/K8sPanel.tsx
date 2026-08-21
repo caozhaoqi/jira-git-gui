@@ -16,13 +16,13 @@ import { K8sDescribeModal, type DescribeSeed } from './K8sDescribeModal';
 type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files';
 
 const SUBTABS: { key: SubTab; label: string }[] = [
-  { key: 'snapshot', label: '快照' },
-  { key: 'yaml', label: 'Pod YAML' },
-  { key: 'network', label: '网络检测' },
-  { key: 'events', label: '事件流' },
-  { key: 'top', label: '资源 Top' },
-  { key: 'shell', label: 'Shell 终端' },
-  { key: 'files', label: '文件浏览器' },
+  { key: 'snapshot', label: '📸 快照' },
+  { key: 'yaml', label: '📝 Pod YAML' },
+  { key: 'network', label: '🌐 网络检测' },
+  { key: 'events', label: '📡 事件' },
+  { key: 'top', label: '📊 资源 Top' },
+  { key: 'shell', label: '💻 Shell' },
+  { key: 'files', label: '📁 文件' },
 ];
 
 function envTagClass(name: string): string {
@@ -98,16 +98,19 @@ export function K8sPanel() {
   return (
     <K8sContext.Provider value={ctx}>
       <div className="k8s-panel">
-        <div className="k8s-toolbar">
+        <div className="k8s-envbar card-soft">
+          <label className="field-inline">
+            环境
+            <select className="sel" value={target.env} onChange={(e) => onEnvChange(e.target.value)}>
+              {envs.length === 0 && <option value="">（无环境）</option>}
+              {envs.map((e) => (
+                <option key={e.name} value={e.name}>{e.label || e.name} ({e.name})</option>
+              ))}
+            </select>
+          </label>
           <span className={envTagClass(target.env)}>{envTagText(envs, target.env)}</span>
-          <select className="sel" value={target.env} onChange={(e) => onEnvChange(e.target.value)}>
-            {envs.length === 0 && <option value="">（无环境）</option>}
-            {envs.map((e) => (
-              <option key={e.name} value={e.name}>{e.label || e.name} ({e.name})</option>
-            ))}
-          </select>
-          <span className="k8s-env-kc">{kcText}</span>
-          <button className="btn btn-sm btn-ghost" onClick={() => setEnvModalOpen(true)}>管理环境</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEnvModalOpen(true)}>管理环境</button>
+          <span className="k8s-env-kc panel-sub">{kcText}</span>
         </div>
 
         <div className="k8s-subtabs">
