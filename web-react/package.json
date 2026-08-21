@@ -1,0 +1,27 @@
+{
+  "name": "jira-git-gui-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Jira Git 通用拉取工具 —— React + TypeScript 前端（由 web/ 原生 JS 迁移而来）",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build --base /web/",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.0"
+  }
+}
