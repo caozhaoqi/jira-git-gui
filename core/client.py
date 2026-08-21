@@ -190,6 +190,8 @@ class JiraGitClient:
         self._rest_unavailable: bool = False
         # 网络看门狗：批量操作期间监控网络健康度。由后端在任务启动前设置。
         self._watchdog: Optional[NetworkWatchdog] = None
+        # keep-alive 连接池（懒创建；传输层异常时丢弃重建）
+        self._http_client: Optional[httpx.Client] = None
 
     # ------------------------------------------------------------------ 配置
     def set_config(self, cfg: ConnectConfig) -> None:
@@ -220,12 +222,15 @@ class JiraGitClient:
         return m.group(1) if m else u
 
     # ------------------------------------------------------------------ 网络
-    @staticmethod
-    def http_get(url: str, headers: Optional[dict] = None,
+    def http_get(self, url: str, headers: Optional[dict] = None,
                  retries: int = 5,
                  watchdog: Optional["NetworkWatchdog"] = None) -> httpx.Response:
-        """带重试的 GET：每次请求新建客户端（无连接池复用），专门对抗代理偶发的
-        SSL UNEXPECTED_EOF / 连接重置；失败自动退避重试。
+        """带重试的 GET：复用 keep-alive 连接池，传输层异常时丢弃重建。
+
+        连接复用：所有请求共享一个懒创建的 ``httpx.Client``（``_make_client``），
+        省去每次请求的 TCP/TLS 握手（文件加载、列表、扫描等高频小请求收益明显）。
+        传输层异常（代理偶发 SSL UNEXPECTED_EOF / 连接重置）时丢弃重建该客户端，
+        并走原有退避重试，行为与之前「每次新建」一致但快得多。
 
         发请求前先经全局令牌桶限流（``throttle.acquire``），确保无论并发多大，
         对 Jira 服务器的稳态请求速率都被钳住，避免把对方打崩。遇到 429/503 时
@@ -241,14 +246,13 @@ class JiraGitClient:
                     f"网络已中断，自动停止请求（连续失败 {watchdog.failure_count} 次）")
             try:
                 throttle.acquire()
-                with httpx.Client(
-                    timeout=HTTP_TIMEOUT,
-                    follow_redirects=True,
-                    proxy=PROXY_URL or None,
-                    verify=False,
-                    headers={"User-Agent": "jira-git-gui/1.0"},
-                ) as client:
+                client = self._get_http_client()
+                try:
                     r = client.get(url, headers=headers or {})
+                except Exception:
+                    # 传输层异常：连接可能损坏（代理偶发 SSL 错误），丢弃以便下次重建
+                    self._drop_http_client()
+                    raise
                 if _should_backoff(r):
                     _backoff_for(r, attempt)
                     last = httpx.HTTPStatusError(
@@ -264,6 +268,21 @@ class JiraGitClient:
                     watchdog.notify_failure(str(e))
                 time.sleep(0.6 * (attempt + 1))
         raise last if last else httpx.TransportError("unknown httpx error")
+
+    def _get_http_client(self) -> "httpx.Client":
+        """懒创建 / 复用 keep-alive 客户端（线程安全，可跨线程共享）。"""
+        if self._http_client is None:
+            self._http_client = self._make_client()
+        return self._http_client
+
+    def _drop_http_client(self) -> None:
+        """丢弃当前连接池（传输层异常后调用，下次请求重建）。"""
+        c, self._http_client = self._http_client, None
+        if c is not None:
+            try:
+                c.close()
+            except Exception:
+                pass
 
     def _make_client(self) -> "httpx.Client":
         """为批量请求创建可复用的 httpx 客户端（带代理 / 重试参数）。
@@ -389,7 +408,7 @@ class JiraGitClient:
         return result
 
     # ----------------------------------------------------- 仓库发现（Cookie）
-    def discover_repos(self) -> List[RepoInfo]:
+    def discover_repos(self, force: bool = False) -> List[RepoInfo]:
         """发现【全部】仓库（Cookie 模式），翻页遍历、合并且记录发现数。
 
         数据源：
@@ -401,9 +420,36 @@ class JiraGitClient:
         每次发现都会把两个接口的原始响应完整写入 ``logs/discover_raw_<时间戳>.txt``，
         并在主日志逐个端点打印「状态码 / 内容类型 / 疑似登录页」，便于排查
         「为什么只返回 N 个」类问题（REST 404 / 返回登录页 / JSON 结构不匹配等）。
+
+        性能优化（仓库多时「发现」从数秒降到 ~1s，二次发现秒开）：
+        - 结果缓存：``store/repos_cache.json``，TTL 10 分钟；``force=True`` 强制重取
+        - 发现期间临时放宽全局限流（只发个位数请求，完事恢复）
+        - HTML 全量翻页降级为**单页**（6.x 是 SPA 空壳，仅用于补默认分支元信息）
         """
         if not self.config.cookie:
             return []
+        # 1) 缓存命中（未过期且非强制刷新）→ 秒开
+        if not force:
+            cached = self._load_repo_cache()
+            if cached is not None:
+                logger.info("仓库发现：命中缓存 %d 个（10 分钟内），force=False 跳过网络请求",
+                            len(cached))
+                return cached
+
+        # 2) 发现期间临时放宽限流：只发个位数请求，无需按 6qps 慢慢等
+        saved_qps = throttle.get_rate_limiter().qps
+        try:
+            throttle.set_global_rate_limit(max(saved_qps, 30))
+            merged = self._do_discover_repos()
+        finally:
+            throttle.set_global_rate_limit(saved_qps)
+
+        # 3) 写缓存
+        self._save_repo_cache(merged)
+        return merged
+
+    def _do_discover_repos(self) -> List[RepoInfo]:
+        """实际执行发现（限流已放宽，供 discover_repos 调用）。"""
         # 原始响应诊断：写入独立文件，避免污染主日志
         ts = time.strftime("%Y%m%d_%H%M%S")
         raw_path = Path("logs") / f"discover_raw_{ts}.txt"
@@ -413,7 +459,8 @@ class JiraGitClient:
         except Exception:
             raw_fp = None
         try:
-            html = self._discover_repos_html(raw_fp)
+            # HTML 只翻 1 页用于补元信息（6.x SPA 空壳，全量翻页收益极低）
+            html = self._discover_repos_html(raw_fp, max_pages=1)
             if self._rest_unavailable:
                 # 会话内已确认 REST 端点不可用（多为 404），跳过这一轮 9 次白打，保护服务器
                 logger.info("[发现-REST] 已缓存「REST 端点不可用」，本次跳过 REST 探测（"
@@ -456,18 +503,60 @@ class JiraGitClient:
                         "合并去重后共 %d 个。", len(html), len(rest), len(merged))
         return sorted(merged.values(), key=lambda x: x.display_name.lower())
 
-    def _discover_repos_html(self, raw_fp=None) -> Dict[str, RepoInfo]:
+    # ---- 仓库列表缓存（store/repos_cache.json，TTL 10 分钟） ----
+    _REPO_CACHE_FILE = REPOS_DIR.parent / "repos_cache.json"
+    _REPO_CACHE_TTL = 600  # 秒
+
+    def _save_repo_cache(self, repos: List[RepoInfo]) -> None:
+        try:
+            data = {
+                "ts": time.time(),
+                "repos": [
+                    {
+                        "repo_id": r.repo_id,
+                        "display_name": r.display_name,
+                        "clone_url": r.clone_url,
+                        "default_branch": r.default_branch,
+                    }
+                    for r in repos
+                ],
+            }
+            self._REPO_CACHE_FILE.write_text(
+                json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            logger.info("仓库列表缓存已写入：%s（%d 个）",
+                        self._REPO_CACHE_FILE, len(repos))
+        except Exception as e:
+            logger.warning("仓库列表缓存写入失败：%s", e)
+
+    def _load_repo_cache(self) -> Optional[List[RepoInfo]]:
+        try:
+            if not self._REPO_CACHE_FILE.exists():
+                return None
+            data = json.loads(self._REPO_CACHE_FILE.read_text(encoding="utf-8"))
+            if time.time() - float(data.get("ts", 0)) > self._REPO_CACHE_TTL:
+                logger.info("仓库列表缓存已过期（>%d 秒），重新发现", self._REPO_CACHE_TTL)
+                return None
+            repos = [RepoInfo(**r) for r in data.get("repos", [])]
+            return sorted(repos, key=lambda x: x.display_name.lower())
+        except Exception as e:
+            logger.warning("仓库列表缓存读取失败（忽略，重新发现）：%s", e)
+            return None
+
+    def _discover_repos_html(self, raw_fp=None, max_pages: int = HTML_MAX_PAGES) -> Dict[str, RepoInfo]:
         """翻页遍历 AllRepositories HTML 页面，返回 repoId -> RepoInfo（含 branchName）。
 
         Jira GIJRepositoryBrowser-AllRepositories.jspa 支持标准分页参数
         ``pageSize``（每页条数）+ ``pageIndex``（0-based 页码），页面底部会显示
         ``Showing 1 - 100 repositories out of 385`` 形式的总数提示。
         本方法逐页请求、解析仓库锚点、合并去重，直到取尽全部页面。
+
+        注意：6.x 的 AllRepositories 页是 SPA 空壳，HTML 仅用于补 REST 的元信息
+        （默认分支等），因此默认调用只翻 **1 页**（``max_pages=1``）即可。
         """
         out: Dict[str, RepoInfo] = {}
         base_url = self.config.jira_url.rstrip("/") + ALL_REPOS_PAGE
         try:
-            for page_idx in range(HTML_MAX_PAGES):
+            for page_idx in range(max_pages):
                 url = f"{base_url}?pageSize={HTML_PAGE_SIZE}&pageIndex={page_idx}"
                 r = self.http_get(url, headers=self.cookie_headers())
                 tag = f"HTML AllRepositories [page {page_idx}]"

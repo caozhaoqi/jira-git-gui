@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>日志查看 · K8s</title>
+  <link rel="stylesheet" href="/web/styles.css">
+  <link rel="stylesheet" href="/web/log_viewer.css">
+</head>
+<body class="logviewer">
+  <header class="lv-head">
+    <div class="lv-head-left">
+      <button id="lv-back" class="btn btn-ghost" title="返回主界面">← 返回</button>
+      <div class="lv-title">
+        <select id="lv-pod" class="sel lv-podsel" title="切换 Pod（自动加载其日志）">
+          <option value="">选择 Pod…</option>
+        </select>
+        <div class="lv-meta">
+          <span class="lv-chip lv-chip-env" id="lv-env">env: —</span>
+          <span class="lv-chip lv-chip-ns" id="lv-ns">ns: —</span>
+          <span class="lv-chip lv-chip-ct" id="lv-ct">容器: —</span>
+        </div>
+      </div>
+    </div>
+    <div class="lv-head-right">
+      <button id="lv-refresh" class="btn btn-sm" title="重新拉取">↻ 刷新</button>
+      <button id="lv-download" class="btn btn-sm" title="下载为 .txt">↓ 下载</button>
+      <button id="lv-theme" class="btn btn-icon" title="切换浅色 / 深色">🌓</button>
+    </div>
+  </header>
+
+  <div class="lv-toolbar">
+    <label class="lv-field">容器
+      <select id="lv-container" class="sel"></select>
+    </label>
+    <label class="lv-field lv-search">搜索
+      <span class="lv-searchbox">
+        <input id="lv-search" type="text" class="input" placeholder="关键字（支持正则）">
+        <span id="lv-match" class="lv-match">0/0</span>
+        <button id="lv-prev" class="btn btn-xs" title="上一个匹配">▲</button>
+        <button id="lv-next" class="btn btn-xs" title="下一个匹配">▼</button>
+        <label class="lv-re"><input type="checkbox" id="lv-regex"> 正则</label>
+        <label class="lv-re"><input type="checkbox" id="lv-ci" checked> 忽略大小写</label>
+      </span>
+    </label>
+    <label class="lv-field">行数
+      <select id="lv-tail" class="sel">
+        <option value="50">50</option>
+        <option value="200" selected>200</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+        <option value="5000">全量</option>
+      </select>
+    </label>
+    <label class="lv-field">自动刷新
+      <select id="lv-auto" class="sel">
+        <option value="0" selected>关闭</option>
+        <option value="3">3 秒</option>
+        <option value="5">5 秒</option>
+        <option value="10">10 秒</option>
+      </select>
+    </label>
+    <label class="lv-toggle"><input type="checkbox" id="lv-prevlog"> 上一容器(--previous)</label>
+    <label class="lv-toggle"><input type="checkbox" id="lv-wrap" checked> 换行</label>
+    <label class="lv-toggle"><input type="checkbox" id="lv-lineno" checked> 行号</label>
+    <label class="lv-toggle"><input type="checkbox" id="lv-level" checked> 级别高亮</label>
+    <span class="lv-spacer"></span>
+    <span class="lv-font">字号
+      <button id="lv-font-dec" class="btn btn-xs" title="缩小">A−</button>
+      <button id="lv-font-inc" class="btn btn-xs" title="放大">A+</button>
+    </span>
+  </div>
+
+  <main id="lv-body" class="lv-body">
+    <div id="lv-status" class="lv-statusline">准备中…</div>
+    <div id="lv-log" class="lv-log"></div>
+  </main>
+
+  <script src="/web/log_viewer.js"></script>
+</body>
+</html>

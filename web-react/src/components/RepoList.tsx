@@ -1,0 +1,161 @@
+import { useState } from 'react';
+import { useAppStore } from '../store/useAppStore';
+import { apiGet, apiPost } from '../api/client';
+import type { Repo, ReposResp, StatusResp } from '../api/types';
+import { normalizeStatus } from '../api/types';
+
+export function RepoList() {
+  const repos = useAppStore((s) => s.repos);
+  const selectedRepo = useAppStore((s) => s.selectedRepo);
+  const setRepos = useAppStore((s) => s.setRepos);
+  const selectRepo = useAppStore((s) => s.selectRepo);
+  const setSelectedFile = useAppStore((s) => s.setSelectedFile);
+  const pushLog = useAppStore((s) => s.pushLog);
+  const addToast = useAppStore((s) => s.addToast);
+  const updateStatus = useAppStore((s) => s.setStatus);
+  const [keyword, setKeyword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [manualId, setManualId] = useState('');
+  const [manualName, setManualName] = useState('');
+  const [manualBranch, setManualBranch] = useState('');
+
+  async function discover(force: boolean) {
+    setBusy(true);
+    pushLog('【发现仓库】开始…');
+    try {
+      const res = await apiGet<ReposResp>(
+        force ? '/api/repos?refresh=1' : '/api/repos'
+      );
+      if (res.error) {
+        pushLog(`发现仓库错误：${res.error}`, 'warning');
+        if (/cookie|登录|login|未配置/i.test(res.error)) {
+          pushLog('Cookie 可能已过期，请重新打开「连接设置」获取新 Cookie。', 'error');
+        }
+      }
+      setRepos(res.repos || []);
+      pushLog(`【发现仓库】返回 ${(res.repos || []).length} 个${force ? '（强制刷新）' : ''}`);
+    } catch (e: any) {
+      pushLog(`发现仓库异常：${e.message}`, 'error');
+      addToast(e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRepo(r: Repo) {
+    selectRepo(r);
+    setSelectedFile(null);
+    const branch = r.default_branch || '';
+    try {
+      await apiPost('/api/repo/select', {
+        repo_id: r.repo_id,
+        repo_name: r.display_name,
+        branch,
+      });
+      apiGet<StatusResp>('/api/status')
+        .then((s) => updateStatus(normalizeStatus(s)))
+        .catch(() => {});
+      pushLog(
+        `已选择仓库 id=${r.repo_id} name=${r.display_name} branch=${branch || '(默认)'}`
+      );
+    } catch (e: any) {
+      addToast(e.message, 'error');
+    }
+  }
+
+  async function loadManual() {
+    if (!manualId.trim()) {
+      addToast('请填写仓库 ID', 'warn');
+      return;
+    }
+    const r: Repo = {
+      repo_id: manualId.trim(),
+      display_name: manualName.trim() || manualId.trim(),
+      default_branch: manualBranch.trim(),
+    };
+    await openRepo(r);
+  }
+
+  const kw = keyword.trim().toLowerCase();
+  const matched = kw
+    ? repos.filter(
+        (r) =>
+          (r.display_name || '').toLowerCase().includes(kw) ||
+          String(r.repo_id).toLowerCase().includes(kw) ||
+          (r.default_branch || '').toLowerCase().includes(kw)
+      )
+    : repos;
+
+  return (
+    <div className="repo-list-pane">
+      <div className="panel-header">
+        <h2 className="section-title">仓库列表</h2>
+      </div>
+      <p className="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
+      <div className="repo-toolbar">
+        <input
+          className="input repo-search-input"
+          placeholder="🔍 搜索仓库名 / ID / 分支…"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+        />
+        <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
+          {busy ? '发现中…' : '发现仓库'}
+        </button>
+        <button className="btn" onClick={() => selectedRepo && openRepo(selectedRepo)} disabled={!selectedRepo}>
+          查看文件
+        </button>
+      </div>
+      <div className="repo-list">
+        {!matched.length && (
+          <div className="empty-hint">
+            {repos.length ? `无匹配项（关键字：${kw}）` : '点击「发现仓库」加载列表'}
+          </div>
+        )}
+        {matched.map((r) => (
+          <div
+            key={r.repo_id}
+            className={`repo-item ${selectedRepo?.repo_id === r.repo_id ? 'selected' : ''}`}
+            onClick={() => openRepo(r)}
+          >
+            <div className="repo-name">{r.display_name || r.repo_id}</div>
+            <div className="repo-meta">
+              id={r.repo_id}
+              {r.default_branch ? ` [branch=${r.default_branch}]` : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+      <details className="manual-group">
+        <summary>手动指定仓库</summary>
+        <div className="form-rows">
+          <label>
+            仓库 ID
+            <input className="input" value={manualId} onChange={(e) => setManualId(e.target.value)} />
+          </label>
+          <label>
+            仓库名
+            <input
+              className="input"
+              placeholder="PAT 克隆需要"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+            />
+          </label>
+          <label>
+            分支
+            <input
+              className="input"
+              placeholder="(默认)"
+              value={manualBranch}
+              onChange={(e) => setManualBranch(e.target.value)}
+            />
+          </label>
+          <button className="btn btn-primary btn-block" onClick={loadManual}>
+            加载文件树
+          </button>
+        </div>
+      </details>
+    </div>
+  );
+}

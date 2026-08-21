@@ -148,14 +148,18 @@ def scan_local(local_dir: str, prev: Optional[dict] = None) -> dict[str, dict]:
                         h = pe["hash"]
                         norm_h = pe.get("norm_hash") if is_text else ""
                         norm_size = pe.get("norm_size") if is_text else size
+                    elif is_text:
+                        # 单次读取同时算 raw + 归一化 hash（省一次整文件 IO）
+                        h, norm_h, norm_size = _file_hashes(full)
                     else:
                         h = _file_hash(full)
-                        norm_h = _normalized_hash(full) if is_text else ""
-                        norm_size = _normalized_size(full) if is_text else size
+                        norm_h, norm_size = "", size
                 else:
-                    h = _file_hash(full)
-                    norm_h = _normalized_hash(full) if is_text else ""
-                    norm_size = _normalized_size(full) if is_text else size
+                    if is_text:
+                        h, norm_h, norm_size = _file_hashes(full)
+                    else:
+                        h = _file_hash(full)
+                        norm_h, norm_size = "", size
                 entry: dict = {"size": size, "mtime": mtime, "hash": h}
                 if is_text and norm_h:
                     entry["norm_hash"] = norm_h
@@ -215,6 +219,30 @@ def _file_hash(path: Path) -> str:
         return h.hexdigest()
     except (OSError, PermissionError):
         return ""
+
+
+def _file_hashes(path: Path) -> tuple:
+    """一次读取同时计算 raw MD5 + 归一化 MD5 / 归一化尺寸。
+
+    等价于原先 ``_file_hash`` + ``_normalized_hash`` + ``_normalized_size``
+    的三次打开读取，但只读一遍文件——大仓库首次扫描可省下约一半磁盘 IO。
+
+    Returns:
+        (raw_md5, norm_md5, norm_size)；二进制（含 NUL）时 norm_md5 为空串，
+        norm_size 为原始字节数（与 _normalized_size 行为一致）。
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        raw = hashlib.md5(data).hexdigest()
+        if b"\x00" in data:
+            return raw, "", len(data)
+        norm_size = len(data.replace(b"\r\n", b"\n"))
+        text = data.decode("utf-8", errors="replace")
+        norm_h = hashlib.md5(text.replace("\r\n", "\n").encode("utf-8")).hexdigest()
+        return raw, norm_h, norm_size
+    except (OSError, PermissionError):
+        return "", "", 0
 
 
 def _is_text_file(path: Path) -> bool:
@@ -287,7 +315,7 @@ def _scan_remote_dir(client, path: str, result: dict):
 def scan_remote_parallel(
     client,
     max_workers: int = 3,
-    on_progress: Optional[Callable[[int, int], None]] = None,
+    on_progress: Optional[Callable[[int, int, int, int], None]] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
 ) -> dict[str, dict]:
     """并行扫描远程仓库（低并发 + SSL 重试）。
@@ -295,7 +323,9 @@ def scan_remote_parallel(
     Args:
         client: 已选中仓库的 JiraGitClient
         max_workers: 并发线程数
-        on_progress: 进度回调 (scanned_files, pending_dirs)
+        on_progress: 进度回调 (scanned_files, pending_dirs, processed_dirs, dirs_seen)
+            - processed_dirs: 已 list 过的目录数
+            - dirs_seen: 累计见过的目录数（含根目录），用于估算完成比例
         should_cancel: 外部取消回调（网络看门狗/用户取消）
 
     Returns:
@@ -304,6 +334,8 @@ def scan_remote_parallel(
     result: dict[str, dict] = {}
     pending_dirs = [""]
     scanned = 0
+    processed = 0      # 已处理的目录数
+    dirs_seen = 1      # 见过的目录数（含根目录）
     failed_dirs: list[str] = []
 
     def _list_with_retry(c, p, retries=3):
@@ -317,6 +349,10 @@ def scan_remote_parallel(
                     time.sleep(1 + attempt * 2)
                 else:
                     raise
+
+    def _maybe_progress():
+        if on_progress and processed % 5 == 0:
+            on_progress(scanned, len(pending_dirs), processed, dirs_seen)
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         while pending_dirs:
@@ -339,14 +375,19 @@ def scan_remote_parallel(
                         _log.warning("扫描失败: %s → %s", dir_path, e)
                     continue
 
+                processed += 1
                 for e in entries:
                     if e.type == "dir":
                         pending_dirs.append(e.path)
+                        dirs_seen += 1
                     elif e.type == "file":
                         result[e.path] = {"size": e.size}
                         scanned += 1
-                        if on_progress and scanned % 500 == 0:
-                            on_progress(scanned, len(pending_dirs))
+                _maybe_progress()
+
+    # 扫描结束：确保推送一次最终进度（目录不足 5 个时回调未触发）
+    if on_progress:
+        on_progress(scanned, len(pending_dirs), processed, dirs_seen)
 
     if failed_dirs:
         _log.warning("%d 个目录扫描失败（SSL/网络错误），已跳过", len(failed_dirs))

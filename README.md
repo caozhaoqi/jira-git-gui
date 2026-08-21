@@ -74,6 +74,11 @@ jira-git-gui/
 │   ├── styles.css          # Design system (CSS variables, light / dark dual theme)
 │   ├── k8s.css             # K8s-specific layout & visuals
 │   └── log_viewer.*        # Dedicated full-screen log page (search / highlight / pod & container switch)
+├── web-react/             # React + TypeScript + Vite frontend (gradual migration target of web/)
+│   ├── src/components/    # Feature panels: RepoPanel / CommitsPanel / DiffPanel / k8s/* / CfPanel
+│   ├── src/api/           # Unified API client, SSE event manager, typed models
+│   ├── src/store/         # Zustand global store (logs / toasts / progress / activeTab)
+│   └── src/utils/         # format (diff / relative-time / size) + clipboard (Electron/Tauri/Web)
 ├── electron/               # Electron desktop app (released)
 │   ├── main.js             # Main process: Python backend lifecycle + BrowserWindow + log bridge
 │   ├── preload.js          # Exposes window.electronAPI (contextIsolation isolated)
@@ -91,6 +96,45 @@ jira-git-gui/
 > **Legacy note**: `main.py`, `gui/` and `workers/` contain the older PyQt6 desktop implementation. They are kept for reference / local development but are **not** part of the published releases (which are Electron + Tauri). The deprecated root `server.py` is also retained only for historical compatibility; all released builds use `api/server.py`.
 
 Dependency direction: `gui → workers → core`; `core` does not depend back on GUI, so it can be reused and tested in isolation.
+
+## React Frontend (`web-react/`)
+
+`web/` is a zero-framework vanilla-JS frontend shared by Electron / Tauri / browser. `web-react/` is the **same-feature, React + TypeScript + Vite** rewrite, migrated block-by-block "in the same pattern" with the goal of eventually replacing `web/`. The tabs already ported (behaviour-parity with `web/`):
+
+| Tab | Component | What it does |
+| --- | --- | --- |
+| 仓库 / 文件 | `RepoPanel` | Repo list / file tree / preview (first block, migrated earlier) |
+| 提交记录 | `CommitsPanel` | Query commits by Issue / local repo, GitHub-style list + line-level diff |
+| 差异对比 | `DiffPanel` | Local↔remote diff scan, GitHub-style diff, single / batch merge (with SSE progress) |
+| K8s 运维 | `k8s/K8sPanel` | Snapshot / Pod YAML / **Describe** / Network / Events / Top / **Shell terminal** / Files / **全屏日志查看器** |
+| CF 日志 | `CfPanel` | Cloud-function log query / sort / search / export / clipboard-to-file |
+
+Notes:
+
+- **Describe**（`k8s/K8sDescribeModal`）：`kubectl describe` 弹窗，含相关事件，可从快照 / YAML 页触发，对应原生 `openK8sDescribe`。
+- **全屏日志查看器**（`LogViewer`，`?view=log`）：Pod/容器切换、搜索高亮、级别高亮、tail 行数、`--previous`、自动刷新（live tail）、下载。由 `utils/logviewer.ts` 打开新窗口，保留「多开多个 Pod」的能力，对应原生 `web/log_viewer.html`。
+
+Conventions carried over from the vanilla frontend:
+
+- **State**: Zustand global store (`useAppStore`) for logs / toasts / progress / active tab.
+- **API**: unified client (`apiGet` / `apiPost` / `apiDelete`) that mirrors `web/js/01-core.js` error classification.
+- **SSE**: typed event manager (`sse.on(event, handler)`); new event names must be registered in `SSEEventMap` (`src/api/types.ts`). Diff scan/merge and K8s snapshot progress are pushed over SSE.
+- **Shell**: xterm.js terminal (`@xterm/xterm`) over the `/ws/k8s/exec` WebSocket, with persistent `cwd` and ↑/↓ command history.
+- **Styles**: React 版按职责拆为 `src/styles/global.css`（壳：顶栏/弹窗/树/日志面板）+ `src/styles/panels.css`（commits/diff/k8s/cf 四块面板，类名与原生 `web/styles.css` + `web/k8s.css` 一致）+ `src/styles/logviewer.css`（全屏日志查看器）。`panels.css` 由原生 CSS 抽取并映射到 React 设计令牌，避免 140 个同名类的双向冲突。
+- **Local config**: CF accounts etc. are read from `config/cf_accounts.local.json` (gitignored); the frontend only shows environment names and never renders credentials.
+
+### Develop / build
+
+```bash
+cd web-react
+npm install        # first time only
+npm run dev        # Vite dev server (hot reload)
+npm run typecheck  # tsc --noEmit
+npm run build      # type-check + build to dist/ (base=/web/, served by the backend at /web/)
+npm run preview    # preview the built bundle
+```
+
+> 后端静态目录优先 `web-react/dist`（`vite build --base /web/` 产物），不存在时回退 `web/`，均经 `/web/` 同源挂载；`node_modules/` 已 gitignore。
 
 ## Running
 

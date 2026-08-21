@@ -243,12 +243,15 @@ async def api_connect(req: ConnectReq):
 
 
 @app.get("/api/repos")
-async def api_discover_repos():
-    """发现全部仓库（Cookie 模式）。"""
+async def api_discover_repos(refresh: bool = False):
+    """发现全部仓库（Cookie 模式）。
+
+    ``refresh=true`` 强制重新发现（绕过 10 分钟缓存）；默认命中缓存秒开。
+    """
     if not client.config.cookie:
         return {"repos": [], "error": "未配置 Cookie"}
     try:
-        repos = await asyncio.to_thread(client.discover_repos)
+        repos = await asyncio.to_thread(client.discover_repos, refresh)
         return {
             "repos": [
                 {
@@ -697,21 +700,36 @@ async def api_diff_scan(req: DiffScanReq):
 
     # 在后台线程执行扫描（缓存优先），通过回调推送 SSE 进度
     def _scan():
+        # 远程扫描涉及大量目录级请求（数千个），默认 6qps 全局限流会拖到几分钟。
+        # 扫描是用户主动的低并发批量操作，临时放宽到 20qps（3 workers 足够），
+        # 结束后恢复用户设定值，避免影响其它操作。
+        import core.throttle as _th
+        saved_qps = _th.get_rate_limiter().qps
+        try:
+            _th.set_global_rate_limit(max(saved_qps, 20))
+            return _scan_inner()
+        finally:
+            _th.set_global_rate_limit(saved_qps)
+
+    def _scan_inner():
         try:
             # 阶段 1：本地扫描
-            _broadcast("scan_stage", {"stage": "local", "message": "正在扫描本地文件…"})
+            _broadcast("scan_stage", {"stage": "local", "message": "正在扫描本地文件…", "pct": 5})
             local_files = _differ.scan_local_cached(req.local_dir, use_cache=req.use_cache)
             _broadcast("scan_stage", {
                 "stage": "remote", "message": "正在扫描远程文件…",
-                "local_count": len(local_files),
+                "local_count": len(local_files), "pct": 10,
             })
 
             # 阶段 2：远程扫描（带进度回调 + 看门狗）
-            def _on_remote_progress(scanned, pending):
+            def _on_remote_progress(scanned, pending, processed, dirs_seen):
+                # 远程扫描进度 10% ~ 80%：按「已处理目录 / 已见目录」占比估算
+                ratio = min(1.0, processed / max(dirs_seen, 1))
+                pct = round(10 + 70 * ratio)
                 _broadcast("scan_progress", {
                     "done": scanned,
-                    "total": 0,  # 远程文件总数预先未知
-                    "pct": 0,
+                    "total": dirs_seen,
+                    "pct": pct,
                     "pending_dirs": pending,
                     "message": f"已扫描 {scanned} 个文件，{pending} 个目录待扫",
                 })
@@ -728,6 +746,7 @@ async def api_diff_scan(req: DiffScanReq):
                 "stage": "diff", "message": "正在计算差异…",
                 "local_count": len(local_files),
                 "remote_count": len(remote_files),
+                "pct": 90,
             })
 
             # 阶段 3：差异计算
@@ -1176,6 +1195,8 @@ _HCM_HCMINNER_VALUE = _HCM_WL["hcminner"].get("value", "1")
 _HCM_MODEL_LIST_API = _HCM_WL["model_list_api"].get("path", "/api/hcm.model.list")
 
 
+_CF_CAPTCHA_CACHE = {}
+_CF_CAPTCHA_TTL = {}
 _CF_CAPTCHA_MAX = 200
 
 
@@ -1571,9 +1592,13 @@ async def api_cf_login(req: CfLoginReq):
 
 
 # --------------------------------------------------------------------------- #
-#  静态前端（web/ 目录）
+#  静态前端（优先 web-react/dist，回退 web/）
+#  React 版产物（vite build --base /web/）输出到 web-react/dist，
+#  与原生 web/ 一样经 app.mount("/web", ...) 提供，路径语义完全一致。
 # --------------------------------------------------------------------------- #
-WEB_DIR = _PROJECT_ROOT / "web"
+WEB_DIR = _PROJECT_ROOT / "web-react" / "dist"
+if not WEB_DIR.exists():
+    WEB_DIR = _PROJECT_ROOT / "web"
 if WEB_DIR.exists():
     class _NoCacheStaticFiles(StaticFiles):
         """禁用浏览器/中间缓存的静态文件提供器，避免前端改完还加载旧文件。"""
