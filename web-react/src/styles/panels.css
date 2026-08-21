@@ -1625,3 +1625,439 @@
   color: var(--muted);
   font-family: var(--mono);
 }
+
+/* ============================================================
+   Clash 分流配置助手
+   ============================================================ */
+.clash-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 1080px;
+}
+.clash-card {
+  padding: 16px 18px;
+}
+.clash-err {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  font-size: 12.5px;
+}
+.clash-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* 接口列表 */
+.clash-iface-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.clash-iface {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  transition: border-color 0.18s var(--ease-out), box-shadow 0.18s var(--ease-out);
+}
+.clash-iface:hover {
+  border-color: var(--border-strong);
+}
+.clash-iface.off {
+  opacity: 0.55;
+}
+.clash-iface-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.clash-iface-dev {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.clash-iface-kind {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--primary-050);
+  color: var(--primary);
+}
+.clash-iface-port {
+  font-size: 11.5px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clash-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+.clash-iface-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.clash-iface-meta .mono {
+  font-family: var(--mono);
+}
+.clash-iface-radio {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.clash-iface-radio label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.clash-iface-radio input {
+  accent-color: var(--primary);
+}
+
+/* IP 列表 */
+.clash-ip-input {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.clash-ip-input .input {
+  flex: 1;
+  min-width: 220px;
+}
+.clash-ip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.clash-ip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  transition: all 0.18s var(--ease-out);
+}
+.clash-ip-tag:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+.clash-ip-check {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.clash-ip-check.ok {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.clash-ip-check.bad {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.clash-ip-del {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.clash-ip-del:hover {
+  color: var(--danger);
+}
+
+/* 代理端口探测 */
+.clash-proxy-port {
+  display: inline-block;
+  margin-left: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.clash-proxy-port.open {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.clash-proxy-port:not(.open) {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/* 生成结果 */
+.clash-gen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}.clash-gen-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.clash-gen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.clash-code {
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 340px;
+}
+
+/* 一键应用 */
+.clash-apply-btns {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.clash-cfg-path {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.clash-cfg-path label {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.clash-cfg-cands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.clash-cfg-cand {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-family: var(--mono);
+  cursor: pointer;
+  transition: all 0.15s var(--ease-out);
+}
+.clash-cfg-cand:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-050);
+}
+.clash-cfg-cand.base {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.clash-cfg-cand.sel {
+  border-color: var(--primary);
+  background: var(--primary-050);
+  color: var(--primary);
+  font-weight: 600;
+}
+.clash-cfg-cand.current {
+  border-color: var(--success);
+  color: var(--success);
+  background: var(--success-bg);
+}
+.clash-cfg-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.clash-patch-msg {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* 全面诊断 */
+.clash-diag-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.clash-diag-summary {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.clash-diag {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.clash-diag-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.clash-diag-item:last-child {
+  border-bottom: none;
+}
+.clash-diag-mark {
+  font-weight: 700;
+  width: 14px;
+  flex-shrink: 0;
+}
+.clash-diag-item.ok .clash-diag-mark {
+  color: var(--success);
+}
+.clash-diag-item.bad .clash-diag-mark {
+  color: var(--danger);
+}
+.clash-diag-item.na .clash-diag-mark {
+  color: var(--muted);
+}
+.clash-diag-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.clash-diag-detail {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+/* 服务顺序与默认路由抢占警告 */
+.clash-svc {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.clash-svc-label {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.clash-svc-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.clash-svc-item {
+  font-size: 11.5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.clash-svc-item.lan {
+  border-color: color-mix(in srgb, var(--warning) 45%, transparent);
+  color: var(--warning);
+}
+.clash-svc-item.off {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+.clash-svc-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  color: var(--warning);
+  font-size: 12.5px;
+  line-height: 1.7;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.clash-svc-fixmsg {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.clash-apply-log {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.clash-apply-part {
+  font-size: 12.5px;
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clash-apply-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.clash-apply-log code {
+  font-family: var(--mono);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11.5px;
+}

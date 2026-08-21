@@ -255,7 +255,7 @@ def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
     白名单项（改了会连不上平台）：
       - hcminner:           内部 OpenAPI 鉴权头 {header, value}
       - model_list_api:     真实日志查询接口路径（POST，拼在 server_url 之后）
-      - reference_projects: 参考项目名（hcm-cloud-vue / hcm-core），合并比对识别用
+      - reference_projects: 参考项目名（cloud-vue / core），合并比对识别用
       - platform_hosts:     真实平台域名白名单（21qor.hcmcloud.cn 等）
 
     从项目根 hcm_whitelist.json 读取。该文件可提交、应保留。
@@ -265,12 +265,9 @@ def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
     defaults = {
         "hcminner": {"header": "hcminner", "value": "1"},
         "model_list_api": {"path": "/api/hcm.model.list"},
-        "reference_projects": {"names": ["hcm-cloud-vue", "hcm-core"]},
+        "reference_projects": {"names": ["cloud-vue", "core"]},
         "platform_hosts": {
             "hosts": [
-                "21qor.hcmcloud.cn",
-                "hcm.ptacn.com",
-                "bhcdhcm.tjbhcd.com",
             ]
         },
     }

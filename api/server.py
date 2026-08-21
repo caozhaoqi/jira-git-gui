@@ -1651,6 +1651,13 @@ def main():
 from api.routes_k8s import router as k8s_router
 app.include_router(k8s_router)
 
+# --------------------------------------------------------------------------- #
+#  Clash 分流配置助手路由（api/routes_clash.py）
+#  只读检测 + 命令生成，不修改系统配置。
+# --------------------------------------------------------------------------- #
+from api.routes_clash import router as clash_router
+app.include_router(clash_router)
+
 
 if __name__ == "__main__":
     main()
