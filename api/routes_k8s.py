@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi.responses import FileResponse, PlainTextResponse
 from core import k8s_manager as _k8s_mgr
 from core.k8s_manager import run_kubectl as _k8s_run_kubectl
+from core.k8s_snapshot import run_snapshot as _k8s_run_snapshot, fetch_logs as _k8s_fetch_logs
 from api.schemas import K8sEnvReq, K8sExecReq, K8sFileDeleteReq, K8sFileListReq, K8sFileMkdirReq, K8sFileReadReq, K8sFileSearchReq, K8sFileUploadReq, K8sFileWriteReq, K8sNetworkReq, K8sSnapshotReq, K8sYamlReq
 
 router = APIRouter()
