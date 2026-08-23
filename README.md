@@ -37,7 +37,7 @@ Both load the same web frontend (built from `web-react/`) against the shared Pyt
 
 ## UI Layout
 
-- Sidebar tabs: 仓库 / 文件树 / 文件预览 / 提交记录 / 差异对比 / 日志 / **K8s 快照**
+- Sidebar tabs: Repository / File tree / File preview / Commits / Diff / Log / **K8s Snapshot**
 - Light / dark dual theme (one-click toggle, persisted via `localStorage`).
 - The global action bar is context-aware — repo-only actions are hidden on the K8s tab.
 
@@ -96,20 +96,20 @@ Dependency direction: `gui → workers → core`; `core` does not depend back on
 
 ## React Frontend (`web-react/`)
 
-`web/` is the production build of the React + TypeScript + Vite frontend in `web-react/`. The migration from the original vanilla-JS frontend is **complete**: `web/` now ships the React bundle (the old vanilla version is archived in `web-legacy/` for rollback). All feature blocks (仓库 / 提交记录 / 差异对比 / K8s 运维 / CF 日志) are ported with behaviour-parity:
+`web/` is the production build of the React + TypeScript + Vite frontend in `web-react/`. The migration from the original vanilla-JS frontend is **complete**: `web/` now ships the React bundle (the old vanilla version is archived in `web-legacy/` for rollback). All feature blocks are ported with behaviour-parity:
 
 | Tab | Component | What it does |
 | --- | --- | --- |
-| 仓库 / 文件 | `RepoPanel` | Repo list / file tree / preview (first block, migrated earlier) |
-| 提交记录 | `CommitsPanel` | Query commits by Issue / local repo, GitHub-style list + line-level diff |
-| 差异对比 | `DiffPanel` | Local↔remote diff scan, GitHub-style diff, single / batch merge (with SSE progress) |
-| K8s 运维 | `k8s/K8sPanel` | Snapshot / Pod YAML / **Describe** / Network / Events / Top / **Shell terminal** / Files / **全屏日志查看器** |
-| CF 日志 | `CfPanel` | Cloud-function log query / sort / search / export / clipboard-to-file |
+| Repository / Files | `RepoPanel` | Repo list / file tree / preview (first block, migrated earlier) |
+| Commits | `CommitsPanel` | Query commits by Issue / local repo, GitHub-style list + line-level diff |
+| Diff | `DiffPanel` | Local↔remote diff scan, GitHub-style diff, single / batch merge (with SSE progress) |
+| K8s Ops | `k8s/K8sPanel` | Snapshot / Pod YAML / **Describe** / Network / Events / Top / **Shell terminal** / Files / **full-screen log viewer** |
+| CF Logs | `CfPanel` | Cloud-function log query / sort / search / export / clipboard-to-file |
 
 Notes:
 
-- **Describe**（`k8s/K8sDescribeModal`）：`kubectl describe` 弹窗，含相关事件，可从快照 / YAML 页触发，对应原生 `openK8sDescribe`。
-- **全屏日志查看器**（`LogViewer`，`?view=log`）：Pod/容器切换、搜索高亮、级别高亮、tail 行数、`--previous`、自动刷新（live tail）、下载。由 `utils/logviewer.ts` 打开新窗口，保留「多开多个 Pod」的能力，对应原生 `web/log_viewer.html`。
+- **Describe** (`k8s/K8sDescribeModal`): a `kubectl describe` popup with related events, triggered from the Snapshot or YAML page; corresponds to the vanilla `openK8sDescribe`.
+- **Full-screen log viewer** (`LogViewer`, `?view=log`): Pod/container switching, search highlight, level highlight, tail lines, `--previous`, auto-refresh (live tail), download. Opened in a new window via `utils/logviewer.ts`, preserving the ability to open multiple Pods at once; corresponds to the vanilla `web/log_viewer.html`.
 
 Conventions carried over from the vanilla frontend:
 
@@ -117,7 +117,7 @@ Conventions carried over from the vanilla frontend:
 - **API**: unified client (`apiGet` / `apiPost` / `apiDelete`) that mirrors `web/js/01-core.js` error classification.
 - **SSE**: typed event manager (`sse.on(event, handler)`); new event names must be registered in `SSEEventMap` (`src/api/types.ts`). Diff scan/merge and K8s snapshot progress are pushed over SSE.
 - **Shell**: xterm.js terminal (`@xterm/xterm`) over the `/ws/k8s/exec` WebSocket, with persistent `cwd` and ↑/↓ command history.
-- **Styles**: React 版按职责拆为 `src/styles/global.css`（壳：顶栏/弹窗/树/日志面板）+ `src/styles/panels.css`（commits/diff/k8s/cf 四块面板，类名与原生 `web/styles.css` + `web/k8s.css` 一致）+ `src/styles/logviewer.css`（全屏日志查看器）。`panels.css` 由原生 CSS 抽取并映射到 React 设计令牌，避免 140 个同名类的双向冲突。
+- **Styles**: split by responsibility into `src/styles/global.css` (shell: topbar / modal / tree / log panel) + `src/styles/panels.css` (commits/diff/k8s/cf panels, class names aligned with vanilla `web/styles.css` + `web/k8s.css`) + `src/styles/logviewer.css` (full-screen log viewer). `panels.css` is extracted from vanilla CSS and remapped to React design tokens, avoiding two-way conflicts across 140 same-named classes.
 - **Local config**: CF accounts etc. are read from `config/cf_accounts.local.json` (gitignored); the frontend only shows environment names and never renders credentials.
 
 ### Develop / build
@@ -131,7 +131,7 @@ npm run build      # type-check + build to dist/ (base=/web/, served by the back
 npm run preview    # preview the built bundle
 ```
 
-> 后端静态目录优先 `web-react/dist`（`vite build --base /web/` 产物），不存在时回退 `web/`，均经 `/web/` 同源挂载；`node_modules/` 已 gitignore。`web/` 与 `web-react/dist` 内容一致（发布时同步），二者都是 React 构建产物。
+> The backend serves `web-react/dist` first (the `vite build --base /web/` output), falling back to `web/` when absent; both are mounted under `/web/`. `node_modules/` is gitignored. `web/` and `web-react/dist` are identical (synced at release); both are React build artifacts.
 
 ## Running
 
@@ -190,7 +190,7 @@ Environments (dev / test / prod …) are stored in `~/.config/jira-git-gui/k8s_e
 
 ### Log viewer (`/web/?view=log`)
 
-Open from the snapshot page ("⧉ 新页面打开完整日志") or the K8s Shell, or directly (port is the actual runtime port, default 8787):
+Open from the snapshot page (the "open full log in new page" button ⧉) or the K8s Shell, or directly (port is the actual runtime port, default 8787):
 
 ```
 /web/?view=log&pod=<pod>&env=<env>&container=<container>&namespace=<namespace>
