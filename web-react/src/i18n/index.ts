@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import type { Dict, Locale, MessageKey } from './types';
 import { DEFAULT_LOCALE } from './types';
@@ -45,13 +46,18 @@ export function t(key: MessageKey, vars?: Record<string, string | number>): stri
 }
 
 // 组件内 hook：自动跟随 store.locale 热切换
+// 注意：必须 memo 化返回值，否则每次渲染都产生新的 `t` 引用，
+// 导致依赖 `[t]` 的 useEffect 在每次渲染后都重新执行（典型症状：
+// 连接设置里切到 Cookie 又被后端返回的 mode 强制弹回 PAT）。
 export function useT(): {
   t: (key: MessageKey, vars?: Record<string, string | number>) => string;
   locale: Locale;
 } {
   const locale = useAppStore((s) => s.locale);
-  return {
-    locale,
-    t: (key: MessageKey, vars?: Record<string, string | number>) => t(key, vars),
-  };
+  // 纯函数 t() 内部按调用时的全局 currentLocale 解析，因此回调可稳定为 []。
+  const translate = useCallback(
+    (key: MessageKey, vars?: Record<string, string | number>) => t(key, vars),
+    [],
+  );
+  return useMemo(() => ({ locale, t: translate }), [locale, translate]);
 }
