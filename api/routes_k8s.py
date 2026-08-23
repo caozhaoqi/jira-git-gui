@@ -573,6 +573,9 @@ async def ws_k8s_exec(websocket: WebSocket):
     sub_env = _k8s_mgr._kubectl_subprocess_env(dict(os.environ))
     if kc:
         sub_env["KUBECONFIG"] = kc
+    # 非 TTY 执行时 ls 等命令不知道终端宽度，会按默认 80 列输出并在前端折行错位；
+    # 给一个大宽度让工具输出更宽列，xterm 以水平滚动替代硬折行。
+    sub_env.setdefault("COLUMNS", "240")
 
     await websocket.send_json({"type": "ready", "cwd": cwd})
 
@@ -603,17 +606,30 @@ async def ws_k8s_exec(websocket: WebSocket):
         )
         assert proc.stdout is not None
         buf = []
+        pwd_mode = False  # 进入 __PWD__ 标记后的 pwd 输出行，需过滤并提取 cwd
         while True:
             line = await proc.stdout.readline()
             if not line:
                 break
             text = line.decode("utf-8", "replace")
             buf.append(text)
+            # 过滤 cwd 跟踪标记及其后的 pwd 输出，避免显示给用户
+            if "__PWD__" in text:
+                pwd_mode = True
+                continue
+            if pwd_mode:
+                stripped = text.strip()
+                if stripped:
+                    cwd = stripped
+                    await websocket.send_json({"type": "cwd", "cwd": cwd})
+                pwd_mode = False
+                continue
             await websocket.send_json({"type": "output", "data": text})
         await proc.wait()
+        # 若输出未按行结束（理论上不应发生），兜底解析 cwd
         merged = "".join(buf)
         new_cwd, _ = _k8s_mgr._split_pwd(merged)
-        if new_cwd:
+        if new_cwd and new_cwd != cwd:
             cwd = new_cwd
             await websocket.send_json({"type": "cwd", "cwd": cwd})
 

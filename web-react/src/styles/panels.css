@@ -460,6 +460,51 @@
 .k8s-log-wrap {
   padding: 12px 14px;
 }
+.k8s-table-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.k8s-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+}
+.k8s-table th,
+.k8s-table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.k8s-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 11.5px;
+  z-index: 1;
+}
+.k8s-table tbody tr {
+  cursor: pointer;
+  transition: background .12s ease;
+}
+.k8s-table tbody tr:hover {
+  background: var(--row-hover);
+}
+.k8s-table tbody tr.selected {
+  background: var(--primary-weak);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.k8s-table .k8s-name {
+  font-family: var(--mono);
+}
 
 /* 环境管理：条目名 / kubeconfig / 当前标记 */
 .k8s-env-item .nm {

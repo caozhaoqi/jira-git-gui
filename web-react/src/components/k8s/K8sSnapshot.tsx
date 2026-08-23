@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, apiPost } from '../../api/client';
+import { apiPost } from '../../api/client';
 import { sse } from '../../api/events';
 import { useAppStore } from '../../store/useAppStore';
-import type { K8sSummary, K8sRecord, K8sLogResp } from '../../api/types';
+import type { K8sSummary, K8sRecord } from '../../api/types';
 import { copyText } from '../../utils/clipboard';
 import { openLogViewer } from '../../utils/logviewer';
 import { useK8s } from './context';
@@ -24,19 +24,17 @@ export function K8sSnapshot() {
   const [logLevel, setLogLevel] = useState('INFO');
 
   const [running, setRunning] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
   const [summary, setSummary] = useState<K8sSummary | null>(null);
   const [records, setRecords] = useState<K8sRecord[]>([]);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [outDirText, setOutDirText] = useState('');
-  const [lastPod, setLastPod] = useState('');
+  const [selectedPod, setSelectedPod] = useState('');
 
   const runningRef = useRef(false);
   const logsRef = useRef<string[]>([]);
   const appendLog = useCallback((msg: string) => {
-    logsRef.current = [...logsRef.current, msg];
+    logsRef.current.push(msg);
     if (logsRef.current.length > 2000) logsRef.current = logsRef.current.slice(-2000);
-    setLogs(logsRef.current);
   }, []);
 
   useEffect(() => {
@@ -79,7 +77,6 @@ export function K8sSnapshot() {
     if (runningRef.current) return;
     setRunning(true);
     runningRef.current = true;
-    setLogs([]);
     logsRef.current = [];
     setSummary(null);
     setRecords([]);
@@ -121,17 +118,9 @@ export function K8sSnapshot() {
     }
   }, [appendLog]);
 
-  const viewLog = useCallback(async (name: string) => {
-    setLastPod(name);
-    try {
-      const res = await api<K8sLogResp>(`/api/k8s/log?name=${encodeURIComponent(name)}`);
-      const text = (res as any).text || (res as any)._raw || '';
-      if ((res as any).error) appendLog('加载日志失败：' + (res as any).error);
-      else setLogs(text ? text.split('\n') : []);
-    } catch (ex: any) {
-      appendLog('加载失败：' + ex.message);
-    }
-  }, [appendLog]);
+  const selectPod = useCallback((name: string) => {
+    setSelectedPod(name);
+  }, []);
 
   return (
     <div className="k8s-snapshot">
@@ -191,7 +180,11 @@ export function K8sSnapshot() {
               {records.map((r, i) => {
                 const problemText = (r.problems || []).map((p) => p[1]).join('; ') || r.reason || '—';
                 return (
-                  <tr key={r.name + i} className={'k8s-row sev-' + r.sev} onClick={() => viewLog(r.name)}>
+                  <tr
+                    key={r.name + i}
+                    className={'k8s-row sev-' + r.sev + (selectedPod === r.name ? ' selected' : '')}
+                    onClick={() => selectPod(r.name)}
+                  >
                     <td className="k8s-name" title={r.name}>{r.name}</td>
                     <td>{r.phase || '—'}</td>
                     <td>{`${r.ready ?? 0}/${r.total ?? 0}`}</td>
@@ -214,29 +207,26 @@ export function K8sSnapshot() {
 
       <div className="k8s-log-wrap">
         <div className="k8s-log-title">
-          <span>{lastPod ? `日志 · ${lastPod}` : '运行日志'}</span>
+          <span>{selectedPod ? `已选 Pod · ${selectedPod}` : '在上方表格选择一个 Pod'}</span>
           <div className="spacer" />
           <button
             className="btn btn-sm btn-primary"
-            title="在新页面打开（便于浏览 / 分析）"
-            disabled={!lastPod}
+            title="在新页面打开完整日志（便于浏览 / 分析）"
+            disabled={!selectedPod}
             onClick={() => {
-              if (!lastPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
-              openLogViewer({ pod: lastPod, env: target.env, namespace: target.namespace });
+              if (!selectedPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
+              openLogViewer({ pod: selectedPod, env: target.env, namespace: target.namespace });
             }}
           >⧉ 新页面打开完整日志</button>
           <button
             className="btn btn-sm btn-ghost"
             title="查看选中 Pod 的 describe（含相关事件）"
-            disabled={!lastPod}
+            disabled={!selectedPod}
             onClick={() => {
-              if (!lastPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
-              openDescribe('pod', lastPod, target.namespace);
+              if (!selectedPod) { addToast('请先在上方选择一个 Pod 查看其日志。', 'warn'); return; }
+              openDescribe('pod', selectedPod, target.namespace);
             }}
           >🔍 描述</button>
-        </div>
-        <div className="k8s-log">
-          {logs.length === 0 ? '(无日志)' : logs.map((l, i) => <div key={i} className="log-line">{l}</div>)}
         </div>
       </div>
     </div>
