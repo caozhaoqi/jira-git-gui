@@ -72,26 +72,15 @@ if _session.get("cookie"):
 from core.logger import get_logger
 logger = get_logger()
 
-# SSE 事件总线：所有连接的客户端共享一个广播队列
-_event_subscribers: list[asyncio.Queue] = []
-_event_lock = threading.Lock()
-# 主事件循环引用：供工作线程通过 call_soon_threadsafe 安全唤醒循环
-_main_loop: Optional[asyncio.AbstractEventLoop] = None
-
-
-@app.on_event("startup")
-async def _capture_loop():
-    """捕获主事件循环，供 _broadcast 跨线程安全调度。"""
-    global _main_loop
-    _main_loop = asyncio.get_running_loop()
-
-
-def _enqueue_event(q: asyncio.Queue, item: dict) -> None:
-    """在事件循环线程中执行入队（唤醒 await q.get() 的消费者）。"""
-    try:
-        q.put_nowait(item)
-    except asyncio.QueueFull:
-        pass
+# SSE 事件总线：集中到 api.eventbus，避免 api.server 因 `python -m` 启动
+# 产生 `__main__` 与 `api.server` 两个模块实例、导致事件总线分叉的问题。
+# 这里保留 `_broadcast` 别名，使下方既有调用点无需改动。
+from api.eventbus import (
+    broadcast as _broadcast,
+    capture_loop as _capture_loop,
+    subscribe,
+    unsubscribe,
+)
 
 # 当前下载任务取消标志
 _download_cancel = threading.Event()
@@ -99,33 +88,10 @@ _download_cancel = threading.Event()
 _task_status = {"running": False, "type": None}
 
 
-def _broadcast(event: str, data: Any) -> None:
-    """向所有 SSE 订阅者推送事件（跨线程安全）。
-
-    长任务（clone/download/scan）在工作线程中调用本函数。直接调用
-    asyncio.Queue.put_nowait 会经由 loop.call_soon 唤醒消费者，但
-    call_soon 不会写 self-pipe，无法唤醒正阻塞在 select() 的事件循环，
-    导致进度事件被延迟到任务结束或 15s 心跳才送达。改用
-    call_soon_threadsafe 把入队操作调度回循环线程，可立即唤醒消费者。
-    """
-    msg = json.dumps(data, ensure_ascii=False, default=str)
-    item = {"event": event, "data": msg}
-    with _event_lock:
-        subs = list(_event_subscribers)
-    loop = _main_loop
-    for q in subs:
-        if loop is not None and loop.is_running():
-            try:
-                loop.call_soon_threadsafe(_enqueue_event, q, item)
-            except RuntimeError:
-                # 循环已关闭，忽略
-                pass
-        else:
-            # 事件循环尚未就绪（理论上仅主循环线程内调用可达）
-            try:
-                q.put_nowait(item)
-            except asyncio.QueueFull:
-                pass
+@app.on_event("startup")
+async def _startup_capture_loop():
+    """捕获主事件循环，供事件总线跨线程安全调度。"""
+    _capture_loop()
 
 
 def _log_callback(msg: str) -> None:
@@ -1110,9 +1076,7 @@ from core.errors import UserError as _UserError
 @app.get("/api/events")
 async def api_events(request: Request):
     """SSE 端点：推送日志、进度、任务完成事件。"""
-    q = asyncio.Queue(maxsize=500)
-    with _event_lock:
-        _event_subscribers.append(q)
+    q = subscribe()
 
     async def event_stream():
         try:
@@ -1128,9 +1092,7 @@ async def api_events(request: Request):
                     # 心跳保活
                     yield f"event: ping\ndata: {json.dumps({'ts': time.time()})}\n\n"
         finally:
-            with _event_lock:
-                if q in _event_subscribers:
-                    _event_subscribers.remove(q)
+            unsubscribe(q)
 
     return StreamingResponse(
         event_stream(),
