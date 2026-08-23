@@ -3,9 +3,11 @@ import { api } from '../../api/client';
 import type { K8sTopResp, K8sTopRow } from '../../api/types';
 import { useK8s } from './context';
 import { parseTopVal } from '../../utils/format';
+import { useT } from '../../i18n';
 
 export function K8sTop() {
   const { target } = useK8s();
+  const { t } = useT();
   const [scope, setScope] = useState<'pods' | 'nodes'>('pods');
   const [ns, setNs] = useState('');
   const [rows, setRows] = useState<K8sTopRow[]>([]);
@@ -20,15 +22,15 @@ export function K8sTop() {
       const q = new URLSearchParams({ env: target.env, scope });
       if (ns.trim() && scope === 'pods') q.set('namespace', ns.trim());
       const d = await api<K8sTopResp>('/api/k8s/top?' + q.toString());
-      if (!d.ok) { setSummary('失败：' + (d.error || '')); return; }
+      if (!d.ok) { setSummary(t('k8s.top.fail') + (d.error || '')); return; }
       setRows(d.rows || []);
-      setSummary('共 ' + (d.rows || []).length + ' 个');
+      setSummary(t('k8s.top.summary', { n: (d.rows || []).length }));
     } catch (ex: any) {
-      setSummary('失败：' + ex.message);
+      setSummary(t('k8s.top.fail') + ex.message);
     } finally {
       setBusy(false);
     }
-  }, [target.env, scope, ns]);
+  }, [target.env, scope, ns, t]);
 
   useEffect(() => {
     if (auto) {
@@ -47,21 +49,21 @@ export function K8sTop() {
     <div className="k8s-top">
       <div className="k8s-top-cfg">
         <select className="sel" value={scope} onChange={(e) => setScope(e.target.value as 'pods' | 'nodes')}>
-          <option value="pods">Pod</option>
-          <option value="nodes">Node</option>
+          <option value="pods">{t('k8s.top.pods')}</option>
+          <option value="nodes">{t('k8s.top.nodes')}</option>
         </select>
-        {scope === 'pods' && <input className="input input-sm" value={ns} onChange={(e) => setNs(e.target.value)} placeholder="命名空间" />}
-        <label className="chk"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> 自动(10s)</label>
-        <button className="btn btn-sm" onClick={load} disabled={busy || !target.env}>刷新</button>
+        {scope === 'pods' && <input className="input input-sm" value={ns} onChange={(e) => setNs(e.target.value)} placeholder={t('k8s.top.nsPh')} />}
+        <label className="chk"><input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} /> {t('k8s.top.auto')}</label>
+        <button className="btn btn-sm" onClick={load} disabled={busy || !target.env}>{t('k8s.top.refresh')}</button>
       </div>
       <div className="k8s-top-summary">{summary}</div>
       <div className="k8s-table-wrap">
-        {rows.length === 0 ? <div className="empty-hint">无数据（集群需启用 metrics-server）</div> :
+        {rows.length === 0 ? <div className="empty-hint">{t('k8s.top.empty')}</div> :
           <table className="k8s-top-table">
             <thead>
               {scope === 'nodes'
-                ? <tr><th>节点</th><th>CPU</th><th>CPU%</th><th>内存</th><th>内存%</th></tr>
-                : <tr><th>Pod</th><th>命名空间</th><th>CPU</th><th>内存</th></tr>}
+                ? <tr><th>{t('k8s.top.colNode')}</th><th>{t('k8s.top.colCpu')}</th><th>{t('k8s.top.colCpuPct')}</th><th>{t('k8s.top.colMem')}</th><th>{t('k8s.top.colMemPct')}</th></tr>
+                : <tr><th>{t('k8s.top.colPod')}</th><th>{t('k8s.top.colNs')}</th><th>{t('k8s.top.colCpu')}</th><th>{t('k8s.top.colMem')}</th></tr>}
             </thead>
             <tbody>
               {rows.map((r, i) => (

@@ -3,12 +3,14 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { RepoList } from './RepoList';
 import { FileTree } from './FileTree';
 import { Preview } from './Preview';
+import { useT } from '../i18n';
 
 export function RepoPanel() {
   const [leftWidth, setLeftWidth] = useState(280);
   const [rightWidth, setRightWidth] = useState(500);
   const [dragging, setDragging] = useState<null | 'left' | 'right'>(null);
   const draggingRef = useRef<null | 'left' | 'right'>(null);
+  const { t } = useT();
 
   const onMouseDown = (side: 'left' | 'right') => (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -43,7 +45,7 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'left' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('left')}
-          title="拖动调整列宽"
+          title={t('repo.title')}
         />
         <section className="repo-col repo-col-mid">
           <FileTree />
@@ -51,7 +53,7 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'right' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('right')}
-          title="拖动调整列宽"
+          title={t('repo.title')}
         />
         <section className="repo-col repo-col-right" style={{ width: rightWidth, flexShrink: 0 }}>
           <Preview />

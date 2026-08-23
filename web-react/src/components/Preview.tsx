@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet } from '../api/client';
 import type { FileResp } from '../api/types';
+import { useT } from '../i18n';
 
 function formatContent(path: string, content: string): { text: string; isJson: boolean } {
   if (!content) return { text: '', isJson: false };
@@ -18,53 +19,56 @@ function formatContent(path: string, content: string): { text: string; isJson: b
 export function Preview() {
   const selectedFilePath = useAppStore((s) => s.selectedFilePath);
   const [content, setContent] = useState('');
-  const [title, setTitle] = useState('预览');
+  const [title, setTitle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [maximized, setMaximized] = useState(false);
   const pushLog = useAppStore((s) => s.pushLog);
+  const { t } = useT();
 
   useEffect(() => {
     if (!selectedFilePath) {
-      setTitle('预览');
+      setTitle(t('repo.preview'));
       setContent('');
       setError('');
       return;
     }
     let cancelled = false;
     setLoading(true);
-    setTitle(`加载中 · ${selectedFilePath}`);
+    setTitle(t('file.loadingFile') + selectedFilePath);
     setError('');
     apiGet<FileResp>(`/api/file?path=${encodeURIComponent(selectedFilePath)}`)
       .then((res) => {
         if (cancelled) return;
         if (res.error) {
-          setTitle('错误');
+          setTitle(t('repo.preview'));
           setContent(res.error);
         } else {
           const { text, isJson } = formatContent(selectedFilePath, res.content || '');
-          setTitle(`预览 · ${selectedFilePath}${isJson ? '  (JSON 已格式化)' : ''}`);
+          setTitle(
+            `${t('repo.preview')} · ${selectedFilePath}${isJson ? t('file.jsonFmt') : ''}`
+          );
           setContent(text);
         }
       })
       .catch((e) => {
         if (cancelled) return;
-        setTitle('错误');
-        setContent(e.message || '加载失败');
+        setTitle(t('repo.preview'));
+        setContent(e.message || t('file.loadErr'));
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [selectedFilePath]);
+  }, [selectedFilePath, t]);
 
   async function copyPath() {
     if (!selectedFilePath) return;
     try {
       await navigator.clipboard.writeText(selectedFilePath);
-      pushLog(`已复制路径：${selectedFilePath}`);
+      pushLog(t('file.copyPath', { path: selectedFilePath }));
     } catch {
-      pushLog('复制失败，浏览器可能未授权剪贴板', 'error');
+      pushLog(t('file.copyFail'), 'error');
     }
   }
 
@@ -78,7 +82,7 @@ export function Preview() {
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setMaximized((v) => !v)}
-            title="最大化 / 还原"
+            title={t('common.more')}
           >
             ⛶
           </button>
@@ -86,14 +90,18 @@ export function Preview() {
             className="btn btn-ghost btn-sm"
             onClick={copyPath}
             disabled={!selectedFilePath}
-            title="复制文件路径"
+            title={t('file.copyPath', { path: selectedFilePath || '' })}
           >
             📋
           </button>
         </div>
       </div>
       <pre className="code-block preview-content">
-        {loading ? '加载中…' : error ? error : content || '选择文件后在此预览'}
+        {loading
+          ? t('common.loading')
+          : error
+            ? error
+            : content || t('repo.noPreview')}
       </pre>
     </div>
   );

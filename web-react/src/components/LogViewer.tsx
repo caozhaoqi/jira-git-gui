@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { apiGet, apiText } from '../api/client';
 import type { K8sPodsResp } from '../api/types';
 import { useAppStore } from '../store/useAppStore';
+import { useT } from '../i18n';
 
 /* ============================================================
    独立全屏日志查看页 —— 迁移自 web/log_viewer.{html,js,css}
@@ -46,7 +47,7 @@ function detectLevel(line: string): string {
   return '';
 }
 
-/** 把一行按搜索正则切成「普通文本 + <mark> 命中」的 React 节点 */
+/** 把一行按搜索正则切成「普通文本 + <mark> 命中」の React 节点 */
 function highlightNodes(line: string, re: RegExp | null): ReactNode {
   if (!re) return line || '\u00a0';
   const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g');
@@ -69,6 +70,7 @@ function highlightNodes(line: string, re: RegExp | null): ReactNode {
 export function LogViewer() {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
+  const { t } = useT();
 
   const [params, setParams] = useState<Params>(() => {
     const qs = new URLSearchParams(location.search);
@@ -83,7 +85,7 @@ export function LogViewer() {
   const [pods, setPods] = useState<PodOpt[]>([]);
   const [containers, setContainers] = useState<string[]>([]);
   const [raw, setRaw] = useState('');
-  const [status, setStatus] = useState('准备中…');
+  const [status, setStatus] = useState(t('logviewer.preparing'));
   const [isErr, setIsErr] = useState(false);
 
   // 工具栏
@@ -125,9 +127,9 @@ export function LogViewer() {
   /* ---------- 拉取日志 ---------- */
   const refresh = useCallback(async () => {
     const p = paramsRef.current;
-    if (!p.pod) { setStatus('未指定 Pod，无法加载日志。'); setIsErr(true); return; }
+    if (!p.pod) { setStatus(t('logviewer.noPod')); setIsErr(true); return; }
     const follow = autoFollowRef.current || isAtBottom();
-    setStatus('加载中…');
+    setStatus(t('logviewer.loading'));
     setIsErr(false);
     try {
       const q = new URLSearchParams({ name: p.pod });
@@ -141,10 +143,10 @@ export function LogViewer() {
       setStatus('');
       if (follow) requestAnimationFrame(scrollBottom);
     } catch (ex: any) {
-      setStatus('加载失败：' + ex.message);
+      setStatus(t('logviewer.loadFail', { msg: ex.message }));
       setIsErr(true);
     }
-  }, [isAtBottom, scrollBottom]);
+  }, [isAtBottom, scrollBottom, t]);
 
   /* ---------- 容器列表 ---------- */
   const loadContainers = useCallback(async (pod: string, env: string) => {
@@ -170,25 +172,25 @@ export function LogViewer() {
   /* ---------- Pod 列表 ---------- */
   const loadPods = useCallback(async () => {
     const p = paramsRef.current;
-    if (!p.env) { setStatus('未指定 env，无法加载 Pod 列表。'); setIsErr(true); return; }
+    if (!p.env) { setStatus(t('logviewer.noEnv')); setIsErr(true); return; }
     try {
       let q = '/api/k8s/pods?env=' + encodeURIComponent(p.env);
       if (p.namespace) q += '&namespace=' + encodeURIComponent(p.namespace);
       const d = await apiGet<K8sPodsResp>(q);
       if (!d.ok || !Array.isArray(d.pods)) {
-        setStatus('加载 Pod 列表失败：' + (d.error || '未知错误'));
+        setStatus(t('logviewer.podListFail', { msg: d.error || t('logviewer.unknown') }));
         setIsErr(true);
         return;
       }
       setPods(d.pods as PodOpt[]);
-      if (!p.pod) { setStatus('请选择上方 Pod 查看日志。'); setIsErr(false); }
+      if (!p.pod) { setStatus(t('logviewer.pickPod')); setIsErr(false); }
     } catch (ex: any) {
-      setStatus('加载 Pod 列表失败：' + ex.message);
+      setStatus(t('logviewer.podListFail', { msg: ex.message }));
       setIsErr(true);
     }
-  }, []);
+  }, [t]);
 
-  // 启动：Pod 列表 → 容器列表 → 日志（与原生启动顺序一致）
+  // 启动：Pod 列表 → 容器列表 → 日志（与原生启动順序一致）
   useEffect(() => {
     (async () => {
       await loadPods();
@@ -198,13 +200,13 @@ export function LogViewer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------- 切换 Pod ---------- */
+  /* ---------- 切替 Pod ---------- */
   const switchPod = useCallback(async (podName: string) => {
     setRaw('');
     if (!podName) {
       setParams((s) => ({ ...s, pod: '', container: '', namespace: '' }));
       setContainers([]);
-      setStatus('请选择 Pod 查看日志。');
+      setStatus(t('logviewer.pickPod'));
       setIsErr(false);
       return;
     }
@@ -219,7 +221,7 @@ export function LogViewer() {
     paramsRef.current = next;
     await loadContainers(podName, next.env);
     await refresh();
-  }, [pods, loadContainers, refresh]);
+  }, [pods, loadContainers, refresh, t]);
 
   const switchContainer = useCallback(async (name: string) => {
     const next = { ...paramsRef.current, container: name };
@@ -237,7 +239,7 @@ export function LogViewer() {
     return () => window.clearInterval(t);
   }, [auto, refresh]);
 
-  // tail / previous 变化后立即重拉（对应原生 onchange = refresh）
+  // tail / previous 変化后立即重拉（对应原生 onchange = refresh）
   const firstTailRun = useRef(true);
   useEffect(() => {
     if (firstTailRun.current) { firstTailRun.current = false; return; }
@@ -329,15 +331,15 @@ export function LogViewer() {
     <div className="logviewer">
       <header className="lv-head">
         <div className="lv-head-left">
-          <button className="btn btn-ghost btn-sm" onClick={goBack} title="返回主界面">← 返回</button>
+          <button className="btn btn-ghost btn-sm" onClick={goBack} title={t('common.back')}>← {t('common.back')}</button>
           <div className="lv-title">
             <select
               className="sel lv-podsel"
-              title="切换 Pod（自动加载其日志）"
+              title={t('logviewer.podSelect')}
               value={params.pod}
               onChange={(e) => switchPod(e.target.value)}
             >
-              <option value="">选择 Pod…</option>
+              <option value="">{t('logviewer.selectPod')}</option>
               {pods.map((p) => (
                 <option key={p.name} value={p.name}>
                   {p.name}{p.namespace ? ` [${p.namespace}]` : ''} · {p.phase || '?'}
@@ -347,32 +349,32 @@ export function LogViewer() {
             <div className="lv-meta">
               <span className="lv-chip lv-chip-env">env: {params.env || '—'}</span>
               <span className="lv-chip lv-chip-ns">ns: {params.namespace || '—'}</span>
-              {params.container && <span className="lv-chip lv-chip-ct">容器: {params.container}</span>}
+              {params.container && <span className="lv-chip lv-chip-ct">{t('logviewer.container')}: {params.container}</span>}
             </div>
           </div>
         </div>
         <div className="lv-head-right">
-          <button className="btn btn-sm" onClick={refresh} title="重新拉取">↻ 刷新</button>
-          <button className="btn btn-sm" onClick={download} title="下载为 .log" disabled={!raw}>↓ 下载</button>
-          <button className="btn btn-icon" onClick={toggleTheme} title="切换浅色 / 深色">{theme === 'dark' ? '☀' : '🌓'}</button>
+          <button className="btn btn-sm" onClick={refresh} title={t('logviewer.refresh')}>↻ {t('logviewer.refresh')}</button>
+          <button className="btn btn-sm" onClick={download} title={t('logviewer.download')} disabled={!raw}>↓ {t('logviewer.download')}</button>
+          <button className="btn btn-icon" onClick={toggleTheme} title={t('app.themeToggle')}>{theme === 'dark' ? '☀' : '🌓'}</button>
         </div>
       </header>
 
       <div className="lv-toolbar">
-        <label className="lv-field">容器
+        <label className="lv-field">{t('logviewer.container')}
           <select className="sel" value={params.container} onChange={(e) => switchContainer(e.target.value)}>
-            <option value="">全部容器</option>
+            <option value="">{t('logviewer.allContainers')}</option>
             {containers.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </label>
 
-        <label className="lv-field lv-search">搜索
+        <label className="lv-field lv-search">{t('logviewer.search')}
           <span className="lv-searchbox">
             <input
               ref={searchRef}
               type="text"
               className="input"
-              placeholder="关键字（支持正则）"
+              placeholder={t('logviewer.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -380,41 +382,41 @@ export function LogViewer() {
               }}
             />
             <span className="lv-match">{(matches.length ? cur + 1 : 0)}/{matches.length}</span>
-            <button className="btn btn-xs" title="上一个匹配" onClick={() => gotoMatch(-1)}>▲</button>
-            <button className="btn btn-xs" title="下一个匹配" onClick={() => gotoMatch(1)}>▼</button>
-            <label className="lv-re"><input type="checkbox" checked={useRegex} onChange={(e) => setUseRegex(e.target.checked)} /> 正则</label>
-            <label className="lv-re"><input type="checkbox" checked={ci} onChange={(e) => setCi(e.target.checked)} /> 忽略大小写</label>
+            <button className="btn btn-xs" title={t('logviewer.prevMatch')} onClick={() => gotoMatch(-1)}>▲</button>
+            <button className="btn btn-xs" title={t('logviewer.nextMatch')} onClick={() => gotoMatch(1)}>▼</button>
+            <label className="lv-re"><input type="checkbox" checked={useRegex} onChange={(e) => setUseRegex(e.target.checked)} /> {t('logviewer.regex')}</label>
+            <label className="lv-re"><input type="checkbox" checked={ci} onChange={(e) => setCi(e.target.checked)} /> {t('logviewer.ignoreCase')}</label>
           </span>
         </label>
 
-        <label className="lv-field">行数
+        <label className="lv-field">{t('logviewer.lines')}
           <select className="sel" value={tail} onChange={(e) => setTail(e.target.value)}>
             <option value="50">50</option>
             <option value="200">200</option>
             <option value="500">500</option>
             <option value="1000">1000</option>
-            <option value="5000">全量</option>
+            <option value="5000">{t('logviewer.all')}</option>
           </select>
         </label>
 
-        <label className="lv-field">自动刷新
+        <label className="lv-field">{t('logviewer.autoRefresh')}
           <select className="sel" value={auto} onChange={(e) => setAuto(e.target.value)}>
-            <option value="0">关闭</option>
-            <option value="3">3 秒</option>
-            <option value="5">5 秒</option>
-            <option value="10">10 秒</option>
+            <option value="0">{t('logviewer.off')}</option>
+            <option value="3">3 {t('logviewer.seconds')}</option>
+            <option value="5">5 {t('logviewer.seconds')}</option>
+            <option value="10">10 {t('logviewer.seconds')}</option>
           </select>
         </label>
 
-        <label className="lv-toggle"><input type="checkbox" checked={previous} onChange={(e) => setPrevious(e.target.checked)} /> 上一容器(--previous)</label>
-        <label className="lv-toggle"><input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> 换行</label>
-        <label className="lv-toggle"><input type="checkbox" checked={lineno} onChange={(e) => setLineno(e.target.checked)} /> 行号</label>
-        <label className="lv-toggle"><input type="checkbox" checked={levelOn} onChange={(e) => setLevelOn(e.target.checked)} /> 级别高亮</label>
+        <label className="lv-toggle"><input type="checkbox" checked={previous} onChange={(e) => setPrevious(e.target.checked)} /> {t('logviewer.previous')}</label>
+        <label className="lv-toggle"><input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> {t('logviewer.wrap')}</label>
+        <label className="lv-toggle"><input type="checkbox" checked={lineno} onChange={(e) => setLineno(e.target.checked)} /> {t('logviewer.lineNo')}</label>
+        <label className="lv-toggle"><input type="checkbox" checked={levelOn} onChange={(e) => setLevelOn(e.target.checked)} /> {t('logviewer.levelHighlight')}</label>
 
         <span className="lv-spacer" />
-        <span className="lv-font">字号
-          <button className="btn btn-xs" title="缩小" onClick={() => setFont((f) => Math.max(10, f - 1))}>A−</button>
-          <button className="btn btn-xs" title="放大" onClick={() => setFont((f) => Math.min(22, f + 1))}>A+</button>
+        <span className="lv-font">{t('logviewer.fontSize')}
+          <button className="btn btn-xs" title={t('logviewer.shrink')} onClick={() => setFont((f) => Math.max(10, f - 1))}>A−</button>
+          <button className="btn btn-xs" title={t('logviewer.enlarge')} onClick={() => setFont((f) => Math.min(22, f + 1))}>A+</button>
         </span>
       </div>
 

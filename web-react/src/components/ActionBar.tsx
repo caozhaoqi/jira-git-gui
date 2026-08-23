@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiPost } from '../api/client';
 import { ProgressBar } from './ProgressBar';
+import { useT } from '../i18n';
 
 export function ActionBar() {
   const selectedRepo = useAppStore((s) => s.selectedRepo);
@@ -16,6 +17,7 @@ export function ActionBar() {
   const concurrency = useAppStore((s) => s.concurrency);
   const setConcurrency = useAppStore((s) => s.setConcurrency);
   const progress = useAppStore((s) => s.progress);
+  const { t } = useT();
   const [rate, setRate] = useState(String(qps));
 
   const workers = concurrency;
@@ -26,19 +28,19 @@ export function ActionBar() {
     try {
       await apiPost('/api/rate-limit', { qps: v });
       setQps(v);
-      pushLog(`请求速率上限已设为 ${v} 请求/秒`);
+      pushLog(t('repo.rateSet', { v }));
     } catch (e: any) {
-      addToast(e.message || '设置速率失败', 'error');
+      addToast(e.message || t('repo.rateSet', { v }), 'error');
     }
   }
 
   async function cloneRepo() {
     try {
       await apiPost('/api/clone', {});
-      setProgress({ visible: true, mode: 'indeterminate', stage: '克隆仓库', detail: '' });
-      pushLog('开始克隆仓库…');
+      setProgress({ visible: true, mode: 'indeterminate', stage: t('repo.clone'), detail: '' });
+      pushLog(t('repo.cloneStart'));
     } catch (e: any) {
-      pushLog(`克隆请求失败：${e.message}`, 'error');
+      pushLog(t('repo.cloneFail', { msg: e.message }), 'error');
       addToast(e.message, 'error');
     }
   }
@@ -46,10 +48,10 @@ export function ActionBar() {
   async function downloadAll() {
     try {
       await apiPost('/api/download/repo', { max_workers: workers });
-      setProgress({ visible: true, mode: 'indeterminate', stage: '下载整个仓库', detail: '' });
-      pushLog('开始递归下载整个仓库…');
+      setProgress({ visible: true, mode: 'indeterminate', stage: t('repo.downloadAll'), detail: '' });
+      pushLog(t('repo.downloadAllStart'));
     } catch (e: any) {
-      pushLog(`整库下载请求失败：${e.message}`, 'error');
+      pushLog(t('repo.downloadAllFail', { msg: e.message }), 'error');
       addToast(e.message, 'error');
     }
   }
@@ -57,30 +59,30 @@ export function ActionBar() {
   async function downloadSelected() {
     const paths = checkedPaths.length ? checkedPaths : selectedFilePath ? [selectedFilePath] : [];
     if (!paths.length) {
-      addToast('未勾选或选中文件', 'warn');
+      addToast(t('repo.noFileSelected'), 'warn');
       return;
     }
     try {
       await apiPost('/api/download', { paths, max_workers: workers });
-      setProgress({ visible: true, mode: 'indeterminate', stage: '下载选中', detail: '' });
-      pushLog(`开始下载 ${paths.length} 个文件…`);
+      setProgress({ visible: true, mode: 'indeterminate', stage: t('repo.downloadSelected'), detail: '' });
+      pushLog(t('repo.downloadSelectedStart', { n: paths.length }));
     } catch (e: any) {
-      pushLog(`下载请求失败：${e.message}`, 'error');
+      pushLog(t('repo.downloadFail', { msg: e.message }), 'error');
       addToast(e.message, 'error');
     }
   }
 
   async function cancelDownload() {
     await apiPost('/api/download/cancel', {});
-    pushLog('已请求取消下载。');
+    pushLog(t('repo.cancelRequested'));
   }
 
   async function clearResume() {
     try {
       const res = await apiPost<{ msg?: string; error?: string }>('/api/resume', {});
-      pushLog(res.msg || res.error || '操作完成');
+      pushLog(res.msg || res.error || t('repo.resumeDone'));
     } catch (e: any) {
-      pushLog(`清空断点失败：${e.message}`, 'error');
+      pushLog(t('repo.resumeFail', { msg: e.message }), 'error');
     }
   }
 
@@ -88,28 +90,28 @@ export function ActionBar() {
     <div className="actionbar">
       <div className="actionbar-group">
         <button className="btn btn-primary" onClick={cloneRepo} disabled={!selectedRepo}>
-          克隆仓库 (PAT)
+          {t('repo.clone')}
         </button>
         <button className="btn" onClick={downloadSelected} disabled={!selectedRepo}>
-          下载选中 (Cookie)
+          {t('repo.downloadSelected')}
         </button>
         <button className="btn" onClick={downloadAll} disabled={!selectedRepo}>
-          下载整个仓库
+          {t('repo.downloadAll')}
         </button>
       </div>
       <div className="actionbar-divider" />
       <div className="actionbar-group">
         <button className="btn btn-ghost" onClick={clearResume}>
-          清空断点
+          {t('repo.clearResume')}
         </button>
         <button className="btn btn-ghost" onClick={clearLogs}>
-          清空日志
+          {t('repo.clearLogs')}
         </button>
       </div>
       <div className="actionbar-divider" />
       <div className="actionbar-group actionbar-fields">
         <label className="field-inline">
-          并发
+          {t('repo.concurrency')}
           <input
             type="number"
             min={1}
@@ -119,8 +121,8 @@ export function ActionBar() {
             onChange={(e) => setConcurrency(parseInt(e.target.value, 10) || 4)}
           />
         </label>
-        <label className="field-inline" title="对 Jira 服务器的稳态请求速率上限">
-          速率
+        <label className="field-inline" title={t('repo.rateTitle')}>
+          {t('repo.rate')}
           <input
             type="number"
             min={1}
@@ -137,7 +139,7 @@ export function ActionBar() {
         <ProgressBar />
         {progress.visible && (
           <button className="btn btn-sm btn-ghost" onClick={cancelDownload}>
-            取消
+            {t('repo.cancelDownload')}
           </button>
         )}
       </div>

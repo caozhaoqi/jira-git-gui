@@ -5,11 +5,13 @@ import '@xterm/xterm/css/xterm.css';
 import { api } from '../../api/client';
 import type { K8sPodsResp } from '../../api/types';
 import { useK8s } from './context';
+import { useT } from '../../i18n';
 
 interface PodInfo { name: string; phase?: string; }
 
 export function K8sShell() {
   const { target, setTarget, addToast } = useK8s();
+  const { t } = useT();
 
   const [pods, setPods] = useState<PodInfo[]>([]);
   const [containers, setContainers] = useState<string[]>([]);
@@ -22,11 +24,11 @@ export function K8sShell() {
   const wsRef = useRef<WebSocket | null>(null);
   const historyRef = useRef<string[]>([]);
   const histIdxRef = useRef(0);
-  const cwdRef = useRef('/'); // 始终与状态同步，供 send 使用
+  const cwdRef = useRef('/'); // 始终与状态同期、供 send 使用
 
   useEffect(() => { cwdRef.current = cwd; }, [cwd]);
 
-  // 初始化 xterm
+  // 初期化 xterm
   useEffect(() => {
     if (!termRef.current || termObj.current) return;
     const term = new Terminal({
@@ -39,8 +41,8 @@ export function K8sShell() {
     term.loadAddon(fit);
     term.open(termRef.current);
     try { fit.fit(); } catch { /* noop */ }
-    // xterm 在此仅作为只读输出区域；命令由底部 input 框统一输入，
-    // 避免 xterm 焦点与 input 框同时响应造成重复发送或光标混乱。
+    // xterm 在此仅作为読み取り専用出力領域；コマンドは下部 input 框から統一入力、
+    // xterm フォーカスと input 框が同時応答して重複送信 / カーソル混乱するのを回避。
     term.attachCustomKeyEventHandler(() => false);
     termObj.current = { term, fit };
     const onResize = () => { try { fit.fit(); } catch { /* noop */ } };
@@ -76,28 +78,28 @@ export function K8sShell() {
       const d = await api<{ containers?: string[] }>(`/api/k8s/pod-containers?${q.toString()}`);
       if (d.containers && d.containers.length) setContainers(d.containers);
     } catch {
-      /* 容器列表加载失败不阻断使用 */
+      /* コンテナ一覧読込失敗は利用をブロックしない */
     }
   }, [target.env, setTarget]);
 
   const connect = useCallback(() => {
-    const t = { pod: target.pod, container: target.container, namespace: target.namespace };
-    if (!t.pod) { addToast('请先选择 Pod', 'warn'); return; }
+    const tgt = { pod: target.pod, container: target.container, namespace: target.namespace };
+    if (!tgt.pod) { addToast(t('k8s.shell.pickPodFirst'), 'warn'); return; }
     if (wsRef.current) { try { wsRef.current.close(); } catch { /* noop */ } }
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const q = new URLSearchParams({ env: target.env, pod: t.pod });
-    if (t.container) q.set('container', t.container);
-    if (t.namespace) q.set('namespace', t.namespace);
+    const q = new URLSearchParams({ env: target.env, pod: tgt.pod });
+    if (tgt.container) q.set('container', tgt.container);
+    if (tgt.namespace) q.set('namespace', tgt.namespace);
     let ws: WebSocket;
     try {
       ws = new WebSocket(`${proto}${location.host}/ws/k8s/exec?${q.toString()}`);
     } catch (ex: any) {
-      termObj.current?.term.writeln('无法建立连接：' + ex.message);
+      termObj.current?.term.writeln(t('k8s.shell.cannotConnect') + ex.message);
       return;
     }
     wsRef.current = ws;
     setConnected(false);
-    termObj.current?.term.writeln(`正在连接 ${t.pod}${t.container ? '/' + t.container : ''} …`);
+    termObj.current?.term.writeln(`${t('k8s.shell.connecting')} ${tgt.pod}${tgt.container ? '/' + tgt.container : ''} …`);
     ws.onopen = () => {};
     ws.onmessage = (ev) => {
       let m: any;
@@ -107,29 +109,29 @@ export function K8sShell() {
         setCwd(cwdRef.current);
         setConnected(true);
         termObj.current?.term.clear();
-        termObj.current?.term.writeln(`已连接 ${t.pod}${t.container ? '/' + t.container : ''} · 工作目录 ${cwdRef.current}`);
+        termObj.current?.term.writeln(`${t('k8s.shell.connectedAs', { pod: tgt.pod + (tgt.container ? '/' + tgt.container : '') })} · ${t('k8s.shell.cwd')} ${cwdRef.current}`);
         termObj.current?.term.write(`${cwdRef.current} $ `);
       } else if (m.type === 'output') {
         const text = m.data || '';
-        // 后端 cwd 跟踪标记可能泄露到输出流，前端再过滤一次确保不显示
+        // 后端 cwd 跟踪标记可能泄露到出力ストリーム、前端でもう一度フィルタして表示させない
         if (text.includes('__PWD__')) return;
         termObj.current?.term.write(text);
       } else if (m.type === 'cwd') {
         cwdRef.current = m.cwd || cwdRef.current;
         setCwd(cwdRef.current);
-        // cwd 更新后补一个 prompt，避免下一行输出直接接在旧 prompt 后面
+        // cwd 更新后补一个 prompt、次の行出力が旧 prompt の後ろに直接継がないよう
         termObj.current?.term.write(`\r\n${cwdRef.current} $ `);
       } else if (m.type === 'error') {
-        termObj.current?.term.writeln('\r\n错误：' + (m.msg || ''));
+        termObj.current?.term.writeln('\r\n' + t('k8s.shell.error') + (m.msg || ''));
       }
     };
     ws.onclose = () => {
       setConnected(false);
       if (wsRef.current === ws) wsRef.current = null;
-      termObj.current?.term.writeln('\r\n— 连接已关闭 —');
+      termObj.current?.term.writeln('\r\n— ' + t('k8s.shell.closed') + ' —');
     };
-    ws.onerror = () => { termObj.current?.term.writeln('\r\nWebSocket 连接错误'); };
-  }, [target.env, target.pod, target.container, target.namespace, addToast]);
+    ws.onerror = () => { termObj.current?.term.writeln('\r\n' + t('k8s.shell.wsError')); };
+  }, [target.env, target.pod, target.container, target.namespace, addToast, t]);
 
   function disconnect() {
     if (wsRef.current) {
@@ -143,13 +145,13 @@ export function K8sShell() {
   const send = useCallback(() => {
     const val = input.trim();
     if (!val || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    // 兼容 Windows 习惯：cls 映射为 clear
+    // Windows 習慣互換：cls を clear にマップ
     const cmd = val.toLowerCase() === 'cls' ? 'clear' : val;
     if (cmd === 'clear') {
       termObj.current?.term.clear();
       termObj.current?.term.write(`${cwdRef.current} $ `);
     } else {
-      // 本地回显命令，否则非交互式 sh 不会回显用户输入
+      // ローカルでコマンドをエコー、非対話 sh はユーザ入力をエコーしないため
       termObj.current?.term.writeln(`\r\n${cwdRef.current} $ ${cmd}`);
     }
     wsRef.current.send(JSON.stringify({ type: 'cmd', data: cmd + '\n' }));
@@ -179,17 +181,17 @@ export function K8sShell() {
     <div className="k8s-shell">
       <div className="k8s-shell-connbar" style={{ display: 'flex' }}>
         <select className="sel" value={target.pod} onChange={(e) => onPodChange(e.target.value)}>
-          <option value="">— 选择 Pod —</option>
+          <option value="">{t('k8s.shell.selectPod')}</option>
           {pods.map((p) => <option key={p.name} value={p.name}>{p.name} · {p.phase || ''}</option>)}
         </select>
         <select className="sel" value={target.container} onChange={(e) => setTarget({ container: e.target.value })}>
-          <option value="">（默认容器）</option>
+          <option value="">{t('k8s.shell.defaultContainer')}</option>
           {containers.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
-        <input className="input input-sm" value={target.namespace} onChange={(e) => setTarget({ namespace: e.target.value })} placeholder="命名空间" />
-        <span className={'k8s-conn-status ' + (connected ? 'on' : 'off')}>{connected ? '已连接' : '未连接'}</span>
-        <button className="btn btn-sm" onClick={connect} disabled={connected || !target.pod}>连接</button>
-        <button className="btn btn-sm btn-ghost" onClick={disconnect} disabled={!connected}>断开</button>
+        <input className="input input-sm" value={target.namespace} onChange={(e) => setTarget({ namespace: e.target.value })} placeholder={t('k8s.shell.namespacePh')} />
+        <span className={'k8s-conn-status ' + (connected ? 'on' : 'off')}>{connected ? t('k8s.shell.connected') : t('k8s.shell.disconnected')}</span>
+        <button className="btn btn-sm" onClick={connect} disabled={connected || !target.pod}>{t('k8s.shell.connect')}</button>
+        <button className="btn btn-sm btn-ghost" onClick={disconnect} disabled={!connected}>{t('k8s.shell.disconnect')}</button>
       </div>
       <div className="k8s-shell-term" ref={termRef} />
       <div className="k8s-shell-inputbar">
@@ -200,7 +202,7 @@ export function K8sShell() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKey}
           disabled={!connected}
-          placeholder={connected ? '输入命令，回车执行（↑/↓ 历史）' : '请先连接'}
+          placeholder={connected ? t('k8s.shell.inputPlaceholder') : t('k8s.shell.connectFirst')}
         />
       </div>
     </div>

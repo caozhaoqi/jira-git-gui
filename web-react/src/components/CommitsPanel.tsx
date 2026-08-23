@@ -3,6 +3,7 @@ import { api, apiGet } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import type { Commit, CommitFile, CommitsResp, FileAtCommitResp } from '../api/types';
 import { esc, renderDiff, formatRelativeTime, authorColor, authorInitial } from '../utils/format';
+import { useT } from '../i18n';
 
 const SIGN_MAP: Record<string, string> = {
   ADDED: '+', MODIFIED: 'M', DELETED: 'D', RENAMED: 'R', COPIED: 'C',
@@ -13,6 +14,7 @@ export function CommitsPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
+  const { t } = useT();
 
   const [mode, setMode] = useState<'remote' | 'local'>('remote');
   const [issueKey, setIssueKey] = useState('');
@@ -26,7 +28,7 @@ export function CommitsPanel() {
     const localMode = mode === 'local';
     const key = issueKey.trim();
     if (localMode && !selectedRepo) {
-      addToast('本地模式请先在「仓库 / 文件」中选中一个仓库', 'warn');
+      addToast(t('diff.noLocalRepo'), 'warn');
       return;
     }
     setLoading(true);
@@ -38,82 +40,82 @@ export function CommitsPanel() {
       if (res.error) {
         setCommits([]);
         addToast(res.error, 'error');
-        pushLog(`提交查询失败：${res.error}`, 'error');
+        pushLog(`${t('diff.queryFail', { msg: res.error })}`, 'error');
       } else {
         setCommits(res.commits || []);
         setSelectedIdx(null);
         setFileDiff(null);
         const n = (res.commits || []).length;
-        pushLog(`提交记录：共 ${n} 条`);
-        if (n === 0) addToast('没有查询到提交记录', 'info');
+        pushLog(`${t('tab.commits')}：${n}`);
+        if (n === 0) addToast(t('diff.noCommitsFound'), 'info');
       }
     } catch (e: any) {
-      pushLog(`提交查询失败：${e.message}`, 'error');
+      pushLog(t('diff.queryFail', { msg: e.message }), 'error');
       addToast(e.message, 'error');
     } finally {
       setLoading(false);
     }
-  }, [mode, issueKey, selectedRepo, addToast, pushLog]);
+  }, [mode, issueKey, selectedRepo, addToast, pushLog, t]);
 
   const sel = selectedIdx != null ? commits[selectedIdx] : null;
 
   const openFileAtCommit = useCallback(async (commitId: string, path: string) => {
     setDiffLoading(true);
-    setFileDiff({ path, html: `<div class="diff-loading">加载 ${esc(path)} @ ${esc(commitId.slice(0, 8))} 的 diff…</div>` });
+    setFileDiff({ path, html: `<div class="diff-loading">${t('diff.loadingDiff')} ${esc(path)} @ ${esc(commitId.slice(0, 8))}</div>` });
     try {
       const [oldRes, newRes] = await Promise.all([
         api<FileAtCommitResp>(`/api/file-at-commit?commit_id=${encodeURIComponent(commitId)}&path=${encodeURIComponent(path)}`),
         api<FileAtCommitResp>(`/api/file?path=${encodeURIComponent(path)}`),
       ]);
       if (oldRes.error && newRes.error) {
-        setFileDiff({ path, html: `<div class="diff-error">加载失败：旧版本 ${esc(oldRes.error)}；新版本 ${esc(newRes.error)}</div>` });
+        setFileDiff({ path, html: `<div class="diff-error">${t('diff.error')}：${esc(oldRes.error)}；${esc(newRes.error)}</div>` });
       } else if (oldRes.error) {
-        setFileDiff({ path, html: `<div class="diff-title">${esc(path)}（新增文件 · 旧版本不存在）</div>` + renderDiff('', newRes.content || '') });
+        setFileDiff({ path, html: `<div class="diff-title">${esc(path)} ${t('diff.newFile')}</div>` + renderDiff('', newRes.content || '') });
       } else if (newRes.error) {
-        setFileDiff({ path, html: `<div class="diff-title">${esc(path)}（文件已删除）</div>` + renderDiff(oldRes.content || '', '') });
+        setFileDiff({ path, html: `<div class="diff-title">${esc(path)} ${t('diff.deletedFile')}</div>` + renderDiff(oldRes.content || '', '') });
       } else {
-        setFileDiff({ path, html: `<div class="diff-title">${esc(path)} @ ${esc(commitId.slice(0, 8))} → 当前</div>` + renderDiff(oldRes.content || '', newRes.content || '') });
+        setFileDiff({ path, html: `<div class="diff-title">${esc(path)} @ ${esc(commitId.slice(0, 8))} → ${t('diff.title')}</div>` + renderDiff(oldRes.content || '', newRes.content || '') });
       }
     } catch (ex: any) {
-      setFileDiff({ path, html: `<div class="diff-error">加载失败：${esc(ex.message)}</div>` });
+      setFileDiff({ path, html: `<div class="diff-error">${t('diff.error')}：${esc(ex.message)}</div>` });
     } finally {
       setDiffLoading(false);
     }
-  }, []);
+  }, [t]);
 
   return (
     <div className="commits-panel tab-inner wide">
       <div className="diff-cfg-card" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         <label className="field-inline">
-          模式
+          {t('diff.mode')}
           <select
             className="sel"
             value={mode}
             onChange={(e) => setMode(e.target.value as 'remote' | 'local')}
           >
-            <option value="remote">按 Issue 查询</option>
-            <option value="local">本地 Git 仓库</option>
+            <option value="remote">{t('diff.byIssue')}</option>
+            <option value="local">{t('diff.localGit')}</option>
           </select>
         </label>
         <label className="field-inline">
           Issue
           <input
             className="input"
-            placeholder={mode === 'local' ? '（当前仓库）' : 'TST-234'}
+            placeholder={mode === 'local' ? `(${t('tab.repo')})` : 'TST-234'}
             value={issueKey}
             onChange={(e) => setIssueKey(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && queryCommits()}
           />
         </label>
         <button className="btn btn-primary" onClick={queryCommits} disabled={loading}>
-          {loading ? '查询中…' : '查询'}
+          {loading ? t('diff.querying') : t('diff.queryCommits')}
         </button>
       </div>
 
       <div className="commits-body">
         <div className="commits-list-pane">
           {commits.length === 0 ? (
-            <div className="empty-hint">没有查询到提交记录</div>
+            <div className="empty-hint">{t('diff.noCommits')}</div>
           ) : (
             commits.map((c, i) => {
               const msg = (c.message || '').split('\n')[0] || '';
@@ -157,7 +159,7 @@ export function CommitsPanel() {
         </div>
 
         <div className="commits-detail-pane">
-          {!sel && <div className="empty-hint">单击左侧提交查看详情与变更文件</div>}
+          {!sel && <div className="empty-hint">{t('diff.clickLeft')}</div>}
           {sel && (
             <>
               <pre className="commit-detail-text">{[
@@ -168,7 +170,7 @@ export function CommitsPanel() {
                 '',
                 sel.message || '',
                 '',
-                `变更文件（${(sel.files || []).length}）：单击文件查看行级 diff`,
+                t('diff.changedFiles', { n: (sel.files || []).length }),
               ].join('\n')}</pre>
               <div className="commit-files">
                 {(() => {
@@ -176,7 +178,7 @@ export function CommitsPanel() {
                   (sel.files || []).forEach((f) => { totalAdd += f.lines_added || 0; totalDel += f.lines_removed || 0; });
                   return (
                     <div className="commit-file-summary">
-                      <span>共 {(sel.files || []).length} 个文件变更</span>
+                      <span>{t('diff.totalChanged', { n: (sel.files || []).length })}</span>
                       <span className="commit-stats"><b className="add">+{totalAdd}</b><b className="del">-{totalDel}</b></span>
                     </div>
                   );

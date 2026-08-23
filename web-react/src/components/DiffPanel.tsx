@@ -13,6 +13,7 @@ import type {
   DiffMergeResp,
   DiffMergeBatchResp,
 } from '../api/types';
+import { useT } from '../i18n';
 
 const DIFF_ICONS: Record<DiffStatus, string> = {
   modified: '✎',
@@ -22,11 +23,11 @@ const DIFF_ICONS: Record<DiffStatus, string> = {
   same: '=',
 };
 const DIFF_LABELS: Record<DiffStatus, string> = {
-  modified: '已修改',
-  whitespace_only: '仅行尾差异',
-  local_only: '仅本地',
-  remote_only: '仅远程',
-  same: '相同',
+  modified: 'modified',
+  whitespace_only: 'whitespace',
+  local_only: 'local only',
+  remote_only: 'remote only',
+  same: 'same',
 };
 
 export function DiffPanel() {
@@ -34,6 +35,7 @@ export function DiffPanel() {
   const addToast = useAppStore((s) => s.addToast);
   const setProgress = useAppStore((s) => s.setProgress);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
+  const { t } = useT();
 
   const [localDir, setLocalDir] = useState('');
   const [ignoreLineEndings, setIgnoreLineEndings] = useState(true);
@@ -57,12 +59,12 @@ export function DiffPanel() {
     const offs = [
       sse.on('scan_stage', (d: any) => {
         if (!scanningRef.current) return;
-        setProgress({ visible: true, mode: 'indeterminate', stage: d.message || '扫描中…', detail: '' });
+        setProgress({ visible: true, mode: 'indeterminate', stage: d.message || t('diff.scanning'), detail: '' });
       }),
       sse.on('scan_progress', (d: any) => {
         if (!scanningRef.current) return;
         const pct = typeof d.pct === 'number' ? d.pct : 0;
-        setProgress({ visible: true, mode: 'determinate', pct, stage: d.message || '扫描中…', detail: `${d.done ?? 0}/${d.total ?? 0}` });
+        setProgress({ visible: true, mode: 'determinate', pct, stage: d.message || t('diff.scanning'), detail: `${d.done ?? 0}/${d.total ?? 0}` });
       }),
       sse.on('scan_done', () => {
         if (scanningRef.current) setProgress({ visible: false });
@@ -70,34 +72,34 @@ export function DiffPanel() {
       sse.on('scan_error', (d: any) => {
         if (!scanningRef.current) return;
         setProgress({ visible: false });
-        addToast(d.message || '扫描出错', 'error');
-        pushLog(`差异扫描出错：${d.message || ''}`, 'error');
+        addToast(d.message || t('diff.scanFail', { msg: '' }), 'error');
+        pushLog(t('diff.scanFail', { msg: d.message || '' }), 'error');
       }),
       sse.on('merge_progress', (d: any) => {
         const pct = typeof d.pct === 'number' ? d.pct : 0;
-        setProgress({ visible: true, mode: 'determinate', pct, stage: '批量合并中…', detail: d.error ? `${d.path}: ${d.error}` : `${d.done}/${d.total}` });
+        setProgress({ visible: true, mode: 'determinate', pct, stage: t('diff.merging'), detail: d.error ? `${d.path}: ${d.error}` : `${d.done}/${d.total}` });
       }),
       sse.on('merge_done', () => {
         setProgress({ visible: false });
       }),
     ];
     return () => offs.forEach((off) => off());
-  }, [setProgress, addToast, pushLog]);
+  }, [setProgress, addToast, pushLog, t]);
 
   const scanDiff = useCallback(async () => {
     const dir = localDir.trim();
-    if (!dir) { pushLog('请输入本地目录路径', 'warning'); addToast('请输入本地目录路径', 'warn'); return; }
-    if (!selectedRepo) { pushLog('请先选择远程仓库', 'warning'); addToast('请先选择远程仓库', 'warn'); return; }
+    if (!dir) { pushLog(t('diff.enterLocalDir'), 'warning'); addToast(t('diff.enterLocalDir'), 'warn'); return; }
+    if (!selectedRepo) { pushLog(t('diff.selectRemoteFirst'), 'warning'); addToast(t('diff.selectRemoteFirst'), 'warn'); return; }
     setBusy(true);
     scanningRef.current = true;
     setErrors([]);
-    setProgress({ visible: true, mode: 'indeterminate', stage: '准备中…', detail: '' });
+    setProgress({ visible: true, mode: 'indeterminate', stage: t('diff.preparing'), detail: '' });
     setEntries([]);
     setSummary(null);
     setSelectedPath('');
     setFileHtml('');
     setFileTitle('');
-    pushLog('开始扫描本地与远程差异…');
+    pushLog(t('diff.scanStart'));
     try {
       const body: DiffScanReq = {
         local_dir: dir,
@@ -107,22 +109,22 @@ export function DiffPanel() {
       const res = await apiPost<DiffScanResp>('/api/diff/scan', body);
       const s = res.summary || {};
       const wsBadge = s.whitespace_only
-        ? ` · 行尾差异 ${s.whitespace_only}`
+        ? ` · ${t('diff.ignoreEol')} ${s.whitespace_only}`
         : '';
       setSummary(s);
       setEntries(res.entries || []);
       setProgress({ visible: false });
-      pushLog(`差异扫描完成：共 ${s.total ?? 0} 个文件，修改 ${s.modified ?? 0}，仅本地 ${s.local_only ?? 0}，仅远程 ${s.remote_only ?? 0}${wsBadge}`);
+      pushLog(`${t('diff.scanComplete')}：${s.total ?? 0} · ${t('diff.merge')} ${s.modified ?? 0} · ${t('diff.local')} ${s.local_only ?? 0} · ${t('diff.remote')} ${s.remote_only ?? 0}${wsBadge}`);
     } catch (ex: any) {
       setProgress({ visible: false });
       setErrors((e) => [...e, ex.message]);
-      pushLog(`差异扫描失败：${ex.message}`, 'error');
+      pushLog(t('diff.scanFail', { msg: ex.message }), 'error');
       addToast(ex.message, 'error');
     } finally {
       scanningRef.current = false;
       setBusy(false);
     }
-  }, [localDir, selectedRepo, ignoreLineEndings, setProgress, pushLog, addToast]);
+  }, [localDir, selectedRepo, ignoreLineEndings, setProgress, pushLog, addToast, t]);
 
   const visibleEntries = useMemo(() => {
     return entries.filter((e) => {
@@ -134,41 +136,41 @@ export function DiffPanel() {
 
   const openDiffFile = useCallback(async (path: string) => {
     setSelectedPath(path);
-    setFileTitle(`加载中 · ${path}`);
-    setFileHtml('<div class="empty-hint">加载中…</div>');
+    setFileTitle(t('diff.fileTitleLoading') + path);
+    setFileHtml(`<div class="empty-hint">${t('diff.loadingDiff')}</div>`);
     try {
       const req: DiffFileReq = { local_dir: localDirRef.current, path };
       const res = await apiPost<DiffFileResp>('/api/diff/file', req);
       const entry = entries.find((e) => e.path === path);
       const status = (entry?.status || '') as DiffStatus;
       setFileTitle(`${path}  (${DIFF_LABELS[status] || status})`);
-      setFileHtml(renderDiffContent(res, status));
+      setFileHtml(renderDiffContent(res, status, t));
     } catch (ex: any) {
-      setFileTitle('错误');
+      setFileTitle(t('diff.error'));
       setFileHtml(esc(ex.message));
     }
-  }, [entries]);
+  }, [entries, t]);
 
   const mergeOne = useCallback(async () => {
     if (!selectedPath) return;
     try {
       const res = await apiPost<DiffMergeResp>('/api/diff/merge', { local_dir: localDirRef.current, path: selectedPath });
       if (res.ok) {
-        pushLog(`已合并到本地：${selectedPath}`);
-        addToast(`已合并 ${selectedPath}`, 'success');
+        pushLog(t('diff.mergeOk', { path: selectedPath }));
+        addToast(t('diff.mergeOk', { path: selectedPath }), 'success');
         setEntries((es) => es.filter((e) => e.path !== selectedPath));
-        setFileHtml('<div class="empty-hint">已合并 ✓</div>');
-        setFileTitle('已合并');
+        setFileHtml(`<div class="empty-hint">${t('diff.diffDone')}</div>`);
+        setFileTitle(t('diff.merged'));
         setSelectedPath('');
       } else {
-        pushLog(`合并失败：${selectedPath}`, 'error');
-        addToast('合并失败', 'error');
+        pushLog(t('diff.mergeFailed', { path: selectedPath }), 'error');
+        addToast(t('diff.mergeFailedShort'), 'error');
       }
     } catch (ex: any) {
-      pushLog(`合并失败：${ex.message}`, 'error');
+      pushLog(t('diff.mergeFailed', { path: ex.message }), 'error');
       addToast(ex.message, 'error');
     }
-  }, [selectedPath, pushLog, addToast]);
+  }, [selectedPath, pushLog, addToast, t]);
 
   const mergeAll = useCallback(async () => {
     let targets: DiffEntry[];
@@ -181,13 +183,14 @@ export function DiffPanel() {
       });
     }
     if (!targets.length) {
-      pushLog(mergeRemoteOnly ? '没有需要合并的云端差异项' : '没有需要合并的文件', 'warning');
-      addToast(mergeRemoteOnly ? '没有需要合并的云端差异项' : '没有需要合并的文件', 'warn');
+      const msg = mergeRemoteOnly ? t('diff.noMergeCloudTarget') : t('diff.noMergeTarget');
+      pushLog(msg, 'warning');
+      addToast(msg, 'warn');
       return;
     }
     setBusy(true);
-    const modeHint = mergeRemoteOnly ? '（仅云端差异项）' : '';
-    pushLog(`开始批量合并 ${targets.length} 个文件${modeHint}…`);
+    const modeHint = mergeRemoteOnly ? `（${t('diff.mergeRemoteOnly')}）` : '';
+    pushLog(t('diff.batchMergeStart', { n: targets.length }) + modeHint);
     try {
       const query = mergeRemoteOnly ? '?status_filter=remote_only' : '';
       const reqs = targets.map((e) => ({ local_dir: localDirRef.current, path: e.path, status: e.status }));
@@ -195,26 +198,26 @@ export function DiffPanel() {
       const okPaths = new Set((res.results || []).filter((r) => r.ok).map((r) => r.path));
       const okCount = okPaths.size;
       const failCount = (res.results || []).length - okCount;
-      pushLog(`批量合并完成${modeHint}：成功 ${okCount}，失败 ${failCount}`);
-      addToast(`批量合并完成：成功 ${okCount}，失败 ${failCount}`, failCount ? 'warn' : 'success');
+      pushLog(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
+      addToast(t('diff.batchMergeDone', { ok: okCount, fail: failCount }), failCount ? 'warn' : 'success');
       setEntries((es) => es.filter((e) => !okPaths.has(e.path)));
-      setFileTitle(`合并完成${modeHint}：成功 ${okCount}，失败 ${failCount}`);
+      setFileTitle(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
       setFileHtml('');
     } catch (ex: any) {
-      pushLog(`批量合并失败：${ex.message}`, 'error');
+      pushLog(t('diff.mergeFailed', { path: ex.message }), 'error');
       addToast(ex.message, 'error');
     } finally {
       setBusy(false);
       setProgress({ visible: false });
     }
-  }, [entries, mergeRemoteOnly, ignoreLineEndings, pushLog, addToast, setProgress]);
+  }, [entries, mergeRemoteOnly, ignoreLineEndings, pushLog, addToast, setProgress, t]);
 
   return (
     <div className="diff-panel tab-inner wide">
       <div className="diff-cfg-card">
         <div className="diff-cfg-row">
           <label className="field-inline">
-            本地目录
+            {t('diff.localDir')}
             <input
               className="input"
               placeholder="/path/to/local/repo"
@@ -225,25 +228,25 @@ export function DiffPanel() {
             />
           </label>
           <button className="btn btn-primary" onClick={scanDiff} disabled={busy || !selectedRepo}>
-            {busy ? '扫描中…' : '扫描差异'}
+            {busy ? t('diff.scanning') : t('diff.scan')}
           </button>
         </div>
         <div className="diff-cfg-row diff-cfg-inline">
-          <label className="chk"><input type="checkbox" checked={ignoreLineEndings} onChange={(e) => setIgnoreLineEndings(e.target.checked)} /> 忽略行尾差异</label>
-          <label className="chk"><input type="checkbox" checked={showSame} onChange={(e) => setShowSame(e.target.checked)} /> 显示相同</label>
-          <label className="chk"><input type="checkbox" checked={mergeRemoteOnly} onChange={(e) => setMergeRemoteOnly(e.target.checked)} /> 仅合并云端差异</label>
+          <label className="chk"><input type="checkbox" checked={ignoreLineEndings} onChange={(e) => setIgnoreLineEndings(e.target.checked)} /> {t('diff.ignoreEol')}</label>
+          <label className="chk"><input type="checkbox" checked={showSame} onChange={(e) => setShowSame(e.target.checked)} /> {t('diff.showSame')}</label>
+          <label className="chk"><input type="checkbox" checked={mergeRemoteOnly} onChange={(e) => setMergeRemoteOnly(e.target.checked)} /> {t('diff.mergeRemoteOnly')}</label>
         </div>
       </div>
 
-      {!selectedRepo && <div className="empty-hint">请先在「仓库 / 文件」中选择远程仓库，再扫描差异。</div>}
+      {!selectedRepo && <div className="empty-hint">{t('diff.pickRepo')}</div>}
 
       {summary && (
         <div className="diff-summary">
-          {`共 ${summary.total ?? 0} 个文件 | `}
-          <span className="badge-modified">修改 {summary.modified ?? 0}</span> ·{' '}
-          <span className="badge-local">仅本地 {summary.local_only ?? 0}</span> ·{' '}
-          <span className="badge-remote">仅远程 {summary.remote_only ?? 0}</span> · 相同 {summary.same ?? 0}
-          {summary.whitespace_only ? <span className="badge-eol"> 行尾差异 {summary.whitespace_only}</span> : null}
+          {`${summary.total ?? 0} · `}
+          <span className="badge-modified">{t('diff.merge')} {summary.modified ?? 0}</span> ·{' '}
+          <span className="badge-local">{t('diff.local')} {summary.local_only ?? 0}</span> ·{' '}
+          <span className="badge-remote">{t('diff.remote')} {summary.remote_only ?? 0}</span> · {t('diff.noDiff')} {summary.same ?? 0}
+          {summary.whitespace_only ? <span className="badge-eol"> {t('diff.ignoreEol')} {summary.whitespace_only}</span> : null}
         </div>
       )}
 
@@ -256,14 +259,14 @@ export function DiffPanel() {
       <div className="diff-body">
         <div className="diff-list-pane">
           {entries.length === 0 ? (
-            <div className="empty-hint">输入本地目录并扫描，查看本地与远程差异。</div>
+            <div className="empty-hint">{t('diff.noDiffFiles')}</div>
           ) : visibleEntries.length === 0 ? (
             <div className="empty-hint">
               {entries.every((e) => e.status === 'same')
-                ? '无差异文件（所有文件相同；可勾选「显示相同」查看）'
+                ? t('diff.allSame')
                 : entries.every((e) => e.status === 'same' || e.status === 'whitespace_only')
-                  ? '无有效差异（剩余差异均为 CRLF/LF 行尾符；可取消「忽略行尾差异」查看）'
-                  : '无差异（本地与远程完全一致）'}
+                  ? t('diff.noEffectiveDiff')
+                  : t('diff.identical')}
             </div>
           ) : (
             visibleEntries.map((e) => (
@@ -283,15 +286,15 @@ export function DiffPanel() {
           <div className="diff-file-head">
             <span className="diff-file-title">{fileTitle}</span>
             {selectedPath && (
-              <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>合并到本地</button>
+              <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>{t('diff.mergeOne')}</button>
             )}
             {entries.length > 0 && (
               <button className="btn btn-sm btn-primary" onClick={mergeAll} disabled={busy}>
-                全部合并到本地
+                {t('diff.mergeAll')}
               </button>
             )}
           </div>
-          {fileHtml ? <div className="diff-content" dangerouslySetInnerHTML={{ __html: fileHtml }} /> : <div className="empty-hint">从左侧选择文件查看差异</div>}
+          {fileHtml ? <div className="diff-content" dangerouslySetInnerHTML={{ __html: fileHtml }} /> : <div className="empty-hint">{t('diff.selectFileDiff')}</div>}
         </div>
       </div>
     </div>
@@ -308,23 +311,23 @@ function esc(s: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-function renderDiffContent(res: DiffFileResp, status: DiffStatus): string {
+function renderDiffContent(res: DiffFileResp, status: DiffStatus, t: (k: string, v?: Record<string, string | number>) => string): string {
   const diffText = res.diff || '';
   const local = res.local_content || '';
   const remote = res.remote_content || '';
 
   if (!diffText) {
     if (status === 'modified' || status === 'whitespace_only' || res.normalized_same) {
-      const hint = `<div class="diff-info-hint">内容实际相同（可能仅行尾符 / 空白 / 格式差异）<br>本地大小 ${local.length} 字符，远程大小 ${remote.length} 字符</div>`;
+      const hint = `<div class="diff-info-hint">${t('diff.contentSameHint')}<br>${t('diff.localSize')} ${local.length} ${t('diff.chars')}，${t('diff.remoteSize')} ${remote.length} ${t('diff.chars')}</div>`;
       return hint + renderSideBySide(local, remote);
     }
     if (status === 'local_only') {
-      return '<div class="empty-hint">仅本地存在，远程无此文件</div>' + renderPlain(local, 'local');
+      return `<div class="empty-hint">${t('diff.localOnly')}</div>` + renderPlain(local, 'local');
     }
     if (status === 'remote_only') {
-      return '<div class="empty-hint">仅远程存在，本地无此文件（新增）</div>' + renderPlain(remote, 'remote');
+      return `<div class="empty-hint">${t('diff.remoteOnly')}</div>` + renderPlain(remote, 'remote');
     }
-    return '<div class="empty-hint">内容完全相同</div>';
+    return `<div class="empty-hint">${t('diff.sameContent')}</div>`;
   }
   return renderUnifiedDiff(diffText);
 }

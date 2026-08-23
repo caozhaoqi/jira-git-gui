@@ -2,12 +2,12 @@
 
 > 📗 English docs: [README.md](README.md)
 
-面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供 **两种桌面形态**，共用同一个 Python 后端与同一套原生 Web 前端：
+面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供 **两种桌面形态**，共用同一个 Python 后端与同一套 Web 前端（由 `web-react/` 构建）：
 
 - **Electron 版**（`electron/` + `web/`）：基于 Electron + Chromium/WebKit webview 的跨平台桌面应用。
 - **Tauri 版**（`tauri/` + `web/`）：使用操作系统原生 WebView 的轻量桌面应用——包体小得多（几十 MB 对比几百 MB）。
 
-两种形态都加载同一套 Web 前端、对接同一个共享 Python 后端（`api/server.py`，默认端口 8787），功能等价。Python 后端（FastAPI）会被打包进每个桌面应用，最终用户无需单独起服务或开浏览器。
+两种形态都加载同一套 Web 前端（由 `web-react/` 构建）、对接同一个共享 Python 后端（`api/server.py`，默认端口 8787），功能等价。Python 后端（FastAPI）会被打包进每个桌面应用，最终用户无需单独起服务或开浏览器。
 
 ## 功能总览
 
@@ -30,7 +30,7 @@
 | 💻 **Shell** | Pod 容器内 Xshell 式交互终端（WebSocket），工作目录跨命令持久化，命令历史 |
 | 📁 **文件** | Pod 容器内 Xftp 式文件浏览器：列表 / 打开编辑 / 保存回写 / 上传 / 下载 / 新建目录 / 删除 |
 | 🔍 **描述** | `kubectl describe` 弹窗 + 相关事件，可从快照、YAML 页、手动输入三处触发 |
-| 📜 **日志查看** | 主页面预览 + 独立全屏页（`log_viewer.html`）：搜索高亮、级别着色、容器与 Pod 切换、tail 行数、实时自动刷新、下载 |
+| 📜 **日志查看** | 主页面预览 + 独立全屏页（`?view=log`）：搜索高亮、级别着色、容器与 Pod 切换、tail 行数、实时自动刷新、下载 |
 
 - **多环境**：dev / test / prod 各自独立 kubeconfig，环境彩色标签（dev=蓝 / test=橙 / prod=红）。
 - **健壮性**：kubectl 二进制自动定位（Homebrew / Docker / 系统 PATH 兜底），即使从 GUI 以最小 PATH 启动也能正常工作。
@@ -68,12 +68,14 @@ jira-git-gui/
 │   └── k8s_snapshot.py     # 快照引擎：Pod 状态 + 日志抓取、分级、HTML/JSON 报告
 ├── api/                    # Web / Electron / Tauri 共用的后端
 │   └── server.py           # FastAPI：50+ REST 端点 + SSE 推送 + WebSocket Shell，端口 8787
-├── web/                    # Web 前端（Electron / Tauri / 浏览器共用，零框架依赖）
-│   ├── index.html          # 页面结构（标签页 + K8s 面板 + 连接设置弹窗）
-│   ├── app.js              # 前端逻辑（REST + SSE + WebSocket，纯 vanilla JS）
-│   ├── styles.css          # 设计系统（CSS 变量，浅色 / 深色双主题）
-│   ├── k8s.css             # K8s 专属布局与视觉
-│   └── log_viewer.*        # 独立全屏日志页（搜索 / 高亮 / Pod 与容器切换）
+├── web/                    # Web 前端生产构建产物（由 web-react/ 的 vite build 生成：
+│                          #   index.html + assets/），Electron / Tauri / 浏览器共用。
+│                          #   原生 vanilla-JS 版本已归档到 web-legacy/ 用于回退。
+├── web-react/             # React + TypeScript + Vite 前端——web/ 的实际源码来源
+│   ├── src/components/    # 功能面板：RepoPanel / CommitsPanel / DiffPanel / k8s/* / CfPanel
+│   ├── src/api/           # 统一 API 客户端、SSE 事件管理器、类型化模型
+│   ├── src/store/         # Zustand 全局状态（logs / toasts / progress / activeTab）
+│   └── src/utils/         # 格式化（diff / 相对时间 / 体积）+ 剪贴板（Electron/Tauri/Web）
 ├── electron/               # Electron 桌面应用（已发布）
 │   ├── main.js             # 主进程：Python 后端生命周期 + BrowserWindow + 日志桥
 │   ├── preload.js          # 暴露 window.electronAPI（contextIsolation 隔离）
@@ -147,12 +149,12 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 
 环境（dev / test / prod …）保存在 `~/.config/jira-git-gui/k8s_envs.json`，各自独立 kubeconfig 路径、可选 context 与默认命名空间。K8s 页的环境选择器带彩色标签，切换环境时 **YAML** / **事件** / **Top** 面板自动刷新列表。
 
-### 日志查看（`web/log_viewer.html`）
+### 日志查看（`/web/?view=log`）
 
-从快照日志面板点「⧉ 新页面打开」，或直接访问（端口以实际运行端口为准，默认 8787）：
+从快照页点「⧉ 新页面打开完整日志」或 K8s Shell 进入，或直接访问（端口以实际运行端口为准，默认 8787）：
 
 ```
-/web/log_viewer.html?pod=<pod>&env=<env>
+/web/?view=log&pod=<pod>&env=<env>&container=<container>&namespace=<namespace>
 ```
 
 - **Pod 自由切换**：顶栏下拉选择任意 Pod，日志、容器、命名空间自动切换。

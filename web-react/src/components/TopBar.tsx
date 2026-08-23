@@ -1,9 +1,14 @@
 import { useAppStore } from '../store/useAppStore';
+import { useT } from '../i18n';
+import { LOCALES } from '../i18n/types';
 
 export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const status = useAppStore((s) => s.status);
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
+  const locale = useAppStore((s) => s.locale);
+  const setLocale = useAppStore((s) => s.setLocale);
+  const { t } = useT();
 
   const credOk = !!(status?.cookie_set || status?.pat_set);
 
@@ -18,21 +23,34 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
         </span>
       </div>
       <div className="appbar-actions">
-        <span className="appbar-status" title="当前连接状态">
-          {(status?.mode || '-').toUpperCase()} · {status?.repo_id || '未选仓库'}
+        <span className="appbar-status" title={t('app.statusTitle')}>
+          {(status?.mode || '-').toUpperCase()} · {status?.repo_id || t('repo.noRepo')}
         </span>
-        <button className="btn btn-ghost" onClick={onOpenConnect} title="连接设置">
+        <button className="btn btn-ghost" onClick={onOpenConnect} title={t('app.connectSettings')}>
           <span>⚙</span>
-          <span className="lbl">连接设置</span>
+          <span className="lbl">{t('app.connectSettings')}</span>
         </button>
+        <select
+          className="locale-select"
+          value={locale}
+          onChange={(e) => setLocale(e.target.value as typeof locale)}
+          title="Language / 言語"
+          aria-label="Language"
+        >
+          {LOCALES.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.flag} {l.label}
+            </option>
+          ))}
+        </select>
         <span
           className={`status-dot ${credOk ? 'ok' : 'warn'}`}
-          title={credOk ? '后端已连接，凭证已配置' : '后端未配置凭证'}
+          title={credOk ? t('app.credOk') : t('app.credWarn')}
         />
         <button
           className="btn btn-icon"
           onClick={toggleTheme}
-          title="切换浅色 / 深色主题"
+          title={t('app.themeToggle')}
         >
           {theme === 'dark' ? '☀' : '🌓'}
         </button>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
+import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
 import type { CfAccount, CfLogsRow } from '../api/types';
 
@@ -49,6 +50,7 @@ function cfLogType(row: CfLogsRow, fallback: string): string {
 export function CfPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const { t } = useT();
 
   const [accounts, setAccounts] = useState<CfAccount[]>([]);
   const [env, setEnv] = useState('');
@@ -140,7 +142,7 @@ export function CfPanel() {
     const serverUrl = cfg.server_url.trim();
     const proxy = cfg.proxy.trim();
     if (!serverUrl) {
-      addToast('请先填写服务器地址', 'warn');
+      addToast(t('cf.serverUrlFirst'), 'warn');
       return;
     }
     setBusy('captcha', true);
@@ -170,15 +172,15 @@ export function CfPanel() {
     const password = cfg.password.trim();
     const proxy = cfg.proxy.trim();
     if (!serverUrl || !mobile || !password) {
-      setStatus({ text: '请填写服务器地址、手机号和密码', cls: 'error' });
+      setStatus({ text: t('cf.fillServerMobilePwd'), cls: 'error' });
       return;
     }
     if (imageCode && !captcha.captcha_id) {
-      setStatus({ text: '请先点击「刷新」获取验证码图片再输入', cls: 'error' });
+      setStatus({ text: t('cf.refreshCaptchaFirst'), cls: 'error' });
       return;
     }
     setBusy('login', true);
-    setStatus({ text: '正在登录…', cls: '' });
+    setStatus({ text: t('cf.loggingIn'), cls: '' });
     try {
       const res = await apiPost<{
         token?: string;
@@ -199,7 +201,7 @@ export function CfPanel() {
         setCaptcha({ captcha_id: '', image_code_index: '', image: '' });
         setImageCode('');
         saveCfg();
-        setStatus({ text: '登录成功，Token 已获取并保存', cls: 'success' });
+        setStatus({ text: t('cf.loginSuccess'), cls: 'success' });
         return;
       }
       if (res && res.ok === false) {
@@ -262,7 +264,7 @@ export function CfPanel() {
     const pageIndex = cfg.page_index || 1;
     const proxy = cfg.proxy.trim();
     if (!token) {
-      setStatus({ text: '请先配置 Token（可点击「登录获取 Token」或手动填写）', cls: 'error' });
+      setStatus({ text: t('cf.tokenFirst'), cls: 'error' });
       return;
     }
     setBusy('query', true);
@@ -313,7 +315,7 @@ export function CfPanel() {
   const exportLogs = async () => {
     const r = resultRef.current;
     if (!r || !r.rows || !r.rows.length) {
-      setStatus({ text: '请先查询日志并确保有结果，再导出', cls: 'error' });
+      setStatus({ text: t('cf.exportNeedData'), cls: 'error' });
       return;
     }
     setBusy('export', true);
@@ -446,28 +448,28 @@ export function CfPanel() {
       {/* ===== 配置卡片：标题 + 环境切换 + 可折叠配置体 ===== */}
       <div className="card-soft cf-cfg-card">
         <div className="panel-header">
-          <h2 className="section-title">CF 云函数日志</h2>
+          <h2 className="section-title">{t('cf.title')}</h2>
           <div className="cf-env-switcher">
             <select
               className="sel"
               value={env}
               onChange={(e) => switchEnv(e.target.value)}
             >
-              <option value="">选择环境…（从本地配置自动填充）</option>
+              <option value="">{t('cf.selectEnv')}</option>
               {accounts.map((a) => (
                 <option key={a.name} value={a.name}>
                   {a.name}
                 </option>
               ))}
-              <option value="custom">✏️ 自定义</option>
+              <option value="custom">{t('cf.custom')}</option>
             </select>
           </div>
           <button
             className="btn btn-ghost btn-sm"
             onClick={() => setCfgOpen((v) => !v)}
-            title="展开 / 收起连接配置"
+            title={t('cf.toggleConfig')}
           >
-            配置 {cfgOpen ? '▾' : '▸'}
+            {t('cf.config')} {cfgOpen ? '▾' : '▸'}
           </button>
         </div>
 
@@ -475,10 +477,10 @@ export function CfPanel() {
           <div className="cf-cfg-body">
             <div className="cf-cfg-row">
               <div className="cf-cfg-field">
-                <label>服务器地址</label>
+                <label>{t('cf.serverUrl')}</label>
                 <input
                   className="input"
-                  placeholder="从上方环境列表选择后自动填充"
+                  placeholder={t('cf.serverUrlPlaceholder')}
                   value={cfg.server_url}
                   onChange={(e) => setCfg({ ...cfg, server_url: e.target.value })}
                   onBlur={saveCfg}
@@ -487,31 +489,31 @@ export function CfPanel() {
             </div>
             <div className="cf-cfg-row">
               <div className="cf-cfg-field">
-                <label>手机号</label>
+                <label>{t('cf.mobile')}</label>
                 <input
                   className="input"
-                  placeholder="从上方环境列表选择后自动填充"
+                  placeholder={t('cf.mobilePlaceholder')}
                   value={cfg.username}
                   onChange={(e) => setCfg({ ...cfg, username: e.target.value })}
                   onBlur={saveCfg}
                 />
               </div>
               <div className="cf-cfg-field">
-                <label>密码</label>
+                <label>{t('cf.password')}</label>
                 <input
                   className="input"
                   type="password"
-                  placeholder="从上方环境列表选择后自动填充"
+                  placeholder={t('cf.passwordPlaceholder')}
                   value={cfg.password}
                   onChange={(e) => setCfg({ ...cfg, password: e.target.value })}
                   onBlur={saveCfg}
                 />
               </div>
               <div className="cf-cfg-field cf-cfg-field--token">
-                <label>Token</label>
+                <label>{t('cf.token')}</label>
                 <input
                   className="input"
-                  placeholder="登录后自动填充，或手动粘贴"
+                  placeholder={t('cf.tokenPlaceholder')}
                   value={cfg.token}
                   onChange={(e) => setCfg({ ...cfg, token: e.target.value })}
                   onBlur={saveCfg}
@@ -520,7 +522,7 @@ export function CfPanel() {
             </div>
             <div className="cf-cfg-row">
               <div className="cf-cfg-field cf-cfg-field--full">
-                <label>代理地址（留空直连；例：http://127.0.0.1:7890）</label>
+                <label>{t('cf.proxy')}</label>
                 <input
                   className="input"
                   placeholder="http://127.0.0.1:7890"
@@ -532,23 +534,23 @@ export function CfPanel() {
             </div>
             <div className="cf-cfg-row cf-captcha-row">
               <div className="cf-cfg-field cf-cfg-field--captcha">
-                <label>图片验证码</label>
+                <label>{t('cf.captcha')}</label>
                 <div className="cf-captcha-img-wrap">
                   {captcha.image ? (
                     <img
                       className="cf-captcha-img"
                       src={captcha.image}
-                      alt="验证码"
-                      title="点击刷新"
+                      alt={t('cf.captcha')}
+                      title={t('cf.refresh')}
                       onClick={fetchCaptcha}
                     />
                   ) : (
                     <div
                       className="cf-captcha-img empty"
                       onClick={fetchCaptcha}
-                      title="点击获取"
+                      title={t('cf.getCaptcha')}
                     >
-                      点击刷新获取
+                      {t('cf.getCaptcha')}
                     </div>
                   )}
                   <button
@@ -556,15 +558,15 @@ export function CfPanel() {
                     onClick={fetchCaptcha}
                     disabled={loading.captcha}
                   >
-                    🔄 刷新
+                    🔄 {t('cf.refresh')}
                   </button>
                 </div>
               </div>
               <div className="cf-cfg-field">
-                <label>验证码</label>
+                <label>{t('cf.captchaInput')}</label>
                 <input
                   className="input"
-                  placeholder="请输入图中验证码（可选）"
+                  placeholder={t('cf.captchaInputPlaceholder')}
                   maxLength={8}
                   autoComplete="off"
                   value={imageCode}
@@ -578,7 +580,7 @@ export function CfPanel() {
                 onClick={login}
                 disabled={loading.login}
               >
-                {loading.login ? '登录中…' : '登录获取 Token'}
+                {loading.login ? t('cf.loggingInShort') : t('cf.loginToken')}
               </button>
             </div>
           </div>
@@ -589,7 +591,7 @@ export function CfPanel() {
       <div className="card-soft cf-query-card">
         <div className="cf-query-row">
           <div className="cf-cfg-field cf-cfg-field--main">
-            <label>log_type（留空查全部）</label>
+            <label>{t('cf.logType')}</label>
             <input
               className="input"
               placeholder="salary_seal_delay_payment_vvv1"
@@ -600,7 +602,7 @@ export function CfPanel() {
             />
           </div>
           <div className="cf-cfg-field cf-cfg-field--w100">
-            <label>每页条数</label>
+            <label>{t('cf.pageSize')}</label>
             <input
               className="input input-sm"
               type="number"
@@ -612,7 +614,7 @@ export function CfPanel() {
             />
           </div>
           <div className="cf-cfg-field cf-cfg-field--w80">
-            <label>页码</label>
+            <label>{t('cf.pageIndex')}</label>
             <input
               className="input input-sm"
               type="number"
@@ -627,21 +629,21 @@ export function CfPanel() {
             onClick={queryLogs}
             disabled={loading.query}
           >
-            {loading.query ? '查询中…' : '查询日志'}
+            {loading.query ? t('cf.querying') : t('cf.query')}
           </button>
           <button
             className="btn cf-query-btn"
             onClick={exportLogs}
             disabled={loading.export || !result?.rows.length}
           >
-            导出 JSON
+            {t('cf.export')}
           </button>
           <button
             className="btn btn-ghost cf-query-btn"
             onClick={clipboardSave}
             disabled={loading.clipboard}
           >
-            📋 剪贴板转文件
+            📋 {t('cf.clipboardToFile')}
           </button>
         </div>
         {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
@@ -652,27 +654,27 @@ export function CfPanel() {
         <div className="cf-search-bar card-soft">
           <input
             className="input cf-search-input"
-            placeholder="搜索日志内容、时间、类型…（实时过滤）"
+            placeholder={t('cf.searchPlaceholder')}
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
               if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
             }}
           />
-          <label className="cf-search-case" title="区分大小写">
+          <label className="cf-search-case" title={t('cf.caseSensitive')}>
             <input
               type="checkbox"
               checked={caseSensitive}
               onChange={(e) => setCaseSensitive(e.target.checked)}
             />{' '}
-            大小写敏感
+            {t('cf.caseSensitive')}
           </label>
           <button
             className="btn btn-sm btn-ghost cf-btn-sort-time"
             onClick={toggleSort}
             disabled={loading.sort}
           >
-            时间 {sortDir === 'asc' ? '↑' : '↓'}
+            {t('cf.time')} {sortDir === 'asc' ? '↑' : '↓'}
           </button>
           <span className="cf-search-count">
             {search
@@ -684,10 +686,10 @@ export function CfPanel() {
         </div>
       )}
 
-      {!result && <div className="empty-hint">选择环境并登录后，点击「查询日志」。</div>}
+      {!result && <div className="empty-hint">{t('cf.startHint')}</div>}
 
       {result && view.rows.length === 0 && (
-        <div className="empty-hint">没有匹配当前搜索条件的日志</div>
+        <div className="empty-hint">{t('cf.noMatch')}</div>
       )}
 
       {/* ===== 日志结果表 ===== */}
@@ -701,16 +703,16 @@ export function CfPanel() {
                 ? `共 ${view.all} 条`
                 : `本页 ${view.all} / 共 ${result.total} 条`}
             </span>
-            {view.isFull && <span>已加载全部日志，排序 / 搜索覆盖全量</span>}
+            {view.isFull && <span>{t('cf.fullLoaded')}</span>}
           </div>
           <div className="table-scroll">
             <table className="cf-log-table">
               <thead>
                 <tr>
                   <th style={{ width: 48 }}>#</th>
-                  <th style={{ width: 150 }}>类型</th>
-                  <th style={{ width: 170 }}>时间</th>
-                  <th>内容</th>
+                  <th style={{ width: 150 }}>{t('cf.colType')}</th>
+                  <th style={{ width: 170 }}>{t('cf.colTime')}</th>
+                  <th>{t('cf.colContent')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -747,7 +749,7 @@ export function CfPanel() {
             <div className="cf-pagination">
               {view.localPage > 1 && (
                 <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage - 1)}>
-                  上一页
+                  {t('cf.prevPage')}
                 </button>
               )}
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -755,7 +757,7 @@ export function CfPanel() {
               </span>
               {view.localPage < view.totalPages && (
                 <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage + 1)}>
-                  下一页
+                  {t('cf.nextPage')}
                 </button>
               )}
             </div>

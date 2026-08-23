@@ -5,12 +5,14 @@ import type {
 } from '../../api/types';
 import { useK8s } from './context';
 import { k8sPathJoin, k8sPathParent, fmtSize } from '../../utils/format';
+import { useT } from '../../i18n';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
 interface SelectedFile { name: string; isDir: boolean; }
 
 export function K8sFiles() {
   const { target, setTarget, addToast } = useK8s();
+  const { t } = useT();
 
   const [path, setPath] = useState('/');
   const [entries, setEntries] = useState<K8sFileEntry[]>([]);
@@ -50,13 +52,13 @@ export function K8sFiles() {
       const d = await apiPost<K8sFileListResp>('/api/k8s/file/list', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: pp,
       });
-      if (!d.ok) { setEntries([]); addToast('加载失败：' + (d.error || ''), 'error'); return; }
+      if (!d.ok) { setEntries([]); addToast(t('k8s.files.loadFail') + (d.error || ''), 'error'); return; }
       setEntries(d.entries || []);
     } catch (ex: any) {
       setEntries([]);
-      addToast('加载失败：' + ex.message, 'error');
+      addToast(t('k8s.files.loadFail') + ex.message, 'error');
     }
-  }, [path, target.env, target.pod, target.container, target.namespace, addToast]);
+  }, [path, target.env, target.pod, target.container, target.namespace, addToast, t]);
 
   useEffect(() => {
     if (target.pod) listFiles(path);
@@ -72,31 +74,31 @@ export function K8sFiles() {
       const d = await apiPost<K8sFileReadResp>('/api/k8s/file/read', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: full, max_bytes: 200000,
       });
-      if (!d.ok) { addToast('读取失败：' + (d.error || ''), 'error'); return; }
-      if (d.is_binary) { addToast('这是二进制文件，不支持在线编辑。', 'info'); return; }
+      if (!d.ok) { addToast(t('k8s.files.readFail') + (d.error || ''), 'error'); return; }
+      if (d.is_binary) { addToast(t('k8s.files.binaryFile'), 'info'); return; }
       setEditPath(full);
       setEditContent(d.content || '');
       setEditTruncated(!!d.truncated);
       setEditMsg('');
     } catch (ex: any) {
-      addToast('读取失败：' + ex.message, 'error');
+      addToast(t('k8s.files.readFail') + ex.message, 'error');
     }
-  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles]);
+  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles, t]);
 
   const saveFile = useCallback(async () => {
     if (!editPath) return;
-    setEditMsg('保存中…');
+    setEditMsg(t('k8s.files.saveMsgSaving'));
     try {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/write', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: editPath, content: editContent,
       });
-      if (!d.ok) { setEditMsg('失败：' + (d.error || '')); return; }
-      setEditMsg('✅ 已保存');
+      if (!d.ok) { setEditMsg(t('k8s.files.saveFail') + (d.error || '')); return; }
+      setEditMsg(t('k8s.files.saveDone'));
       listFiles(path);
     } catch (ex: any) {
-      setEditMsg('失败：' + ex.message);
+      setEditMsg(t('k8s.files.saveFail') + ex.message);
     }
-  }, [editPath, editContent, target.env, target.pod, target.container, target.namespace, listFiles, path]);
+  }, [editPath, editContent, target.env, target.pod, target.container, target.namespace, listFiles, path, t]);
 
   const fileDownload = useCallback(() => {
     const blob = new Blob([editContent], { type: 'text/plain;charset=utf-8' });
@@ -108,17 +110,17 @@ export function K8sFiles() {
   }, [editContent, editPath]);
 
   const mkdir = useCallback(async () => {
-    const name = window.prompt('新建文件夹名称：');
+    const name = window.prompt(t('k8s.files.newFolderPrompt'));
     if (!name) return;
     const full = k8sPathJoin(path, name.trim());
     try {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/mkdir', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: full,
       });
-      if (!d.ok) { addToast('新建失败：' + (d.error || ''), 'error'); return; }
+      if (!d.ok) { addToast(t('k8s.files.mkdirFail') + (d.error || ''), 'error'); return; }
       listFiles(path);
-    } catch (ex: any) { addToast('新建失败：' + ex.message, 'error'); }
-  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles]);
+    } catch (ex: any) { addToast(t('k8s.files.mkdirFail') + ex.message, 'error'); }
+  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles, t]);
 
   const upload = useCallback(async (file: File) => {
     const data = await fileToBase64(file);
@@ -126,40 +128,40 @@ export function K8sFiles() {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/upload', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: path, data,
       });
-      if (!d.ok) { addToast('上传失败：' + (d.error || ''), 'error'); return; }
+      if (!d.ok) { addToast(t('k8s.files.uploadFail') + (d.error || ''), 'error'); return; }
       listFiles(path);
-    } catch (ex: any) { addToast('上传失败：' + ex.message, 'error'); }
-  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles]);
+    } catch (ex: any) { addToast(t('k8s.files.uploadFail') + ex.message, 'error'); }
+  }, [path, target.env, target.pod, target.container, target.namespace, addToast, listFiles, t]);
 
   const del = useCallback(async () => {
-    if (!selected) { addToast('请先单击选中要删除的文件 / 目录', 'warn'); return; }
-    if (!window.confirm(`确认删除 ${selected.isDir ? '目录' : '文件'}「${selected.name}」？此操作不可恢复。`)) return;
+    if (!selected) { addToast(t('k8s.files.selectToDelete'), 'warn'); return; }
+    if (!window.confirm(t('k8s.files.confirmDelete', { type: selected.isDir ? t('k8s.files.dir') : t('k8s.files.file'), name: selected.name }))) return;
     const full = k8sPathJoin(path, selected.name);
     try {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/delete', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: full, is_dir: selected.isDir,
       });
-      if (!d.ok) { addToast('删除失败：' + (d.error || ''), 'error'); return; }
+      if (!d.ok) { addToast(t('k8s.files.deleteFail') + (d.error || ''), 'error'); return; }
       setSelected(null);
       listFiles(path);
-    } catch (ex: any) { addToast('删除失败：' + ex.message, 'error'); }
-  }, [selected, path, target.env, target.pod, target.container, target.namespace, addToast, listFiles]);
+    } catch (ex: any) { addToast(t('k8s.files.deleteFail') + ex.message, 'error'); }
+  }, [selected, path, target.env, target.pod, target.container, target.namespace, addToast, listFiles, t]);
 
   const doSearch = useCallback(async () => {
     const q = searchQ.trim();
-    if (!q) { setSearchStatus('请输入搜索关键词'); return; }
-    if (!target.pod) { setSearchStatus('请先选择 Pod'); return; }
-    setSearchStatus('搜索中…');
+    if (!q) { setSearchStatus(t('k8s.files.searchStatusNoKw')); return; }
+    if (!target.pod) { setSearchStatus(t('k8s.files.searchStatusNoPod')); return; }
+    setSearchStatus(t('k8s.files.searchStatusSearching'));
     setSearchResults([]);
     try {
       const d = await apiPost<K8sFileSearchResp>('/api/k8s/file/search', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, q, path,
       });
-      if (!d.ok) { setSearchStatus('搜索失败：' + (d.error || '')); return; }
+      if (!d.ok) { setSearchStatus(t('k8s.files.searchFail') + (d.error || '')); return; }
       setSearchResults(d.results || []);
-      setSearchStatus(`共 ${d.total ?? 0} 处匹配`);
-    } catch (ex: any) { setSearchStatus('搜索失败：' + ex.message); }
-  }, [searchQ, target.env, target.pod, target.container, target.namespace, path]);
+      setSearchStatus(t('k8s.files.searchStatusMatches', { n: d.total ?? 0 }));
+    } catch (ex: any) { setSearchStatus(t('k8s.files.searchFail') + ex.message); }
+  }, [searchQ, target.env, target.pod, target.container, target.namespace, path, t]);
 
   const toggleSort = (key: SortKey) => {
     setSort((s) => ({
@@ -171,19 +173,19 @@ export function K8sFiles() {
   return (
     <div className="k8s-files">
       <div className="panel-header">
-        <h2 className="section-title">文件浏览器</h2>
-        <span className="panel-sub">浏览 / 编辑 / 上传 / 删除 Pod 内文件（类似 Xftp）</span>
+        <h2 className="section-title">{t('k8s.files.browser')}</h2>
+        <span className="panel-sub">{t('k8s.files.browserHint')}</span>
       </div>
 
       <div className="k8s-files-toolbar card-soft">
-        {/* 连接 + 搜索行 */}
+        {/* 接続 + 検索行 */}
         <div className="k8s-files-connrow">
           <select
             className="sel k8s-files-podsel"
             value={target.pod}
             onChange={(e) => setTarget({ pod: e.target.value })}
           >
-            <option value="">— 选择 Pod —</option>
+            <option value="">{t('k8s.shell.selectPod')}</option>
             {podList.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name} · {p.phase || ''}
@@ -194,26 +196,26 @@ export function K8sFiles() {
             className="input input-sm k8s-files-ns"
             value={target.namespace}
             onChange={(e) => setTarget({ namespace: e.target.value })}
-            placeholder="命名空间"
+            placeholder={t('k8s.files.path')}
           />
           <div className="spacer" />
           <input
             className="input input-sm k8s-files-search-input"
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
-            placeholder="🔍 在容器内搜索文件内容（grep，当前目录起）"
+            placeholder={t('k8s.files.searchPlaceholder')}
             onKeyDown={(e) => e.key === 'Enter' && doSearch()}
           />
           <button className="btn btn-sm btn-primary" onClick={doSearch}>
-            搜索
+            {t('k8s.files.search')}
           </button>
           {searchStatus && <span className="k8s-files-search-status">{searchStatus}</span>}
         </div>
 
-        {/* 路径 + 操作行 */}
+        {/* パス + 操作行 */}
         <div className="k8s-files-navrow">
           <div className="k8s-files-breadcrumb">
-            <span className="k8s-files-bc-label">路径</span>
+            <span className="k8s-files-bc-label">{t('k8s.files.path')}</span>
             <div className="k8s-files-path">
               <span className="k8s-files-crumb" onClick={() => listFiles('/')}>
                 📁 /
@@ -232,20 +234,20 @@ export function K8sFiles() {
             </div>
           </div>
           <div className="k8s-files-actions">
-            <button className="btn btn-sm" onClick={() => listFiles(k8sPathParent(path))} title="返回上一级目录">
-              ↑ 上级
+            <button className="btn btn-sm" onClick={() => listFiles(k8sPathParent(path))} title={t('k8s.files.up')}>
+              ↑ {t('k8s.files.up')}
             </button>
             <button className="btn btn-sm" onClick={() => listFiles(path)}>
-              刷新
+              {t('k8s.files.refresh')}
             </button>
             <button className="btn btn-sm" onClick={mkdir}>
-              新建文件夹
+              {t('k8s.files.mkdirShort')}
             </button>
             <button className="btn btn-sm" onClick={() => fileInputRef.current?.click()}>
-              上传
+              {t('k8s.files.uploadShort')}
             </button>
             <button className="btn btn-sm btn-ghost" onClick={del}>
-              删除
+              {t('k8s.files.deleteShort')}
             </button>
           </div>
         </div>
@@ -281,25 +283,25 @@ export function K8sFiles() {
             <thead>
               <tr>
                 <th className={'k8s-sortable' + (sort.key === 'name' ? ' active' : '')} onClick={() => toggleSort('name')}>
-                  名称{' '}
+                  {t('k8s.files.colName')}{' '}
                   <span className="k8s-sort-ind">
                     {sort.key === 'name' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
                   </span>
                 </th>
                 <th className={'k8s-sortable' + (sort.key === 'type' ? ' active' : '')} onClick={() => toggleSort('type')}>
-                  类型{' '}
+                  {t('k8s.files.colType')}{' '}
                   <span className="k8s-sort-ind">
                     {sort.key === 'type' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
                   </span>
                 </th>
                 <th className={'k8s-sortable' + (sort.key === 'size' ? ' active' : '')} onClick={() => toggleSort('size')}>
-                  大小{' '}
+                  {t('k8s.files.colSize')}{' '}
                   <span className="k8s-sort-ind">
                     {sort.key === 'size' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
                   </span>
                 </th>
                 <th className={'k8s-sortable' + (sort.key === 'mtime' ? ' active' : '')} onClick={() => toggleSort('mtime')}>
-                  修改时间{' '}
+                  {t('k8s.files.colMtime')}{' '}
                   <span className="k8s-sort-ind">
                     {sort.key === 'mtime' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
                   </span>
@@ -310,13 +312,13 @@ export function K8sFiles() {
               {!target.pod ? (
                 <tr>
                   <td colSpan={4} className="empty-hint">
-                    请先在上方选择 Pod / 容器
+                    {t('k8s.files.noPod')}
                   </td>
                 </tr>
               ) : sorted.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="empty-hint">
-                    空目录
+                    {t('k8s.files.emptyDir')}
                   </td>
                 </tr>
               ) : (
@@ -333,7 +335,7 @@ export function K8sFiles() {
                         <span className="k8s-files-icon">{isDir ? '📁' : '📄'}</span>
                         {e.name}
                       </td>
-                      <td className="k8s-files-type">{isDir ? '目录' : '文件'}</td>
+                      <td className="k8s-files-type">{isDir ? t('k8s.files.dir') : t('k8s.files.file')}</td>
                       <td className="k8s-files-size">{isDir ? '—' : fmtSize(e.size)}</td>
                       <td className="k8s-files-time">
                         {(e.modtime || '').replace('T', ' ').replace('Z', '').slice(0, 19)}
@@ -362,7 +364,7 @@ export function K8sFiles() {
         <div className="modal-mask" onClick={() => setEditPath('')}>
           <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>编辑 · {editPath.split('/').pop()}{editTruncated ? '（已截断）' : ''}</h3>
+              <h3>{t('k8s.files.editTitle')}{editPath.split('/').pop()}{editTruncated ? t('k8s.files.truncated') : ''}</h3>
               <button className="btn btn-sm btn-ghost" onClick={() => setEditPath('')}>✕</button>
             </div>
             <div className="modal-body">
@@ -371,8 +373,8 @@ export function K8sFiles() {
             <div className="modal-footer">
               <span className="k8s-env-msg">{editMsg}</span>
               <div className="spacer" />
-              <button className="btn btn-sm" onClick={saveFile}>保存</button>
-              <button className="btn btn-sm btn-ghost" onClick={fileDownload}>下载</button>
+              <button className="btn btn-sm" onClick={saveFile}>{t('k8s.files.save')}</button>
+              <button className="btn btn-sm btn-ghost" onClick={fileDownload}>{t('k8s.files.downloadFile')}</button>
             </div>
           </div>
         </div>
