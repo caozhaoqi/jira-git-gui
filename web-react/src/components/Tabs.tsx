@@ -1,36 +1,38 @@
 import { useAppStore } from '../store/useAppStore';
 import type { TabKey } from '../store/useAppStore';
+import { useT } from '../i18n';
 
-const TABS: { key: TabKey; icon: string; label: string }[] = [
-  { key: 'repo', icon: '📦', label: '仓库' },
-  // { key: 'commits', icon: '📜', label: '提交记录' },
-  { key: 'diff', icon: '🔀', label: '差异对比' },
-  { key: 'logs', icon: '📋', label: '日志' },
-  { key: 'k8s', icon: '☸', label: 'K8s 快照' },
-  { key: 'cf', icon: '🔬', label: '云函数日志' },
-  { key: 'clash', icon: '🛰', label: 'Clash 分流' },
+const TABS: { key: TabKey; icon: string; labelKey: string }[] = [
+  { key: 'repo', icon: '📦', labelKey: 'tab.repo' },
+  // { key: 'commits', icon: '📜', labelKey: 'tab.commits' },
+  { key: 'diff', icon: '🔀', labelKey: 'tab.diff' },
+  { key: 'logs', icon: '📋', labelKey: 'tab.logs' },
+  { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
+  { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
+  { key: 'clash', icon: '🛰', labelKey: 'tab.clash' },
 ];
 
 export function Tabs() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
+  const { t } = useT();
   return (
     <aside className="sidebar">
       <nav className="tabs" aria-label="主导航">
-        {TABS.map((t) => (
+        {TABS.map((tab) => (
           <button
-            key={t.key}
-            className={`tab ${activeTab === t.key ? 'active' : ''}`}
-            data-tab={t.key}
-            onClick={() => setTab(t.key)}
+            key={tab.key}
+            className={`tab ${activeTab === tab.key ? 'active' : ''}`}
+            data-tab={tab.key}
+            onClick={() => setTab(tab.key)}
           >
-            <span className="tab-ico">{t.icon}</span>
-            <span className="tab-txt">{t.label}</span>
+            <span className="tab-ico">{tab.icon}</span>
+            <span className="tab-txt">{t(tab.labelKey)}</span>
           </button>
         ))}
       </nav>
       <div className="sidebar-foot">
-        <div className="sidebar-tip">提示：先「连接设置」→ 选仓库 → 看文件 / 比差异</div>
+        <div className="sidebar-tip">{t('app.connectHint')}</div>
       </div>
     </aside>
   );

@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
+import { useT } from '../i18n';
 
 export function LogPanel() {
   const logs = useAppStore((s) => s.logs);
   const clearLogs = useAppStore((s) => s.clearLogs);
+  const { t } = useT();
   const ref = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -13,15 +15,15 @@ export function LogPanel() {
   return (
     <section className="logs-pane">
       <div className="panel-header">
-        <h2 className="section-title">日志</h2>
+        <h2 className="section-title">{t('log.title')}</h2>
         <button className="btn btn-sm btn-ghost" onClick={clearLogs}>
-          清空
+          {t('log.clear')}
         </button>
       </div>
       <pre className="log-block" ref={ref}>
         {logs.length === 0 ? (
           <span className="empty-hint" style={{ display: 'block', padding: 12 }}>
-            尚无日志。克隆 / 下载 / 扫描过程会在此输出。
+            {t('log.empty')}
           </span>
         ) : (
           logs.map((l, i) => (

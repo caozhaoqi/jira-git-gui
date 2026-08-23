@@ -3,6 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type { Repo, ReposResp, StatusResp } from '../api/types';
 import { normalizeStatus } from '../api/types';
+import { useT } from '../i18n';
 
 export function RepoList() {
   const repos = useAppStore((s) => s.repos);
@@ -13,6 +14,7 @@ export function RepoList() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const updateStatus = useAppStore((s) => s.setStatus);
+  const { t } = useT();
   const [keyword, setKeyword] = useState('');
   const [busy, setBusy] = useState(false);
   const [manualId, setManualId] = useState('');
@@ -21,21 +23,21 @@ export function RepoList() {
 
   async function discover(force: boolean) {
     setBusy(true);
-    pushLog('【发现仓库】开始…');
+    pushLog(t('repo.selectRepo'));
     try {
       const res = await apiGet<ReposResp>(
         force ? '/api/repos?refresh=1' : '/api/repos'
       );
       if (res.error) {
-        pushLog(`发现仓库错误：${res.error}`, 'warning');
+        pushLog(`${t('repo.title')}：${res.error}`, 'warning');
         if (/cookie|登录|login|未配置/i.test(res.error)) {
-          pushLog('Cookie 可能已过期，请重新打开「连接设置」获取新 Cookie。', 'error');
+          pushLog(t('repo.noPreview'), 'error');
         }
       }
       setRepos(res.repos || []);
-      pushLog(`【发现仓库】返回 ${(res.repos || []).length} 个${force ? '（强制刷新）' : ''}`);
+      pushLog(`${t('repo.title')}：${(res.repos || []).length} 个${force ? '（强制刷新）' : ''}`);
     } catch (e: any) {
-      pushLog(`发现仓库异常：${e.message}`, 'error');
+      pushLog(`${t('repo.title')}：${e.message}`, 'error');
       addToast(e.message, 'error');
     } finally {
       setBusy(false);
@@ -56,7 +58,7 @@ export function RepoList() {
         .then((s) => updateStatus(normalizeStatus(s)))
         .catch(() => {});
       pushLog(
-        `已选择仓库 id=${r.repo_id} name=${r.display_name} branch=${branch || '(默认)'}`
+        `id=${r.repo_id} name=${r.display_name} branch=${branch || '(默认)'}`
       );
     } catch (e: any) {
       addToast(e.message, 'error');
@@ -65,7 +67,7 @@ export function RepoList() {
 
   async function loadManual() {
     if (!manualId.trim()) {
-      addToast('请填写仓库 ID', 'warn');
+      addToast(t('repo.noFileSelected'), 'warn');
       return;
     }
     const r: Repo = {
@@ -89,27 +91,27 @@ export function RepoList() {
   return (
     <div className="repo-list-pane">
       <div className="panel-header">
-        <h2 className="section-title">仓库列表</h2>
+        <h2 className="section-title">{t('repo.title')}</h2>
       </div>
-      <p className="hint">需 Cookie 模式；读取 AllRepositories 页面</p>
+      <p className="hint">{t('app.connectHint')}</p>
       <div className="repo-toolbar">
         <input
           className="input repo-search-input"
-          placeholder="🔍 搜索仓库名 / ID / 分支…"
+          placeholder={`🔍 ${t('repo.selectRepo')}…`}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
         />
         <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
-          {busy ? '发现中…' : '发现仓库'}
+          {busy ? t('common.loading') : t('repo.title')}
         </button>
         <button className="btn" onClick={() => selectedRepo && openRepo(selectedRepo)} disabled={!selectedRepo}>
-          查看文件
+          {t('repo.fileTree')}
         </button>
       </div>
       <div className="repo-list">
         {!matched.length && (
           <div className="empty-hint">
-            {repos.length ? `无匹配项（关键字：${kw}）` : '点击「发现仓库」加载列表'}
+            {repos.length ? `(${kw})` : t('repo.selectRepo')}
           </div>
         )}
         {matched.map((r) => (
@@ -127,23 +129,23 @@ export function RepoList() {
         ))}
       </div>
       <details className="manual-group">
-        <summary>手动指定仓库</summary>
+        <summary>{t('repo.checkout')}</summary>
         <div className="form-rows">
           <label>
-            仓库 ID
+            {t('connect.repoId')}
             <input className="input" value={manualId} onChange={(e) => setManualId(e.target.value)} />
           </label>
           <label>
-            仓库名
+            {t('connect.repoName')}
             <input
               className="input"
-              placeholder="PAT 克隆需要"
+              placeholder={t('repo.clone')}
               value={manualName}
               onChange={(e) => setManualName(e.target.value)}
             />
           </label>
           <label>
-            分支
+            {t('connect.branch')}
             <input
               className="input"
               placeholder="(默认)"
@@ -152,7 +154,7 @@ export function RepoList() {
             />
           </label>
           <button className="btn btn-primary btn-block" onClick={loadManual}>
-            加载文件树
+            {t('repo.fileTree')}
           </button>
         </div>
       </details>

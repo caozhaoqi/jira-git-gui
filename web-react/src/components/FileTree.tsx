@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet } from '../api/client';
 import type { TreeEntry, TreeResp, SearchResp, SearchHit } from '../api/types';
+import { useT } from '../i18n';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
 type SortDir = 'asc' | 'desc';
@@ -32,6 +33,7 @@ export function FileTree() {
   const toggleCheckedPath = useAppStore((s) => s.toggleCheckedPath);
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const { t } = useT();
 
   const [rootEntries, setRootEntries] = useState<TreeEntry[]>([]);
   const [dirCache, setDirCache] = useState<Record<string, TreeEntry[]>>({});
@@ -53,15 +55,15 @@ export function FileTree() {
       const res = await apiGet<TreeResp>('/api/tree?path=');
       if (res.error) {
         setRootEntries([]);
-        pushLog(`加载文件树失败：${res.error}`, 'error');
+        pushLog(`${t('repo.fileTree')}：${res.error}`, 'error');
         addToast(res.error, 'error');
       } else {
         setRootEntries(res.entries || []);
-        pushLog(`文件树已加载，共 ${(res.entries || []).length} 项。`);
+        pushLog(`${t('repo.fileTree')}：${(res.entries || []).length}`);
       }
     } catch (e: any) {
       setRootEntries([]);
-      pushLog(`加载文件树失败：${e.message}`, 'error');
+      pushLog(`${t('repo.fileTree')}：${e.message}`, 'error');
       addToast(e.message, 'error');
     } finally {
       setLoading(false);
@@ -82,7 +84,6 @@ export function FileTree() {
   async function toggleDir(entry: TreeEntry) {
     const isOpen = expanded.has(entry.path);
     if (!isOpen) {
-      // 懒加载子目录
       if (!dirCache[entry.path]) {
         try {
           const res = await apiGet<TreeResp>(
@@ -108,7 +109,6 @@ export function FileTree() {
     setSelectedFile(entry.path);
   }
 
-  // ===== 搜索 =====
   function runSearch() {
     const q = searchQ.trim();
     if (!q) {
@@ -122,11 +122,11 @@ export function FileTree() {
       const hits = all
         .filter((e) => re.test(e.name))
         .map((e) => ({ path: e.path, name: e.name }));
-      setSearchResults(hits as SearchHit[]);
-      setSearchStatus(`已加载目录中匹配 ${hits.length} 项`);
+          setSearchResults(hits as SearchHit[]);
+          setSearchStatus(t('file.searchStatus', { n: hits.length }));
     } else {
       setSearching(true);
-      setSearchStatus('搜索中…');
+      setSearchStatus(t('common.loading'));
       apiGet<SearchResp>(
         `/api/search?q=${encodeURIComponent(q)}&scope=content&limit=200`
       )
@@ -137,9 +137,7 @@ export function FileTree() {
             return;
           }
           setSearchResults(res.results || []);
-          setSearchStatus(
-            `共 ${res.total} 处匹配${res.truncated ? '（已截断）' : ''}`
-          );
+          setSearchStatus(t('file.searchMatches', { n: res.total ?? 0 }));
         })
         .catch((e) => {
           setSearchResults(null);
@@ -207,15 +205,15 @@ export function FileTree() {
   return (
     <div className="file-tree-pane">
       <div className="panel-header">
-        <h2 className="section-title">文件浏览器</h2>
-        <span className="panel-sub">勾选文件后可「下载选中」</span>
+        <h2 className="section-title">{t('file.browser')}</h2>
+        <span className="panel-sub">{t('file.checkedHint')}</span>
       </div>
       <div className="tree-toolbar">
         <div className="tree-toolbar-row">
           <div className="tree-search-wrap">
             <input
               className="input tree-search-input"
-              placeholder="🔍 搜索文件（名称 / 内容）"
+              placeholder={`🔍 ${t('file.browser')}`}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
             />
@@ -224,34 +222,34 @@ export function FileTree() {
                 className={`tree-scope-btn ${searchScope === 'filename' ? 'active' : ''}`}
                 onClick={() => setSearchScope('filename')}
               >
-                文件名
+                {t('file.searchName')}
               </button>
               <button
                 className={`tree-scope-btn ${searchScope === 'content' ? 'active' : ''}`}
                 onClick={() => setSearchScope('content')}
               >
-                内容
+                {t('file.searchContent')}
               </button>
             </div>
           </div>
           <div className="tree-sort-wrap">
             <label className="field-inline">
-              排序
+              {t('file.sortLabel')}
               <select
                 className="sel tree-sort-key"
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as SortKey)}
               >
-                <option value="name">按名称</option>
-                <option value="mtime">按修改时间</option>
-                <option value="type">按类型</option>
-                <option value="size">按大小</option>
+                <option value="name">{t('file.sortName')}</option>
+                <option value="mtime">{t('file.sortMtime')}</option>
+                <option value="type">{t('file.sortType')}</option>
+                <option value="size">{t('file.sortSize')}</option>
               </select>
             </label>
             <button
               className="btn btn-sm btn-ghost"
               onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              title={sortDir === 'asc' ? '当前升序，点击降序' : '当前降序，点击升序'}
+              title={sortDir === 'asc' ? '↑' : '↓'}
             >
               {sortDir === 'asc' ? '↑' : '↓'}
             </button>
@@ -262,10 +260,10 @@ export function FileTree() {
       {searchResults && (
         <div className="tree-search-results">
           <div className="tree-search-status">{searchStatus}</div>
-          {searching && <div className="tree-search-loading">搜索中…</div>}
+          {searching && <div className="tree-search-loading">{t('common.loading')}</div>}
           {!searching &&
             (searchResults.length === 0 ? (
-              <div className="tree-search-empty">没有匹配结果</div>
+              <div className="tree-search-empty">{t('cf.noData')}</div>
             ) : (
               searchResults.slice(0, 100).map((h, i) => (
                 <div
@@ -285,11 +283,11 @@ export function FileTree() {
 
       <div className="tree-container">
         {!selectedRepo && (
-          <div className="empty-hint">请先在左侧选择仓库</div>
+          <div className="empty-hint">{t('file.noRepo')}</div>
         )}
-        {selectedRepo && loading && <div className="tree-loading">加载中…</div>}
+        {selectedRepo && loading && <div className="tree-loading">{t('common.loading')}</div>}
         {selectedRepo && !loading && sortedRoot.length === 0 && (
-          <div className="empty-hint">该仓库无可浏览文件</div>
+          <div className="empty-hint">{t('file.empty')}</div>
         )}
         {sortedRoot.map(renderNode)}
       </div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
+import { useT } from '../i18n';
 
 interface NetIface {
   device: string;
@@ -75,6 +76,7 @@ async function copyText(t: string): Promise<boolean> {
 }
 
 export function ClashPanel() {
+  const { t } = useT();
   const [ifaces, setIfaces] = useState<NetIface[]>([]);
   const [defaultGw, setDefaultGw] = useState('');
   const [loadErr, setLoadErr] = useState('');
@@ -106,23 +108,21 @@ export function ClashPanel() {
     try {
       const r = await apiGet<IfacesResp>('/api/clash/interfaces');
       if (!r.ok) {
-        setLoadErr(r.error || '检测失败');
+        setLoadErr(r.error || t('clash.detectFail'));
         return;
       }
       const list = r.interfaces || [];
       setIfaces(list);
       setDefaultGw(r.default_gateway || '');
       setServices(r.services || []);
-      // 局域网口：只选「有 IP 且 active」的有线接口（USB 网卡插上才有 IP）；
-      // 没有有 IP 的有线口则留空，让用户插线刷新后选择（避免默认选到无 IP 接口）
       const lan = list.find((x) => x.kind === 'lan' && x.status === 'active' && !!x.ip);
       if (lan) setLanDevice((v) => v || lan.device);
       const gw = r.default_gateway;
       if (gw) setWanDevice((v) => v || gw);
     } catch (e: any) {
-      setLoadErr(e.message || '接口检测失败');
+      setLoadErr(e.message || t('clash.ifaceFail'));
     }
-  }, []);
+  }, [t]);
 
   const loadProxy = useCallback(async () => {
     try {
@@ -139,7 +139,6 @@ export function ClashPanel() {
       const list = r.paths || [];
       setCfgCands(list);
       setCfgCurrent(r.current_config || '');
-      // 默认选 ClashX 当前加载的配置（selectConfigName），否则第一个非 base 订阅
       const cur = list.find((x) => x.path.endsWith(r.current_config || '__none__'));
       const pick = cur || list.find((x) => !x.base) || list[0];
       if (pick && !cfgPath) setCfgPath(pick.path);
@@ -175,7 +174,7 @@ export function ClashPanel() {
         const r = await apiGet<CheckResp>(`/api/clash/check?ip=${encodeURIComponent(ip)}`);
         next[ip] = r;
       } catch (e: any) {
-        next[ip] = { ok: false, ip, error: e.message || '检查失败' };
+        next[ip] = { ok: false, ip, error: e.message || t('clash.checkFail') };
       }
       setChecks({ ...next });
     }
@@ -191,20 +190,20 @@ export function ClashPanel() {
         wan_device: wanDevice,
       });
       if (!r.ok) {
-        setGenErr(r.error || '生成失败');
+        setGenErr(r.error || t('clash.genFail'));
         setGen(null);
         return;
       }
       setGen(r);
     } catch (e: any) {
-      setGenErr(e.message || '生成失败');
+      setGenErr(e.message || t('clash.genFail'));
     }
   };
 
   const copy = async (key: 'clash_rules' | 'route_add' | 'route_del') => {
-    const t = gen?.[key];
-    if (!t) return;
-    const okc = await copyText(t);
+    const tx = gen?.[key];
+    if (!tx) return;
+    const okc = await copyText(tx);
     setCopied(okc ? key : '');
     setTimeout(() => setCopied(''), 1500);
   };
@@ -220,7 +219,7 @@ export function ClashPanel() {
       });
       setApplyLog(r);
     } catch (e: any) {
-      setApplyLog({ ok: false, error: e.message || '应用失败' });
+      setApplyLog({ ok: false, error: e.message || t('clash.applyFail') });
     } finally {
       setApplying(false);
     }
@@ -237,7 +236,7 @@ export function ClashPanel() {
       });
       setApplyLog(r);
     } catch (e: any) {
-      setApplyLog({ ok: false, error: e.message || '撤销失败' });
+      setApplyLog({ ok: false, error: e.message || t('clash.revertFail') });
     } finally {
       setApplying(false);
     }
@@ -255,7 +254,7 @@ export function ClashPanel() {
       );
       setDiag(r.items || []);
     } catch (e: any) {
-      setDiag([{ key: 'err', label: '诊断失败', ok: false, detail: e.message || '未知错误' }]);
+      setDiag([{ key: 'err', label: t('clash.diagFail'), ok: false, detail: e.message || t('clash.unknownErr') }]);
     } finally {
       setDiaging(false);
     }
@@ -270,14 +269,14 @@ export function ClashPanel() {
         { ips }
       );
       if (!r.ok) {
-        setPatchLog(`✗ ${r.error || '写入失败'}`);
+        setPatchLog(`✗ ${r.error || t('clash.writeFail')}`);
       } else {
         setPatchLog(
-          `✓ 已写入全部 ${r.total} 个配置：更新 ${r.updated}，已存在 ${r.skipped}${r.failed?.length ? `，失败 ${r.failed.join('、')}` : ''}`
+          `✓ ${t('clash.patchedAll', { total: r.total ?? 0, updated: r.updated ?? 0, skipped: r.skipped ?? 0 })}${r.failed?.length ? `，${t('clash.patchedFail', { list: (r.failed || []).join('、') })}` : ''}`
         );
       }
     } catch (e: any) {
-      setPatchLog(`✗ ${e.message || '写入失败'}`);
+      setPatchLog(`✗ ${e.message || t('clash.writeFail')}`);
     } finally {
       setPatchingAll(false);
     }
@@ -294,10 +293,10 @@ export function ClashPanel() {
       setFixMsg(
         r.error
           ? `✗ ${r.error}`
-          : `✓ 已将「${r.wan_service}」提到服务顺序第一。${r.route || ''}`
+          : `✓ ${t('clash.fixDone', { svc: r.wan_service || '', route: r.route || '' })}`
       );
     } catch (e: any) {
-      setFixMsg(`✗ ${e.message || '修复失败'}`);
+      setFixMsg(`✗ ${e.message || t('clash.fixFail')}`);
     } finally {
       setFixing(false);
       loadIfaces();
@@ -317,13 +316,13 @@ export function ClashPanel() {
       {/* ===== 网络接口 ===== */}
       <div className="card-soft clash-card">
         <div className="panel-header">
-          <h2 className="section-title">网络接口</h2>
+          <h2 className="section-title">{t('clash.ifaceTitle')}</h2>
           <button className="btn btn-sm btn-ghost" onClick={() => { loadIfaces(); loadProxy(); }}>
-            🔄 重新检测
+            🔄 {t('clash.redetect')}
           </button>
         </div>
         {loadErr && <div className="clash-err">{loadErr}</div>}
-        {ifaces.length === 0 && !loadErr && <div className="empty-hint">正在检测网络接口…</div>}
+        {ifaces.length === 0 && !loadErr && <div className="empty-hint">{t('clash.detecting')}</div>}
         <div className="clash-iface-list">
           {ifaces.map((it) => {
             const active = it.status === 'active';
@@ -335,31 +334,31 @@ export function ClashPanel() {
                   <span className="clash-iface-kind">{KIND_LABEL[it.kind] || it.kind}</span>
                   <span className="clash-iface-port">{it.port}</span>
                   {it.device === defaultGw && (
-                    <span className="clash-tag">默认出口</span>
+                    <span className="clash-tag">{t('clash.defaultOut')}</span>
                   )}
                 </div>
                 <div className="clash-iface-meta">
-                  <span className="mono">{it.ip || '无 IP'}</span>
-                  <span className="muted">{active ? '已启用' : '未启用'}</span>
+                  <span className="mono">{it.ip || t('clash.noIp')}</span>
+                  <span className="muted">{active ? t('clash.enabled') : t('clash.disabled')}</span>
                 </div>
                 <div className="clash-iface-radio">
-                  <label title="指定 IP 应走的局域网接口（有线直连）">
+                  <label title={t('clash.lanTip')}>
                     <input
                       type="radio"
                       name="lan-device"
                       checked={lanDevice === it.device}
                       onChange={() => setLanDevice(it.device)}
                     />
-                    局域网(直连)口
+                    {t('clash.lanPort')}
                   </label>
-                  <label title="其他流量出口（通常为 WiFi）">
+                  <label title={t('clash.wanTip')}>
                     <input
                       type="radio"
                       name="wan-device"
                       checked={wanDevice === it.device}
                       onChange={() => setWanDevice(it.device)}
                     />
-                    其他流量口
+                    {t('clash.wanPort')}
                   </label>
                 </div>
               </div>
@@ -367,35 +366,34 @@ export function ClashPanel() {
           })}
         </div>
         <div className="clash-hint">
-          💡 选择规则：指定内网 IP →「局域网(直连)口」（如 USB 以太网 en5 / 有线 en0）；
-          其余流量 →「其他流量口」（WiFi）。若 Clash 正在运行，其 7890/7891/7897 端口如下：
+          💡 {t('clash.ruleHint')}
           {proxyPorts?.map((p) => (
             <span key={p.port} className={`clash-proxy-port ${p.open ? 'open' : ''}`}>
-              {p.port}:{p.open ? '在听' : '关闭'}
+              {p.port}:{p.open ? t('clash.listening') : t('clash.closed')}
             </span>
           ))}
         </div>
         {services.length > 0 && (
           <div className="clash-svc">
-            <div className="clash-svc-label">网络服务顺序：</div>
+            <div className="clash-svc-label">{t('clash.svcOrder')}</div>
             <div className="clash-svc-order">
               {services.map((s, i) => (
                 <span
                   key={s.name}
                   className={`clash-svc-item ${s.disabled ? 'off' : ''} ${/ethernet|usb|lan/i.test(s.name) ? 'lan' : 'wifi'}`}
-                  title={`设备 ${s.device || '-'}${s.disabled ? '（已禁用）' : ''}`}
+                  title={`${t('clash.device')} ${s.device || '-'}${s.disabled ? `（${t('clash.disabled')}）` : ''}`}
                 >
                   {i + 1}. {s.name.replace(/ \(.*$/, '')}
-                  {s.disabled ? ' · 停用' : ''}
+                  {s.disabled ? ` · ${t('clash.disabled')}` : ''}
                 </span>
               ))}
             </div>
             {needFix && (
               <div className="clash-svc-warn">
-                ⚠️ 有线网卡排位在 Wi-Fi 前面：插上网线后 macOS 会把默认路由切到有线网卡，
-                <b>外网（微信图片等）会全部走不通</b>（文字消息走代理还能收）。建议一键修复：
+                ⚠️ {t('clash.svcWarn')}
+                <b>{t('clash.outerNetWarn')}</b>{t('clash.outerNetWarnTail')}
                 <button className="btn btn-sm btn-primary" onClick={doFixServiceOrder} disabled={fixing}>
-                  {fixing ? '修复中…' : '🛠 一键修复（Wi-Fi 优先）'}
+                  {fixing ? t('clash.fixing') : t('clash.fixOneClick')}
                 </button>
                 {fixMsg && <div className="clash-svc-fixmsg">{fixMsg}</div>}
               </div>
@@ -407,28 +405,28 @@ export function ClashPanel() {
       {/* ===== 指定 IP 列表 ===== */}
       <div className="card-soft clash-card">
         <div className="panel-header">
-          <h2 className="section-title">指定 IP（走局域网直连）</h2>
+          <h2 className="section-title">{t('clash.ipTitle')}</h2>
           <button className="btn btn-sm btn-primary" onClick={checkAll} disabled={checking || !ips.length}>
-            {checking ? '检查中…' : '🔍 检查连通性'}
+            {checking ? t('clash.checking') : t('clash.checkConn')}
           </button>
         </div>
         <div className="clash-ip-input">
           <input
             className="input"
-            placeholder="如 73.2.3.27 或 1.2.3.4:8080，回车添加"
+            placeholder={t('clash.ipPlaceholder')}
             value={newIp}
             onChange={(e) => setNewIp(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addIp()}
           />
           <button className="btn" onClick={addIp} disabled={!newIp.trim()}>
-            ＋ 添加
+            ＋ {t('clash.add')}
           </button>
-          <button className="btn btn-ghost" onClick={() => setIps(DEFAULT_IPS)} title="恢复默认三个内网 IP">
-            恢复默认
+          <button className="btn btn-ghost" onClick={() => setIps(DEFAULT_IPS)} title={t('clash.restoreDefault')}>
+            {t('clash.restoreDefault')}
           </button>
         </div>
         <div className="clash-ip-tags">
-          {ips.length === 0 && <span className="muted">暂无 IP，请添加。</span>}
+          {ips.length === 0 && <span className="muted">{t('clash.noIpYet')}</span>}
           {ips.map((ip) => {
             const c = checks[ip];
             return (
@@ -436,11 +434,11 @@ export function ClashPanel() {
                 <span className="clash-ip-name">{ip}</span>
                 {c && (
                   <span className={`clash-ip-check ${c.reachable ? 'ok' : 'bad'}`}>
-                    {c.reachable ? `HTTP ${c.http_code}` : '不可达'}
-                    {c.route_iface ? ` · 经 ${c.route_iface}` : ''}
+                    {c.reachable ? `HTTP ${c.http_code}` : t('clash.unreachable')}
+                    {c.route_iface ? ` · ${t('clash.via')} ${c.route_iface}` : ''}
                   </span>
                 )}
-                <button className="clash-ip-del" onClick={() => removeIp(ip)} title="移除">
+                <button className="clash-ip-del" onClick={() => removeIp(ip)} title={t('clash.remove')}>
                   ×
                 </button>
               </div>
@@ -448,46 +446,45 @@ export function ClashPanel() {
           })}
         </div>
         <div className="clash-hint">
-          💡 「检查连通性」会对每个 IP 查询当前系统路由接口并做一次 3 秒 HTTP 探测；
-          添加路由后再次检查，若「经 en5/usb 以太网」且 HTTP 200，即分流成功。
+          💡 {t('clash.checkHint')}
         </div>
       </div>
 
       {/* ===== 一键应用（自动执行） ===== */}
       <div className="card-soft clash-card">
         <div className="panel-header">
-          <h2 className="section-title">一键应用（自动添加）</h2>
+          <h2 className="section-title">{t('clash.applyTitle')}</h2>
           <div className="clash-apply-btns">
             <button
               className="btn btn-primary"
               onClick={doApply}
               disabled={applying || !ips.length || !lanDevice}
-              title="弹系统授权框后自动执行 route add，并把 DIRECT 规则写入 Clash 配置"
+              title={t('clash.applyTip')}
             >
-              {applying ? '执行中…' : '🚀 一键应用'}
+              {applying ? t('clash.running') : t('clash.applyOneClick')}
             </button>
             <button
               className="btn btn-ghost"
               onClick={doRevert}
               disabled={applying || !ips.length}
-              title="删除自动添加的路由与 Clash 规则"
+              title={t('clash.revertTip')}
             >
-              ↩ 一键撤销
+              {t('clash.revert')}
             </button>
           </div>
         </div>
         <div className="clash-cfg-path">
           <label>
-            Clash 配置文件路径（自动写入 rules，可选）
+            {t('clash.cfgPathLabel')}
             <input
               className="input"
-              placeholder="如 ~/.config/clash/config.yaml"
+              placeholder={t('clash.cfgPathPlaceholder')}
               value={cfgPath}
               onChange={(e) => setCfgPath(e.target.value)}
             />
           </label>
-          <button className="btn btn-sm btn-ghost" onClick={probeCfgPath} title="扫描常见 Clash 客户端配置位置">
-            🔍 探测路径
+          <button className="btn btn-sm btn-ghost" onClick={probeCfgPath} title={t('clash.probePath')}>
+            🔍 {t('clash.probe')}
           </button>
         </div>
         {cfgCands.length > 0 && (
@@ -502,32 +499,31 @@ export function ClashPanel() {
                 title={c.note}
               >
                 {c.path.replace(/^.*\/\.config\/clash\//, '')}
-                {c.path.endsWith(cfgCurrent) ? ' · 当前加载' : ''}
-                {c.base ? ' · 模板' : ''}
+                {c.path.endsWith(cfgCurrent) ? ` · ${t('clash.currentLoaded')}` : ''}
+                {c.base ? ` · ${t('clash.template')}` : ''}
               </button>
             ))}
           </div>
         )}
         <div className="clash-cfg-actions">
-          <button className="btn btn-sm" onClick={doPatchAll} disabled={patchingAll || !ips.length} title="把规则写入 ~/.config/clash 下所有配置，无论 ClashX 切换哪个都生效">
-            {patchingAll ? '写入中…' : '📦 写入所有订阅配置'}
+          <button className="btn btn-sm" onClick={doPatchAll} disabled={patchingAll || !ips.length} title={t('clash.patchAllTip')}>
+            {patchingAll ? t('clash.writing') : t('clash.patchAll')}
           </button>
-          <button className="btn btn-sm btn-ghost" onClick={probeCfgPath} title="重新扫描配置">
-            🔍 重新探测
+          <button className="btn btn-sm btn-ghost" onClick={probeCfgPath} title={t('clash.reprobe')}>
+            🔍 {t('clash.reprobe')}
           </button>
           {patchLog && <span className="clash-patch-msg">{patchLog}</span>}
         </div>
         <div className="clash-hint">
-          ⚠️ ClashX 实际加载的是菜单里选中的配置（当前为「{cfgCurrent || '未知'}」），config.yaml 只是基础模板。
-          写入后请在 ClashX 菜单栏图标 → 配置 → 重新选择（或切换走再切回）使其重载，否则经 Clash 访问内网 IP 仍会 502。
+          ⚠️ {t('clash.cfgHint', { current: cfgCurrent || t('clash.unknown') })}
         </div>
         <div className="clash-diag-row">
           <button className="btn btn-sm" onClick={doDiagnose} disabled={diaging}>
-            {diaging ? '诊断中…' : '🩺 全面诊断（流量检测）'}
+            {diaging ? t('clash.diagging') : t('clash.diagnose')}
           </button>
           {diag && (
             <span className="clash-diag-summary">
-              {diag.filter((x) => x.ok === true).length}/{diag.filter((x) => x.ok !== null).length} 项正常
+              {diag.filter((x) => x.ok === true).length}/{diag.filter((x) => x.ok !== null).length} {t('clash.diagOk')}
             </span>
           )}
         </div>
@@ -548,11 +544,11 @@ export function ClashPanel() {
             {applyLog.warning && <div className="clash-svc-warn">{applyLog.warning}</div>}
             {applyLog.route && (
               <div className="clash-apply-part">
-                <b>路由（{okCount}/{applyLog.route.results?.length || 0} 成功）：</b>
+                <b>{t('clash.routePart', { ok: okCount, total: applyLog.route.results?.length || 0 })}</b>
                 <div className="clash-apply-results">
                   {(applyLog.route.results || []).map((r) => (
                     <span key={r.ip} className={`clash-ip-check ${r.ok ? 'ok' : 'bad'}`}>
-                      {r.ip} {r.ok ? '✓ 已添加' : '✗ 失败'}
+                      {r.ip} {r.ok ? t('clash.added') : t('clash.failed')}
                     </span>
                   ))}
                 </div>
@@ -560,56 +556,54 @@ export function ClashPanel() {
             )}
             {applyLog.clash && (
               <div className="clash-apply-part">
-                <b>Clash 配置：</b>
+                <b>{t('clash.clashPart')}</b>
                 <span className={applyLog.clash.error ? 'clash-err' : ''}>
                   {applyLog.clash.error ||
                     (applyLog.clash.skipped
                       ? applyLog.clash.skipped
                       : applyLog.clash.updated
-                      ? `已写入 ${applyLog.clash.added} 条规则${applyLog.clash.backup ? `（备份：${applyLog.clash.backup}）` : ''}`
-                      : '未修改')}
+                      ? t('clash.clashUpdated', { n: applyLog.clash.added ?? 0, backup: applyLog.clash.backup || '' })
+                      : t('clash.clashUnchanged'))}
                 </span>
               </div>
             )}
             {!applyLog.route && !applyLog.clash && !applyLog.error && (
-              <div className="clash-hint">执行完成，无输出。</div>
+              <div className="clash-hint">{t('clash.doneNoOutput')}</div>
             )}
             {applyLog.hint && <div className="clash-hint">{applyLog.hint}</div>}
           </div>
         )}
         <div className="clash-hint">
-          ⚠️ 点击「一键应用」会弹出 macOS 系统授权框（输入开机密码一次），自动执行
-          <code>route add</code>；Clash 规则直接写入配置文件（先自动备份）。若弹窗失败（如无图形会话），
-          请改用上方「生成配置」手动执行。
+          ⚠️ {t('clash.applyHint')}
         </div>
       </div>
 
       {/* ===== 生成配置 ===== */}
       <div className="card-soft clash-card">
         <div className="panel-header">
-          <h2 className="section-title">生成配置</h2>
+          <h2 className="section-title">{t('clash.genTitle')}</h2>
           <button className="btn btn-primary" onClick={doGenerate}>
-            ⚙ 生成 Clash 规则 + 路由命令
+            ⚙ {t('clash.generate')}
           </button>
         </div>
         {genErr && <div className="clash-err">{genErr}</div>}
-        {!gen && <div className="empty-hint">选择接口与 IP 后，点击「生成」。</div>}
+        {!gen && <div className="empty-hint">{t('clash.genHint')}</div>}
         {gen && (
           <div className="clash-gen">
             <div className="clash-gen-block">
               <div className="clash-gen-head">
-                <b>① Clash 规则（粘贴到配置 rules: 顶部）</b>
+                <b>{t('clash.step1')}</b>
                 <button className="btn btn-sm btn-ghost" onClick={() => copy('clash_rules')}>
-                  {copied === 'clash_rules' ? '✓ 已复制' : '📋 复制'}
+                  {copied === 'clash_rules' ? t('common.copied') : `📋 ${t('common.copy')}`}
                 </button>
               </div>
               <pre className="clash-code">{gen.clash_rules}</pre>
             </div>
             <div className="clash-gen-block">
               <div className="clash-gen-head">
-                <b>② macOS 路由命令（终端执行，需 sudo）</b>
+                <b>{t('clash.step2')}</b>
                 <button className="btn btn-sm btn-ghost" onClick={() => copy('route_add')}>
-                  {copied === 'route_add' ? '✓ 已复制' : '📋 复制'}
+                  {copied === 'route_add' ? t('common.copied') : `📋 ${t('common.copy')}`}
                 </button>
               </div>
               <pre className="clash-code">{gen.route_add}</pre>
@@ -617,9 +611,9 @@ export function ClashPanel() {
             {gen.route_del && (
               <div className="clash-gen-block">
                 <div className="clash-gen-head">
-                  <b>③ 撤销命令</b>
+                  <b>{t('clash.step3')}</b>
                   <button className="btn btn-sm btn-ghost" onClick={() => copy('route_del')}>
-                    {copied === 'route_del' ? '✓ 已复制' : '📋 复制'}
+                    {copied === 'route_del' ? t('common.copied') : `📋 ${t('common.copy')}`}
                   </button>
                 </div>
                 <pre className="clash-code">{gen.route_del}</pre>

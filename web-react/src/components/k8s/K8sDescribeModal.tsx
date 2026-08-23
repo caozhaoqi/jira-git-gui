@@ -3,13 +3,13 @@ import { apiGet } from '../../api/client';
 import type { K8sDescribeResp, K8sEvent } from '../../api/types';
 import { copyText } from '../../utils/clipboard';
 import { useK8s } from './context';
+import { useT } from '../../i18n';
 
 /**
- * 资源描述弹窗 —— 迁移自 web/js/05-k8s.js 的
- * openK8sDescribe / runK8sDescribe / renderK8sDescribeEvents。
+ * リソース記述モーダル —— web/js/05-k8s.js の openK8sDescribe / runK8sDescribe / renderK8sDescribeEvents から移行。
  *
- * 与原生一致：打开即自动执行一次 describe；可改 kind/name/namespace 后重新描述；
- * 输出 kubectl describe 原始文本 + 该资源相关事件（Warning 标红）。
+ * 原生と同様：開くと自動で describe を1回実行；kind/name/namespace を変更して再記述可能；
+ * kubectl describe 生テキスト + 関連イベント（Warning は赤）を出力。
  */
 
 const KINDS = ['pod', 'deployment', 'service', 'configmap', 'ingress', 'statefulset', 'node', 'namespace'];
@@ -22,6 +22,7 @@ export interface DescribeSeed {
 
 export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClose: () => void }) {
   const { target } = useK8s();
+  const { t } = useT();
 
   const [kind, setKind] = useState(seed.kind || 'pod');
   const [name, setName] = useState(seed.name || '');
@@ -31,7 +32,7 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
   const [events, setEvents] = useState<K8sEvent[]>([]);
   const [busy, setBusy] = useState(false);
 
-  // 用 ref 读取最新输入值，避免 run 依赖变化导致自动执行重复触发。
+  // ref で最新入力値を読み、run 依存変化で自動実行が重複発火しないよう
   const formRef = useRef({ kind, name, ns });
   formRef.current = { kind, name, ns };
 
@@ -39,33 +40,33 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
     const k = formRef.current.kind.trim();
     const n = formRef.current.name.trim();
     const namespace = formRef.current.ns.trim();
-    if (!k || !n) { setMsg('请填写资源类型与名称'); return; }
+    if (!k || !n) { setMsg(t('k8s.describe.kindNameRequired')); return; }
     setBusy(true);
-    setMsg('描述中…');
+    setMsg(t('k8s.describe.describing'));
     setText('');
     setEvents([]);
     try {
       const q = new URLSearchParams({ env: target.env, kind: k, name: n });
       if (namespace) q.set('namespace', namespace);
       const d = await apiGet<K8sDescribeResp>('/api/k8s/describe?' + q.toString());
-      if (!d.ok) { setMsg('失败：' + (d.error || '未知错误')); return; }
-      setText(d.text || '(无输出)');
+      if (!d.ok) { setMsg(t('k8s.describe.fail') + (d.error || t('k8s.describe.unknown'))); return; }
+      setText(d.text || t('k8s.describe.noOutput'));
       setEvents(d.events || []);
-      setMsg(`✅ 已描述 ${k}/${n}`);
+      setMsg(t('k8s.describe.done', { k, n }));
     } catch (ex: any) {
-      setMsg('失败：' + ex.message);
+      setMsg(t('k8s.describe.fail') + ex.message);
     } finally {
       setBusy(false);
     }
-  }, [target.env]);
+  }, [target.env, t]);
 
-  // 打开即自动描述一次（对应原生 openK8sDescribe 末尾的 runK8sDescribe()）
+  // 開くと自動 describe 1回（原生 openK8sDescribe 末尾の runK8sDescribe() に相当）
   useEffect(() => {
     if (seed.name) run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Esc 关闭
+  // Esc で閉じる
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -73,36 +74,36 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
   }, [onClose]);
 
   const copy = useCallback(async () => {
-    if (!text) { setMsg('无内容可复制'); return; }
+    if (!text) { setMsg(t('k8s.describe.nothingToCopy')); return; }
     const ok = await copyText(text);
-    setMsg(ok ? '已复制' : '复制失败');
-  }, [text]);
+    setMsg(ok ? t('k8s.describe.copied') : t('k8s.describe.copyFail'));
+  }, [text, t]);
 
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>资源描述</h3>
+          <h3>{t('k8s.describe.title')}</h3>
           <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
         </div>
 
         <div className="modal-body">
           <div className="k8s-form-grid">
-            <label className="field-col">资源类型
+            <label className="field-col">{t('k8s.describe.kind')}
               <select className="sel" value={kind} onChange={(e) => setKind(e.target.value)}>
                 {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
             </label>
-            <label className="field-col">资源名称
+            <label className="field-col">{t('k8s.describe.name')}
               <input
                 className="input"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') run(); }}
-                placeholder="如 core-6bc569958d-2ggkx"
+                placeholder={t('k8s.describe.namePh')}
               />
             </label>
-            <label className="field-col">命名空间(留空用环境默认)
+            <label className="field-col">{t('k8s.describe.ns')}
               <input
                 className="input"
                 value={ns}
@@ -114,17 +115,17 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
           </div>
 
           <div className="k8s-actions">
-            <button className="btn btn-sm" onClick={run} disabled={busy}>{busy ? '描述中…' : '描述'}</button>
-            <button className="btn btn-sm btn-ghost" onClick={copy}>复制</button>
+            <button className="btn btn-sm" onClick={run} disabled={busy}>{busy ? t('k8s.describe.describing') : t('k8s.describe.run')}</button>
+            <button className="btn btn-sm btn-ghost" onClick={copy}>{t('k8s.describe.copy')}</button>
             <span className="panel-sub">{msg}</span>
           </div>
 
           <pre className="k8s-describe-text">{text}</pre>
 
-          <div className="k8s-describe-head">相关事件</div>
+          <div className="k8s-describe-head">{t('k8s.describe.relatedEvents')}</div>
           <div className="k8s-describe-events">
             {events.length === 0 ? (
-              <div className="empty-hint">该资源无相关事件</div>
+              <div className="empty-hint">{t('k8s.describe.noEvents')}</div>
             ) : (
               events.slice(0, 30).map((e, i) => {
                 const warn = e.type === 'Warning';

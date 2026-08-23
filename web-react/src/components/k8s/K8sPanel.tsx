@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
+import { useT } from '../../i18n';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
 import { K8sContext, type K8sTarget } from './context';
 import { K8sSnapshot } from './K8sSnapshot';
@@ -15,14 +16,14 @@ import { K8sDescribeModal, type DescribeSeed } from './K8sDescribeModal';
 
 type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files';
 
-const SUBTABS: { key: SubTab; label: string }[] = [
-  { key: 'snapshot', label: '📸 快照' },
-  { key: 'yaml', label: '📝 Pod YAML' },
-  { key: 'network', label: '🌐 网络检测' },
-  { key: 'events', label: '📡 事件' },
-  { key: 'top', label: '📊 资源 Top' },
-  { key: 'shell', label: '💻 Shell' },
-  { key: 'files', label: '📁 文件' },
+const SUBTABS: { key: SubTab; labelKey: string }[] = [
+  { key: 'snapshot', labelKey: 'k8s.subtabs.snapshot' },
+  { key: 'yaml', labelKey: 'k8s.subtabs.yaml' },
+  { key: 'network', labelKey: 'k8s.subtabs.network' },
+  { key: 'events', labelKey: 'k8s.subtabs.events' },
+  { key: 'top', labelKey: 'k8s.subtabs.top' },
+  { key: 'shell', labelKey: 'k8s.subtabs.shell' },
+  { key: 'files', labelKey: 'k8s.subtabs.files' },
 ];
 
 function envTagClass(name: string): string {
@@ -41,6 +42,7 @@ function envTagText(envs: { name: string; label?: string }[], cur: string): stri
 export function K8sPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const { t } = useT();
 
   const [envs, setEnvs] = useState<K8sEnv[]>([]);
   const [target, setTargetState] = useState<K8sTarget>({ env: '', pod: '', container: '', namespace: '' });
@@ -57,12 +59,12 @@ export function K8sPanel() {
       const cur = d.current || (list[0] && list[0].name) || '';
       setTargetState((t) => ({ ...t, env: cur }));
       const c = list.find((e) => e.name === cur);
-      setKcText(c && c.kubeconfig ? 'kubeconfig: ' + c.kubeconfig : '未配置 kubeconfig');
+      setKcText(c && c.kubeconfig ? 'kubeconfig: ' + c.kubeconfig : t('k8s.noKubeconfig'));
       if (d.error) pushLog(`加载 K8s 环境失败：${d.error}`, 'error');
     } catch (ex: any) {
       pushLog(`加载 K8s 环境失败：${ex.message}`, 'error');
     }
-  }, [pushLog]);
+  }, [pushLog, t]);
 
   useEffect(() => {
     reloadEnvs();
@@ -92,7 +94,7 @@ export function K8sPanel() {
   const onEnvChange = (name: string) => {
     setTarget({ env: name });
     const c = envs.find((e) => e.name === name);
-    setKcText(c && c.kubeconfig ? 'kubeconfig: ' + c.kubeconfig : '未配置 kubeconfig');
+    setKcText(c && c.kubeconfig ? 'kubeconfig: ' + c.kubeconfig : t('k8s.noKubeconfig'));
   };
 
   return (
@@ -100,28 +102,28 @@ export function K8sPanel() {
       <div className="k8s-panel">
         <div className="k8s-envbar card-soft">
           <label className="field-inline">
-            环境
+            {t('k8s.snapshot.env')}
             <select className="sel" value={target.env} onChange={(e) => onEnvChange(e.target.value)}>
-              {envs.length === 0 && <option value="">（无环境）</option>}
+              {envs.length === 0 && <option value="">{t('k8s.noEnv')}</option>}
               {envs.map((e) => (
                 <option key={e.name} value={e.name}>{e.label || e.name} ({e.name})</option>
               ))}
             </select>
           </label>
           <span className={envTagClass(target.env)}>{envTagText(envs, target.env)}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => setEnvModalOpen(true)}>管理环境</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEnvModalOpen(true)}>{t('k8s.manageEnv')}</button>
           <span className="k8s-env-kc panel-sub">{kcText}</span>
         </div>
 
         <div className="k8s-subtabs">
-          {SUBTABS.map((t) => (
+          {SUBTABS.map((st) => (
             <button
-              key={t.key}
-              className={'k8s-subtab' + (sub === t.key ? ' active' : '')}
-              data-sub={t.key}
-              onClick={() => setSub(t.key)}
+              key={st.key}
+              className={'k8s-subtab' + (sub === st.key ? ' active' : '')}
+              data-sub={st.key}
+              onClick={() => setSub(st.key)}
             >
-              {t.label}
+              {t(st.labelKey)}
             </button>
           ))}
         </div>
