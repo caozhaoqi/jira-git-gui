@@ -20,6 +20,7 @@ import { CommitsPanel } from './components/CommitsPanel';
 import { DiffPanel } from './components/DiffPanel';
 import { K8sPanel } from './components/k8s/K8sPanel';
 import { CfPanel } from './components/CfPanel';
+import { ClashPanel } from './components/ClashPanel';
 import { ToastStack } from './components/Toast';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
@@ -114,6 +115,7 @@ export default function App() {
             {activeTab === 'logs' && <LogPanel />}
             {activeTab === 'k8s' && <K8sPanel />}
             {activeTab === 'cf' && <CfPanel />}
+            {activeTab === 'clash' && <ClashPanel />}
           </div>
         </main>
       </div>

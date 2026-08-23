@@ -29,16 +29,19 @@ export function K8sShell() {
   // 初始化 xterm
   useEffect(() => {
     if (!termRef.current || termObj.current) return;
-    const term = new Terminal({ fontSize: 13, cursorBlink: true, theme: { background: '#1e1e1e' } });
+    const term = new Terminal({
+      fontSize: 13,
+      cursorBlink: true,
+      convertEol: true,
+      theme: { background: '#1e1e1e' },
+    });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(termRef.current);
     try { fit.fit(); } catch { /* noop */ }
-    term.onData((data) => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'cmd', data }));
-      }
-    });
+    // xterm 在此仅作为只读输出区域；命令由底部 input 框统一输入，
+    // 避免 xterm 焦点与 input 框同时响应造成重复发送或光标混乱。
+    term.attachCustomKeyEventHandler(() => false);
     termObj.current = { term, fit };
     const onResize = () => { try { fit.fit(); } catch { /* noop */ } };
     window.addEventListener('resize', onResize);
@@ -103,12 +106,19 @@ export function K8sShell() {
         cwdRef.current = m.cwd || '/';
         setCwd(cwdRef.current);
         setConnected(true);
-        termObj.current?.term.writeln(`\r\n已连接 · 工作目录 ${cwdRef.current}`);
+        termObj.current?.term.clear();
+        termObj.current?.term.writeln(`已连接 ${t.pod}${t.container ? '/' + t.container : ''} · 工作目录 ${cwdRef.current}`);
+        termObj.current?.term.write(`${cwdRef.current} $ `);
       } else if (m.type === 'output') {
-        termObj.current?.term.write(m.data || '');
+        const text = m.data || '';
+        // 后端 cwd 跟踪标记可能泄露到输出流，前端再过滤一次确保不显示
+        if (text.includes('__PWD__')) return;
+        termObj.current?.term.write(text);
       } else if (m.type === 'cwd') {
         cwdRef.current = m.cwd || cwdRef.current;
         setCwd(cwdRef.current);
+        // cwd 更新后补一个 prompt，避免下一行输出直接接在旧 prompt 后面
+        termObj.current?.term.write(`\r\n${cwdRef.current} $ `);
       } else if (m.type === 'error') {
         termObj.current?.term.writeln('\r\n错误：' + (m.msg || ''));
       }
@@ -131,10 +141,20 @@ export function K8sShell() {
   }
 
   const send = useCallback(() => {
-    const val = input;
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: 'cmd', data: val + '\n' }));
-    if (val.trim()) { historyRef.current.push(val); histIdxRef.current = historyRef.current.length; }
+    const val = input.trim();
+    if (!val || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    // 兼容 Windows 习惯：cls 映射为 clear
+    const cmd = val.toLowerCase() === 'cls' ? 'clear' : val;
+    if (cmd === 'clear') {
+      termObj.current?.term.clear();
+      termObj.current?.term.write(`${cwdRef.current} $ `);
+    } else {
+      // 本地回显命令，否则非交互式 sh 不会回显用户输入
+      termObj.current?.term.writeln(`\r\n${cwdRef.current} $ ${cmd}`);
+    }
+    wsRef.current.send(JSON.stringify({ type: 'cmd', data: cmd + '\n' }));
+    historyRef.current.push(val);
+    histIdxRef.current = historyRef.current.length;
     setInput('');
   }, [input]);
 
@@ -171,7 +191,6 @@ export function K8sShell() {
         <button className="btn btn-sm" onClick={connect} disabled={connected || !target.pod}>连接</button>
         <button className="btn btn-sm btn-ghost" onClick={disconnect} disabled={!connected}>断开</button>
       </div>
-      <div className="k8s-shell-prompt">{cwd} $ </div>
       <div className="k8s-shell-term" ref={termRef} />
       <div className="k8s-shell-inputbar">
         <span className="k8s-shell-prompt-inline">{cwd} $ </span>

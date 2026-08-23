@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """K8s 运维路由（由 api/server.py 拆分而来）。
 
-共享全局（client / SSE / 任务状态）通过 ``import api.server as S`` 延迟访问，
-避免与 server.py 循环导入；router 在 server.py 末尾 include。
+SSE 事件总线统一走 ``api.eventbus``（全局唯一实例，避免 api.server 因
+``python -m`` 启动产生 __main__ / api.server 双实例导致事件总线分叉）；
+任务状态等本地全局在本模块内维护。
 """
 import asyncio
 import json
+import logging
 import threading
 from typing import Any, Optional
 
@@ -18,8 +20,11 @@ from pathlib import Path
 from fastapi.responses import FileResponse, PlainTextResponse
 from core import k8s_manager as _k8s_mgr
 from core.k8s_manager import run_kubectl as _k8s_run_kubectl
+from core.k8s_snapshot import run_snapshot as _k8s_run_snapshot, fetch_logs as _k8s_fetch_logs
 from api.schemas import K8sEnvReq, K8sExecReq, K8sFileDeleteReq, K8sFileListReq, K8sFileMkdirReq, K8sFileReadReq, K8sFileSearchReq, K8sFileUploadReq, K8sFileWriteReq, K8sNetworkReq, K8sSnapshotReq, K8sYamlReq
+from api.eventbus import broadcast
 
+logger = logging.getLogger("api.routes_k8s")
 router = APIRouter()
 
 _k8s_cancel = threading.Event()
@@ -57,10 +62,10 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
             _k8s_snap_meta["namespace"] = opts.get("namespace")
             result = _k8s_run_snapshot(
                 opts,
-                on_log=lambda m: S._broadcast(
+                on_log=lambda m: broadcast(
                     "k8s_log", {"msg": m, "ts": time.strftime("%H:%M:%S")}
                 ),
-                on_progress=lambda done, total, name: S._broadcast(
+                on_progress=lambda done, total, name: broadcast(
                     "k8s_progress",
                     {
                         "done": done,
@@ -72,7 +77,7 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
                 should_cancel=_k8s_cancel.is_set,
             )
             _k8s_out_dir["dir"] = result["out_dir"]
-            S._broadcast(
+            broadcast(
                 "k8s_done",
                 {
                     "summary": result["summary"],
@@ -81,14 +86,14 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
                     "report": result["report"],
                 },
             )
-            S.logger.info("K8s 快照完成: %s", result["out_dir"])
+            logger.info("K8s 快照完成: %s", result["out_dir"])
         except Exception as ex:  # 含 UserError（配置类错误）
             msg = getattr(ex, "message", None) or str(ex)
-            S._broadcast("k8s_error", {"message": msg})
-            S.logger.error("K8s 快照失败: %s", ex)
+            broadcast("k8s_error", {"message": msg})
+            logger.error("K8s 快照失败: %s", ex)
         finally:
             _k8s_running = False
-            S._broadcast("k8s_finished", {"running": False})
+            broadcast("k8s_finished", {"running": False})
 
     threading.Thread(target=_do, name="k8s-snapshot", daemon=True).start()
     return {"ok": True, "msg": "快照任务已启动"}
@@ -568,6 +573,9 @@ async def ws_k8s_exec(websocket: WebSocket):
     sub_env = _k8s_mgr._kubectl_subprocess_env(dict(os.environ))
     if kc:
         sub_env["KUBECONFIG"] = kc
+    # 非 TTY 执行时 ls 等命令不知道终端宽度，会按默认 80 列输出并在前端折行错位；
+    # 给一个大宽度让工具输出更宽列，xterm 以水平滚动替代硬折行。
+    sub_env.setdefault("COLUMNS", "240")
 
     await websocket.send_json({"type": "ready", "cwd": cwd})
 
@@ -584,27 +592,44 @@ async def ws_k8s_exec(websocket: WebSocket):
         nonlocal proc, cwd
         script = _k8s_mgr._build_exec_script(cmd, cwd, track_cwd=True)
         argv = list(prefix) + ["--", "sh", "-c", script]
-        # 用自动定位的 kubectl 二进制，避免进程 PATH 缺失导致 FileNotFoundError
+        # 用自动定位的 kubectl 二进制，避免进程 PATH 缺失导致 FileNotFoundError。
+        # 注意：prefix 首项已是字面 "kubectl"，必须替换而非再前置，否则会变成
+        # `kubectl kubectl ...` 而报 "unknown command kubectl for kubectl"。
         kubectl_bin = _k8s_mgr._resolve_kubectl_binary()
+        if argv and argv[0] == "kubectl":
+            argv[0] = kubectl_bin
         proc = await asyncio.create_subprocess_exec(
-            kubectl_bin, *argv,
+            *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=sub_env,
         )
         assert proc.stdout is not None
         buf = []
+        pwd_mode = False  # 进入 __PWD__ 标记后的 pwd 输出行，需过滤并提取 cwd
         while True:
             line = await proc.stdout.readline()
             if not line:
                 break
             text = line.decode("utf-8", "replace")
             buf.append(text)
+            # 过滤 cwd 跟踪标记及其后的 pwd 输出，避免显示给用户
+            if "__PWD__" in text:
+                pwd_mode = True
+                continue
+            if pwd_mode:
+                stripped = text.strip()
+                if stripped:
+                    cwd = stripped
+                    await websocket.send_json({"type": "cwd", "cwd": cwd})
+                pwd_mode = False
+                continue
             await websocket.send_json({"type": "output", "data": text})
         await proc.wait()
+        # 若输出未按行结束（理论上不应发生），兜底解析 cwd
         merged = "".join(buf)
         new_cwd, _ = _k8s_mgr._split_pwd(merged)
-        if new_cwd:
+        if new_cwd and new_cwd != cwd:
             cwd = new_cwd
             await websocket.send_json({"type": "cwd", "cwd": cwd})
 
@@ -643,7 +668,5 @@ async def ws_k8s_exec(websocket: WebSocket):
 
 
 # --------------------------------------------------------------------------- #
-#  共享全局：延迟导入，避免与 server.py 循环导入。
-#  server 在末尾 include 本 router 时本模块已完成，请求处理时 S.client 等均可访问。
+#  共享全局：事件总线统一走 api.eventbus（全局唯一），任务状态见文件顶部。
 # --------------------------------------------------------------------------- #
-import api.server as S  # noqa: E402

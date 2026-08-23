@@ -8,6 +8,7 @@ const TABS: { key: TabKey; icon: string; label: string }[] = [
   { key: 'logs', icon: '📋', label: '日志' },
   { key: 'k8s', icon: '☸', label: 'K8s 快照' },
   { key: 'cf', icon: '🔬', label: '云函数日志' },
+  { key: 'clash', icon: '🛰', label: 'Clash 分流' },
 ];
 
 export function Tabs() {
