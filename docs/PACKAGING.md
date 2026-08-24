@@ -7,10 +7,12 @@
 | **Electron 桌面版** | `electron/main.js` | 原生壳 + Chromium/WebKit 引擎，体验接近独立 App | electron-builder（内嵌冻结后的后端） |
 | **Tauri 桌面版** | `tauri/src-tauri/` | 原生壳 + 系统 WebView，包体小（几十 MB） | `cargo tauri build`（内嵌冻结后的后端） |
 
-> 跨平台结论：**可以跨平台，但必须按目标系统分别构建**。electron-builder 与 `cargo tauri`
-> 均**不支持交叉编译**——macOS 出 `.app`/`.dmg`、Windows 出 `.exe`/`.msi`、Linux 出
-> `AppImage`/`deb` 需在各自系统（或对应 CI runner）上构建。推荐用 GitHub Actions
-> 三条 runner 自动出包（见 `.github/workflows/release.yml`）。
+> 跨平台结论：**支持跨平台，且 macOS 可交叉出 Windows 包（已验证）**。
+> - **Electron**：macOS 上可直接交叉构建 Windows `.exe`（NSIS）——electron-builder 自带 NSIS 工具链，无需 Wine。
+> - **Tauri**：macOS 上可通过实验性 GNU target（`x86_64-pc-windows-gnu` + mingw-w64）交叉构建 Windows NSIS 包。
+> - **仍需在 Windows（或对应 CI runner）构建的**：`.msi`（WiX，两种形态都是）、MSVC target 的 Tauri 构建（官方推荐路线）。
+> - 推荐用 GitHub Actions 三条 runner 自动出全平台产物（见 `.github/workflows/release.yml`）。
+> - macOS → Windows 交叉构建的完整命令与镜像配置见下方「交叉编译（macOS → Windows）」小节。
 
 ---
 
@@ -46,6 +48,61 @@ python build/build.py --no-deps    # 跳过依赖自动安装（假定已装好 
 
 > 脚本逻辑见 `build/build.py`；`scripts/build.sh` / `scripts/build.ps1` 只是切到项目根后转发参数的薄包装。
 > **仍需按 OS 构建**：它不是交叉编译器，只负责「在本机一键出本机包」。三端齐发请用 CI。
+
+---
+
+## 〇·五、交叉编译（macOS → Windows，已验证 2026-08）
+
+在 Apple Silicon / Intel Mac 上可直接产出 Windows x64 安装包，无需 Windows / Wine。
+
+### Electron（推荐，最简单）
+
+```bash
+cd electron
+# 国内镜像（关键！不加会在下载 winCodeSign/NSIS 时 GitHub EOF 反复失败）
+export ELECTRON_MIRROR="https://registry.npmmirror.com/-/binary/electron/"
+export ELECTRON_BUILDER_BINARIES_MIRROR="https://registry.npmmirror.com/-/binary/electron-builder-binaries/"
+
+# 必须显式 --x64！Apple Silicon 默认打 win-arm64，多数 Windows 机器跑不了
+npm run dist:win      # = electron-builder --win --x64
+# 产物：dist-electron/JiraGitGUI-<version>-setup.exe
+```
+
+- 坑：`win.arch` 不是合法 schema 字段，指定架构必须用 CLI `--x64`，不要写进 `build.win`。
+- `.msi`（WiX）仍需 Windows / CI；NSIS `.exe`、`zip` 便携版可本机直出。
+
+### Tauri（实验性 GNU target）
+
+```bash
+# 一次装齐
+brew install mingw-w64 nsis          # llvm 非必需（GNU 用 mingw gcc 链接）
+rustup target add x86_64-pc-windows-gnu
+
+# ~/.cargo/config.toml（GNU 链接器 + 国内 crates 镜像）
+# [target.x86_64-pc-windows-gnu]
+# linker = "x86_64-w64-mingw32-gcc"
+# ar = "x86_64-w64-mingw32-ar"
+# rustflags = ["-C", "linker=x86_64-w64-mingw32-gcc"]
+# [source.crates-io]
+# replace-with = "mirror"
+# [source.mirror]
+# registry = "sparse+https://rsproxy.cn/index/"
+
+cd tauri
+cargo tauri build --target x86_64-pc-windows-gnu
+# 产物：src-tauri/target/x86_64-pc-windows-gnu/release/app.exe
+#        + bundle/nsis/JiraGitGUI_<version>_x64-setup.exe
+```
+
+- 坑：**不要给 mingw linker 传 MSVC 风格参数**（`-Wl,/NXCOMPAT`、`-fuse-ld=lld`）→ 报 `cannot find /NXCOMPAT`。GNU target 裸 `linker = "x86_64-w64-mingw32-gcc"` 即可。
+- 坑：Rust 装在 `~/.cargo/bin`，非登录 shell 需 `export PATH="$HOME/.cargo/bin:$PATH"`。
+- 警告 `Wrong package type msi for platform macOS` 无害（`targets:"all"` 在 macOS 无法产 msi）。
+- MSVC target（官方推荐）在 macOS 需 `cargo-xwin`，配置更重；GNU 适合快速自测。
+- 完整细节见 skill：`~/.workbuddy/skills/macos-win-cross-compile/SKILL.md`。
+
+### 功能可用性提醒
+
+交叉构建只解决「Windows 包能打出来」。**`resources/backend/` 里的冻结后端是 macOS Mach-O，Windows 包内不会运行**——正式交付前需在 Windows / CI 上用 PyInstaller 冻结 `jira-git-backend.exe`（见「二、冻结 Python 后端」）并重新打包。无签名产物 SmartScreen 会警告「未知发布者」。
 
 ---
 

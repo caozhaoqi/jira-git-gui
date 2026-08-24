@@ -34,17 +34,18 @@ export function K8sYaml() {
     if (target.env) loadPodList();
   }, [target.env, loadPodList]);
 
-  const getYaml = useCallback(async () => {
-    if (!name.trim()) { setMsg(t('k8s.yaml.nameRequired')); return; }
+  const getYaml = useCallback(async (targetName?: string, targetKind?: string) => {
+    const n = (targetName ?? name).trim();
+    if (!n) { setMsg(t('k8s.yaml.nameRequired')); return; }
     setMsg(t('k8s.yaml.getting'));
     try {
       const d = await apiPost<K8sYamlResp>('/api/k8s/yaml', {
-        env: target.env, kind, name: name.trim(), namespace: ns.trim(), action: 'get', clean,
+        env: target.env, kind: targetKind || kind, name: n, namespace: ns.trim(), action: 'get', clean,
       });
       if (!d.ok) { setMsg(t('k8s.yaml.fail') + (d.error || '')); return; }
       setEditor(d.yaml || '');
       setOut('');
-      setMsg(t('k8s.yaml.got', { name: name + (d.yaml && d.yaml.includes('status:') ? '' : t('k8s.yaml.cleaned')) }));
+      setMsg(t('k8s.yaml.got', { name: n + (d.yaml && d.yaml.includes('status:') ? '' : t('k8s.yaml.cleaned')) }));
     } catch (ex: any) {
       setMsg(t('k8s.yaml.fail') + ex.message);
     }
@@ -76,7 +77,7 @@ export function K8sYaml() {
         <label>{t('k8s.yaml.name')}<input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('k8s.yaml.namePh')} /></label>
         <label>{t('k8s.yaml.namespace')}<input className="input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder={t('k8s.yaml.namespacePh')} /></label>
         <label className="chk"><input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} /> {t('k8s.yaml.cleanStatus')}</label>
-        <button className="btn btn-sm" onClick={getYaml}>{t('k8s.yaml.get')}</button>
+        <button className="btn btn-sm" onClick={() => getYaml()}>{t('k8s.yaml.get')}</button>
         <button className="btn btn-sm" onClick={applyYaml}>{t('k8s.yaml.apply')}</button>
         <button
           className="btn btn-sm btn-ghost"
@@ -88,7 +89,7 @@ export function K8sYaml() {
       </div>
       <div className="k8s-yaml-podlist">
         <label>{t('k8s.yaml.fromPod')}：
-          <select className="sel" value="" onChange={(e) => { if (e.target.value) { setName(e.target.value); setKind('pod'); getYaml(); } }}>
+          <select className="sel" value={name} onChange={(e) => { const v = e.target.value; if (v) { setName(v); setKind('pod'); getYaml(v, 'pod'); } }}>
             <option value="">{t('k8s.yaml.selectPod')}</option>
             {podList.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>

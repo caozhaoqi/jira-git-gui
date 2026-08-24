@@ -106,6 +106,109 @@ html.dark {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.lv-toolbar-2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 .input-sm {
+  width: 200px;
+  font-family: var(--mono);
+}
+.lv-toolbar-3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-copied {
+  font-size: 12px;
+  color: var(--success, #16a34a);
+  font-family: var(--mono);
+}
+.lv-events {
+  flex-shrink: 0;
+  max-height: 38vh;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.lv-events-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 16px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 2;
+}
+.lv-events-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.lv-events-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.lv-events-wrap {
+  padding: 0 16px 10px;
+}
+.lv-events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.lv-events-table th {
+  text-align: left;
+  padding: 4px 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lv-events-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--code-border);
+  vertical-align: top;
+}
+.lv-events-table .ev-time {
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.lv-events-table .ev-type {
+  white-space: nowrap;
+}
+.lv-events-table tr.ev-Warning .ev-type {
+  color: var(--warn);
+}
+.lv-events-table tr.ev-Warning {
+  background: var(--warning-bg);
+}
+.lv-events-table .ev-msg {
+  color: var(--text);
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-danger {
+  background: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
 .lv-field {
   display: flex;
   align-items: center;

@@ -247,7 +247,7 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 | Electron 桌面版 | `electron/` | electron-builder（内嵌冻结后端） | `.dmg`（macOS）/ `.exe`(nsis)（Windows）/ `.AppImage`+`.deb`（Linux） |
 | Tauri 桌面版 | `tauri/` | `cargo tauri build`（内嵌冻结后端） | `.app`+`.dmg`（macOS）/ `.msi`（Windows）/ `.AppImage`+`.deb`（Linux） |
 
-**关键约束**：electron-builder 与 `cargo tauri` 均**不支持交叉编译**——各平台产物必须在对应系统上构建。已配置 `.github/workflows/release.yml`：推送 `vX.Y.Z` 标签时在 macOS / Windows / Ubuntu runner 上自动构建。
+**交叉编译说明（2026-08 已在 Apple Silicon 上验证）**：Electron 可在 macOS 上直接交叉构建 Windows `.exe`（NSIS）——electron-builder 自带 NSIS 工具链，无需 Wine；Tauri 也可通过实验性 GNU target（`x86_64-pc-windows-gnu` + mingw-w64）在 macOS 交叉构建 Windows NSIS 包。仍需 Windows 机器 / CI runner 的：`.msi`（WiX，两种形态都是）与 MSVC target 的 Tauri 构建（官方推荐路线）。完整交叉构建配方（镜像、架构参数、cargo 链接器配置）见 **[docs/PACKAGING.md](docs/PACKAGING.md)**。已配置 `.github/workflows/release.yml`：推送 `vX.Y.Z` 标签时在 macOS / Windows / Ubuntu runner 上自动构建三端产物。
 
 本地构建步骤、CI 流程、产物清单与签名说明详见 **[docs/PACKAGING.md](docs/PACKAGING.md)**。
 
