@@ -106,6 +106,20 @@ html.dark {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+.lv-toolbar-2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 .input-sm {
+  width: 200px;
+  font-family: var(--mono);
+}
 .lv-field {
   display: flex;
   align-items: center;

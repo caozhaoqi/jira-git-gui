@@ -176,6 +176,14 @@ export function LogViewer() {
   const [tsUnit, setTsUnit] = useState('auto'); // auto | ms | us | ns
   const [tsEpoch, setTsEpoch] = useState(''); // 自定义基准（Unix 秒），用于非 1970 起点的时间戳
 
+  // 时间范围 / label 聚合 / 级别过滤 / 排除
+  const [since, setSince] = useState('');
+  const [until, setUntil] = useState('');
+  const [labelMode, setLabelMode] = useState(false);
+  const [label, setLabel] = useState('');
+  const [levelFilter, setLevelFilter] = useState('ALL');
+  const [exclude, setExclude] = useState(false);
+
   // 搜索
   const [search, setSearch] = useState('');
   const [useRegex, setUseRegex] = useState(false);
@@ -193,6 +201,18 @@ export function LogViewer() {
   prevRef.current = previous;
   const tsRef = useRef(timestamps);
   tsRef.current = timestamps;
+  const sinceRef = useRef(since);
+  sinceRef.current = since;
+  const untilRef = useRef(until);
+  untilRef.current = until;
+  const labelModeRef = useRef(labelMode);
+  labelModeRef.current = labelMode;
+  const labelRef = useRef(label);
+  labelRef.current = label;
+  const levelRef = useRef(levelFilter);
+  levelRef.current = levelFilter;
+  const excludeRef = useRef(exclude);
+  excludeRef.current = exclude;
 
   /* ---------- 滚动 ---------- */
   const isAtBottom = useCallback(() => {
@@ -208,18 +228,27 @@ export function LogViewer() {
   /* ---------- 拉取日志 ---------- */
   const refresh = useCallback(async () => {
     const p = paramsRef.current;
-    if (!p.pod) { setStatus(t('logviewer.noPod')); setIsErr(true); return; }
+    const useLabel = labelModeRef.current && labelRef.current.trim();
+    if (!useLabel && !p.pod) { setStatus(t('logviewer.noPod')); setIsErr(true); return; }
     const follow = autoFollowRef.current || isAtBottom();
     setStatus(t('logviewer.loading'));
     setIsErr(false);
     try {
-      const q = new URLSearchParams({ name: p.pod });
-      if (p.env) q.set('env', p.env);
-      if (p.container) q.set('container', p.container);
-      if (p.namespace) q.set('namespace', p.namespace);
+      const q = new URLSearchParams();
+      if (useLabel) {
+        q.set('label', labelRef.current.trim());
+        if (p.env) q.set('env', p.env);
+      } else {
+        q.set('name', p.pod);
+        if (p.env) q.set('env', p.env);
+        if (p.container) q.set('container', p.container);
+        if (p.namespace) q.set('namespace', p.namespace);
+      }
       q.set('tail', tailRef.current);
       if (prevRef.current) q.set('previous', '1');
       q.set('timestamps', tsRef.current ? '1' : '0');
+      if (sinceRef.current.trim()) q.set('since', sinceRef.current.trim());
+      if (untilRef.current.trim()) q.set('until', untilRef.current.trim());
       const text = await apiText('/api/k8s/log?' + q.toString());
       setRaw(text);
       setStatus('');
@@ -348,11 +377,18 @@ export function LogViewer() {
   /* ---------- 行解析 ---------- */
   const lines = useMemo(() => raw.split(/\r\n|\r|\n/), [raw]);
 
-  // 时间戳转换后的展示行（不改动 raw，便于下载保留原值）
-  const viewLines = useMemo(
-    () => (tsConv ? lines.map((l) => convertTsInLine(l, tsUnit, tsEpoch)) : lines),
-    [lines, tsConv, tsUnit, tsEpoch]
-  );
+  // 时间戳转换后的展示行（不改动 raw，便于下载保留原值）；再叠加级别过滤与排除
+  const viewLines = useMemo(() => {
+    let arr = tsConv ? lines.map((l) => convertTsInLine(l, tsUnit, tsEpoch)) : lines;
+    const lv = levelRef.current;
+    if (lv !== 'ALL') {
+      arr = arr.filter((l) => /^=+\s/.test(l) || detectLevel(l) === lv);
+    }
+    if (excludeRef.current && re) {
+      arr = arr.filter((l) => /^=+\s/.test(l) || !re.test(l));
+    }
+    return arr;
+  }, [lines, tsConv, tsUnit, tsEpoch, levelFilter, exclude, re]);
 
   const matches = useMemo(() => {
     if (!re) return [] as number[];
@@ -425,6 +461,7 @@ export function LogViewer() {
               className="sel lv-podsel"
               title={t('logviewer.podSelect')}
               value={params.pod}
+              disabled={labelMode}
               onChange={(e) => switchPod(e.target.value)}
             >
               <option value="">{t('logviewer.selectPod')}</option>
@@ -530,6 +567,34 @@ export function LogViewer() {
           <button className="btn btn-xs" title={t('logviewer.shrink')} onClick={() => setFont((f) => Math.max(10, f - 1))}>A−</button>
           <button className="btn btn-xs" title={t('logviewer.enlarge')} onClick={() => setFont((f) => Math.min(22, f + 1))}>A+</button>
         </span>
+      </div>
+
+      <div className="lv-toolbar lv-toolbar-2">
+        <label className="lv-field">{t('logviewer.since')}
+          <input type="text" className="input input-sm" placeholder={t('logviewer.sinceHint')} value={since} onChange={(e) => setSince(e.target.value)} />
+        </label>
+        <label className="lv-field">{t('logviewer.until')}
+          <input type="text" className="input input-sm" placeholder={t('logviewer.untilHint')} value={until} onChange={(e) => setUntil(e.target.value)} />
+        </label>
+
+        <label className="lv-toggle"><input type="checkbox" checked={labelMode} onChange={(e) => setLabelMode(e.target.checked)} /> {t('logviewer.labelMode')}</label>
+        {labelMode && (
+          <label className="lv-field">{t('logviewer.label')}
+            <input type="text" className="input input-sm" placeholder={t('logviewer.labelHint')} value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+        )}
+
+        <label className="lv-field">{t('logviewer.level')}
+          <select className="sel" value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+            <option value="ALL">{t('logviewer.levelAll')}</option>
+            <option value="ERROR">ERROR</option>
+            <option value="WARN">WARN</option>
+            <option value="INFO">INFO</option>
+            <option value="DEBUG">DEBUG</option>
+          </select>
+        </label>
+
+        <label className="lv-toggle" title={t('logviewer.excludeHint')}><input type="checkbox" checked={exclude} onChange={(e) => setExclude(e.target.checked)} /> {t('logviewer.exclude')}</label>
       </div>
 
       <main className="lv-body" ref={bodyRef as any}>

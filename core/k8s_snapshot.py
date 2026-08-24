@@ -163,7 +163,7 @@ def classify(rec, restart_threshold):
 
 
 # --------------------------------------------------------------------- 日志
-def fetch_logs(pod_name, container, kubeconfig, namespace, tail, previous, timeout=30, timestamps=False):
+def fetch_logs(pod_name, container, kubeconfig, namespace, tail, previous, timeout=30, timestamps=False, since=None, until=None):
     args = ["logs", pod_name]
     if namespace:
         args += ["-n", namespace]
@@ -174,6 +174,10 @@ def fetch_logs(pod_name, container, kubeconfig, namespace, tail, previous, timeo
         args += ["--previous"]
     if timestamps:
         args += ["--timestamps"]
+    if since:
+        args += ["--since", str(since)]
+    if until:
+        args += ["--until", str(until)]
     out, rc, err = run_kubectl(args, kubeconfig, timeout=timeout)
     if rc == 0:
         return out
