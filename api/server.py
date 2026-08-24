@@ -1288,11 +1288,25 @@ def _cf_tokens_load() -> "dict":
 
 
 def _cf_tokens_save() -> None:
+    """原子写：先写临时文件再用 os.replace 覆盖，避免进程崩溃/并发时留下半截文件。
+
+    落盘权限 0o600：该文件含会话 cookie（等同登录态），仅当前用户可读写。
+    临时文件与目标同目录（保证 os.replace 在同一文件系统内 rename，原子且无需跨盘拷贝）。
+    """
     try:
         _CF_TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _CF_TOKENS_FILE.write_text(
-            json.dumps(_CF_TOKEN_CACHE, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        content = json.dumps(_CF_TOKEN_CACHE, ensure_ascii=False, indent=2)
+        tmp = _CF_TOKENS_FILE.with_suffix(".local.json.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp, _CF_TOKENS_FILE)
+        try:
+            os.chmod(_CF_TOKENS_FILE, 0o600)
+        except OSError:
+            pass
     except Exception as e:
         logger.warning(f"[CF] 持久化 token 缓存失败: {e}")
 
@@ -1482,6 +1496,18 @@ async def api_cf_logs(req: CfLogReq):
         token = cached_token
         cookie_value = cached_cookie or (f"token={cached_token}" if cached_token else "")
         logger.info(f"[CF] 复用缓存凭证: server_url={req.server_url} (含原始Set-Cookie={bool(cached_cookie)})")
+        # P2-⑦：缓存凭证已可能过期（stale）→ 查询前主动刷新一次，避免白跑一次失败查询。
+        # 仅对缓存凭证生效；前端手填 token 不覆盖，尊重用户显式输入。
+        if _cf_token_stale(cached):
+            logger.info(f"[CF] 缓存凭证疑似过期(stale)，查询前主动刷新: {req.server_url}")
+            fresh = await _cf_refresh_token(req.server_url, req.proxy)
+            if isinstance(fresh, dict) and (fresh.get("token") or fresh.get("cookie")):
+                token = (fresh.get("token") or "").strip()
+                cookie_value = (fresh.get("cookie") or "").strip() or (f"token={token}" if token else "")
+                cached = fresh
+                logger.info(f"[CF] 查询前主动刷新成功: {req.server_url}")
+            else:
+                logger.warning(f"[CF] 查询前主动刷新失败，仍用旧凭证尝试: {req.server_url}")
     else:
         # 缓存缺失：尝试按需自动登录一次
         fresh = await _cf_refresh_token(req.server_url, req.proxy)
@@ -1505,6 +1531,12 @@ async def api_cf_logs(req: CfLogReq):
     base = (req.server_url or "").strip().rstrip("/")
     if not base or base.startswith("/"):
         raise HTTPException(400, "请配置有效的 server_url（自动登录失败的账号需手动补全或重新登录后再查询）")
+    # page_size 上限保护：平台对单次拉取条数有限制，过大易被拒或拖垮服务端。
+    # 钳制到 [1, 1000]，超限时把实际查询条数收敛到上限，避免手填任意值导致 5xx。
+    try:
+        req_page_size = max(1, min(int(req.page_size), 1000))
+    except (TypeError, ValueError):
+        req_page_size = 200
     url = f"{base}{_HCM_MODEL_LIST_API}"
     base_headers_json = {"Content-Type": "application/json"}
     filter_dict = {}
@@ -1513,7 +1545,7 @@ async def api_cf_logs(req: CfLogReq):
     payload = {
         "model": "dynamic_log",
         "page_index": req.page_index,
-        "page_size": req.page_size,
+        "page_size": req_page_size,
         "filter_dict": filter_dict,
     }
 
@@ -1537,10 +1569,24 @@ async def api_cf_logs(req: CfLogReq):
              "headers": {**base_headers_json, "token": token}},
         ]
 
+    # 认证方式回退判定：方式1(Cookie) 为权威方式。
+    #   - 方式1 成功 → 直接返回。
+    #   - 方式1 非会话类失败（平台 5xx / 连接 / 超时 / 400 明确错误）→ 以方式1 为最终错误，
+    #     不再试 2/3（避免 cookie-only 部署上把平台抖动误判成 token 失效、触发无效重登）。
+    #   - 方式1 会话类失败（17003/401/未登录/登录过期）→ 再试 2/3 兜底其他部署；任一种成功即返回，
+    #     否则以会话错误为最终错误并触发重登刷新凭证。
+    def _is_model_missing(errcode, errmsg):
+        return errcode == 80001 or (isinstance(errmsg, str) and "Unknown Model Name" in errmsg)
+
     async def _run_query_once():
+        """返回 (result, primary_error, is_session)。
+
+        result 非空表示成功（原样透传 method/raw/data 结构）；否则 primary_error 为权威错误，
+        is_session 标记是否会话类失败（用于决定是否重登刷新）。
+        """
         attempts = _build_attempts()
-        logger.info(f"[CF] 查询: base={base} model=dynamic_log log_type={req.log_type or '(全部)'} page_size={req.page_size} proxy={req.proxy or '(直连)'}")
-        last_error = None
+        logger.info(f"[CF] 查询: base={base} model=dynamic_log log_type={req.log_type or '(全部)'} page_size={req_page_size} proxy={req.proxy or '(直连)'}")
+        results = []  # (name, HTTPException)
         for i, att in enumerate(attempts):
             try:
                 logger.info(f"[CF] 尝试方式{i+1}: {att['name']}")
@@ -1550,93 +1596,83 @@ async def api_cf_logs(req: CfLogReq):
                 async with httpx.AsyncClient(**client_kw) as client:
                     resp = await client.post(url, json=payload, headers=att["headers"])
                     logger.info(f"[CF] 方式{i+1} 响应: status={resp.status_code} len={len(resp.content)}")
-                    if resp.status_code == 405:
-                        last_error = HTTPException(resp.status_code, f"[{att['name']}] HTTP 405 Method Not Allowed: {resp.text[:300]}")
-                        continue  # 方法不对，换下一种
                     if resp.status_code >= 400:
-                        # 解析 CF 错误响应：{errcode, errmsg, description} 或 {success, message}
                         try:
-                            err_body = resp.json()
+                            eb = resp.json()
                         except ValueError:
-                            err_body = None
-                        eb = err_body if isinstance(err_body, dict) else {}
+                            eb = {}
+                        eb = eb if isinstance(eb, dict) else {}
                         errcode = eb.get("errcode")
                         errmsg = eb.get("errmsg") or eb.get("description") or eb.get("message") or resp.text[:400]
-                        # 80001 model 不存在：换认证方式也无法解决，直接给出明确提示
-                        if errcode == 80001 or (isinstance(errmsg, str) and "Unknown Model Name" in errmsg):
+                        # 80001 model 不存在：换认证方式也无法解决，直接明确提示
+                        if _is_model_missing(errcode, errmsg):
                             raise HTTPException(400, f"[{att['name']}] {errmsg}（model「dynamic_log」在当前部署/租户不存在，请确认日志 model 名或租户是否启用云函数日志）")
-                        # 17003 执行错误 / 未登录类：通常是会话上下文失效，换认证方式再试
-                        session_like = errcode == 17003 or any(k in str(errmsg) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录"))
-                        if session_like or resp.status_code in (401, 403):
-                            hint = "（token 可能已失效，建议重新登录获取 Token）" if errcode == 17003 else ""
-                            last_error = HTTPException(resp.status_code, f"[{att['name']}] HTTP {resp.status_code}: {errmsg[:400]}{hint}")
-                            continue
+                        if resp.status_code == 405:
+                            raise HTTPException(405, f"[{att['name']}] HTTP 405 Method Not Allowed: {resp.text[:300]}")
+                        # 平台 5xx → 基础设施错误，提示稍后重试（绝不误判为 token 失效）
+                        if resp.status_code >= 500:
+                            raise HTTPException(resp.status_code, f"[{att['name']}] 平台暂时错误（HTTP {resp.status_code}），请稍后重试")
+                        # 会话类（401/403 + 未登录/登录过期等关键词）→ 提示 token 可能失效
+                        if resp.status_code in (401, 403) and _cf_is_session_err(resp.status_code, errcode, errmsg):
+                            raise HTTPException(resp.status_code, f"[{att['name']}] HTTP {resp.status_code}: {errmsg[:400]}（token 可能已失效，建议重新登录获取 Token）")
                         raise HTTPException(resp.status_code, f"[{att['name']}] HTTP {resp.status_code}: {errmsg[:400] or resp.text[:400]}")
                     try:
                         data = resp.json()
                     except ValueError:
-                        raw = resp.text[:1000]
-                        raise HTTPException(502, f"[{att['name']}] 返回非JSON: {raw[:600]}")
-                    # 业务失败判断（兼容 {success:false,...} 与 {errcode:...} 两种格式）
+                        raise HTTPException(502, f"[{att['name']}] 返回非JSON: {resp.text[:1000][:600]}")
                     biz_fail = (isinstance(data, dict) and data.get("success") is False) or \
                                (isinstance(data, dict) and data.get("errcode") and data.get("errcode") != 0)
                     if biz_fail:
-                        msg = (
-                            data.get("errmsg") or data.get("description") or data.get("message") or data.get("msg") or
-                            (isinstance(data.get("result"), dict) and data["result"].get("message")) or
-                            str(data)[:500]
-                        )
-                        # 80001 model 不存在直接提示
-                        if data.get("errcode") == 80001 or "Unknown Model Name" in str(msg):
+                        msg = (data.get("errmsg") or data.get("description") or data.get("message") or data.get("msg") or
+                               (isinstance(data.get("result"), dict) and data["result"].get("message")) or str(data)[:500])
+                        if _is_model_missing(data.get("errcode"), msg):
                             raise HTTPException(400, f"[{att['name']}] {msg}（model「dynamic_log」在当前部署/租户不存在）")
-                        # 常见 "未登录/登录过期/17003执行错误" 等 — 继续下一种方式
-                        if data.get("errcode") == 17003 or any(k in str(msg) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录")):
-                            last_error = HTTPException(401, f"[{att['name']}] 业务失败: {msg}（token 可能已失效，建议重新登录获取 Token）")
-                            continue
+                        ec = data.get("errcode")
+                        ec = ec if isinstance(ec, int) else 0
+                        if _cf_is_session_err(ec if ec in (401, 403) else 0, ec, msg):
+                            raise HTTPException(401, f"[{att['name']}] 业务失败: {msg}（token 可能已失效，建议重新登录获取 Token）")
                         raise HTTPException(400, f"[{att['name']}] 业务失败: {msg}")
                     logger.info(f"[CF] 方式{i+1} 成功")
                     if isinstance(data, dict) and "result" in data:
-                        return {"method": att["name"], "raw": data, "data": data["result"]}
-                    return {"method": att["name"], **data} if isinstance(data, dict) else data
+                        return {"result": {"method": att["name"], "raw": data, "data": data["result"]}, "error": None, "is_session": False}
+                    return {"result": ({"method": att["name"], **data} if isinstance(data, dict) else data), "error": None, "is_session": False}
             except httpx.ConnectError as e:
-                last_error = HTTPException(502, f"[{att['name']}] 无法连接服务器 {base}: {e}")
-                # 连接失败所有方式都失败 — 直接中断
-                raise last_error
+                logger.warning(f"[CF] 方式{i+1} 连接失败: {e}")
+                results.append((att["name"], HTTPException(502, f"[{att['name']}] 无法连接服务器 {base}: {e}")))
+                break  # 连接失败所有方式都失败
             except httpx.TimeoutException as e:
-                last_error = HTTPException(504, f"[{att['name']}] 请求超时: {e}")
+                results.append((att["name"], HTTPException(504, f"[{att['name']}] 请求超时: {e}")))
                 continue
             except HTTPException as e:
-                last_error = e
-                if (i == len(attempts) - 1):
-                    raise
+                results.append((att["name"], e))
                 continue
             except Exception as e:
                 logger.exception(f"[CF] 方式{i+1} 异常: {e}")
-                last_error = HTTPException(500, f"[{att['name']}] {type(e).__name__}: {e}")
-                if i == len(attempts) - 1:
-                    raise last_error
-        raise last_error if last_error else HTTPException(500, "查询失败，未知错误")
+                results.append((att["name"], HTTPException(500, f"[{att['name']}] {type(e).__name__}: {e}")))
+                continue
+        # 汇总：以方式1(cookie) 的错误为权威；无则取最后一个
+        cookie_err = next((e for n, e in results if n == "cookie" and e is not None), None)
+        primary = cookie_err if cookie_err is not None else (results[-1][1] if results else HTTPException(500, "查询失败，未知错误"))
+        is_session = _cf_is_session_err(getattr(primary, "status_code", 0), None, str(getattr(primary, "detail", "")))
+        return {"result": None, "error": primary, "is_session": is_session}
 
     # 首次尝试
-    try:
-        return await _run_query_once()
-    except HTTPException as e:
-        last_error = e
-    # 会话失效（17003 / 401 / 未登录类）→ 重新登录刷新凭证后重试一次
+    first = await _run_query_once()
+    if first["result"] is not None:
+        return first["result"]
+    last_error = first["error"]
+    # 会话失效（cookie 权威方式 17003/401/未登录类）→ 重新登录刷新凭证后重试一次
     # （仅对缓存凭证生效，前端手填 token 不覆盖，避免误改用户显式输入）
-    session_fail = (getattr(last_error, "status_code", 0) in (401, 403)) or \
-        ("17003" in str(getattr(last_error, "detail", ""))) or \
-        any(k in str(getattr(last_error, "detail", "")) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录"))
-    if session_fail and not req_token:
+    if first["is_session"] and not req_token:
         logger.warning(f"[CF] 凭证疑似失效，尝试重新登录刷新后重试: {req.server_url}")
         fresh = await _cf_refresh_token(req.server_url, req.proxy)
         if isinstance(fresh, dict) and (fresh.get("token") or fresh.get("cookie")):
             token = (fresh.get("token") or "").strip()
             cookie_value = (fresh.get("cookie") or "").strip() or (f"token={token}" if token else "")
-            try:
-                return await _run_query_once()
-            except HTTPException as e2:
-                last_error = e2
+            retry = await _run_query_once()
+            if retry["result"] is not None:
+                return retry["result"]
+            last_error = retry["error"]
     raise last_error
 
 
@@ -1817,6 +1853,38 @@ _HCM_PROXY_TARGET = (_HCM_WL.get("proxy_target", {}) or {}).get("base_url", "") 
 _HCM_PRESET_TOKEN = (_HCM_WL.get("token", "") or "").strip()
 
 
+def _cf_is_session_err(status, errcode, errmsg) -> bool:
+    """判定一次认证失败是否属于「会话类」（token 失效 / 未登录 / 登录过期）。
+
+    会话类失败才触发重登刷新凭证；平台 5xx / 连接 / 超时 / 普通 4xx 不属于会话类，
+    不应误判为 token 失效（否则会把平台抖动误触发无效重登）。
+    """
+    return status in (401, 403) or errcode == 17003 or any(
+        k in str(errmsg) for k in ("未登录", "登录过期", "未授权", "unauthorized", "请先登录")
+    )
+
+
+def _cf_token_stale(v: "dict") -> "bool":
+    """判断缓存凭证是否可能已过期（供前端提示刷新）。
+
+    - 已有凭证但最近刷新失败（last_error 非空）→ 大概率已失效。
+    - 距上次成功获取超过 24 小时 → 视为可能过期（平台会话有效期未知，取保守阈值）。
+    """
+    if not isinstance(v, dict):
+        return True
+    if v.get("last_error") and (v.get("token") or v.get("cookie")):
+        return True
+    ts = v.get("ts") or ""
+    if not ts:
+        return False
+    try:
+        st = time.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        age_h = (time.time() - time.mktime(st)) / 3600.0
+    except Exception:
+        return False
+    return age_h >= 24
+
+
 @app.get("/api/cf/tokens")
 async def api_cf_tokens():
     """返回已缓存的 CF 账号 token 状态（token 仅掩码展示，绝不返回明文）。"""
@@ -1843,6 +1911,7 @@ async def api_cf_tokens():
             "need_captcha": bool(v.get("need_captcha")),
             "last_error": v.get("last_error", "") or "",
             "ts": v.get("ts", "") or "",
+            "stale": _cf_token_stale(v),
         })
     return {"tokens": out}
 

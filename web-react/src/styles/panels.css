@@ -1379,6 +1379,12 @@
 .cf-token-hint.ok { color: #1a7f37; }
 .cf-token-hint.warn { color: #b58105; }
 .cf-token-hint.err { color: var(--danger); }
+.cf-token-retry {
+  margin-left: 6px;
+  vertical-align: baseline;
+  padding: 1px 8px;
+  font-size: 11px;
+}
 .cf-cfg-field--captcha {
   flex: 0 0 auto;
   min-width: 150px;

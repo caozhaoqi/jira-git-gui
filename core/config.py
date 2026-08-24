@@ -193,7 +193,10 @@ def load_merge_config(project_root: "Optional[Path]" = None) -> "dict":
 # --------------------------------------------------------------------------- #
 #  云函数账号本地配置（含真实密码，绝不可提交到 git）
 # --------------------------------------------------------------------------- #
-def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
+_CF_ACCOUNTS_CACHE: "Optional[list[dict]]" = None
+
+
+def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False) -> "list[dict]":
     """从 cf_accounts.local.json 读取云函数账号列表（含密码）。
 
     该文件必须放在本地且已被 .gitignore 忽略（cf_accounts.local.json），
@@ -201,8 +204,13 @@ def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
     无真实密码）。server_url / username / password 允许为空字符串（前端会提示
     填写，不强制剔除占位项）。
 
+    结果在内存中缓存（force=True 时失效重读），避免自动登录/按需重登时反复读盘。
+
     返回: [{"name", "server_url", "username", "password"}, ...]
     """
+    global _CF_ACCOUNTS_CACHE
+    if not force and _CF_ACCOUNTS_CACHE is not None:
+        return _CF_ACCOUNTS_CACHE
     roots = _env_search_roots(project_root)
     local = None
     example = None
@@ -223,10 +231,12 @@ def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
                 break
     src = local or example
     if src is None:
+        _CF_ACCOUNTS_CACHE = []
         return []
     try:
         data = json.loads(src.read_text(encoding="utf-8"))
     except Exception:
+        _CF_ACCOUNTS_CACHE = []
         return []
     raw = data.get("accounts", []) if isinstance(data, dict) else data
     if not isinstance(raw, list):
@@ -242,7 +252,14 @@ def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),
         })
+    _CF_ACCOUNTS_CACHE = out
     return out
+
+
+def clear_cf_accounts_cache() -> None:
+    """账号配置变更后使内存缓存失效（如运行时修改了 cf_accounts.local.json 后想重新读取）。"""
+    global _CF_ACCOUNTS_CACHE
+    _CF_ACCOUNTS_CACHE = None
 
 
 # --------------------------------------------------------------------------- #

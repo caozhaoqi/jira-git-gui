@@ -126,6 +126,7 @@ export function CfPanel() {
       const d = await apiGet<{ tokens?: Array<{
         server_url: string; has_token: boolean; token_masked: string;
         need_captcha: boolean; last_error: string; name: string;
+        ts: string; stale: boolean;
       }> }>('/api/cf/tokens');
       const map: Record<string, any> = {};
       (d.tokens || []).forEach((tk) => { map[tk.server_url] = tk; });
@@ -368,7 +369,18 @@ export function CfPanel() {
         /* 拉取失败时降级：对已加载的数据排序并提示 */
       }
     } catch (ex: any) {
-      setStatus({ text: `查询失败：${ex.message}`, cls: 'error' });
+      const msg = ex?.message || String(ex);
+      // P2-⑧：手填 Token 失败时给出明确引导。识别会话失效 / 格式异常类错误，
+      // 引导用户改用「自动获取」缓存 cookie 或重新登录，而非只报红。
+      if (cfg.token.trim()) {
+        const sessionLike = /token 可能已失效|未登录|登录过期|未授权|unauthorized|格式异常|疑似 HTML|验证码片段/i.test(msg);
+        if (sessionLike) {
+          setStatus({ text: `查询失败：${msg}\n${t('cf.tokenHandFillGuide')}`, cls: 'error' });
+          setResult(null);
+          return;
+        }
+      }
+      setStatus({ text: `查询失败：${msg}`, cls: 'error' });
       setResult(null);
     } finally {
       setBusy('query', false);
@@ -584,12 +596,41 @@ export function CfPanel() {
                 {(() => {
                   const tk = tokenMap[cfg.server_url.trim()];
                   if (!tk) return null;
+                  const ageText = (() => {
+                    if (!tk.ts) return '';
+                    const diffMs = Date.now() - new Date(tk.ts.replace(/-/g, '/')).getTime();
+                    if (isNaN(diffMs) || diffMs < 0) return '';
+                    const h = Math.floor(diffMs / 3600000);
+                    if (h < 1) return `（${Math.max(1, Math.floor(diffMs / 60000))} 分钟前）`;
+                    if (h < 24) return `（${h} 小时前）`;
+                    return `（${Math.floor(h / 24)} 天前）`;
+                  })();
+                  const RetryBtn = (
+                    <button
+                      className="btn btn-ghost btn-xs cf-token-retry"
+                      onClick={autoGetTokens}
+                      disabled={autoLogin.running}
+                      title={t('cf.autoGetTokenHint')}
+                    >
+                      🔄 {t('cf.retry')}
+                    </button>
+                  );
+                  if (tk.has_token && tk.stale)
+                    return (
+                      <span className="cf-token-hint warn">
+                        ✓ {t('cf.tokenCached')}{ageText} {t('cf.tokenStale')} {RetryBtn}
+                      </span>
+                    );
                   if (tk.has_token)
-                    return <span className="cf-token-hint ok">✓ {t('cf.tokenCached')}</span>;
+                    return <span className="cf-token-hint ok">✓ {t('cf.tokenCached')}{ageText}</span>;
                   if (tk.need_captcha)
                     return <span className="cf-token-hint warn">{t('cf.tokenNeedCaptcha')}</span>;
                   if (tk.last_error)
-                    return <span className="cf-token-hint err">{t('cf.tokenLoginFailed')}：{tk.last_error}</span>;
+                    return (
+                      <span className="cf-token-hint err">
+                        {t('cf.tokenLoginFailed')}：{tk.last_error} {RetryBtn}
+                      </span>
+                    );
                   return null;
                 })()}
               </div>
