@@ -17,13 +17,10 @@ export function K8sShell() {
   const [containers, setContainers] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
   const [cwd, setCwd] = useState('/');
-  const [input, setInput] = useState('');
 
   const termRef = useRef<HTMLDivElement | null>(null);
   const termObj = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const historyRef = useRef<string[]>([]);
-  const histIdxRef = useRef(0);
   const cwdRef = useRef('/'); // 始终与状态同期、供 send 使用
 
   useEffect(() => { cwdRef.current = cwd; }, [cwd]);
@@ -41,12 +38,26 @@ export function K8sShell() {
     term.loadAddon(fit);
     term.open(termRef.current);
     try { fit.fit(); } catch { /* noop */ }
-    // xterm 在此仅作为読み取り専用出力領域；コマンドは下部 input 框から統一入力、
-    // xterm フォーカスと input 框が同時応答して重複送信 / カーソル混乱するのを回避。
-    term.attachCustomKeyEventHandler(() => false);
-    termObj.current = { term, fit };
-    const onResize = () => { try { fit.fit(); } catch { /* noop */ } };
+    // TTY 模式：xterm 直接接受键盘输入并转发给后端 pty（支持 vim / htop 全屏交互）
+    term.onData((data) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try { ws.send(JSON.stringify({ type: 'input', data })); } catch { /* noop */ }
+      }
+    });
+    const sendResize = () => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        } catch { /* noop */ }
+      }
+    };
+    const onResize = () => {
+      try { fit.fit(); sendResize(); } catch { /* noop */ }
+    };
     window.addEventListener('resize', onResize);
+    termObj.current = { term, fit };
     return () => {
       window.removeEventListener('resize', onResize);
       disconnect();
@@ -87,7 +98,7 @@ export function K8sShell() {
     if (!tgt.pod) { addToast(t('k8s.shell.pickPodFirst'), 'warn'); return; }
     if (wsRef.current) { try { wsRef.current.close(); } catch { /* noop */ } }
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const q = new URLSearchParams({ env: target.env, pod: tgt.pod });
+    const q = new URLSearchParams({ env: target.env, pod: tgt.pod, tty: '1' });
     if (tgt.container) q.set('container', tgt.container);
     if (tgt.namespace) q.set('namespace', tgt.namespace);
     let ws: WebSocket;
@@ -110,7 +121,20 @@ export function K8sShell() {
         setConnected(true);
         termObj.current?.term.clear();
         termObj.current?.term.writeln(`${t('k8s.shell.connectedAs', { pod: tgt.pod + (tgt.container ? '/' + tgt.container : '') })} · ${t('k8s.shell.cwd')} ${cwdRef.current}`);
-        termObj.current?.term.write(`${cwdRef.current} $ `);
+        if (m.tty) {
+          // TTY 模式：等远程 shell 的 prompt，无本地 prompt；通知后端终端尺寸
+          const fit = termObj.current?.fit;
+          try { fit?.fit(); } catch { /* noop */ }
+          try {
+            ws.send(JSON.stringify({
+              type: 'resize',
+              cols: termObj.current?.term.cols ?? 80,
+              rows: termObj.current?.term.rows ?? 24,
+            }));
+          } catch { /* noop */ }
+        } else {
+          termObj.current?.term.write(`${cwdRef.current} $ `);
+        }
       } else if (m.type === 'output') {
         const text = m.data || '';
         // 后端 cwd 跟踪标记可能泄露到出力ストリーム、前端でもう一度フィルタして表示させない
@@ -142,41 +166,6 @@ export function K8sShell() {
     setConnected(false);
   }
 
-  const send = useCallback(() => {
-    const val = input.trim();
-    if (!val || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    // Windows 習慣互換：cls を clear にマップ
-    const cmd = val.toLowerCase() === 'cls' ? 'clear' : val;
-    if (cmd === 'clear') {
-      termObj.current?.term.clear();
-      termObj.current?.term.write(`${cwdRef.current} $ `);
-    } else {
-      // ローカルでコマンドをエコー、非対話 sh はユーザ入力をエコーしないため
-      termObj.current?.term.writeln(`\r\n${cwdRef.current} $ ${cmd}`);
-    }
-    wsRef.current.send(JSON.stringify({ type: 'cmd', data: cmd + '\n' }));
-    historyRef.current.push(val);
-    histIdxRef.current = historyRef.current.length;
-    setInput('');
-  }, [input]);
-
-  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { send(); }
-    else if (e.key === 'ArrowUp') {
-      if (historyRef.current.length && histIdxRef.current > 0) {
-        histIdxRef.current--;
-        setInput(historyRef.current[histIdxRef.current] || '');
-        e.preventDefault();
-      }
-    } else if (e.key === 'ArrowDown') {
-      if (histIdxRef.current < historyRef.current.length - 1) {
-        histIdxRef.current++;
-        setInput(historyRef.current[histIdxRef.current] || '');
-        e.preventDefault();
-      } else { histIdxRef.current = historyRef.current.length; setInput(''); e.preventDefault(); }
-    }
-  };
-
   return (
     <div className="k8s-shell">
       <div className="k8s-shell-connbar" style={{ display: 'flex' }}>
@@ -194,16 +183,8 @@ export function K8sShell() {
         <button className="btn btn-sm btn-ghost" onClick={disconnect} disabled={!connected}>{t('k8s.shell.disconnect')}</button>
       </div>
       <div className="k8s-shell-term" ref={termRef} />
-      <div className="k8s-shell-inputbar">
-        <span className="k8s-shell-prompt-inline">{cwd} $ </span>
-        <input
-          className="k8s-shell-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKey}
-          disabled={!connected}
-          placeholder={connected ? t('k8s.shell.inputPlaceholder') : t('k8s.shell.connectFirst')}
-        />
+      <div className="k8s-shell-tip">
+        TTY 模式：直接在终端中输入命令，支持 vim / top / htop 等全屏程序
       </div>
     </div>
   );

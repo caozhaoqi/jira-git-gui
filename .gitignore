@@ -53,7 +53,11 @@ deliverables/
 *.DS_Store
 *.DS_Store.DS_Store
 
-hcm_whitelist.json
-config/hcm_whitelist.json
+# 白名单：占位模板可提交；含真实 IP/域名的 .local 文件禁止入库
+hcm_whitelist.local.json
+config/hcm_whitelist.local.json
 
 web-react/node_modules/
+
+web/
+docs/HCM_OBJECT_BROWSER.md

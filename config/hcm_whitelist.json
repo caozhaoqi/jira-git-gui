@@ -1,5 +1,5 @@
 {
-  "_comment": "HCM 平台连接业务白名单（可提交 git 的模板）。敏感连接值（服务器 IP、真实域名）以占位符呈现，真实值见同目录 hcm_whitelist.local.json（已 gitignore）。本文件保持占位可入库，local 文件覆盖真实值。代码统一从本文件读取，不再硬编码。",
+  "_comment": "平台连接业务白名单（可提交 git 的模板）。敏感连接值（服务器 IP、真实域名）以占位符呈现，真实值见同目录 hcm_whitelist.local.json（已 gitignore）。本文件保持占位可入库，local 文件覆盖真实值。代码统一从本文件读取，不再硬编码。",
   "hcminner": {
     "_comment": "内部 OpenAPI 鉴权头：Bearer token 之外需额外带此头，值固定为 '1'，改了平台会拒。",
     "header": "hcminner",

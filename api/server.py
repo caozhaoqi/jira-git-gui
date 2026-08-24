@@ -51,6 +51,20 @@ from api.schemas import (
 # --------------------------------------------------------------------------- #
 app = FastAPI(title="Jira Git GUI API", version="2.0")
 
+
+# 全局异常处理：任何未捕获的 500 都把完整 traceback 写入日志，并向前端
+# 返回结构化 detail（含异常类型与消息），避免前端只看到「Internal Server Error」。
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request, exc):
+    import traceback as _tb
+    tb_text = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+    logger.error("未捕获异常: %s %s\n%s", request.method, request.url.path, tb_text)
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}", "traceback": tb_text[-2000:]},
+    )
+
 # 客户端单例
 client = JiraGitClient()
 
@@ -1149,7 +1163,7 @@ async def api_cf_accounts():
 
 import httpx
 
-# HCM 平台连接业务白名单（改了会连不上平台）：统一从 hcm_whitelist.json 读取，不再硬编码。
+# 平台连接业务白名单（改了会连不上平台）：统一从 hcm_whitelist.json 读取，不再硬编码。
 # 含 hcminner 鉴权头、真实日志查询接口路径、参考项目名、真实平台域名。
 _HCM_WL = load_hcm_whitelist()
 _HCM_HCMINNER_HEADER = _HCM_WL["hcminner"].get("header", "hcminner")
@@ -1193,7 +1207,6 @@ def _new_cf_client(req_proxy: str, existing_cookies=None):
 async def api_cf_captcha(req: CfCaptchaReq):
     """获取 CF 登录图片验证码。
 
-    参考 hcm-cloud-vue 前端源码：验证码图片端点为 /img/imagevalidatecode?index={index}&v={random}，
     登录时需回传同一个 image_code_index + 用户输入的 image_code。
     返回：{captcha_id, image_code_index, image: "data:image/xxx;base64,xxxxx"}
     """
@@ -1278,7 +1291,6 @@ async def api_cf_logs(req: CfLogReq):
     base = req.server_url.rstrip("/")
     url = f"{base}{_HCM_MODEL_LIST_API}"
     base_headers_json = {"Content-Type": "application/json"}
-    # 参考 hcm-core/test/test_avoid_check.py: dynamic_log 用 filter_dict + 直接值（非 advance_filter_dict + {eq}）
     filter_dict = {}
     if req.log_type:
         filter_dict["log_type"] = req.log_type
@@ -1551,6 +1563,234 @@ async def api_cf_login(req: CfLoginReq):
     except Exception as e:
         logger.exception(f"[CF] 登录异常: {e}")
         raise HTTPException(500, f"登录失败: {type(e).__name__}: {e}")
+
+
+# --------------------------------------------------------------------------- #
+#  浏览器前端跑在 http://127.0.0.1:8787/web/，直接 fetch 目标平台网关
+#  会因 CORS（后端未回 Access-Control-Allow-Origin）而 "Failed to fetch"。
+#  这里在同源后端加一个转发代理：前端只跟 8787 通信，由本进程转发到 平台，
+#  并注入用户配置的 token（经 X-HCM-Token 头）。浏览器全程零跨域。
+#  代理目标网关基址来自 config/hcm_whitelist.local.json（真实值，已 gitignore），
+#  回退占位见 config/hcm_whitelist.json。
+# --------------------------------------------------------------------------- #
+_HCM_PROXY_TARGET = (_HCM_WL.get("proxy_target", {}) or {}).get("base_url", "") or ""
+# 预置 token（可选）：配置在 hcm_whitelist.local.json 的 token 字段，本地不入库。
+# 前端未显式传 X-HCM-Token 时由代理自动注入，避免每次手动填写。
+_HCM_PRESET_TOKEN = (_HCM_WL.get("token", "") or "").strip()
+
+
+@app.get("/api/hcm/envs")
+async def hcm_envs():
+    """返回可选服务器环境列表，供前端 HCM 对象浏览器「选择服务器」。
+
+    数据来源：
+      - 云函数账号配置 cf_accounts.local.json（仅暴露 name + server_url，密码不返回）
+      - HCM 代理目标 hcm_whitelist.local.json 的 proxy_target.base_url
+    每个环境标记 has_preset_token：HCM 配置中若存在 token 字段则为 true，
+    前端据此提示「可从配置加载 token」。密码等敏感字段一律不出现在本响应中。
+    """
+    envs: list[dict] = []
+    seen = set()
+
+    if _HCM_PROXY_TARGET:
+        envs.append({
+            "key": "hcm_proxy",
+            "name": "代理（同源）",
+            "server_url": _HCM_PROXY_TARGET,
+            "source": "hcm_whitelist",
+            "has_preset_token": bool(_HCM_PRESET_TOKEN),
+        })
+        seen.add(_HCM_PROXY_TARGET)
+
+    # 2) 云函数账号（同名服务器去重，仅取 server_url 非空项）
+    try:
+        cf_accounts = load_cf_accounts() or []
+    except Exception:
+        cf_accounts = []
+    for acc in cf_accounts:
+        url = (acc.get("server_url") or "").strip()
+        if not url or url in seen:
+            continue
+        envs.append({
+            "key": f"cf:{url}",
+            "name": acc.get("name", url),
+            "server_url": url,
+            "source": "cf_accounts",
+            "has_preset_token": False,  # 云函数用账号密码登录，无预置 token
+        })
+        seen.add(url)
+
+    return {"envs": envs}
+
+
+@app.api_route(
+    "/hcm-api/{api_name:path}",
+    methods=["GET", "POST", "OPTIONS"],
+)
+async def hcm_proxy(api_name: str, request: Request):
+    """
+    同源代理：转发到  平台 OpenAPI 网关 /api/<api_name>。
+
+    鉴权 token 通过请求头 X-HCM-Token 传入（不再走 URL query，避免落入访问日志/浏览器历史）。
+    若前端未传该头，则自动使用配置中的预置 token（config/hcm_whitelist.local.json 的 token 字段）。
+    查询参数：
+      - model：可选，拼到 ?model= 上（与 hcm.model.meta 等接口配合）。
+    请求体：原样透传前端加密后的 {hcm_transfer_strategy, hcm_param, s3h}。
+    响应体：原样回传 平台 的加密响应，由前端解密。
+    """
+    from fastapi.responses import Response
+
+    if not _HCM_PROXY_TARGET:
+        raise HTTPException(
+            500,
+            "HCM 代理目标未配置：请在 config/hcm_whitelist.local.json 设置 proxy_target.base_url（或环境变量 HCM_PROXY_TARGET）",
+        )
+
+    token = (request.headers.get("X-HCM-Token", "") or "").strip() or _HCM_PRESET_TOKEN
+    model = request.query_params.get("model", "")
+    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}"
+    if model:
+        target += f"?model={model}"
+
+    # 读取请求体（前端已加密，直接透传）
+    body = await request.body()
+
+    headers = {"Content-Type": "application/json"}
+    cookies = {"token": token} if token else {}
+
+    # 详细日志：token 来源 / body 大小 / api 名 — 便于判断 500 是网关还是本后端
+    logger.info(
+        "[代理] %s → %s token=%s body=%dB",
+        api_name, target, "header" if request.headers.get("X-HCM-Token") else "preset", len(body),
+    )
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.post(target, content=body, headers=headers, cookies=cookies)
+        # 网关响应日志：状态 + body 前 600 字节（500 时能直接看出是否网关返回的 traceback）
+        logger.info(
+            "[代理] 网关响应 %s len=%dB head=%s",
+            resp.status_code, len(resp.content), resp.content[:600].decode("utf-8", "replace"),
+        )
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+    except httpx.ConnectError as e:
+        raise HTTPException(502, f"无法连接 HCM 服务器 {_HCM_PROXY_TARGET}: {e}")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "连接 HCM 服务器超时")
+    except Exception as e:
+        logger.exception(f"[HCM] 代理异常: {e}")
+        raise HTTPException(500, f"HCM 代理失败: {type(e).__name__}: {e}")
+
+
+class HcmDirectReq(BaseModel):
+    """直连请求：由后端直接用与前端一致的加解密直连 HCM 网关并解密响应。"""
+    api_name: str = "hcm.paas.object.list"
+    params: dict = {}
+    token: str = ""                # 空则用预设 token（hcm_whitelist.local.json）
+    model: str = ""                # 可选，拼到 ?model=
+
+
+@app.post("/api/hcm/direct")
+async def hcm_direct(req: HcmDirectReq):
+    """「能直连就走直连」：绕过 /hcm-api/ 透传链，由后端直接 POST HCM 网关。
+
+    复用 scripts/hcm_direct.py 的加解密实现（与前端 crypto.ts 字节级一致）：
+    加密 params → 签名 → POST {base_url}/api/{api_name} → 解密 hb5 响应返回明文。
+    每次调用写详细日志（URL / body 大小 / 网关状态 / 解密结果），
+    网关 500 时返回 traceback 文本便于定位（不会误报为前端加解密错误）。
+    """
+    import importlib.util as _ilu
+    import base64 as _b64
+
+    # 加载直连实现（scripts/hcm_direct.py，含 KEY/IV/AES/SM3/encrypt/sign/decrypt）
+    _spec = _ilu.spec_from_file_location(
+        "hcm_direct_core", str(_PROJECT_ROOT / "scripts" / "hcm_direct.py"))
+    _hd = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_hd)
+
+    if not _HCM_PROXY_TARGET:
+        raise HTTPException(500, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url）")
+
+    token = req.token.strip() or _HCM_PRESET_TOKEN
+    if not token:
+        raise HTTPException(400, "未提供 token 且预设 token 为空，请先配置 token 或传入 token")
+
+    api_name = req.api_name.strip() or "hcm.paas.object.list"
+    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}"
+    if req.model:
+        target += f"?model={req.model}"
+
+    hp = _hd.encrypt_param(req.params)
+    body = json.dumps({
+        "hcm_transfer_strategy": "ha",
+        "hcm_param": hp,
+        "s3h": _hd.sign_param(hp),
+    }).encode("utf-8")
+
+    logger.info("[直连] %s → %s body=%dB token=%s", api_name, target, len(body),
+                "preset" if not req.token.strip() else "provided")
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.post(
+                target, content=body,
+                headers={"Content-Type": "application/json"},
+                cookies={"token": token} if token else {},
+            )
+    except httpx.ConnectError as e:
+        logger.error("[HCM直连] 无法连接 %s: %s", _HCM_PROXY_TARGET, e)
+        raise HTTPException(502, f"无法连接 HCM 服务器 {_HCM_PROXY_TARGET}: {e}")
+    except httpx.TimeoutException:
+        logger.error("[HCM直连] 请求超时 %s", target)
+        raise HTTPException(504, "连接 HCM 服务器超时")
+
+    raw_text = resp.content.decode("utf-8", "replace")
+    logger.info("[HCM直连] 网关响应 %s len=%dB head=%s",
+                resp.status_code, len(resp.content), raw_text[:600])
+
+    if resp.status_code >= 400:
+        # 网关 500 常直接返回自身 Python traceback（如 dictionary update …）——原样透出便于定位
+        raise HTTPException(resp.status_code, f"HCM 网关 HTTP {resp.status_code}: {raw_text[:1500]}")
+
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        logger.error("[HCM直连] 网关返回非 JSON: %s", raw_text[:800])
+        raise HTTPException(502, f"HCM 直连响应非 JSON（可能网关异常页）: {raw_text[:800]}")
+
+    # 网关返回业务错误时，响应体不含 hcm_param 且不含 result（如 token 失效 51006、
+    # 规则校验 40016 等），应把错误体原样透传给前端（显示明确的 51006 提示），而非崩溃。
+    # 注意：本网关部分接口（如 hcm.paas.object.list）直接返回明文 {"result": {...}}，
+    # 不带 hcm_param 加密字段——这种情况属于「成功」，应直接取 result。
+    has_result = isinstance(data, dict) and "result" in data
+    has_encrypted = isinstance(data, dict) and "hcm_param" in data
+    if not has_result and not has_encrypted:
+        errcode = data.get("errcode") if isinstance(data, dict) else None
+        errmsg = (
+            data.get("errmsg")
+            or data.get("message")
+            or data.get("description")
+            or raw_text[:300]
+        )
+        hint = "（请重新获取 HCM 登录 Token 后填入）" if errcode == 51006 else ""
+        logger.warning("[HCM直连] 网关返回业务错误 errcode=%s msg=%s", errcode, errmsg)
+        raise HTTPException(
+            200 if errcode else resp.status_code,
+            f"HCM 网关错误 {errcode or ''}: {errmsg}{hint}",
+        )
+
+    # 取业务结果：明文 result 直接取；加密响应则解密 hcm_param（与前端 decryptParam 一致）。
+    if has_result:
+        result = data["result"]
+        logger.info("[HCM直连] 明文响应，直接取 result=%s", type(result).__name__)
+    else:
+        inner = _hd.decrypt_param(data["hcm_param"], data.get("hcm_transfer_strategy", "hb5"))
+        result = inner.get("result", inner) if isinstance(inner, dict) else inner
+        logger.info("[HCM直连] 解密成功 result=%s", type(result).__name__)
+    return {"ok": True, "data": result}
 
 
 # --------------------------------------------------------------------------- #

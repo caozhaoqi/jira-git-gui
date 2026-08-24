@@ -246,44 +246,66 @@ def load_cf_accounts(project_root: "Optional[Path]" = None) -> "list[dict]":
 
 
 # --------------------------------------------------------------------------- #
-#  HCM 平台连接业务白名单（无敏感信息，可提交到 git，属于“改了会连不上平台”的
+#  平台连接业务白名单（无敏感信息，可提交到 git，属于“改了会连不上平台”的
 #  保留项：hcminner 头、真实接口路径、参考项目名、真实平台域名）
 # --------------------------------------------------------------------------- #
 def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
-    """读取 HCM 平台连接业务白名单（无敏感信息，可提交 git，必须原样保留）。
+    """读取 平台连接业务白名单。
 
     白名单项（改了会连不上平台）：
       - hcminner:           内部 OpenAPI 鉴权头 {header, value}
       - model_list_api:     真实日志查询接口路径（POST，拼在 server_url 之后）
       - reference_projects: 参考项目名（cloud-vue / core），合并比对识别用
-      - platform_hosts:     真实平台域名白名单（21qor.hcmcloud.cn 等）
+      - platform_hosts:     真实平台域名白名单（占位，见 .local 覆盖）
+      - proxy_target:       同源代理目标网关基址（占位，见 .local 覆盖）
 
-    从项目根 hcm_whitelist.json 读取。该文件可提交、应保留。
-    找不到文件或解析失败时回退到内置默认值（与当前线上行为一致），
-    保证服务不因配置缺失而中断。
+    加载顺序（后者覆盖前者，敏感值优先来自 .local）：
+      1) 内置 defaults（占位，无真实 IP/域名，可安全提交）
+      2) config/hcm_whitelist.json（跟踪模板，敏感字段为占位符）
+      3) config/hcm_whitelist.local.json（本机真实值，**已 gitignore，不入库**）
+
+    注意：含真实服务器 IP / 域名的连接信息只允许存在于 *.local.json，
+    该文件已被 .gitignore 忽略，请勿将真实值写回跟踪的 hcm_whitelist.json。
+    找不到文件或解析失败时回退到内置默认值，保证服务不因配置缺失中断。
     """
     defaults = {
         "hcminner": {"header": "hcminner", "value": "1"},
         "model_list_api": {"path": "/api/hcm.model.list"},
         "reference_projects": {"names": ["cloud-vue", "core"]},
         "platform_hosts": {
-            "hosts": [
-            ]
+            "hosts": []
         },
+        "proxy_target": {"base_url": ""},
     }
     roots = _env_search_roots(project_root)
+    merged = {k: dict(v) for k, v in defaults.items()}
     for root in roots:
-        for p in (root / "hcm_whitelist.json", root / "config" / "hcm_whitelist.json"):
+        candidates = [
+            root / "hcm_whitelist.json",
+            root / "config" / "hcm_whitelist.json",
+            root / "hcm_whitelist.local.json",
+            root / "config" / "hcm_whitelist.local.json",
+        ]
+        for p in candidates:
             if p.exists():
                 try:
                     data = json.loads(p.read_text(encoding="utf-8"))
                 except Exception:
-                    return defaults
+                    continue
                 if not isinstance(data, dict):
-                    return defaults
-                merged = {k: dict(v) for k, v in defaults.items()}
+                    continue
                 for k, v in data.items():
-                    if k in merged and isinstance(v, dict):
+                    if k in merged and isinstance(v, dict) and isinstance(merged[k], dict):
                         merged[k].update(v)
-                return merged
-    return defaults
+                    else:
+                        merged[k] = v
+    # 环境变量最终覆盖（便于容器/CI 注入，不落盘）
+    env_target = os.environ.get("HCM_PROXY_TARGET", "").strip()
+    if env_target:
+        merged.setdefault("proxy_target", {})["base_url"] = env_target
+    env_hosts = os.environ.get("HCM_PLATFORM_HOSTS", "").strip()
+    if env_hosts:
+        merged.setdefault("platform_hosts", {})["hosts"] = [
+            h.strip() for h in env_hosts.split(",") if h.strip()
+        ]
+    return merged

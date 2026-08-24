@@ -8,6 +8,22 @@ import { copyText } from '../../utils/clipboard';
 import { openLogViewer } from '../../utils/logviewer';
 import { useK8s } from './context';
 
+function CfgChip({ label, value }: { label: string; value?: string | number | boolean }) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'boolean') {
+    return (
+      <span className="k8s-cfg-chip">
+        {label}: {value ? '是' : '否'}
+      </span>
+    );
+  }
+  return (
+    <span className="k8s-cfg-chip">
+      {label}: {value}
+    </span>
+  );
+}
+
 export function K8sSnapshot() {
   const { target, pushLog, openDescribe } = useK8s();
   const addToast = useAppStore((s) => s.addToast);
@@ -24,6 +40,9 @@ export function K8sSnapshot() {
   const [outDir, setOutDir] = useState('');
   const [kubeconfig, setKubeconfig] = useState('');
   const [logLevel, setLogLevel] = useState('INFO');
+
+  const [cfgCollapsed, setCfgCollapsed] = useState(true);
+  const [showStats, setShowStats] = useState(false);
 
   const [running, setRunning] = useState(false);
   const [summary, setSummary] = useState<K8sSummary | null>(null);
@@ -59,6 +78,10 @@ export function K8sSnapshot() {
         if (d.records) setRecords(d.records);
         if (d.out_dir) setOutDirText(d.out_dir);
         if (d.report) setReportUrl('/api/k8s/report');
+        // 抓取完成后自动折叠配置区，突出 Pod 列表
+        if (d.records && Array.isArray(d.records) && d.records.length > 0) {
+          setCfgCollapsed(true);
+        }
       }),
       sse.on('k8s_error', (d: any) => {
         if (!runningRef.current) return;
@@ -124,30 +147,84 @@ export function K8sSnapshot() {
     setSelectedPod(name);
   }, []);
 
+  const openFullLog = useCallback(
+    (name: string) => {
+      if (!name) {
+        addToast(t('k8s.snapshot.pickPod'), 'warn');
+        return;
+      }
+      openLogViewer({ pod: name, env: target.env, namespace: target.namespace });
+    },
+    [addToast, openLogViewer, target.env, target.namespace, t],
+  );
+
   return (
     <div className="k8s-snapshot">
-      <div className="k8s-snapshot-cfg">
-        <div className="cfg-grid">
-          <label>{t('k8s.snapshot.namespace')}<input className="input input-sm" value={namespace} onChange={(e) => setNamespace(e.target.value)} placeholder={t('k8s.snapshot.namespacePh')} /></label>
-          <label>{t('k8s.snapshot.selector')}<input className="input input-sm" value={selector} onChange={(e) => setSelector(e.target.value)} placeholder="label=xxx" /></label>
-          <label>{t('k8s.snapshot.podFilter')}<input className="input input-sm" value={podFilter} onChange={(e) => setPodFilter(e.target.value)} /></label>
-          <label>{t('k8s.snapshot.tail')}<input className="input input-sm" type="number" value={tail} onChange={(e) => setTail(Number(e.target.value))} /></label>
-          <label>{t('k8s.snapshot.restartThreshold')}<input className="input input-sm" type="number" value={restartThreshold} onChange={(e) => setRestartThreshold(Number(e.target.value))} /></label>
-          <label>{t('k8s.snapshot.logLevel')}<input className="input input-sm" value={logLevel} onChange={(e) => setLogLevel(e.target.value)} /></label>
-          <label>{t('k8s.snapshot.outDir')}<input className="input input-sm" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder={t('k8s.snapshot.outDirPh')} /></label>
-          <label>{t('k8s.snapshot.kubeconfig')}<input className="input input-sm" value={kubeconfig} onChange={(e) => setKubeconfig(e.target.value)} placeholder={t('k8s.snapshot.kubeconfigPh')} /></label>
+      <div className={`k8s-snapshot-cfg${cfgCollapsed ? ' collapsed' : ''}`}>
+        <div className="k8s-snapshot-cfg-header">
+          <button
+            className="btn btn-ghost btn-sm k8s-collapse-btn"
+            onClick={() => setCfgCollapsed((c) => !c)}
+            title={cfgCollapsed ? t('k8s.snapshot.expandCfg') : t('k8s.snapshot.collapseCfg')}
+          >
+            <span className={`k8s-collapse-icon ${cfgCollapsed ? 'collapsed' : ''}`}>▼</span>
+            <span>{t('k8s.snapshot.cfgTitle')}</span>
+          </button>
+
+          <div className="k8s-cfg-chips">
+            <CfgChip label={t('k8s.snapshot.namespace')} value={namespace || t('k8s.snapshot.allNamespaces')} />
+            <CfgChip label={t('k8s.snapshot.selector')} value={selector} />
+            <CfgChip label={t('k8s.snapshot.podFilter')} value={podFilter} />
+            <CfgChip label={t('k8s.snapshot.tail')} value={tail} />
+            <CfgChip label={t('k8s.snapshot.logLevel')} value={logLevel} />
+            {allLogs && <CfgChip label={t('k8s.snapshot.allLogs')} value />}
+            {includePrevious && <CfgChip label={t('k8s.snapshot.includePrevious')} value />}
+          </div>
+
+          <div className="spacer" />
+
+          {summary && (
+            <button
+              className={`btn btn-ghost btn-sm${showStats ? ' btn-active' : ''}`}
+              onClick={() => setShowStats((s) => !s)}
+              title={t('k8s.snapshot.toggleStats')}
+            >
+              📊 {summary.total ?? 0}
+            </button>
+          )}
+
+          {!running ? (
+            <button className="btn btn-primary btn-sm" onClick={run} disabled={!target.env}>
+              {t('k8s.snapshot.run')}
+            </button>
+          ) : (
+            <button className="btn btn-sm btn-ghost" onClick={cancel}>
+              {t('k8s.snapshot.cancel')}
+            </button>
+          )}
         </div>
-        <div className="cfg-checks">
-          <label className="chk"><input type="checkbox" checked={allLogs} onChange={(e) => setAllLogs(e.target.checked)} /> {t('k8s.snapshot.allLogs')}</label>
-          <label className="chk"><input type="checkbox" checked={includePrevious} onChange={(e) => setIncludePrevious(e.target.checked)} /> {t('k8s.snapshot.includePrevious')}</label>
-        </div>
-        <div className="action-bar">
-          <button className="btn btn-primary" onClick={run} disabled={running || !target.env} style={{ display: running ? 'none' : '' }}>{t('k8s.snapshot.run')}</button>
-          <button className="btn btn-sm btn-ghost" onClick={cancel} style={{ display: running ? '' : 'none' }}>{t('k8s.snapshot.cancel')}</button>
+
+        <div className="k8s-snapshot-cfg-body">
+          <div className="k8s-snapshot-cfg-body-inner">
+            <div className="cfg-grid">
+              <label>{t('k8s.snapshot.namespace')}<input className="input input-sm" value={namespace} onChange={(e) => setNamespace(e.target.value)} placeholder={t('k8s.snapshot.namespacePh')} /></label>
+              <label>{t('k8s.snapshot.selector')}<input className="input input-sm" value={selector} onChange={(e) => setSelector(e.target.value)} placeholder="label=xxx" /></label>
+              <label>{t('k8s.snapshot.podFilter')}<input className="input input-sm" value={podFilter} onChange={(e) => setPodFilter(e.target.value)} /></label>
+              <label>{t('k8s.snapshot.tail')}<input className="input input-sm" type="number" value={tail} onChange={(e) => setTail(Number(e.target.value))} /></label>
+              <label>{t('k8s.snapshot.restartThreshold')}<input className="input input-sm" type="number" value={restartThreshold} onChange={(e) => setRestartThreshold(Number(e.target.value))} /></label>
+              <label>{t('k8s.snapshot.logLevel')}<input className="input input-sm" value={logLevel} onChange={(e) => setLogLevel(e.target.value)} /></label>
+              <label>{t('k8s.snapshot.outDir')}<input className="input input-sm" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder={t('k8s.snapshot.outDirPh')} /></label>
+              <label>{t('k8s.snapshot.kubeconfig')}<input className="input input-sm" value={kubeconfig} onChange={(e) => setKubeconfig(e.target.value)} placeholder={t('k8s.snapshot.kubeconfigPh')} /></label>
+            </div>
+            <div className="cfg-checks">
+              <label className="chk"><input type="checkbox" checked={allLogs} onChange={(e) => setAllLogs(e.target.checked)} /> {t('k8s.snapshot.allLogs')}</label>
+              <label className="chk"><input type="checkbox" checked={includePrevious} onChange={(e) => setIncludePrevious(e.target.checked)} /> {t('k8s.snapshot.includePrevious')}</label>
+            </div>
+          </div>
         </div>
       </div>
 
-      {summary && (
+      {showStats && summary && (
         <div className="k8s-summary" style={{ display: 'flex' }}>
           <div className="k8s-stat"><div className="n">{summary.total ?? 0}</div><div className="l">{t('k8s.snapshot.statTotal')}</div></div>
           <div className="k8s-stat ok"><div className="n">{summary.ok ?? 0}</div><div className="l">{t('k8s.snapshot.statOk')}</div></div>
@@ -186,6 +263,8 @@ export function K8sSnapshot() {
                     key={r.name + i}
                     className={'k8s-row sev-' + r.sev + (selectedPod === r.name ? ' selected' : '')}
                     onClick={() => selectPod(r.name)}
+                    onDoubleClick={() => openFullLog(r.name)}
+                    title={t('k8s.snapshot.dblOpenLog')}
                   >
                     <td className="k8s-name" title={r.name}>{r.name}</td>
                     <td>{r.phase || '—'}</td>
@@ -211,15 +290,6 @@ export function K8sSnapshot() {
         <div className="k8s-log-title">
           <span>{selectedPod ? `${t('k8s.snapshot.selectedPod')} · ${selectedPod}` : t('k8s.snapshot.pickPodHint')}</span>
           <div className="spacer" />
-          <button
-            className="btn btn-sm btn-primary"
-            title={t('k8s.snapshot.openFullLog')}
-            disabled={!selectedPod}
-            onClick={() => {
-              if (!selectedPod) { addToast(t('k8s.snapshot.pickPod'), 'warn'); return; }
-              openLogViewer({ pod: selectedPod, env: target.env, namespace: target.namespace });
-            }}
-          >⧉ {t('k8s.snapshot.openFullLog')}</button>
           <button
             className="btn btn-sm btn-ghost"
             title={t('k8s.snapshot.describe')}

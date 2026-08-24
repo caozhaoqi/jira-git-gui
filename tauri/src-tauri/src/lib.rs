@@ -504,6 +504,88 @@ pub fn run() {
 
             log_main(&app_handle, &log_file, "Window created.", "info");
 
+            // ---- 进程守卫：后端意外退出（OOM / 异常 / 崩溃）时自动重启 ----
+            // 指数退避 1.5s→3s→6s→12s→24s，最多连续重启 8 次；恢复成功后计数归零。
+            // 主动清理（kill_backend / RunEvent::Exit）时 BackendProcess 被 take 置 None，
+            // watcher 检测到 None 即退出，不会误重启。
+            {
+                let h = app_handle.clone();
+                let root = project_root.clone();
+                let ddir = data_dir.clone();
+                let rdir = resource_dir.clone();
+                let lf = log_file.clone();
+                std::thread::spawn(move || {
+                    let mut restarts: u32 = 0;
+                    loop {
+                        std::thread::sleep(Duration::from_millis(800));
+                        // 检测后端是否已退出（仅在 state 仍持有 child 时才算“意外退出”）
+                        let exited = {
+                            let Some(st) = h.try_state::<BackendProcess>() else { break };
+                            let Ok(mut g) = st.0.lock() else { break };
+                            match g.as_mut() {
+                                None => break, // 主动清理，watcher 退出
+                                Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+                            }
+                        };
+                        if !exited {
+                            continue;
+                        }
+                        restarts += 1;
+                        if restarts > 8 {
+                            log_main(&h, &lf,
+                                &format!("Backend crashed {} times consecutively, giving up auto-restart.", restarts),
+                                "error");
+                            break;
+                        }
+                        let delay_ms = 1500u64 * 2u64.pow(restarts - 1).min(16);
+                        log_main(&h, &lf,
+                            &format!("Backend exited, restarting in {}s (attempt {}/{})",
+                                delay_ms / 1000, restarts, 8),
+                            "warn");
+                        std::thread::sleep(Duration::from_millis(delay_ms));
+
+                        // 清掉已死的 child，再启动新进程
+                        if let Some(st) = h.try_state::<BackendProcess>() {
+                            if let Ok(mut g) = st.0.lock() {
+                                g.take();
+                            }
+                        }
+                        match start_backend(&root, &ddir, &rdir, port) {
+                            Ok(mut new_child) => {
+                                pipe_child_output(&mut new_child, h.clone(), lf.clone());
+                                if let Some(st) = h.try_state::<BackendProcess>() {
+                                    if let Ok(mut g) = st.0.lock() {
+                                        *g = Some(new_child);
+                                    }
+                                }
+                                let ok = tauri::async_runtime::block_on(async {
+                                    tokio::time::timeout(
+                                        Duration::from_secs(15),
+                                        wait_for_backend(30, port),
+                                    )
+                                    .await
+                                    .map_err(|_| "timeout".to_string())
+                                    .and_then(|r| r)
+                                });
+                                if ok.is_ok() {
+                                    log_main(&h, &lf, "Backend auto-restarted successfully.", "info");
+                                    restarts = 0; // 恢复成功，重置计数
+                                } else {
+                                    log_main(&h, &lf,
+                                        &format!("Backend restarted but not ready: {}", ok.unwrap_err()),
+                                        "error");
+                                }
+                            }
+                            Err(e) => {
+                                log_main(&h, &lf,
+                                    &format!("Backend auto-restart failed to spawn: {}", e),
+                                    "error");
+                            }
+                        }
+                    }
+                });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_app_info, log_message])

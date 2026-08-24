@@ -93,7 +93,6 @@ export function RepoList() {
       <div className="panel-header">
         <h2 className="section-title">{t('repo.title')}</h2>
       </div>
-      <p className="hint">{t('app.connectHint')}</p>
       <div className="repo-toolbar">
         <input
           className="input repo-search-input"
@@ -102,10 +101,7 @@ export function RepoList() {
           onChange={(e) => setKeyword(e.target.value)}
         />
         <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
-          {busy ? t('common.loading') : t('repo.title')}
-        </button>
-        <button className="btn" onClick={() => selectedRepo && openRepo(selectedRepo)} disabled={!selectedRepo}>
-          {t('repo.fileTree')}
+          {busy ? t('common.loading') : `🔄 ${t('repo.discover')}`}
         </button>
       </div>
       <div className="repo-list">
