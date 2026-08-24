@@ -266,7 +266,7 @@ Two released desktop flavors, both embedding the same frozen Python backend:
 | Electron desktop app | `electron/` | electron-builder (embeds frozen backend) | `.dmg` (macOS) / `.exe` (Windows, nsis) / `.AppImage`+`.deb` (Linux) |
 | Tauri desktop app | `tauri/` | `cargo tauri build` (embeds frozen backend) | `.app`+`.dmg` (macOS) / `.msi` (Windows) / `.AppImage`+`.deb` (Linux) |
 
-**Key constraint**: neither electron-builder nor `cargo tauri` supports cross-compilation — each platform's artifact must be built on that OS. A `.github/workflows/release.yml` auto-builds on macOS / Windows / Ubuntu runners when a `vX.Y.Z` tag is pushed.
+**Cross-compilation notes (verified 2026-08 on Apple Silicon)**: Electron can cross-build Windows `.exe` (NSIS) directly from macOS — electron-builder bundles its own NSIS toolchain, no Wine needed. Tauri can also cross-build Windows NSIS from macOS via the experimental GNU target (`x86_64-pc-windows-gnu` + mingw-w64). What still needs a Windows machine / CI runner: `.msi` (WiX) for both flavors, and MSVC-target Tauri builds (officially recommended). See **[docs/PACKAGING.md](docs/PACKAGING.md)** for the full cross-build recipe (mirrors, arch flags, cargo linker config). A `.github/workflows/release.yml` auto-builds on macOS / Windows / Ubuntu runners when a `vX.Y.Z` tag is pushed.
 
 Detailed local build steps, CI flow, artifact table, and signing notes are in **[docs/PACKAGING.md](docs/PACKAGING.md)**.
 
