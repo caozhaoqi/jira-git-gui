@@ -12,9 +12,11 @@ import threading
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket
+from pydantic import BaseModel
 
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -246,7 +248,7 @@ async def api_k8s_env_list():
     data = _k8s_mgr.load_envs()
     return {
         "environments": [
-            {"name": n, **e, "is_current": n == data.get("current")}
+            {"name": n, **(e if isinstance(e, dict) else {}), "is_current": n == data.get("current")}
             for n, e in data["environments"].items()
         ],
         "current": data.get("current"),
@@ -279,6 +281,39 @@ async def api_k8s_env_switch(name: str = ""):
 async def api_k8s_env_delete(name: str = ""):
     data = _k8s_mgr.delete_env(name)
     return {"ok": True, "current": data.get("current")}
+
+
+class K8sEnvImportKubeconfigReq(BaseModel):
+    env: str
+    content: str
+
+
+@router.post("/api/k8s/env/import-kubeconfig")
+async def api_k8s_env_import_kubeconfig(req: K8sEnvImportKubeconfigReq):
+    """把 kubeconfig 内容导入受控目录（~/.config/jira-git-gui/kubeconfigs/，权限 600）。
+
+    解决「kubeconfig 散落在 Downloads 等目录、权限不受控」问题；导入后环境自动指向新路径。
+    """
+    try:
+        path = _k8s_mgr.import_kubeconfig(req.env.strip(), req.content)
+        return {"ok": True, "path": path,
+                "hint": "已导入到受控目录（权限 600），并绑定到环境 " + req.env.strip()}
+    except Exception as ex:  # noqa: BLE001
+        msg = getattr(ex, "message", None) or str(ex)
+        return {"ok": False, "error": msg}
+
+
+@router.get("/api/k8s/env/export")
+async def api_k8s_env_export():
+    """导出全部环境配置（含 kubeconfig 内容），用于团队共享 / 备份 / 迁移。
+
+    注意：kubeconfig 含集群访问凭据（token / 私钥），导出后请妥善保管，
+    仅通过加密通道共享，并遵循最小权限原则。
+    """
+    try:
+        return {"ok": True, **_k8s_mgr.export_envs()}
+    except Exception as ex:  # noqa: BLE001
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
 
 @router.post("/api/k8s/yaml")
@@ -316,7 +351,7 @@ async def api_k8s_network(req: K8sNetworkReq):
     """检测当前到指定环境的网络状况（含内网探测）。"""
     try:
         result = _k8s_mgr.detect_network(req.env, req.extra_hosts or None)
-        return {"ok": True, **result}
+        return {"ok": True, **(result if isinstance(result, dict) else {})}
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
@@ -338,7 +373,7 @@ async def api_k8s_events(
         d = _k8s_mgr.list_events(
             env or "dev", namespace or None, kind or None, name or None,
             int(limit) if limit else 200, bool(all_ns))
-        return {"ok": True, **d}
+        return {"ok": True, **(d if isinstance(d, dict) else {})}
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
@@ -355,7 +390,7 @@ async def api_k8s_describe(
         return {"ok": False, "error": "请指定资源类型(kind)与名称(name)。"}
     try:
         d = _k8s_mgr.describe_resource(env or "dev", kind, name, namespace or None)
-        return {"ok": True, **d}
+        return {"ok": True, **(d if isinstance(d, dict) else {})}
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
@@ -365,7 +400,7 @@ async def api_k8s_top(env: str = "", scope: str = "pods", namespace: str = ""):
     """kubectl top pods/nodes，按内存消耗降序。"""
     try:
         d = _k8s_mgr.get_top(env or "dev", scope or "pods", namespace or None)
-        return {"ok": True, **d}
+        return {"ok": True, **(d if isinstance(d, dict) else {})}
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
@@ -523,6 +558,161 @@ async def api_k8s_file_mkdir(req: K8sFileMkdirReq):
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
 
+async def _ws_k8s_exec_tty(websocket: WebSocket, prefix, kc: str, cwd: str) -> None:
+    """TTY 模式：单条持久 `kubectl exec -it` 会话 + 本地 pty，支持全屏交互程序。
+
+    - 本地 pty（os.openpty）为 kubectl 提供 TTY，从而能分配远程 TTY（-it）；
+    - pty master 读到的字节 → ws {type:'output'}；
+    - ws 收到的 {type:'input'} 写入 pty；{type:'resize'} 更新 winsize；
+    - 断连 / 会话结束：terminate kubectl 并关闭 fd。
+    """
+    import fcntl
+    import struct
+    import termios
+
+    sub_env = _k8s_mgr._kubectl_subprocess_env(dict(os.environ))
+    if kc:
+        sub_env["KUBECONFIG"] = kc
+
+    master_fd, slave_fd = os.openpty()
+    try:
+        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+        # 持久 shell：先 cd 到目标目录，再 exec 交互 shell（stdin 为 tty 时自动交互）。
+        # 优先 bash（自带 readline + Tab 自动补全）；容器无 bash 时回退 sh（2>/dev/null || sh）。
+        argv = list(prefix) + [
+            "-it", "--",
+            "sh", "-c",
+            f"cd {shlex.quote(cwd)} 2>/dev/null; exec bash 2>/dev/null || exec sh",
+        ]
+        kubectl_bin = _k8s_mgr._resolve_kubectl_binary()
+        if argv and argv[0] == "kubectl":
+            argv[0] = kubectl_bin
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=sub_env,
+            start_new_session=True,
+        )
+        os.close(slave_fd)
+        slave_fd = -1
+
+        await websocket.send_json({"type": "ready", "cwd": cwd, "tty": True})
+
+        loop = asyncio.get_running_loop()
+        closing = False
+
+        async def _safe_send(payload: dict) -> None:
+            try:
+                await websocket.send_json(payload)
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _on_pty_read() -> None:
+            nonlocal closing
+            try:
+                data = os.read(master_fd, 8192)
+            except OSError:
+                if not closing:
+                    loop.remove_reader(master_fd)
+                return
+            if not data:
+                if not closing:
+                    loop.remove_reader(master_fd)
+                return
+            # pty 输出是字节流，按 utf-8 容错解码（xterm 端做渲染）
+            text = data.decode("utf-8", "replace")
+            asyncio.create_task(_safe_send({"type": "output", "data": text}))
+
+        loop.add_reader(master_fd, _on_pty_read)
+
+        # 等待进程退出（后台任务），退出后补一条 output 结束标记
+        async def _wait_proc() -> None:
+            nonlocal closing
+            try:
+                await proc.wait()
+            except Exception:  # noqa: BLE001
+                pass
+            closing = True
+            try:
+                loop.remove_reader(master_fd)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+
+        wait_task = asyncio.create_task(_wait_proc())
+
+        try:
+            while True:
+                raw = await websocket.receive_text()
+                try:
+                    msg = json.loads(raw)
+                except Exception:  # noqa: BLE001
+                    msg = {"type": "input", "data": raw}
+                mt = msg.get("type")
+                if mt == "input":
+                    data = msg.get("data", "")
+                    if data:
+                        try:
+                            os.write(master_fd, data.encode("utf-8", "replace"))
+                        except OSError:
+                            pass
+                elif mt == "resize":
+                    cols = max(int(msg.get("cols") or 80), 2)
+                    rows = max(int(msg.get("rows") or 24), 2)
+                    try:
+                        fcntl.ioctl(
+                            master_fd, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", rows, cols, 0, 0),
+                        )
+                    except OSError:
+                        pass
+                elif mt == "disconnect":
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+        finally:
+            closing = True
+            try:
+                loop.remove_reader(master_fd)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=3)
+            except Exception:  # noqa: BLE001
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            wait_task.cancel()
+            try:
+                await wait_task
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+    finally:
+        if slave_fd != -1:
+            try:
+                os.close(slave_fd)
+            except OSError:
+                pass
+    try:
+        await websocket.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @router.websocket("/ws/k8s/exec")
 async def ws_k8s_exec(websocket: WebSocket):
     """交互式 Shell（Xshell 式）。
@@ -531,6 +721,7 @@ async def ws_k8s_exec(websocket: WebSocket):
     之后客户端发送 ``{type:'cmd', data}`` 与 ``{type:'disconnect'}``。
     服务端回 ``{type:'ready', cwd}`` / ``{type:'output', data}`` /
     ``{type:'cwd', cwd}`` / ``{type:'error', msg}``。
+    若 query 带 ``tty=1`` 则走 TTY 模式（持久交互 shell，支持 vim/htop 全屏）。
     """
     await websocket.accept()
     q = websocket.query_params
@@ -567,6 +758,21 @@ async def ws_k8s_exec(websocket: WebSocket):
         await websocket.send_json(
             {"type": "error", "msg": getattr(ex, "message", None) or str(ex)})
         await websocket.close()
+        return
+
+    # TTY 模式（query tty=1 或首条 init.tty）：持久交互 shell + 本地 pty，
+    # 支持 vim / htop / top 等需要 TTY 的全屏程序；消息协议为
+    #   in : {type:'input', data} / {type:'resize', cols, rows} / {type:'disconnect'}
+    #   out: {type:'ready', cwd, tty:true} / {type:'output', data} / {type:'error', msg}
+    if (q.get("tty") or "") == "1":
+        try:
+            await _ws_k8s_exec_tty(websocket, prefix, kc, cwd)
+        except Exception as ex:  # noqa: BLE001
+            try:
+                await websocket.send_json(
+                    {"type": "error", "msg": getattr(ex, "message", None) or str(ex)})
+            except Exception:
+                pass
         return
 
     # 注入 kubectl 所在目录到 PATH（GUI/IDE 启动的进程 PATH 常缺 Homebrew 目录）

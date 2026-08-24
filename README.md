@@ -48,6 +48,9 @@ jira-git-gui/
 ├── run_merge.py            # CLI: merge remote repos' latest code into local (cache-first + sync history)
 ├── scripts/                # Launchers & build scripts (cross-platform: *.sh + *.ps1)
 ├── config/                 # Local config JSON (cf_accounts.*, hcm_whitelist.*) — see .gitignore
+│                           # 安全说明：所有含真实凭证/IP/域名的连接信息只存在于 `*.local.json`
+│                           # （如 config/hcm_whitelist.local.json、config/cf_accounts.local.json），
+│                           # 这些文件已被 .gitignore 忽略、永不入库；仓库内仅保留占位模板。
 ├── tools/k8s_preview.html  # Self-contained demo of the K8s YAML cleaning (no cluster needed)
 ├── requirements.txt        # fastapi / uvicorn / httpx / pyinstaller
 ├── core/                   # Core logic layer (no GUI dependency, independently testable)
@@ -282,4 +285,4 @@ Coverage: resume download, client optimizations (binary download / branch cache 
 - **PyQt6 desktop (`main.py` / `gui/`) is legacy**: no longer a release target; the shipped apps are Electron + Tauri.
 - **Python version**: dev env 3.9 is compatibility-hardened; CI and official packaging recommend **Python ≥ 3.10** (3.11 verified).
 - **Linux runtime deps**: the desktop apps need system libs `libnss3` (Electron) / WebView dev libs (Tauri) etc.
-- **K8s shell is non-TTY**: commands run via `sh -c` pipes (no interactive editor / `top` full-screen); interactive terminals are a P2 roadmap item.
+- **K8s shell session is single-connection TTY**: one Shell tab maps to one `kubectl exec -it` session; disconnecting ends it. For multiple concurrent views use the standalone log viewer window.

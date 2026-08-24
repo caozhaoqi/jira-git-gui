@@ -4,12 +4,12 @@ import { useT } from '../i18n';
 
 const TABS: { key: TabKey; icon: string; labelKey: string }[] = [
   { key: 'repo', icon: '📦', labelKey: 'tab.repo' },
-  // { key: 'commits', icon: '📜', labelKey: 'tab.commits' },
   { key: 'diff', icon: '🔀', labelKey: 'tab.diff' },
   { key: 'logs', icon: '📋', labelKey: 'tab.logs' },
   { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
   { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
   { key: 'clash', icon: '🛰', labelKey: 'tab.clash' },
+  { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
 ];
 
 export function Tabs() {

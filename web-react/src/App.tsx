@@ -16,16 +16,17 @@ import { TopBar } from './components/TopBar';
 import { Tabs } from './components/Tabs';
 import { ActionBar } from './components/ActionBar';
 import { RepoPanel } from './components/RepoPanel';
-import { CommitsPanel } from './components/CommitsPanel';
 import { DiffPanel } from './components/DiffPanel';
 import { K8sPanel } from './components/k8s/K8sPanel';
 import { CfPanel } from './components/CfPanel';
 import { ClashPanel } from './components/ClashPanel';
+import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
+import { HcmModelDetail } from './components/hcm/HcmModelDetail';
 import { ToastStack } from './components/Toast';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
 
-const ACTIONBAR_TABS = new Set(['repo', 'commits', 'diff']);
+const ACTIONBAR_TABS = new Set(['repo']);
 
 export default function App() {
   const setStatus = useAppStore((s) => s.setStatus);
@@ -36,7 +37,31 @@ export default function App() {
   const setNetworkWarning = useAppStore((s) => s.setNetworkWarning);
   const networkWarning = useAppStore((s) => s.networkWarning);
   const activeTab = useAppStore((s) => s.activeTab);
+  const setTab = useAppStore((s) => s.setTab);
   const [connectOpen, setConnectOpen] = useState(false);
+
+  // 双击对象打开的新窗口带 ?hcm-model=<id>&hcm-detail=1：直接渲染独立模型详情页，
+  // 不加载主应用外壳（TopBar/Tabs），保持轻量独立窗口。
+  const isDetailWindow = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('hcm-detail');
+  if (isDetailWindow) {
+    return (
+      <div className="app-shell app-shell--detail">
+        <main className="workspace">
+          <div className="workspace-body">
+            <HcmModelDetail />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // 双击对象打开的新窗口带 ?hcm-model=<id>，自动切到 HCM 面板以触发自动定位
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('hcm-model')) {
+      setTab('hcm');
+    }
+  }, [setTab]);
 
   useEffect(() => {
     apiGet<StatusResp>('/api/status')
@@ -110,12 +135,12 @@ export default function App() {
           )}
           <div className="workspace-body">
             {activeTab === 'repo' && <RepoPanel />}
-            {activeTab === 'commits' && <CommitsPanel />}
             {activeTab === 'diff' && <DiffPanel />}
             {activeTab === 'logs' && <LogPanel />}
             {activeTab === 'k8s' && <K8sPanel />}
             {activeTab === 'cf' && <CfPanel />}
             {activeTab === 'clash' && <ClashPanel />}
+            {activeTab === 'hcm' && <HcmObjectBrowser />}
           </div>
         </main>
       </div>

@@ -21,6 +21,61 @@ let mainWindow = null;
 let BACKEND_PORT = 8787;
 let BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
+
+// ---- 进程守卫：后端意外退出时自动重启（指数退避） ----
+// OOM / 未捕获异常 / 崩溃都会触发；主动 quit 或用户点击「停止后端」不重启。
+let backendRestartCount = 0;      // 连续重启次数（用于退避与上限）
+let backendRestartTimer = null;   // 退避定时器
+const BACKEND_MAX_RESTARTS = 8;   // 单次会话最多自动重启次数，超过后弹窗提示
+const BACKEND_RESTART_BASE_MS = 1500;
+
+// 退出当前后端进程；restart=false 时仅清理（app 退出场景）
+function stopPythonBackend() {
+  if (backendRestartTimer) {
+    clearTimeout(backendRestartTimer);
+    backendRestartTimer = null;
+  }
+  const p = pyProc;
+  pyProc = null;                  // 置 null 标记「主动停止」，exit 回调不再触发重启
+  if (p && p.exitCode === null && p.signalCode === null) {
+    try { p.kill('SIGTERM'); } catch (_) {}
+  }
+}
+
+function scheduleBackendRestart(code, signal) {
+  if (backendRestartTimer) return; // 已在排队
+  backendRestartCount += 1;
+  if (backendRestartCount > BACKEND_MAX_RESTARTS) {
+    logErr(`后端已连续退出 ${BACKEND_MAX_RESTARTS} 次，停止自动重启。请检查日志：${LOG_FILE}`);
+    dialog.showErrorBox(
+      '后端持续崩溃',
+      `Python API 服务器在短时间内反复退出（已尝试自动重启 ${BACKEND_MAX_RESTARTS} 次）。\n` +
+      `最近一次：code=${code}, signal=${signal}\n请查看日志：${LOG_FILE}`
+    );
+    return;
+  }
+  const delay = BACKEND_RESTART_BASE_MS * Math.min(2 ** (backendRestartCount - 1), 16); // 1.5s→3s→6s→12s→24s…
+  log(`后端退出（code=${code}, signal=${signal}），${Math.round(delay / 1000)}s 后自动重启（第 ${backendRestartCount} 次）`);
+  backendRestartTimer = setTimeout(() => {
+    backendRestartTimer = null;
+    log(`自动重启后端（第 ${backendRestartCount} 次）…`);
+    try {
+      startPythonBackend();
+      waitForBackend(60).then(() => {
+        log('后端自动重启成功，/api/status 就绪。');
+        backendRestartCount = 0;  // 恢复成功后重置计数
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('backend:status', { status: 'up', restarts: backendRestartCount });
+        }
+      }).catch((err) => {
+        logErr(`自动重启后后端仍未就绪：${err.message}`);
+      });
+    } catch (err) {
+      logErr(`自动重启失败：${err.message}`);
+    }
+  }, delay);
+}
+
 // ---- 日志：终端 + 文件 + 渲染进程广播 ----
 const PROJECT_ROOT = path.join(__dirname, '..');
 
@@ -197,13 +252,12 @@ function startPythonBackend() {
     logErr(`Python 退出 code=${code} signal=${signal} pid=${pyProc?.pid ?? 'n/a'}`);
     const wasIntentional = pyProc === null;  // 我们主动 kill 后置 null
     pyProc = null;
-    if (!wasIntentional && mainWindow && !mainWindow.isDestroyed()) {
-      dialog.showErrorBox(
-        '后端已退出',
-        `Python API 服务器意外退出（code=${code}, signal=${signal}）。\n请查看日志：${LOG_FILE}`
-      );
-      mainWindow.close();
+    if (wasIntentional) {
+      log('后端为主动停止，不自动重启。');
+      return;
     }
+    // 意外退出 → 进程守卫自动重启（OOM / 异常 / 崩溃）
+    scheduleBackendRestart(code, signal);
   });
 
   pyProc.on('error', (err) => {
@@ -348,10 +402,7 @@ if (app && app.whenReady) {
   } catch (err) {
     logErr(err.message);
     dialog.showErrorBox('后端启动失败', `${err.message}\n\n日志文件：${LOG_FILE}`);
-    if (pyProc) {
-      try { pyProc.kill('SIGTERM'); } catch (_) {}
-      pyProc = null;
-    }
+    stopPythonBackend();
     app.quit();
   }
 });
@@ -360,10 +411,7 @@ if (app && app.whenReady) {
 if (app) {
   app.on('before-quit', () => {
     log('app before-quit：关闭 Python 后端');
-    if (pyProc) {
-      try { pyProc.kill('SIGTERM'); } catch (_) {}
-      pyProc = null;
-    }
+    stopPythonBackend();
   });
 
   app.on('window-all-closed', () => {

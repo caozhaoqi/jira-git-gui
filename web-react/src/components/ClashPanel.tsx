@@ -63,7 +63,8 @@ interface DiagItem {
   detail: string;
 }
 
-const DEFAULT_IPS = ['73.2.3.27', '73.2.192.1', '83.0.16.1'];
+// 默认探测的网段网关候选（仅作连通性自检示例，不含真实业务 IP）
+const DEFAULT_IPS = ['<SAMPLE_GW_1>', '<SAMPLE_GW_2>', '<SAMPLE_GW_3>'];
 const KIND_LABEL: Record<string, string> = { wifi: 'Wi-Fi', lan: '有线/局域网', other: '其他' };
 
 async function copyText(t: string): Promise<boolean> {
@@ -102,6 +103,7 @@ export function ClashPanel() {
   const [fixMsg, setFixMsg] = useState('');
   const [patchingAll, setPatchingAll] = useState(false);
   const [patchLog, setPatchLog] = useState('');
+  const [genOpen, setGenOpen] = useState(false);
 
   const loadIfaces = useCallback(async () => {
     setLoadErr('');
@@ -195,6 +197,7 @@ export function ClashPanel() {
         return;
       }
       setGen(r);
+      setGenOpen(true);
     } catch (e: any) {
       setGenErr(e.message || t('clash.genFail'));
     }
@@ -582,14 +585,26 @@ export function ClashPanel() {
       <div className="card-soft clash-card">
         <div className="panel-header">
           <h2 className="section-title">{t('clash.genTitle')}</h2>
-          <button className="btn btn-primary" onClick={doGenerate}>
-            ⚙ {t('clash.generate')}
-          </button>
+          <div className="clash-apply-btns">
+            <button
+              className="btn btn-sm btn-ghost"
+              onClick={() => setGenOpen((v) => !v)}
+              title={genOpen ? t('k8s.snapshot.collapseCfg') : t('k8s.snapshot.expandCfg')}
+            >
+              {genOpen ? '▾ ' : '▸ '}
+              {genOpen ? t('k8s.snapshot.collapseCfg') : t('k8s.snapshot.expandCfg')}
+            </button>
+            <button className="btn btn-primary" onClick={doGenerate}>
+              ⚙ {t('clash.generate')}
+            </button>
+          </div>
         </div>
-        {genErr && <div className="clash-err">{genErr}</div>}
-        {!gen && <div className="empty-hint">{t('clash.genHint')}</div>}
-        {gen && (
-          <div className="clash-gen">
+        {genOpen && (
+          <>
+            {genErr && <div className="clash-err">{genErr}</div>}
+            {!gen && <div className="empty-hint">{t('clash.genHint')}</div>}
+            {gen && (
+              <div className="clash-gen">
             <div className="clash-gen-block">
               <div className="clash-gen-head">
                 <b>{t('clash.step1')}</b>
@@ -621,6 +636,8 @@ export function ClashPanel() {
             )}
             <div className="clash-hint">{gen.hint}</div>
           </div>
+            )}
+          </>
         )}
       </div>
     </div>

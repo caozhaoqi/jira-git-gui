@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiPost } from '../../api/client';
 import type {
   K8sFileEntry, K8sFileListResp, K8sFileReadResp, K8sFileWriteResp, K8sFileSearchResp, K8sFileSearchHit, K8sPodsResp,
 } from '../../api/types';
 import { useK8s } from './context';
 import { k8sPathJoin, k8sPathParent, fmtSize } from '../../utils/format';
+import { langFromName, highlightCode } from '../../utils/highlight';
 import { useT } from '../../i18n';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
@@ -22,6 +23,10 @@ export function K8sFiles() {
   const [editContent, setEditContent] = useState('');
   const [editMsg, setEditMsg] = useState('');
   const [editTruncated, setEditTruncated] = useState(false);
+  const [editFullscreen, setEditFullscreen] = useState(false);
+  // 查看模式（高亮只读）与编辑模式（textarea 可保存）切换
+  const [editMode, setEditMode] = useState(false);
+  const [editLang, setEditLang] = useState('');
   const [searchQ, setSearchQ] = useState('');
   const [searchStatus, setSearchStatus] = useState('');
   const [searchResults, setSearchResults] = useState<K8sFileSearchHit[]>([]);
@@ -67,6 +72,12 @@ export function K8sFiles() {
 
   const sorted = useMemoSort(entries, sort);
 
+  // 高亮后的 HTML（仅在查看模式使用）
+  const highlightedHtml = useMemo(
+    () => (editPath ? highlightCode(editContent, editPath) : ''),
+    [editPath, editContent]
+  );
+
   const openFile = useCallback(async (name: string, isDir: boolean) => {
     const full = k8sPathJoin(path, name);
     if (isDir) { listFiles(full); return; }
@@ -78,6 +89,8 @@ export function K8sFiles() {
       if (d.is_binary) { addToast(t('k8s.files.binaryFile'), 'info'); return; }
       setEditPath(full);
       setEditContent(d.content || '');
+      setEditLang(langFromName(full).label);
+      setEditMode(false); // 默认以高亮查看模式打开
       setEditTruncated(!!d.truncated);
       setEditMsg('');
     } catch (ex: any) {
@@ -361,14 +374,44 @@ export function K8sFiles() {
       />
 
       {editPath && (
-        <div className="modal-mask" onClick={() => setEditPath('')}>
-          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-mask" onClick={() => { setEditPath(''); setEditFullscreen(false); }}>
+          <div
+            className={'modal modal-lg' + (editFullscreen ? ' modal-fullscreen' : '')}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h3>{t('k8s.files.editTitle')}{editPath.split('/').pop()}{editTruncated ? t('k8s.files.truncated') : ''}</h3>
-              <button className="btn btn-sm btn-ghost" onClick={() => setEditPath('')}>✕</button>
+              <h3>{t('k8s.files.editTitle')}{editPath.split('/').pop()}{editTruncated ? t('k8s.files.truncated') : ''}{editLang ? <span className="k8s-file-lang">{editLang}</span> : null}</h3>
+              <div className="hcm-detail-head-actions">
+                <button
+                  className={'btn btn-sm' + (editMode ? '' : ' btn-primary')}
+                  title={t('k8s.files.viewMode')}
+                  onClick={() => setEditMode(false)}
+                >
+                  {t('k8s.files.view')}
+                </button>
+                <button
+                  className={'btn btn-sm' + (editMode ? ' btn-primary' : '')}
+                  title={t('k8s.files.editMode')}
+                  onClick={() => setEditMode(true)}
+                >
+                  {t('k8s.files.edit')}
+                </button>
+                <button
+                  className="btn btn-sm"
+                  title={editFullscreen ? t('k8s.files.exitFullscreen') : t('k8s.files.fullscreen')}
+                  onClick={() => setEditFullscreen((v) => !v)}
+                >
+                  {editFullscreen ? '🗗 ' + t('k8s.files.exitFullscreen') : '⛶ ' + t('k8s.files.fullscreen')}
+                </button>
+                <button className="btn btn-sm btn-ghost" onClick={() => { setEditPath(''); setEditMode(false); setEditFullscreen(false); }}>✕</button>
+              </div>
             </div>
             <div className="modal-body">
-              <textarea className="k8s-file-edit-area" value={editContent} onChange={(e) => setEditContent(e.target.value)} />
+              {editMode ? (
+                <textarea className="k8s-file-edit-area" value={editContent} onChange={(e) => setEditContent(e.target.value)} />
+              ) : (
+                <pre className="k8s-file-view hljs" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+              )}
             </div>
             <div className="modal-footer">
               <span className="k8s-env-msg">{editMsg}</span>

@@ -136,6 +136,66 @@ def set_current_env(name):
     return data
 
 
+# --------------------------------------------------------------------------- #
+#  kubeconfig 集中管理
+#  目标：密钥不再散落在 Downloads 等任意目录；统一收口到受控目录
+#  （~/.config/jira-git-gui/kubeconfigs/，权限 600），支持导入 / 导出，
+#  便于团队共享与轮换。集中存储 / 轮换 / 权限控制的最佳实践见 README。
+# --------------------------------------------------------------------------- #
+KUBECONFIG_DIR = ENV_CONFIG_PATH.parent / "kubeconfigs"
+
+
+def import_kubeconfig(env: str, content: str) -> str:
+    """把 kubeconfig 内容安全导入受控目录（权限 600），并绑定到环境。
+
+    校验 YAML 合法性，拒绝空内容；导入后自动更新 env.kubeconfig 指向新路径。
+    """
+    env = env.strip()
+    if not env:
+        raise UserError("环境名不能为空")
+    content = (content or "").strip()
+    if not content:
+        raise UserError("kubeconfig 内容为空")
+    try:
+        parsed = yaml.safe_load(content)
+        if not isinstance(parsed, dict) or "clusters" not in parsed:
+            raise UserError("内容不是有效的 kubeconfig（缺少 clusters 字段）")
+    except yaml.YAMLError as e:
+        raise UserError(f"kubeconfig 不是合法 YAML：{e}")
+
+    KUBECONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    target = KUBECONFIG_DIR / f"{env}.kubeconfig"
+    target.write_text(content, encoding="utf-8")
+    try:
+        os.chmod(target, 0o600)  # 仅当前用户可读写
+    except OSError:
+        pass
+    add_or_update_env(env, kubeconfig=str(target))
+    return str(target)
+
+
+def export_envs(with_content: bool = True) -> dict:
+    """导出全部环境配置（含 kubeconfig 内容），用于团队共享 / 备份 / 迁移。
+
+    返回结构与 k8s_envs.json 兼容，但额外携带每个环境的 kubeconfig_content。
+    """
+    data = load_envs()
+    out: dict = {"environments": {}, "current": data.get("current")}
+    for name, env in data["environments"].items():
+        item = dict(env)
+        if with_content:
+            kc = env.get("kubeconfig") or ""
+            if kc and Path(kc).is_file():
+                try:
+                    item["kubeconfig_content"] = Path(kc).read_text(encoding="utf-8")
+                except OSError:
+                    item["kubeconfig_content"] = None
+            else:
+                item["kubeconfig_content"] = None
+        out["environments"][name] = item
+    return out
+
+
 def delete_env(name):
     data = load_envs()
     if name in data["environments"]:

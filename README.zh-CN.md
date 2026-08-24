@@ -48,6 +48,9 @@ jira-git-gui/
 ├── run_merge.py            # CLI：把远端仓库最新代码合并到本地（缓存优先 + 同步历史）
 ├── scripts/                # 启动/构建脚本（跨平台：*.sh + *.ps1）
 ├── config/                 # 本地配置 JSON（cf_accounts.*、hcm_whitelist.*）—— 见 .gitignore
+│                           # 安全说明：含真实凭证/IP/域名的连接信息只存在于 `*.local.json`
+│                           # （如 config/hcm_whitelist.local.json、config/cf_accounts.local.json），
+│                           # 已被 .gitignore 忽略、永不入库；仓库内仅保留占位模板。
 ├── tools/k8s_preview.html  # K8s YAML 清洗的自包含演示页（无需集群）
 ├── requirements.txt        # fastapi / uvicorn / httpx / pyinstaller
 ├── core/                   # 核心逻辑层（无 GUI 依赖，可独立测试）
@@ -149,6 +152,21 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 
 环境（dev / test / prod …）保存在 `~/.config/jira-git-gui/k8s_envs.json`，各自独立 kubeconfig 路径、可选 context 与默认命名空间。K8s 页的环境选择器带彩色标签，切换环境时 **YAML** / **事件** / **Top** 面板自动刷新列表。
 
+#### kubeconfig 集中管理（推荐实践）
+
+- **受控目录**：kubeconfig 默认散落在 `~/Downloads` 等任意位置，权限不受控。建议通过「环境管理 → 导入 kubeconfig」把内容导入受控目录
+  `~/.config/jira-git-gui/kubeconfigs/<env>.kubeconfig`（自动 `chmod 600`，仅当前用户可读写），环境自动指向新路径。
+- **导入 / 导出**：`POST /api/k8s/env/import-kubeconfig`（内容校验 + 权限 600）；`GET /api/k8s/env/export` 导出全部环境配置
+  （含 kubeconfig 内容），便于团队共享 / 备份 / 迁移。**注意**：导出内容含集群凭据，请仅通过加密通道共享。
+- **团队 / 多人共用建议**：
+  1. **最小权限**：为每个开发者签发独立的 service account + RBAC（仅授予其所需命名空间的读 / 写权限），
+     不要共享管理员 kubeconfig；kubeconfig 里不要内嵌 admin 私钥。
+  2. **密钥轮换**：定期（如 90 天）轮换 token / client-cert；轮换后重新「导入 kubeconfig」即可，
+     无需改代码。所有环境密钥集中在 `kubeconfigs/` 目录，轮换/审计一目了然。
+  3. **集中托管**：生产集群推荐把 kubeconfig 放到团队的密钥管理系统（Vault / AWS Secrets Manager / 云 KMS），
+     用受管拉取脚本下发到开发者本机的 `kubeconfigs/` 目录（权限 600），避免源码库或 IM 里明文传私钥。
+  4. 需要临时给他人时，用 `GET /api/k8s/env/export` 导出，但**先确认里面没有长有效期管理员证书**。
+
 ### 日志查看（`/web/?view=log`）
 
 从快照页点「⧉ 新页面打开完整日志」或 K8s Shell 进入，或直接访问（端口以实际运行端口为准，默认 8787）：
@@ -167,7 +185,11 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 
 ### Shell 与文件（Xshell / Xftp 风格）
 
-- **Shell**：WebSocket 终端进入 Pod 容器（`/ws/k8s/exec`）。选 环境 → Pod → 容器 → 连接；命令执行、工作目录跨命令持久化（`cd` 后保持）、↑/↓ 命令历史。
+- **Shell（TTY 交互终端）**：WebSocket 终端进入 Pod 容器（`/ws/k8s/exec?tty=1`）。后端用本地 pty（`os.openpty`）
+  为 `kubectl exec -it` 提供 TTY，前端 xterm.js 全双工 + 自动 resize（`TIOCSWINSZ`）：
+  - **支持 vim / top / htop / less 等全屏交互程序**（真实 TTY 检测通过）；
+  - 持久 shell 会话，`cd` 后工作目录保持，直接在终端输入命令即可；
+  - 前端连接后自动按容器尺寸发送 resize，窗口缩放实时同步。
 - **文件**：面包屑式浏览容器文件系统；双击文本文件内联编辑并保存回写；支持上传（base64）、下载、新建目录、确认后删除。
 
 ### 快照报告
@@ -245,4 +267,5 @@ QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "te
 - **PyQt6 桌面版（`main.py` / `gui/`）为遗留实现**：不再是发布目标，发行版为 Electron + Tauri。
 - **Python 版本**：开发环境 3.9 已做兼容加固；CI 与正式打包推荐 **Python ≥ 3.10**（3.11 已验证）。
 - **Linux 运行依赖**：桌面版需要系统库 `libnss3`（Electron）/ WebView 开发库（Tauri）等（CI 中已安装）。
-- **K8s Shell 非 TTY**：命令经 `sh -c` 管道执行（不支持交互式编辑器 / `top` 全屏）；交互式终端列入 P2 路线。
+- **K8s Shell 的 TTY 会话为单连接**：一个 Shell 标签页对应一条 `kubectl exec -it` 会话，断开即结束进程；
+  多开请用「日志查看」的独立窗口模式。
