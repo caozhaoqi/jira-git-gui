@@ -1,0 +1,28 @@
+{
+  "_comment": "HCM 平台连接业务白名单（可提交 git 的模板）。敏感连接值（服务器 IP、真实域名）以占位符呈现，真实值见同目录 hcm_whitelist.local.json（已 gitignore）。本文件保持占位可入库，local 文件覆盖真实值。代码统一从本文件读取，不再硬编码。",
+  "hcminner": {
+    "_comment": "内部 OpenAPI 鉴权头：Bearer token 之外需额外带此头，值固定为 '1'，改了平台会拒。",
+    "header": "hcminner",
+    "value": "1"
+  },
+  "model_list_api": {
+    "_comment": "真实日志查询接口路径（POST），拼在任意 server_url 之后。参考 hcm-core 的 dynamic_log 查询链路。",
+    "path": "/api/hcm.model.list"
+  },
+  "reference_projects": {
+    "_comment": "参考项目名，合并/比对 HCM 平台源码时用于识别参考仓库，改了会指错仓库。",
+    "names": ["hcm-cloud-vue", "hcm-core"]
+  },
+  "platform_hosts": {
+    "_comment": "真实平台域名白名单（占位，真实值见 hcm_whitelist.local.json）。",
+    "hosts": [
+      "<PLATFORM_DOMAIN_A>",
+      "<PLATFORM_DOMAIN_B>",
+      "<PLATFORM_DOMAIN_C>"
+    ]
+  },
+  "proxy_target": {
+    "_comment": "HCM 对象浏览器同源代理目标网关基址（占位，真实值见 hcm_whitelist.local.json）。",
+    "base_url": "<PLATFORM_HOST>"
+  }
+}
