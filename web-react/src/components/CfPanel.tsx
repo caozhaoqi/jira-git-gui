@@ -78,6 +78,8 @@ export function CfPanel() {
   const [status, setStatus] = useState<{ text: string; cls: string }>({ text: '', cls: '' });
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [cfgOpen, setCfgOpen] = useState(false);
+  const [tokenMap, setTokenMap] = useState<Record<string, any>>({});
+  const [autoLogin, setAutoLogin] = useState<{ running: boolean; msg: string }>({ running: false, msg: '' });
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -87,9 +89,9 @@ export function CfPanel() {
   const setBusy = (k: string, v: boolean) =>
     setLoading((m) => ({ ...m, [k]: v }));
 
-  const saveCfg = useCallback(() => {
+  const saveCfg = useCallback((override?: Partial<CfCfg>) => {
     try {
-      localStorage.setItem(CF_CFG_KEY, JSON.stringify(cfgRef.current));
+      localStorage.setItem(CF_CFG_KEY, JSON.stringify({ ...cfgRef.current, ...(override || {}) }));
     } catch {
       /* ignore */
     }
@@ -119,13 +121,44 @@ export function CfPanel() {
     }
   }, [pushLog]);
 
+  const loadTokens = useCallback(async (): Promise<Record<string, any>> => {
+    try {
+      const d = await apiGet<{ tokens?: Array<{
+        server_url: string; has_token: boolean; token_masked: string;
+        need_captcha: boolean; last_error: string; name: string;
+        ts: string; stale: boolean;
+      }> }>('/api/cf/tokens');
+      const map: Record<string, any> = {};
+      (d.tokens || []).forEach((tk) => { map[tk.server_url] = tk; });
+      setTokenMap(map);
+      return map;
+    } catch {
+      setTokenMap({});
+      return {};
+    }
+  }, []);
+
   useEffect(() => {
-    loadAccounts().then(loadCfg);
-  }, [loadAccounts, loadCfg]);
+    (async () => {
+      await loadAccounts();
+      loadCfg();
+      await loadTokens();
+    })();
+  }, [loadAccounts, loadCfg, loadTokens]);
 
   const switchEnv = (key: string) => {
     setEnv(key);
-    if (!key || key === 'custom') return;
+    // 清空上一个环境的登录态残留（token/验证码），避免用旧环境的 token 去查询新环境
+    const clearLoginState = () => {
+      setImageCode('');
+      setCaptcha({ captcha_id: '', image_code_index: '', image: '' });
+    };
+    if (!key || key === 'custom') {
+      setCfg((c) => ({ ...c, token: '' }));
+      clearLoginState();
+      saveCfg({ token: '' });
+      return;
+    }
     const acc = accounts.find((a) => a.name === key);
     if (!acc) return;
     setCfg((c) => ({
@@ -133,9 +166,16 @@ export function CfPanel() {
       server_url: acc.server_url || '',
       username: acc.username || '',
       password: acc.password || '',
+      token: '', // 切换环境清空 token，查询时由后端按新 server_url 复用自动获取的缓存 cookie
     }));
+    clearLoginState();
+    saveCfg({
+      server_url: acc.server_url || '',
+      username: acc.username || '',
+      password: acc.password || '',
+      token: '',
+    });
     addToast(`已切换到「${acc.name}」环境，账号密码已预填`, 'info');
-    saveCfg();
   };
 
   const fetchCaptcha = async () => {
@@ -200,7 +240,7 @@ export function CfPanel() {
         setCfg((c) => ({ ...c, token: res.token || '' }));
         setCaptcha({ captcha_id: '', image_code_index: '', image: '' });
         setImageCode('');
-        saveCfg();
+        saveCfg({ token: res.token || '' });
         setStatus({ text: t('cf.loginSuccess'), cls: 'success' });
         return;
       }
@@ -221,6 +261,29 @@ export function CfPanel() {
       }
     } finally {
       setBusy('login', false);
+    }
+  };
+
+  const autoGetTokens = async () => {
+    setAutoLogin({ running: true, msg: t('cf.autoGetting') });
+    try {
+      const res = await apiPost<{ total?: number; success?: number; results?: any[] }>(
+        '/api/cf/auto-login',
+        { proxy: cfg.proxy.trim() }
+      );
+      const map = await loadTokens();
+      const su = cfg.server_url.trim();
+      if (su && map[su]?.has_token) {
+        addToast(`已自动获取「${map[su].name}」的 Token`, 'success');
+      }
+      setStatus({
+        text: `自动获取完成：${res.success ?? 0}/${res.total ?? 0} 个账号成功（需验证码的请手动登录）`,
+        cls: (res.success ?? 0) > 0 ? 'success' : 'warning',
+      });
+    } catch (e: any) {
+      setStatus({ text: `自动获取失败：${e.message}`, cls: 'error' });
+    } finally {
+      setAutoLogin({ running: false, msg: '' });
     }
   };
 
@@ -263,7 +326,8 @@ export function CfPanel() {
     const pageSize = cfg.page_size || 200;
     const pageIndex = cfg.page_index || 1;
     const proxy = cfg.proxy.trim();
-    if (!token) {
+    const cached = tokenMap[cfg.server_url.trim()];
+    if (!token && !(cached && cached.has_token)) {
       setStatus({ text: t('cf.tokenFirst'), cls: 'error' });
       return;
     }
@@ -305,7 +369,18 @@ export function CfPanel() {
         /* 拉取失败时降级：对已加载的数据排序并提示 */
       }
     } catch (ex: any) {
-      setStatus({ text: `查询失败：${ex.message}`, cls: 'error' });
+      const msg = ex?.message || String(ex);
+      // P2-⑧：手填 Token 失败时给出明确引导。识别会话失效 / 格式异常类错误，
+      // 引导用户改用「自动获取」缓存 cookie 或重新登录，而非只报红。
+      if (cfg.token.trim()) {
+        const sessionLike = /token 可能已失效|未登录|登录过期|未授权|unauthorized|格式异常|疑似 HTML|验证码片段/i.test(msg);
+        if (sessionLike) {
+          setStatus({ text: `查询失败：${msg}\n${t('cf.tokenHandFillGuide')}`, cls: 'error' });
+          setResult(null);
+          return;
+        }
+      }
+      setStatus({ text: `查询失败：${msg}`, cls: 'error' });
       setResult(null);
     } finally {
       setBusy('query', false);
@@ -483,7 +558,7 @@ export function CfPanel() {
                   placeholder={t('cf.serverUrlPlaceholder')}
                   value={cfg.server_url}
                   onChange={(e) => setCfg({ ...cfg, server_url: e.target.value })}
-                  onBlur={saveCfg}
+                  onBlur={() => saveCfg()}
                 />
               </div>
             </div>
@@ -495,7 +570,7 @@ export function CfPanel() {
                   placeholder={t('cf.mobilePlaceholder')}
                   value={cfg.username}
                   onChange={(e) => setCfg({ ...cfg, username: e.target.value })}
-                  onBlur={saveCfg}
+                  onBlur={() => saveCfg()}
                 />
               </div>
               <div className="cf-cfg-field">
@@ -506,7 +581,7 @@ export function CfPanel() {
                   placeholder={t('cf.passwordPlaceholder')}
                   value={cfg.password}
                   onChange={(e) => setCfg({ ...cfg, password: e.target.value })}
-                  onBlur={saveCfg}
+                  onBlur={() => saveCfg()}
                 />
               </div>
               <div className="cf-cfg-field cf-cfg-field--token">
@@ -516,8 +591,48 @@ export function CfPanel() {
                   placeholder={t('cf.tokenPlaceholder')}
                   value={cfg.token}
                   onChange={(e) => setCfg({ ...cfg, token: e.target.value })}
-                  onBlur={saveCfg}
+                  onBlur={() => saveCfg()}
                 />
+                {(() => {
+                  const tk = tokenMap[cfg.server_url.trim()];
+                  if (!tk) return null;
+                  const ageText = (() => {
+                    if (!tk.ts) return '';
+                    const diffMs = Date.now() - new Date(tk.ts.replace(/-/g, '/')).getTime();
+                    if (isNaN(diffMs) || diffMs < 0) return '';
+                    const h = Math.floor(diffMs / 3600000);
+                    if (h < 1) return `（${Math.max(1, Math.floor(diffMs / 60000))} 分钟前）`;
+                    if (h < 24) return `（${h} 小时前）`;
+                    return `（${Math.floor(h / 24)} 天前）`;
+                  })();
+                  const RetryBtn = (
+                    <button
+                      className="btn btn-ghost btn-xs cf-token-retry"
+                      onClick={autoGetTokens}
+                      disabled={autoLogin.running}
+                      title={t('cf.autoGetTokenHint')}
+                    >
+                      🔄 {t('cf.retry')}
+                    </button>
+                  );
+                  if (tk.has_token && tk.stale)
+                    return (
+                      <span className="cf-token-hint warn">
+                        ✓ {t('cf.tokenCached')}{ageText} {t('cf.tokenStale')} {RetryBtn}
+                      </span>
+                    );
+                  if (tk.has_token)
+                    return <span className="cf-token-hint ok">✓ {t('cf.tokenCached')}{ageText}</span>;
+                  if (tk.need_captcha)
+                    return <span className="cf-token-hint warn">{t('cf.tokenNeedCaptcha')}</span>;
+                  if (tk.last_error)
+                    return (
+                      <span className="cf-token-hint err">
+                        {t('cf.tokenLoginFailed')}：{tk.last_error} {RetryBtn}
+                      </span>
+                    );
+                  return null;
+                })()}
               </div>
             </div>
             <div className="cf-cfg-row">
@@ -528,7 +643,7 @@ export function CfPanel() {
                   placeholder="http://127.0.0.1:7890"
                   value={cfg.proxy}
                   onChange={(e) => setCfg({ ...cfg, proxy: e.target.value })}
-                  onBlur={saveCfg}
+                  onBlur={() => saveCfg()}
                 />
               </div>
             </div>
@@ -582,6 +697,14 @@ export function CfPanel() {
               >
                 {loading.login ? t('cf.loggingInShort') : t('cf.loginToken')}
               </button>
+              <button
+                className="btn btn-sm"
+                onClick={autoGetTokens}
+                disabled={autoLogin.running}
+                title={t('cf.autoGetTokenHint')}
+              >
+                {autoLogin.running ? `⏳ ${t('cf.autoGetting')}` : `🔑 ${t('cf.autoGetToken')}`}
+              </button>
             </div>
           </div>
         )}
@@ -597,7 +720,7 @@ export function CfPanel() {
               placeholder="salary_seal_delay_payment_vvv1"
               value={cfg.log_type}
               onChange={(e) => setCfg({ ...cfg, log_type: e.target.value })}
-              onBlur={saveCfg}
+              onBlur={() => saveCfg()}
               onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
             />
           </div>
@@ -610,7 +733,7 @@ export function CfPanel() {
               max={12000}
               value={cfg.page_size}
               onChange={(e) => setCfg({ ...cfg, page_size: parseInt(e.target.value) || 200 })}
-              onBlur={saveCfg}
+              onBlur={() => saveCfg()}
             />
           </div>
           <div className="cf-cfg-field cf-cfg-field--w80">
@@ -621,7 +744,7 @@ export function CfPanel() {
               min={1}
               value={cfg.page_index}
               onChange={(e) => setCfg({ ...cfg, page_index: parseInt(e.target.value) || 1 })}
-              onBlur={saveCfg}
+              onBlur={() => saveCfg()}
             />
           </div>
           <button

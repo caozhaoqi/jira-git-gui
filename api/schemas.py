@@ -195,6 +195,10 @@ class CfCaptchaReq(BaseModel):
     proxy: str = ""
 
 
+class CfAutoLoginReq(BaseModel):
+    proxy: str = ""  # 可选代理，如 http://127.0.0.1:7890
+
+
 # CF 验证码会话缓存：captcha_id -> {"jar": cookie jar, "index": image_code_index}
 _CF_CAPTCHA_CACHE: dict[str, object] = {}
 _CF_CAPTCHA_TTL: dict[str, float] = {}

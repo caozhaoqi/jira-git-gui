@@ -17,6 +17,9 @@ __pycache__/
 
 cf_accounts.local.json
 config/cf_accounts.local.json
+# CF 账号自动登录后缓存的 token（仅 token，绝不存密码；首次启动自动填充）
+cf_tokens.local.json
+config/cf_tokens.local.json
 
 # 运行期缓存（含拉取的文件树/内容，可能含敏感信息）
 cache/
