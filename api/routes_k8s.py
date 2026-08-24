@@ -173,8 +173,8 @@ async def api_k8s_log(
         return "===== pod: %s =====\n# 获取失败: %s" % (pod, err.strip()[:300])
 
     d = _k8s_out_dir["dir"]
-    # 1) 快照落盘文件优先（仅单 Pod 模式；label 聚合为实时场景，跳过）
-    if d and name and not label:
+    # 1) 快照落盘文件优先（仅单 Pod 模式；label 聚合 / 时间戳 / 时间范围均为实时场景，跳过）
+    if d and name and not label and not timestamps and not since and not until:
         logs_dir = Path(d) / "logs"
         if logs_dir.exists():
             if container:
