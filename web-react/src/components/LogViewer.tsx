@@ -112,6 +112,20 @@ function convertTs(numStr: string, unit: string, epochSec: string): Date | null 
   return saneDate(ms);
 }
 
+// HCM 类后台常以「某私有纪元（如 2015~2022 某天）为 0 点」的 微秒/纳秒 计数，
+// 标准 1970 纪元无法解释（如 281460870429024 既非 1970 的 ms/us/ns）。
+// 1970 模式全部落空时，回退到这些常见私有纪元（单位 µs/ns）。
+const PRIVATE_EPOCHS = [
+  1420070400, // 2015-01-01
+  1451606400, // 2016-01-01
+  1483228800, // 2017-01-01
+  1514764800, // 2018-01-01
+  1546300800, // 2019-01-01
+  1577836800, // 2020-01-01
+  1609459200, // 2021-01-01
+  1640995200, // 2022-01-01
+];
+
 function detectTs(numStr: string, epochSec: string): Date | null {
   if (epochSec.trim() !== '') {
     for (const u of ['ms', 'us', 'ns']) {
@@ -120,10 +134,19 @@ function detectTs(numStr: string, epochSec: string): Date | null {
     }
     return null;
   }
+  const lower = Date.UTC(2000, 0, 1);
   const upper = Date.now() + 365 * 864e5;
+  // 1) 标准 1970 纪元（ms/us/ns）
   for (const u of ['ms', 'us', 'ns']) {
     const d = convertTs(numStr, u, '');
-    if (d && d.getTime() > Date.UTC(2000, 0, 1) && d.getTime() < upper) return d;
+    if (d && d.getTime() > lower && d.getTime() < upper) return d;
+  }
+  // 2) 私有纪元回退（µs/ns）—— 命中第一个在合理区间的，按基准从早到晚
+  for (const base of PRIVATE_EPOCHS) {
+    for (const u of ['us', 'ns']) {
+      const d = convertTs(numStr, u, String(base));
+      if (d && d.getTime() > lower && d.getTime() < upper) return d;
+    }
   }
   return null;
 }
