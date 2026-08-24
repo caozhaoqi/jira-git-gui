@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 import os
 import re
+import shlex
 import time
 from pathlib import Path
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -576,11 +577,12 @@ async def _ws_k8s_exec_tty(websocket: WebSocket, prefix, kc: str, cwd: str) -> N
     master_fd, slave_fd = os.openpty()
     try:
         fcntl.ioctl(master_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-        # 持久 shell：先 cd 到目标目录，再 exec 交互 shell（stdin 为 tty 时自动交互）
+        # 持久 shell：先 cd 到目标目录，再 exec 交互 shell（stdin 为 tty 时自动交互）。
+        # 优先 bash（自带 readline + Tab 自动补全）；容器无 bash 时回退 sh（2>/dev/null || sh）。
         argv = list(prefix) + [
             "-it", "--",
             "sh", "-c",
-            f"cd {shlex.quote(cwd)} 2>/dev/null; exec sh",
+            f"cd {shlex.quote(cwd)} 2>/dev/null; exec bash 2>/dev/null || exec sh",
         ]
         kubectl_bin = _k8s_mgr._resolve_kubectl_binary()
         if argv and argv[0] == "kubectl":

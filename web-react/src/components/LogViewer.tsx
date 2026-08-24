@@ -67,6 +67,79 @@ function highlightNodes(line: string, re: RegExp | null): ReactNode {
   return out.length ? out : '\u00a0';
 }
 
+/* ============================================================
+   时间戳转换：把日志行内的长数字时间戳（如 INFO 281460870429024）
+   转换为 UTC+8 可读的「yyyy mm dd hh:mm:ss」。
+   - 支持单位：毫秒 / 微秒 / 纳秒；
+   - 自动模式：依次试 ms/us/ns，取落在合理范围（2000~now+1y）的结果；
+   - 自定义基准（epochSec）：用于非 1970 起点的私有时间戳，
+     例如某框架以「2015-01-01」为 0 点的微秒，则填 1420070400。
+   - 注意：HCM/python 日志行中「级别后面的长数字」是线程号（%(thread)d），
+     形如 INFO 281469013717408 [handlers.py:451] ... —— 它不是时间戳，
+     一律跳过，避免被误转换成 1970/1978 之类的错误日期。
+   ============================================================ */
+
+/** HCM/python 日志行：LEVEL <线程号(13~19位)> [文件名.后缀:行号] 消息 */
+const HCM_THREAD_ID_RE =
+  /^\s*(?:FATAL|CRITICAL|ERROR|ERR|WARN|WARNING|INFO|DEBUG)\s+(\d{13,19})\s+\[[\w./-]+\.\w+:\d+\]/i;
+
+/** 把 Date 格式化为 Asia/Shanghai 的 yyyy mm dd hh:mm:ss */
+function fmtUtc8(d: Date): string {
+  const s = d.toLocaleString('sv-SE', { timeZone: 'Asia/Shanghai', hour12: false });
+  return s.replace(/-/g, ' ');
+}
+
+function saneDate(ms: number): Date | null {
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getUTCFullYear();
+  if (y < 1970 || y > 2100) return null;
+  return d;
+}
+
+function convertTs(numStr: string, unit: string, epochSec: string): Date | null {
+  const n = Number(numStr);
+  if (!isFinite(n)) return null;
+  let ms: number;
+  if (epochSec.trim() !== '') {
+    const base = Number(epochSec) * 1000;
+    if (!isFinite(base)) return null;
+    const mul = unit === 'ns' ? 1e-6 : unit === 'us' ? 1e-3 : 1; // 归一到毫秒
+    ms = base + n * mul;
+  } else {
+    ms = unit === 'ns' ? n / 1e6 : unit === 'us' ? n / 1e3 : n; // ms / us / ns → ms
+  }
+  return saneDate(ms);
+}
+
+function detectTs(numStr: string, epochSec: string): Date | null {
+  if (epochSec.trim() !== '') {
+    for (const u of ['ms', 'us', 'ns']) {
+      const d = convertTs(numStr, u, epochSec);
+      if (d) return d;
+    }
+    return null;
+  }
+  const upper = Date.now() + 365 * 864e5;
+  for (const u of ['ms', 'us', 'ns']) {
+    const d = convertTs(numStr, u, '');
+    if (d && d.getTime() > Date.UTC(2000, 0, 1) && d.getTime() < upper) return d;
+  }
+  return null;
+}
+
+/** 把一行内 13~19 位的纯数字时间戳就地转换为「可读时间 (原值)」 */
+function convertTsInLine(line: string, unit: string, epochSec: string): string {
+  // HCM/python 日志行的第二段是线程号（LEVEL <thread> [xxx.py:NNN]），不是时间戳，跳过
+  const threadId = line.match(HCM_THREAD_ID_RE)?.[1];
+  return line.replace(/\b\d{13,19}\b/g, (m) => {
+    if (threadId && threadId === m) return m;
+    const d = epochSec.trim() !== '' ? detectTs(m, epochSec) : unit === 'auto' ? detectTs(m, '') : convertTs(m, unit, '');
+    if (!d) return m;
+    return `${fmtUtc8(d)} (${m})`;
+  });
+}
+
 export function LogViewer() {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
@@ -96,6 +169,11 @@ export function LogViewer() {
   const [lineno, setLineno] = useState(true);
   const [levelOn, setLevelOn] = useState(true);
   const [font, setFont] = useState(13);
+
+  // 时间戳转换
+  const [tsConv, setTsConv] = useState(true);
+  const [tsUnit, setTsUnit] = useState('auto'); // auto | ms | us | ns
+  const [tsEpoch, setTsEpoch] = useState(''); // 自定义基准（Unix 秒），用于非 1970 起点的时间戳
 
   // 搜索
   const [search, setSearch] = useState('');
@@ -266,16 +344,22 @@ export function LogViewer() {
   /* ---------- 行解析 ---------- */
   const lines = useMemo(() => raw.split(/\r\n|\r|\n/), [raw]);
 
+  // 时间戳转换后的展示行（不改动 raw，便于下载保留原值）
+  const viewLines = useMemo(
+    () => (tsConv ? lines.map((l) => convertTsInLine(l, tsUnit, tsEpoch)) : lines),
+    [lines, tsConv, tsUnit, tsEpoch]
+  );
+
   const matches = useMemo(() => {
     if (!re) return [] as number[];
     const out: number[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      if (/^=+\s/.test(lines[i])) continue; // 分隔行不计入匹配
+    for (let i = 0; i < viewLines.length; i++) {
+      if (/^=+\s/.test(viewLines[i])) continue; // 分隔行不计入匹配
       re.lastIndex = 0;
-      if (re.test(lines[i])) out.push(i);
+      if (re.test(viewLines[i])) out.push(i);
     }
     return out;
-  }, [lines, re]);
+  }, [viewLines, re]);
 
   // 搜索条件或内容变化后，定位到第一个匹配
   useEffect(() => {
@@ -413,6 +497,29 @@ export function LogViewer() {
         <label className="lv-toggle"><input type="checkbox" checked={lineno} onChange={(e) => setLineno(e.target.checked)} /> {t('logviewer.lineNo')}</label>
         <label className="lv-toggle"><input type="checkbox" checked={levelOn} onChange={(e) => setLevelOn(e.target.checked)} /> {t('logviewer.levelHighlight')}</label>
 
+        <label className="lv-toggle"><input type="checkbox" checked={tsConv} onChange={(e) => setTsConv(e.target.checked)} /> {t('logviewer.tsConvert')}</label>
+        {tsConv && (
+          <label className="lv-field">{t('logviewer.tsUnit')}
+            <select className="sel" value={tsUnit} onChange={(e) => setTsUnit(e.target.value)}>
+              <option value="auto">{t('logviewer.tsAuto')}</option>
+              <option value="ms">{t('logviewer.tsMs')}</option>
+              <option value="us">{t('logviewer.tsUs')}</option>
+              <option value="ns">{t('logviewer.tsNs')}</option>
+            </select>
+          </label>
+        )}
+        {tsConv && (
+          <label className="lv-field lv-ts-epoch">{t('logviewer.tsEpoch')}
+            <input
+              type="text"
+              className="input input-sm"
+              placeholder={t('logviewer.tsBaseHint')}
+              value={tsEpoch}
+              onChange={(e) => setTsEpoch(e.target.value.replace(/[^\d]/g, ''))}
+            />
+          </label>
+        )}
+
         <span className="lv-spacer" />
         <span className="lv-font">{t('logviewer.fontSize')}
           <button className="btn btn-xs" title={t('logviewer.shrink')} onClick={() => setFont((f) => Math.max(10, f - 1))}>A−</button>
@@ -425,7 +532,7 @@ export function LogViewer() {
           <div className="lv-statusline" style={{ color: isErr ? 'var(--danger)' : 'var(--muted)' }}>{status}</div>
         )}
         <div className={'lv-log' + (wrap ? ' wrap' : '')} style={{ fontSize: font + 'px' }}>
-          {lines.map((line, i) => {
+          {viewLines.map((line, i) => {
             const sep = /^=+\s/.test(line);
             const lv = !sep && levelOn ? detectLevel(line) : '';
             const isCur = cur >= 0 && matches[cur] === i;

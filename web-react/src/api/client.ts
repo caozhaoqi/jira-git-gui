@@ -110,7 +110,7 @@ export async function apiGet<T = any>(path: string): Promise<T> {
 export async function apiText(path: string): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(`${API}${path}`);
+    res = await fetch(`${API}${path}`, { cache: 'no-store' });
   } catch (e: any) {
     if (e && e.name === 'AbortError') {
       throw new ApiError('请求超时，请检查网络或稍后重试', 'timeout');

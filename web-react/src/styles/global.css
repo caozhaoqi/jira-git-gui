@@ -1504,6 +1504,11 @@ body {
 
 /* ===== HCM 模型详情独立页（双击新窗口） ===== */
 .app-shell--detail { height: 100vh; }
+/* 修复：新窗口路由的 .workspace / .workspace-body 此前无高度规则，
+   导致 .hcm-detail-page 的 height:100% 无法生效、内部列表/JSON 不可滚动。
+   这里把高度链补齐为 flex 列并允许收缩，使最内层 overflow:auto 能触发。 */
+.app-shell--detail .workspace { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.app-shell--detail .workspace-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .hcm-detail-page { display: flex; flex-direction: column; height: 100%; }
 .hcm-detail-head { padding: 14px 16px 8px; border-bottom: 1px solid var(--border); }
 .hcm-detail-title { font-size: 18px; font-weight: 600; color: var(--text); }

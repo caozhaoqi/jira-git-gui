@@ -116,6 +116,10 @@ html.dark {
 .lv-field .sel {
   font-size: 12px;
 }
+.lv-ts-epoch .input-sm {
+  width: 130px;
+  font-family: var(--mono);
+}
 .lv-search {
   flex: 1 1 340px;
   min-width: 260px;
@@ -155,8 +159,7 @@ html.dark {
   user-select: none;
 }
 .lv-spacer {
-  flex: 1 1 auto;
-}
+  flex: 1 1 auto;}
 .lv-font {
   display: flex;
   align-items: center;

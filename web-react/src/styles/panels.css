@@ -622,6 +622,8 @@
   flex-direction: column;
   gap: 0;
   min-height: 0;
+  /* 填满父级 .k8s-subpane，使内部列表区可纵向滚动 */
+  flex: 1;
 }
 
 .k8s-snapshot-cfg,
@@ -775,6 +777,31 @@
   width: min(860px, 96vw);
   max-width: 96vw;
 }
+/* 文件查看/编辑弹窗全屏模式：真正填满视口（提高特异性以压过 .modal 的 width），textarea 自适应剩余高度 */
+.modal.modal-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: 100vw;
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+}
+.modal.modal-fullscreen .modal-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  display: flex;
+  flex-direction: column;
+}
+.modal.modal-fullscreen .k8s-file-edit-area {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.modal.modal-fullscreen .modal-header,
+.modal.modal-fullscreen .modal-footer {
+  flex-shrink: 0;
+}
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -895,6 +922,88 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   resize: vertical;
+}
+/* 文件查看：语法高亮只读视图 */
+.k8s-file-view {
+  width: 100%;
+  min-height: 46vh;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: auto;
+  white-space: pre;
+  tab-size: 2;
+}
+.k8s-file-lang {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
+}
+
+/* ===== highlight.js 轻量主题（适配浅/深主题） ===== */
+.k8s-file-view.hljs { color: var(--code-fg); background: var(--code-bg); }
+.k8s-file-view .hljs-comment,
+.k8s-file-view .hljs-quote { color: #8a8f98; font-style: italic; }
+.k8s-file-view .hljs-keyword,
+.k8s-file-view .hljs-selector-tag,
+.k8s-file-view .hljs-built_in,
+.k8s-file-view .hljs-name,
+.k8s-file-view .hljs-tag { color: #c678dd; }
+.k8s-file-view .hljs-string,
+.k8s-file-view .hljs-title,
+.k8s-file-view .hljs-section,
+.k8s-file-view .hljs-attribute,
+.k8s-file-view .hljs-literal,
+.k8s-file-view .hljs-template-tag,
+.k8s-file-view .hljs-template-variable,
+.k8s-file-view .hljs-type,
+.k8s-file-view .hljs-addition { color: #98c379; }
+.k8s-file-view .hljs-number,
+.k8s-file-view .hljs-symbol,
+.k8s-file-view .hljs-bullet,
+.k8s-file-view .hljs-link,
+.k8s-file-view .hljs-meta,
+.k8s-file-view .hljs-selector-id,
+.k8s-file-view .hljs-selector-class { color: #d19a66; }
+.k8s-file-view .hljs-attr,
+.k8s-file-view .hljs-variable,
+.k8s-file-view .hljs-property { color: #61afef; }
+.k8s-file-view .hljs-deletion { color: #e06c75; }
+.k8s-file-view .hljs-emphasis { font-style: italic; }
+.k8s-file-view .hljs-strong { font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .k8s-file-view .hljs-comment,
+  .k8s-file-view .hljs-quote { color: #7f848e; }
+  .k8s-file-view .hljs-keyword,
+  .k8s-file-view .hljs-selector-tag,
+  .k8s-file-view .hljs-built_in,
+  .k8s-file-view .hljs-name,
+  .k8s-file-view .hljs-tag { color: #c678dd; }
+  .k8s-file-view .hljs-string,
+  .k8s-file-view .hljs-title,
+  .k8s-file-view .hljs-section,
+  .k8s-file-view .hljs-attribute,
+  .k8s-file-view .hljs-literal,
+  .k8s-file-view .hljs-type,
+  .k8s-file-view .hljs-addition { color: #98c379; }
+  .k8s-file-view .hljs-number,
+  .k8s-file-view .hljs-symbol,
+  .k8s-file-view .hljs-meta { color: #d19a66; }
+  .k8s-file-view .hljs-attr,
+  .k8s-file-view .hljs-variable,
+  .k8s-file-view .hljs-property { color: #61afef; }
 }
 
 /* 环境管理弹窗（React 版新增类，原生用 .form-rows） */
@@ -1602,9 +1711,18 @@
 .k8s-files-list-wrap {
   padding: 0;
   overflow: hidden;
+  /* 占用剩余高度，让内部表格可独立纵向滚动（修复长目录无法滑动/显示不全） */
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .k8s-table-scroll {
   overflow-x: auto;
+  /* 纵向滚动：高度由父级 flex 约束，长目录可滚动到全部文件 */
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 .k8s-files-table {
   width: 100%;
