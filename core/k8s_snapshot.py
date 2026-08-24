@@ -23,6 +23,7 @@
     infile             str   离线模式：直接读取 kubectl get pods -o json 文件
     log_level          str   日志级别：DEBUG/INFO/WARNING/ERROR（默认 INFO）
 """
+import asyncio
 import datetime as dt
 import html
 import json
@@ -79,6 +80,24 @@ def run_kubectl(args, kubeconfig=None, timeout=60):
         return "", 124, "kubectl timed out"
     except FileNotFoundError:
         return "", 127, "kubectl 不在 PATH 中（请先安装 kubectl 并加入 PATH）"
+
+
+async def stream_kubectl(args, kubeconfig=None):
+    """异步流式执行 kubectl（用于 ``logs -f`` 等持续输出场景）。
+
+    返回 ``asyncio.subprocess.Process``，调用方负责读取 ``proc.stdout``
+    并在不再需要时 ``proc.kill()`` 回收子进程，避免泄漏。
+    """
+    cmd = [_resolve_kubectl_binary()]
+    if kubeconfig:
+        cmd += ["--kubeconfig", kubeconfig]
+    cmd += args
+    return await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=_kubectl_env(),
+    )
 
 
 def _current_context(kubeconfig=None):

@@ -11,7 +11,7 @@ import logging
 import threading
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, HTTPException, WebSocket, Request
 from pydantic import BaseModel
 
 import os
@@ -19,10 +19,10 @@ import re
 import shlex
 import time
 from pathlib import Path
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from core import k8s_manager as _k8s_mgr
 from core.k8s_manager import run_kubectl as _k8s_run_kubectl
-from core.k8s_snapshot import run_snapshot as _k8s_run_snapshot, fetch_logs as _k8s_fetch_logs
+from core.k8s_snapshot import run_snapshot as _k8s_run_snapshot, fetch_logs as _k8s_fetch_logs, stream_kubectl as _k8s_stream_kubectl
 from api.schemas import K8sEnvReq, K8sExecReq, K8sFileDeleteReq, K8sFileListReq, K8sFileMkdirReq, K8sFileReadReq, K8sFileSearchReq, K8sFileUploadReq, K8sFileWriteReq, K8sNetworkReq, K8sSnapshotReq, K8sYamlReq
 from api.eventbus import broadcast
 
@@ -268,6 +268,83 @@ async def api_k8s_log(
         status_code=404,
         detail=f"实时获取 Pod {name} 日志失败：{err.strip()[:300]}",
     )
+
+
+@router.get("/api/k8s/log/stream")
+async def api_k8s_log_stream(
+    request: Request,
+    name: str = "",
+    env: str = "",
+    container: str = "",
+    tail: int = 200,
+    previous: bool = False,
+    timestamps: bool = True,
+    since: str = "",
+    until: str = "",
+    namespace: str = "",
+):
+    """流式跟随 Pod 日志（``kubectl logs -f``）。
+
+    - 仅支持**单 Pod**（label 聚合为批量一次性拉取，不适用流式）；
+    - 客户端断开连接时立即 kill 子进程，避免 kubectl 泄漏；
+    - 返回 ``text/plain`` 分块流，前端用 fetch + ReadableStream 逐块追加。
+    """
+    if not name:
+        raise HTTPException(status_code=400, detail="流式跟随需要指定 name（单 Pod）。")
+    # 解析 kubeconfig / 命名空间（与 /api/k8s/log 一致）
+    kc, ns = (None, None)
+    if env:
+        kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
+    if not kc:
+        kc = _k8s_snap_meta.get("kubeconfig")
+        ns = ns or _k8s_snap_meta.get("namespace")
+    if not kc:
+        raise HTTPException(
+            status_code=404,
+            detail="未连接集群（请先在当前环境运行一次快照或指定环境）。",
+        )
+    try:
+        tail = max(1, min(int(tail), 5000))
+    except Exception:
+        tail = 200
+    ns_args = ["-n", ns] if ns else []
+
+    args = ["logs", name] + ns_args + ["--tail", str(tail)] \
+        + (["--previous"] if previous else []) \
+        + (["--timestamps"] if timestamps else []) \
+        + (["--since", str(since)] if since else []) \
+        + (["--until", str(until)] if until else []) \
+        + ["-f"]
+    if container:
+        args += ["--container", container]
+    else:
+        # -f 必须明确容器；未指定时拉全部容器（kubectl 要求 --all-containers）
+        args += ["--all-containers"]
+
+    proc = await _k8s_stream_kubectl(args, kc)
+
+    async def gen():
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                chunk = await proc.stdout.read(4096)
+                if not chunk:
+                    break
+                yield chunk
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        finally:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await proc.wait()
+            except Exception:
+                pass
+
+    return StreamingResponse(gen(), media_type="text/plain; charset=utf-8")
 
 
 @router.get("/api/k8s/pod-containers")

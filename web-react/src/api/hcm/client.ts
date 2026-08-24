@@ -15,7 +15,7 @@ export class HcmApiError extends Error {
   }
 }
 
-/** HCM 平台常见业务错误码（与前端提示文案对应） */
+/** 平台常见业务错误码（与前端提示文案对应） */
 export const HCM_ERR = {
   /** 登录态失效 / token 过期 —— 需重新获取 token */
   LOGIN_EXPIRED: 51006,
@@ -112,7 +112,7 @@ export async function hcmCall<T = any>(
 
   if (!res.ok) {
     // 解析平台业务错误码，便于前端区分「token 失效」与「其它错误」。
-    // 注意：HCM 即便返回 4xx/5xx 也可能带 errcode（如 51006 登录失效、
+    // 注意：即便返回 4xx/5xx 也可能带 errcode（如 51006 登录失效、
     // 40016 规则校验不通过/数据完整性被破坏），这里统一提取。
     const errcode = data?.errcode ?? data?.code ?? undefined;
     let detail =
@@ -190,7 +190,7 @@ export function hcmModelMeta(cfg: HcmConfig, model: string): Promise<HcmModelMet
 
 /**
  * 查询单对象的「某一类 JSON」元数据（list / info / view 等展示维度）。
- * HCM 的模型元信息是一棵包含 property / fields / childrens / action / rules 等节点的 JSON 树，
+ * 模型元信息是一棵包含 property / fields / childrens / action / rules 等节点的 JSON 树，
  * 不同维度（list 列表视图、info 详情视图、view 表单视图）其实都是同一份 hcm.model.meta 的
  * 不同节点子集。这里统一走 hcm.model.meta，由前端按维度裁剪展示。
  * 若未来网关提供独立 api（如 hcm.model.view），可在此扩展 apiName。

@@ -140,6 +140,16 @@ function convertTsInLine(line: string, unit: string, epochSec: string): string {
   });
 }
 
+/** 把行首 kubectl --timestamps 的 RFC3339 UTC 时间（如 2026-08-24T13:36:54.123456789Z）转为本地时区显示 */
+function convertUtcToLocal(line: string): string {
+  return line.replace(/^(\d{4}-\d{2}-\d{2}T[0-9:.]+Z)\s/, (m, ts: string) => {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return m;
+    const local = d.toLocaleString('sv-SE', { hour12: false }).replace(/-/g, ' ');
+    return `${local} `;
+  });
+}
+
 export function LogViewer() {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
@@ -184,6 +194,13 @@ export function LogViewer() {
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [exclude, setExclude] = useState(false);
 
+  // P2：本地时区显示 / 复制反馈 / Events 联动 / 流式跟随
+  const [localTz, setLocalTz] = useState(false);
+  const [copiedHint, setCopiedHint] = useState(''); // '' | 'all' | 'visible'
+  const [eventsOn, setEventsOn] = useState(false);
+  const [events, setEvents] = useState<{ items: any[]; error: string }>({ items: [], error: '' });
+  const [streaming, setStreaming] = useState(false);
+
   // 搜索
   const [search, setSearch] = useState('');
   const [useRegex, setUseRegex] = useState(false);
@@ -213,6 +230,12 @@ export function LogViewer() {
   levelRef.current = levelFilter;
   const excludeRef = useRef(exclude);
   excludeRef.current = exclude;
+  const localTzRef = useRef(localTz);
+  localTzRef.current = localTz;
+  const abortRef = useRef<AbortController | null>(null);
+  const streamingRef = useRef(false);
+  streamingRef.current = streaming;
+  const copiedTimerRef = useRef<number | null>(null);
 
   /* ---------- 滚动 ---------- */
   const isAtBottom = useCallback(() => {
@@ -354,6 +377,7 @@ export function LogViewer() {
   const firstTailRun = useRef(true);
   useEffect(() => {
     if (firstTailRun.current) { firstTailRun.current = false; return; }
+    if (streamingRef.current) return; // 流式跟随中不允许被覆盖
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tail, previous]);
@@ -377,9 +401,10 @@ export function LogViewer() {
   /* ---------- 行解析 ---------- */
   const lines = useMemo(() => raw.split(/\r\n|\r|\n/), [raw]);
 
-  // 时间戳转换后的展示行（不改动 raw，便于下载保留原值）；再叠加级别过滤与排除
+  // 时间戳转换后的展示行（不改动 raw，便于下载保留原值）；再叠加本地时区 + 级别过滤 + 排除
   const viewLines = useMemo(() => {
     let arr = tsConv ? lines.map((l) => convertTsInLine(l, tsUnit, tsEpoch)) : lines;
+    if (localTzRef.current) arr = arr.map((l) => convertUtcToLocal(l));
     const lv = levelRef.current;
     if (lv !== 'ALL') {
       arr = arr.filter((l) => /^=+\s/.test(l) || detectLevel(l) === lv);
@@ -388,7 +413,7 @@ export function LogViewer() {
       arr = arr.filter((l) => /^=+\s/.test(l) || !re.test(l));
     }
     return arr;
-  }, [lines, tsConv, tsUnit, tsEpoch, levelFilter, exclude, re]);
+  }, [lines, tsConv, tsUnit, tsEpoch, localTz, levelFilter, exclude, re]);
 
   const matches = useMemo(() => {
     if (!re) return [] as number[];
@@ -435,6 +460,127 @@ export function LogViewer() {
     else history.back();
   }, []);
 
+  /* ---------- P2：复制 ---------- */
+  const flashCopied = useCallback((which: string) => {
+    setCopiedHint(which);
+    if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = window.setTimeout(() => setCopiedHint(''), 1500);
+  }, []);
+
+  const copyText = useCallback(async (text: string, which: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    flashCopied(which);
+  }, [flashCopied]);
+
+  const copyAll = useCallback(() => copyText(raw, 'all'), [copyText, raw]);
+  const copyVisible = useCallback(
+    () => copyText(viewLines.filter((l) => !/^=+\s/.test(l)).join('\n'), 'visible'),
+    [copyText, viewLines]
+  );
+
+  /* ---------- P2：Events 联动 ---------- */
+  const loadEvents = useCallback(async () => {
+    const p = paramsRef.current;
+    if (!p.pod) { setEvents({ items: [], error: '' }); return; }
+    try {
+      const q = new URLSearchParams({ name: p.pod, env: p.env });
+      if (p.namespace) q.set('namespace', p.namespace);
+      const d = await apiGet<{ ok?: boolean; events?: any[]; error?: string }>(
+        '/api/k8s/events?' + q.toString()
+      );
+      if (d.ok && Array.isArray(d.events)) {
+        setEvents({ items: d.events, error: '' });
+      } else {
+        setEvents({ items: [], error: d.error || t('logviewer.unknown') });
+      }
+    } catch (ex: any) {
+      setEvents({ items: [], error: ex.message });
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (eventsOn) loadEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventsOn, params.pod, params.namespace, params.env]);
+
+  /* ---------- P2：流式跟随 ---------- */
+  const startStream = useCallback(async () => {
+    const p = paramsRef.current;
+    if (!p.pod) return;
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setRaw('');
+    setStatus(t('logviewer.streaming'));
+    setIsErr(false);
+    try {
+      const q = new URLSearchParams();
+      q.set('name', p.pod);
+      if (p.env) q.set('env', p.env);
+      if (p.container) q.set('container', p.container);
+      if (p.namespace) q.set('namespace', p.namespace);
+      q.set('tail', tailRef.current);
+      if (prevRef.current) q.set('previous', '1');
+      q.set('timestamps', tsRef.current ? '1' : '0');
+      if (sinceRef.current.trim()) q.set('since', sinceRef.current.trim());
+      if (untilRef.current.trim()) q.set('until', untilRef.current.trim());
+      const resp = await fetch('/api/k8s/log/stream?' + q.toString(), { signal: ac.signal });
+      if (!resp.body) { setStatus(t('logviewer.loadFail', { msg: 'no stream body' })); setIsErr(true); return; }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      const MAX = 200000; // 行数保护上限
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let arr = buf.split('\n');
+        if (arr.length > MAX) arr = arr.slice(arr.length - MAX);
+        buf = arr.join('\n');
+        setRaw(buf);
+        if (isAtBottom()) requestAnimationFrame(scrollBottom);
+      }
+      setStreaming(false);
+      setStatus('');
+    } catch (ex: any) {
+      if (ex && ex.name === 'AbortError') { setStatus(''); return; }
+      setStatus(t('logviewer.loadFail', { msg: ex.message || String(ex) }));
+      setIsErr(true);
+    }
+  }, [isAtBottom, scrollBottom, t]);
+
+  const stopStream = useCallback(() => {
+    if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+    setStreaming(false);
+    setStatus('');
+  }, []);
+
+  const toggleStream = useCallback(async (on: boolean) => {
+    if (on) {
+      setStreaming(true);
+      await startStream();
+    } else {
+      stopStream();
+    }
+  }, [startStream, stopStream]);
+
+  // 卸载时回收流式子进程
+  useEffect(() => {
+    return () => {
+      if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+    };
+  }, []);
+
   // 快捷键：Enter / Shift+Enter 跳转匹配，Ctrl/Cmd+F 聚焦搜索
   const searchRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
@@ -479,7 +625,7 @@ export function LogViewer() {
           </div>
         </div>
         <div className="lv-head-right">
-          <button className="btn btn-sm" onClick={refresh} title={t('logviewer.refresh')}>↻ {t('logviewer.refresh')}</button>
+          <button className="btn btn-sm" onClick={refresh} title={t('logviewer.refresh')} disabled={streaming}>↻ {t('logviewer.refresh')}</button>
           <button className="btn btn-sm" onClick={download} title={t('logviewer.download')} disabled={!raw}>↓ {t('logviewer.download')}</button>
           <button className="btn btn-icon" onClick={toggleTheme} title={t('app.themeToggle')}>{theme === 'dark' ? '☀' : '🌓'}</button>
         </div>
@@ -525,7 +671,7 @@ export function LogViewer() {
         </label>
 
         <label className="lv-field">{t('logviewer.autoRefresh')}
-          <select className="sel" value={auto} onChange={(e) => setAuto(e.target.value)}>
+          <select className="sel" value={auto} onChange={(e) => setAuto(e.target.value)} disabled={streaming}>
             <option value="0">{t('logviewer.off')}</option>
             <option value="3">3 {t('logviewer.seconds')}</option>
             <option value="5">5 {t('logviewer.seconds')}</option>
@@ -596,6 +742,53 @@ export function LogViewer() {
 
         <label className="lv-toggle" title={t('logviewer.excludeHint')}><input type="checkbox" checked={exclude} onChange={(e) => setExclude(e.target.checked)} /> {t('logviewer.exclude')}</label>
       </div>
+
+      <div className="lv-toolbar lv-toolbar-3">
+        <label className="lv-toggle" title={t('logviewer.localTzHint')}><input type="checkbox" checked={localTz} onChange={(e) => setLocalTz(e.target.checked)} /> {t('logviewer.localTz')}</label>
+        <button className="btn btn-sm" onClick={copyVisible} disabled={!raw}>⧉ {t('logviewer.copyVisible')}</button>
+        <button className="btn btn-sm" onClick={copyAll} disabled={!raw}>⧉ {t('logviewer.copyAll')}</button>
+        {copiedHint && <span className="lv-copied">{t('logviewer.copied')}</span>}
+        <label className="lv-toggle"><input type="checkbox" checked={eventsOn} onChange={(e) => setEventsOn(e.target.checked)} /> {t('logviewer.events')}</label>
+        <label className="lv-toggle" title={labelMode ? t('logviewer.stream') : ''}><input type="checkbox" checked={streaming} disabled={labelMode} onChange={(e) => toggleStream(e.target.checked)} /> {t('logviewer.stream')}</label>
+        {streaming && <button className="btn btn-sm btn-danger" onClick={stopStream}>{t('logviewer.stopStream')}</button>}
+      </div>
+
+      {eventsOn && (
+        <div className="lv-events">
+          <div className="lv-events-head">
+            <span className="lv-events-title">{t('logviewer.events')}</span>
+            <span className="lv-events-hint">{t('logviewer.eventsHint')}</span>
+          </div>
+          {events.error && <div className="lv-statusline" style={{ color: 'var(--danger)' }}>{events.error}</div>}
+          {!events.error && events.items.length === 0 && (
+            <div className="empty-hint">{t('logviewer.eventsEmpty')}</div>
+          )}
+          {!events.error && events.items.length > 0 && (
+            <div className="lv-events-wrap">
+              <table className="lv-events-table">
+                <thead>
+                  <tr>
+                    <th>{t('logviewer.eventsTime')}</th>
+                    <th>{t('logviewer.eventsType')}</th>
+                    <th>{t('logviewer.eventsReason')}</th>
+                    <th>{t('logviewer.eventsMsg')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {events.items.map((e, i) => (
+                    <tr key={i} className={'ev-' + (e.type || 'Normal')}>
+                      <td className="ev-time">{(e.last_seen || '').replace('T', ' ').replace('Z', '').slice(0, 19)}</td>
+                      <td className="ev-type">{e.type || ''}</td>
+                      <td className="ev-reason">{e.reason || ''}</td>
+                      <td className="ev-msg" title={e.message || ''}>{e.message || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       <main className="lv-body" ref={bodyRef as any}>
         {status && (
