@@ -680,6 +680,7 @@ export const zh: Dict = {
     seconds: '秒',
     off: '关闭',
     previous: '上一容器(--previous)',
+    timestamps: '显示时间戳(--timestamps)',
     wrap: '换行',
     lineNo: '行号',
     levelHighlight: '级别高亮',

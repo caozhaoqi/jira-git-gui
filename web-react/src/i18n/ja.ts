@@ -680,6 +680,7 @@ export const ja: Dict = {
     seconds: '秒',
     off: 'オフ',
     previous: '前のコンテナ (--previous)',
+    timestamps: 'タイムスタンプ表示 (--timestamps)',
     wrap: '折り返し',
     lineNo: '行番号',
     levelHighlight: 'レベル強調',

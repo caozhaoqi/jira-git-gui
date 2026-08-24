@@ -164,6 +164,7 @@ export function LogViewer() {
   // 工具栏
   const [tail, setTail] = useState('200');
   const [previous, setPrevious] = useState(false);
+  const [timestamps, setTimestamps] = useState(true); // kubectl --timestamps，默认带时间戳
   const [auto, setAuto] = useState('0');
   const [wrap, setWrap] = useState(true);
   const [lineno, setLineno] = useState(true);
@@ -190,6 +191,8 @@ export function LogViewer() {
   tailRef.current = tail;
   const prevRef = useRef(previous);
   prevRef.current = previous;
+  const tsRef = useRef(timestamps);
+  tsRef.current = timestamps;
 
   /* ---------- 滚动 ---------- */
   const isAtBottom = useCallback(() => {
@@ -216,6 +219,7 @@ export function LogViewer() {
       if (p.namespace) q.set('namespace', p.namespace);
       q.set('tail', tailRef.current);
       if (prevRef.current) q.set('previous', '1');
+      q.set('timestamps', tsRef.current ? '1' : '0');
       const text = await apiText('/api/k8s/log?' + q.toString());
       setRaw(text);
       setStatus('');
@@ -493,6 +497,7 @@ export function LogViewer() {
         </label>
 
         <label className="lv-toggle"><input type="checkbox" checked={previous} onChange={(e) => setPrevious(e.target.checked)} /> {t('logviewer.previous')}</label>
+        <label className="lv-toggle"><input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} /> {t('logviewer.timestamps')}</label>
         <label className="lv-toggle"><input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} /> {t('logviewer.wrap')}</label>
         <label className="lv-toggle"><input type="checkbox" checked={lineno} onChange={(e) => setLineno(e.target.checked)} /> {t('logviewer.lineNo')}</label>
         <label className="lv-toggle"><input type="checkbox" checked={levelOn} onChange={(e) => setLevelOn(e.target.checked)} /> {t('logviewer.levelHighlight')}</label>

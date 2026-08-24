@@ -680,6 +680,7 @@ export const en: Dict = {
     seconds: 's',
     off: 'Off',
     previous: 'Previous container (--previous)',
+    timestamps: 'Show timestamps (--timestamps)',
     wrap: 'Wrap',
     lineNo: 'Line no.',
     levelHighlight: 'Level highlight',

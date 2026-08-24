@@ -131,6 +131,7 @@ async def api_k8s_log(
     container: str = "",
     tail: int = 200,
     previous: bool = False,
+    timestamps: bool = True,
 ):
     """读取某个 Pod 的日志（供主面板与独立日志查看页共用）。
 
@@ -177,12 +178,14 @@ async def api_k8s_log(
 
     # 3) 指定容器 → 直接实时抓取（单容器场景）
     if container:
-        log = _k8s_fetch_logs(name, container, kc, ns, tail, previous, timeout=30)
+        log = _k8s_fetch_logs(name, container, kc, ns, tail, previous, timeout=30, timestamps=timestamps)
         return PlainTextResponse(log)
 
     # 4) 未指定容器：先试单容器，再试多容器
     out, rc, err = _k8s_run_kubectl(
-        ["logs", name] + ns_args + ["--tail", str(tail)] + (["--previous"] if previous else []),
+        ["logs", name] + ns_args + ["--tail", str(tail)]
+        + (["--previous"] if previous else [])
+        + (["--timestamps"] if timestamps else []),
         kc, timeout=30,
     )
     if rc == 0 and out.strip():
@@ -202,7 +205,7 @@ async def api_k8s_log(
                 containers = []
         parts = []
         for c in containers:
-            log = _k8s_fetch_logs(name, c, kc, ns, tail, previous, timeout=30)
+            log = _k8s_fetch_logs(name, c, kc, ns, tail, previous, timeout=30, timestamps=timestamps)
             parts.append("===== container: %s =====\n%s" % (c, log))
         if parts:
             return PlainTextResponse("\n\n".join(parts))
