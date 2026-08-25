@@ -708,6 +708,7 @@ export const en: Dict = {
     sinceHint: 'e.g. 1h / 30m / 2026-08-24T00:00:00Z',
     until: 'Until (--until)',
     untilHint: 'RFC3339, e.g. 2026-08-24T12:00:00Z',
+    timeInvalid: 'Invalid format; this filter will be ignored (use 30m/1h/2d or RFC3339)',
     labelMode: 'Aggregate by Label',
     label: 'Label selector',
     labelHint: 'e.g. app=anime-api',

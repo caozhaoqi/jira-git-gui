@@ -708,6 +708,7 @@ export const zh: Dict = {
     sinceHint: '如 1h / 30m / 2026-08-24T00:00:00Z',
     until: '截止(--until)',
     untilHint: 'RFC3339，如 2026-08-24T12:00:00Z',
+    timeInvalid: '格式无效，将忽略该筛选（应为 30m/1h/2d 或 RFC3339 时间）',
     labelMode: '按 Label 聚合',
     label: 'Label 选择器',
     labelHint: '如 app=anime-api',

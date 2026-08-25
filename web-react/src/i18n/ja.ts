@@ -708,6 +708,7 @@ export const ja: Dict = {
     sinceHint: '例: 1h / 30m / 2026-08-24T00:00:00Z',
     until: '終了 (--until)',
     untilHint: 'RFC3339, 例: 2026-08-24T12:00:00Z',
+    timeInvalid: '形式が無効です。このフィルタは無視されます（30m/1h/2d または RFC3339）',
     labelMode: 'Label で集約',
     label: 'Label セレクタ',
     labelHint: '例: app=anime-api',

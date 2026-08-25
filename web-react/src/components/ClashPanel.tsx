@@ -63,8 +63,8 @@ interface DiagItem {
   detail: string;
 }
 
-// 默认探测的网段网关候选（仅作连通性自检示例，不含真实业务 IP）
-const DEFAULT_IPS = ['<SAMPLE_GW_1>', '<SAMPLE_GW_2>', '<SAMPLE_GW_3>'];
+// 默认 IP 兜底（正常从 config/clash_defaults.local.json 经 GET /api/clash/defaults 读取）
+const DEFAULT_IPS: string[] = [];
 const KIND_LABEL: Record<string, string> = { wifi: 'Wi-Fi', lan: '有线/局域网', other: '其他' };
 
 async function copyText(t: string): Promise<boolean> {
@@ -84,7 +84,8 @@ export function ClashPanel() {
   const [lanDevice, setLanDevice] = useState('');
   const [wanDevice, setWanDevice] = useState('');
   const [services, setServices] = useState<Service[]>([]);
-  const [ips, setIps] = useState<string[]>(DEFAULT_IPS);
+  const [defaultIps, setDefaultIps] = useState<string[]>(DEFAULT_IPS);
+  const [ips, setIps] = useState<string[]>([]);
   const [newIp, setNewIp] = useState('');
   const [checks, setChecks] = useState<Record<string, CheckResp>>({});
   const [checking, setChecking] = useState(false);
@@ -149,11 +150,26 @@ export function ClashPanel() {
     }
   }, [cfgPath]);
 
+  const loadDefaults = useCallback(async () => {
+    try {
+      const r = await apiGet<{ default_ips?: string[]; lan_device?: string }>('/api/clash/defaults');
+      const list = (r.default_ips || []).filter(Boolean);
+      if (list.length) {
+        setDefaultIps(list);
+        setIps(list);
+      }
+      if (r.lan_device) setLanDevice((v) => v || r.lan_device || '');
+    } catch {
+      // 接口不可用则维持默认（DEFAULT_IPS 兜底为空，由用户手动添加）
+    }
+  }, []);
+
   useEffect(() => {
+    loadDefaults();
     loadIfaces();
     loadProxy();
     probeCfgPath();
-  }, [loadIfaces, loadProxy, probeCfgPath]);
+  }, [loadDefaults, loadIfaces, loadProxy, probeCfgPath]);
 
   const addIp = () => {
     const v = newIp.trim();
@@ -424,7 +440,7 @@ export function ClashPanel() {
           <button className="btn" onClick={addIp} disabled={!newIp.trim()}>
             ＋ {t('clash.add')}
           </button>
-          <button className="btn btn-ghost" onClick={() => setIps(DEFAULT_IPS)} title={t('clash.restoreDefault')}>
+          <button className="btn btn-ghost" onClick={() => setIps(defaultIps.length ? defaultIps : DEFAULT_IPS)} title={t('clash.restoreDefault')}>
             {t('clash.restoreDefault')}
           </button>
         </div>

@@ -7,6 +7,7 @@
 - 日志：所有操作（检测/检查/应用/撤销/生成/诊断）记录到 logs/clash_ui.log
 """
 import glob
+import json
 import logging
 import os
 import platform
@@ -889,6 +890,50 @@ async def clash_config_path():
         current = current + ".yaml"
     _log.info("配置探测: %d 个候选, ClashX 当前选中=%s", len(paths), current or "(未知)")
     return {"ok": True, "paths": paths, "current_config": current}
+
+
+# --------------------------------------------------------------------------- #
+#  默认值配置（config/clash_defaults.local.json，含真实 IP 的文件不入库）
+# --------------------------------------------------------------------------- #
+_CLASH_DEFAULTS_FILE = (
+    Path(__file__).resolve().parent.parent / "config" / "clash_defaults.local.json"
+)
+
+
+def _load_clash_defaults() -> Dict[str, Any]:
+    """读取 config/clash_defaults.local.json，失败/缺失时返回空默认值。"""
+    try:
+        if not _CLASH_DEFAULTS_FILE.is_file():
+            return {"default_ips": [], "lan_device": ""}
+        data = json.loads(_CLASH_DEFAULTS_FILE.read_text(encoding="utf-8"))
+        ips = [
+            x.strip()
+            for x in (data.get("default_ips") or [])
+            if isinstance(x, str) and x.strip()
+        ]
+        return {
+            "default_ips": ips,
+            "lan_device": (data.get("lan_device") or "").strip(),
+        }
+    except Exception as e:  # noqa: BLE001
+        _log.warning("读取 Clash 默认值配置失败: %s", e)
+        return {"default_ips": [], "lan_device": ""}
+
+
+@router.get("/api/clash/defaults")
+async def clash_defaults():
+    """返回 config/clash_defaults.local.json 中配置的默认 IP / 默认局域网接口。
+
+    前端据此初始化 IP 列表与「恢复默认」按钮，避免把环境相关 IP 写死在代码里。
+    """
+    d = _load_clash_defaults()
+    _log.info(
+        "默认值读取: %d 个 IP, lan_device=%s, 来源=%s",
+        len(d["default_ips"]),
+        d["lan_device"] or "-",
+        _CLASH_DEFAULTS_FILE,
+    )
+    return {"ok": True, "default_ips": d["default_ips"], "lan_device": d["lan_device"]}
 
 
 class PatchAllReq(BaseModel):

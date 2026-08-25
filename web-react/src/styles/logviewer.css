@@ -219,6 +219,19 @@ html.dark {
 .lv-field .sel {
   font-size: 12px;
 }
+.lv-field {
+  flex-wrap: wrap;
+}
+.lv-invalid {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.lv-field-warn {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 11px;
+  margin-top: 2px;
+}
 .lv-ts-epoch .input-sm {
   width: 130px;
   font-family: var(--mono);

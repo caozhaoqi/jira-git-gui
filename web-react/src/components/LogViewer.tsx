@@ -178,6 +178,15 @@ export function LogViewer() {
   const toggleTheme = useAppStore((s) => s.toggleTheme);
   const { t } = useT();
 
+  // since/until 实时格式校验（与后端 _k8s_normalize_time_arg 保持一致）
+  const timeArgValid = useCallback((v: string, allowAbs: boolean) => {
+    const s = (v || "").trim();
+    if (!s) return true;
+    if (/^\d+(?:\.\d+)?(ns|us|µs|ms|s|m|h|d)$/.test(s)) return true;
+    if (allowAbs && /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/.test(s)) return true;
+    return false;
+  }, []);
+
   const [params, setParams] = useState<Params>(() => {
     const qs = new URLSearchParams(location.search);
     return {
@@ -740,10 +749,12 @@ export function LogViewer() {
 
       <div className="lv-toolbar lv-toolbar-2">
         <label className="lv-field">{t('logviewer.since')}
-          <input type="text" className="input input-sm" placeholder={t('logviewer.sinceHint')} value={since} onChange={(e) => setSince(e.target.value)} />
+          <input type="text" className={"input input-sm" + (timeArgValid(since, false) ? "" : " lv-invalid")} placeholder={t('logviewer.sinceHint')} value={since} onChange={(e) => setSince(e.target.value)} />
+          {!timeArgValid(since, false) && <span className="lv-field-warn">{t('logviewer.timeInvalid')}</span>}
         </label>
         <label className="lv-field">{t('logviewer.until')}
-          <input type="text" className="input input-sm" placeholder={t('logviewer.untilHint')} value={until} onChange={(e) => setUntil(e.target.value)} />
+          <input type="text" className={"input input-sm" + (timeArgValid(until, true) ? "" : " lv-invalid")} placeholder={t('logviewer.untilHint')} value={until} onChange={(e) => setUntil(e.target.value)} />
+          {!timeArgValid(until, true) && <span className="lv-field-warn">{t('logviewer.timeInvalid')}</span>}
         </label>
 
         <label className="lv-toggle"><input type="checkbox" checked={labelMode} onChange={(e) => setLabelMode(e.target.checked)} /> {t('logviewer.labelMode')}</label>

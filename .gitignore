@@ -60,6 +60,10 @@ deliverables/
 hcm_whitelist.local.json
 config/hcm_whitelist.local.json
 
+# Clash 面板默认值：模板可提交；含真实 IP 的 .local 文件禁止入库
+clash_defaults.local.json
+config/clash_defaults.local.json
+
 web-react/node_modules/
 
 web/
