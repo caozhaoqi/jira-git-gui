@@ -2245,3 +2245,207 @@
   padding: 0 4px;
   font-size: 11.5px;
 }
+
+/* ============================================================
+   SettingsPanel —— 系统设置 / API 接口文档
+   ============================================================ */
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 22px 40px;
+  height: 100%;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.settings-head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.settings-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.settings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  padding: 16px 18px;
+}
+.settings-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.settings-section-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-meta {
+  font-size: 12px;
+  color: var(--text-2);
+  text-align: right;
+}
+.settings-loading,
+.settings-error,
+.settings-empty {
+  padding: 24px 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+.settings-error {
+  color: var(--danger);
+}
+.settings-search {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  box-sizing: border-box;
+}
+.settings-search:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.apidoc-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.apidoc-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.apidoc-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.apidoc-group-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.apidoc-group-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  flex: 1;
+}
+.apidoc-group-count {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.apidoc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.apidoc-table tr {
+  border-bottom: 1px solid var(--border);
+}
+.apidoc-table tr:last-child {
+  border-bottom: none;
+}
+.apidoc-method {
+  width: 76px;
+  padding: 10px 12px;
+  vertical-align: top;
+}
+.apidoc-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  border: 1px solid;
+  border-radius: 4px;
+  padding: 2px 6px;
+  background: transparent;
+}
+.apidoc-path {
+  padding: 10px 12px;
+  vertical-align: top;
+  width: 60%;
+}
+.apidoc-path code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+.apidoc-summary {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.apidoc-params {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.apidoc-params-label {
+  color: var(--text-2);
+}
+.apidoc-param {
+  font-family: var(--mono);
+  font-size: 11px;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.apidoc-actions {
+  padding: 10px 12px;
+  vertical-align: top;
+  text-align: right;
+  white-space: nowrap;
+}
+.apidoc-btn {
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+}
+.apidoc-btn:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft, rgba(47, 111, 235, 0.08));
+}
+.apidoc-footer {
+  margin-top: 16px;
+  text-align: right;
+}
+.apidoc-raw {
+  font-size: 12px;
+  color: var(--primary);
+  text-decoration: none;
+}
+.apidoc-raw:hover {
+  text-decoration: underline;
+}

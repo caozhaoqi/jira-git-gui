@@ -21,6 +21,8 @@ import threading
 import queue
 import time
 import fnmatch
+import inspect
+import datetime as dt
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Optional
@@ -2213,6 +2215,150 @@ app.include_router(k8s_router)
 # --------------------------------------------------------------------------- #
 from api.routes_clash import router as clash_router
 app.include_router(clash_router)
+
+
+# --------------------------------------------------------------------------- #
+#  接口文档（自省所有 /api 路由，按模块分组）
+# --------------------------------------------------------------------------- #
+# 模块分组：按路由前缀归类，便于前端分 Tab 展示
+_MODULE_META = {
+    "auth":        ("认证 / 账号", "登录态、授权检测与账号管理"),
+    "repos":       ("仓库 / 分支", "仓库列表、分支、提交与文件浏览"),
+    "download":    ("下载", "文件下载与断点续传"),
+    "diff":        ("差异 / 合并", "目录差异扫描与文件合并"),
+    "cache":       ("缓存", "缓存统计与清理"),
+    "sync-history":("同步历史", "类 git log 的同步记录"),
+    "cf":          ("云函数日志", "CF 账号与日志查询"),
+    "k8s":         ("K8s 运维", "Pod 状态、快照与日志查询"),
+    "clash":       ("Clash 分流", "分流配置检测与命令生成"),
+    "hcm":         ("HCM 对象", "HCM 对象浏览与直连查询"),
+    "settings":    ("系统设置", "配置读写与系统信息"),
+    "misc":        ("其它", "事件流与杂项接口"),
+}
+
+# 每个路由可能归属的二级前缀 -> 模块 key
+_PREFIX_TO_MODULE = (
+    ("/api/auth", "auth"),
+    ("/api/repos", "repos"),
+    ("/api/download", "download"),
+    ("/api/diff", "diff"),
+    ("/api/cache", "cache"),
+    ("/api/sync-history", "sync-history"),
+    ("/api/cf", "cf"),
+    ("/api/k8s", "k8s"),
+    ("/api/clash", "clash"),
+    ("/api/hcm", "hcm"),
+    ("/api/settings", "settings"),
+)
+
+
+def _classify_module(path: str) -> str:
+    for prefix, mod in _PREFIX_TO_MODULE:
+        if path.startswith(prefix):
+            return mod
+    return "misc"
+
+
+def _clean_doc(doc: str) -> str:
+    if not doc:
+        return ""
+    # 取第一段非空行作为概要，去除多余缩进
+    lines = [ln.strip() for ln in doc.strip().splitlines() if ln.strip()]
+    return " ".join(lines[:3]).strip()
+
+
+def _collect_docs() -> dict:
+    """自省 FastAPI 路由，生成结构化接口文档。
+
+    注意：本项目对 include_router 做了定制，router 内的 HTTP 路由
+    不一定全部进入 app.routes 顶层列表，因此额外遍历已导入的
+    router 实例（k8s_router / clash_router）以补全，并按 path+method 去重。
+    """
+    # 汇总所有路由来源：主 app 直接注册的 + 各 router 实例的
+    all_routes = list(app.routes)
+    for _router in (k8s_router, clash_router):
+        all_routes.extend(getattr(_router, "routes", []) or [])
+
+    seen: set[tuple[str, str]] = set()
+    endpoints: dict[str, list[dict]] = {}
+    for route in all_routes:
+        # 仅处理 API 路由（非静态文件、非文档端点自身）
+        path = getattr(route, "path", "")
+        if not path.startswith("/api/"):
+            continue
+        if path in ("/api/docs", "/api/openapi.json"):
+            continue
+        methods = getattr(route, "methods", None) or set()
+        methods = sorted(m for m in methods if m not in ("HEAD", "OPTIONS"))
+        if not methods:
+            continue
+        # 去重：同一 path+method 可能同时出现在 app.routes 与 router.routes
+        dedup_key = (path, methods[0])
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+        handler = getattr(route, "endpoint", None)
+        summary = _clean_doc(getattr(handler, "__doc__", "") or "")
+        # 参数（仅展示 query/path 参数名，从依赖签名中提取简单信息）
+        params: list[str] = []
+        try:
+            sig = inspect.signature(handler)
+            for name, p in sig.parameters.items():
+                if name in ("request", "background_tasks", "websocket"):
+                    continue
+                if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY):
+                    anno = p.annotation
+                    anno_name = getattr(anno, "__name__", str(anno))
+                    if anno_name.startswith("list") or anno_name.startswith("List"):
+                        anno_name = "array"
+                    params.append(name if p.default is p.empty
+                                   else f"{name}={p.default!r}")
+        except (ValueError, TypeError):
+            pass
+
+        mod = _classify_module(path)
+        endpoints.setdefault(mod, []).append({
+            "method": methods[0],
+            "methods": methods,
+            "path": path,
+            "summary": summary or "(无描述)",
+            "params": params,
+        })
+
+    # 按模块元信息组装，保持预设顺序 + 路由排序
+    groups: list[dict] = []
+    for key, (title, desc) in _MODULE_META.items():
+        eps = endpoints.get(key, [])
+        if not eps:
+            continue
+        eps.sort(key=lambda e: e["path"])
+        groups.append({
+            "key": key,
+            "title": title,
+            "description": desc,
+            "count": len(eps),
+            "endpoints": eps,
+        })
+
+    total = sum(g["count"] for g in groups)
+    return {
+        "title": "Jira Git GUI API",
+        "version": "1.0",
+        "base_url": "/",
+        "generated_at": dt.datetime.now().isoformat(timespec="seconds"),
+        "total": total,
+        "groups": groups,
+    }
+
+
+@app.get("/api/docs")
+async def api_docs():
+    """返回自省得到的接口文档（按模块分组的结构化 JSON）。
+
+    前端系统设置 → API 文档页 直接消费此接口渲染接口列表。
+    """
+    logger.info(f"api_docs:{_collect_docs()}")
+    return JSONResponse(_collect_docs())
 
 
 if __name__ == "__main__":

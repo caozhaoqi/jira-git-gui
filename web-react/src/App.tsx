@@ -21,6 +21,7 @@ import { K8sPanel } from './components/k8s/K8sPanel';
 import { CfPanel } from './components/CfPanel';
 import { ClashPanel } from './components/ClashPanel';
 import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
+import { SettingsPanel } from './components/SettingsPanel';
 import { HcmModelDetail } from './components/hcm/HcmModelDetail';
 import { ToastStack } from './components/Toast';
 import { LogPanel } from './components/LogPanel';
@@ -141,6 +142,7 @@ export default function App() {
             {activeTab === 'cf' && <CfPanel />}
             {activeTab === 'clash' && <ClashPanel />}
             {activeTab === 'hcm' && <HcmObjectBrowser />}
+            {activeTab === 'settings' && <SettingsPanel />}
           </div>
         </main>
       </div>
