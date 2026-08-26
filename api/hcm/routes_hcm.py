@@ -17,6 +17,8 @@ class HcmDirectReq(BaseModel):
     params: dict = {}
     token: str = ""
     model: str = ""
+    sql_debug: bool = False
+    profile_debug: bool = False
 
 
 @router.get("/api/hcm/envs")

@@ -116,9 +116,14 @@ async def hcm_direct(req) -> "dict":
         raise HTTPException(400, "未提供 token 且预设 token 为空，请先配置 token 或传入 token")
 
     api_name = req.api_name.strip() or "hcm.paas.object.list"
-    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}"
+    query = ["debug=1"]
+    if getattr(req, "sql_debug", False):
+        query.append("sql_debug=1")
+    if getattr(req, "profile_debug", False):
+        query.append("profile_debug=1")
+    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}?{'&'.join(query)}"
     if req.model:
-        target += f"?model={req.model}"
+        target += f"&model={req.model}"
 
     hp = _hd.encrypt_param(req.params)
     body = json.dumps({
@@ -179,7 +184,17 @@ async def hcm_direct(req) -> "dict":
         inner = _hd.decrypt_param(data["hcm_param"], data.get("hcm_transfer_strategy", "hb5"))
         result = inner.get("result", inner) if isinstance(inner, dict) else inner
         logger.info("[HCM直连] 解密成功 result=%s", type(result).__name__)
-    return {"ok": True, "data": result}
+
+    meta = {}
+    if isinstance(data, dict):
+        meta = {
+            k: data[k]
+            for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+            if k in data
+        }
+        if "srv_begin" in meta and "srv_end" in meta:
+            meta["duration_ms"] = meta["srv_end"] - meta["srv_begin"]
+    return {"ok": True, "data": result, "meta": meta}
 
 
 def hcm_save_data(req) -> "dict":

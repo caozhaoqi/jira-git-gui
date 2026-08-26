@@ -105,6 +105,13 @@ export function HcmObjectBrowser() {
   const [dataFilter, setDataFilter] = useState('');
   const [dataJsonQuery, setDataJsonQuery] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
+  // 高级数据请求：完整请求体 JSON 编辑、SQL/Profile 调试开关、响应元信息
+  const [dataPayload, setDataPayload] = useState('');
+  const [dataPayloadError, setDataPayloadError] = useState('');
+  const [dataSqlDebug, setDataSqlDebug] = useState(false);
+  const [dataProfileDebug, setDataProfileDebug] = useState(false);
+  const [dataMeta, setDataMeta] = useState<Record<string, any>>({});
+  const [dataAdvOpen, setDataAdvOpen] = useState(false);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
   useEffect(() => {
@@ -129,6 +136,37 @@ export function HcmObjectBrowser() {
     }
     return data?.data;
   }, [token, usePresetToken]);
+
+  // 直连原始响应：返回 {data, meta}，meta 含 srv_begin/srv_end/duration_ms/profile_index/log_index
+  const directCallRaw = useCallback(
+    async (
+      apiName: string,
+      params: Record<string, any>,
+      model = '',
+      opts: { sqlDebug?: boolean; profileDebug?: boolean } = {}
+    ): Promise<{ data: any; meta: Record<string, any> }> => {
+      const res = await fetch('/api/hcm/direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_name: apiName,
+          params,
+          model,
+          token: usePresetToken ? '' : token.trim(),
+          sql_debug: opts.sqlDebug,
+          profile_debug: opts.profileDebug,
+        }),
+      });
+      const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      if (!res.ok) {
+        const detail =
+          typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail ?? data);
+        throw new HcmApiError(detail || `HTTP ${res.status}`, res.status);
+      }
+      return { data: data?.data, meta: data?.meta || {} };
+    },
+    [token, usePresetToken]
+  );
 
 const loadList = useCallback(async () => {
     if (!usePresetToken && !token.trim()) {
@@ -206,6 +244,22 @@ const loadList = useCallback(async () => {
       setDataPage(1);
       setDataFilter('');
       setDataJsonQuery('');
+      setDataMeta({});
+      setDataPayloadError('');
+      setDataPayload(
+        JSON.stringify(
+          {
+            model: obj.id,
+            filter_str: null,
+            filter_dict: {},
+            page_index: 1,
+            page_size: 20,
+            biz_type: 'list',
+          },
+          null,
+          2
+        )
+      );
       setMetaLoading(true);
       try {
         // 统一走后端直连：同源 /api/hcm/direct，后端直连网关并解密返回明文元数据。
@@ -221,37 +275,48 @@ const loadList = useCallback(async () => {
   );
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录（非元数据）。
-  // 返回结构为 { list: [...records], total, count, ... }，整段以 JSON 展示并支持保存。
+  // 支持完整请求体 JSON 编辑、SQL/Profile 调试开关、响应元信息。
   const loadData = useCallback(
     async (obj: HcmObjectItem, pg: number = dataPage) => {
       if (!usePresetToken && !token.trim()) {
         setDataError(t('hcm.configRequired'));
         return;
       }
+      let payload: Record<string, any>;
+      try {
+        payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+        setDataPayloadError('');
+      } catch (e: any) {
+        setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+        return;
+      }
+      // 兜底：确保 model 与当前对象一致，page_index 跟随分页
+      payload.model = obj.id;
+      payload.page_index = pg;
+      if (!payload.page_size) payload.page_size = dataPageSize;
+      if (!payload.biz_type) payload.biz_type = 'list';
+
       setDataLoading(true);
       setDataError('');
       try {
-        const res = await directCall(
+        const { data, meta } = await directCallRaw(
           'hcm.model.list',
-          {
-            model: obj.id,
-            filter_str: dataFilter.trim() || null,
-            filter_dict: {},
-            page_index: pg,
-            page_size: dataPageSize,
-          },
-          obj.id
+          payload,
+          obj.id,
+          { sqlDebug: dataSqlDebug, profileDebug: dataProfileDebug }
         );
-        setDataResult(res);
-        setDataTotal(res?.total ?? res?.count ?? (Array.isArray(res?.list) ? res.list.length : 0));
+        setDataResult(data);
+        setDataMeta(meta);
+        setDataTotal(data?.total ?? data?.count ?? (Array.isArray(data?.list) ? data.list.length : 0));
       } catch (e: any) {
         setDataError(e instanceof HcmApiError ? e.message : String(e?.message || e));
         setDataResult(null);
+        setDataMeta({});
       } finally {
         setDataLoading(false);
       }
     },
-    [token, usePresetToken, directCall, dataFilter, dataPageSize, dataPage, t]
+    [token, usePresetToken, directCallRaw, dataPayload, dataPageSize, dataPage, dataSqlDebug, dataProfileDebug, t]
   );
 
   // 切换到「数据」tab 时，若该对象尚未查询过则自动拉取一次
@@ -745,6 +810,12 @@ const loadList = useCallback(async () => {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && selected) {
                           setDataPage(1);
+                          // 将简单过滤同步到请求体
+                          try {
+                            const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+                            p.filter_str = e.currentTarget.value.trim() || null;
+                            setDataPayload(JSON.stringify(p, null, 2));
+                          } catch {}
                           loadData(selected, 1);
                         }
                       }}
@@ -756,6 +827,11 @@ const loadList = useCallback(async () => {
                       onClick={() => {
                         if (selected) {
                           setDataPage(1);
+                          try {
+                            const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+                            p.filter_str = dataFilter.trim() || null;
+                            setDataPayload(JSON.stringify(p, null, 2));
+                          } catch {}
                           loadData(selected, 1);
                         }
                       }}
@@ -771,7 +847,51 @@ const loadList = useCallback(async () => {
                     >
                       {t('hcm.saveJson')}
                     </button>
+                    <button
+                      className={dataAdvOpen ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                      onClick={() => setDataAdvOpen((v) => !v)}
+                      disabled={!selected}
+                    >
+                      {t('hcm.advanced')}
+                    </button>
                   </div>
+
+                  {/* 高级请求体编辑（参考 HCM API 测试页：完整 JSON 输入 + SQL/Profile 开关） */}
+                  {dataAdvOpen && (
+                    <div className="hcm-adv">
+                      <label className="hcm-adv-row hcm-adv-vertical">
+                        <span>{t('hcm.requestBody')}</span>
+                        <textarea
+                          className="hcm-json-input"
+                          value={dataPayload}
+                          onChange={(e) => setDataPayload(e.target.value)}
+                          spellCheck={false}
+                          rows={10}
+                          placeholder={t('hcm.requestBodyHint')}
+                        />
+                      </label>
+                      {dataPayloadError && <div className="hcm-error">{dataPayloadError}</div>}
+                      <div className="hcm-adv-row hcm-adv-checks">
+                        <label title={t('hcm.sqlDebugHint')}>
+                          <input
+                            type="checkbox"
+                            checked={dataSqlDebug}
+                            onChange={(e) => setDataSqlDebug(e.target.checked)}
+                          />{' '}
+                          {t('hcm.sqlDebug')}
+                        </label>
+                        <label title={t('hcm.profileDebugHint')}>
+                          <input
+                            type="checkbox"
+                            checked={dataProfileDebug}
+                            onChange={(e) => setDataProfileDebug(e.target.checked)}
+                          />{' '}
+                          {t('hcm.profileDebug')}
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
                   {saveStatus && (
                     <div className="hcm-detail-sub hcm-mono" style={{ fontSize: 11, wordBreak: 'break-all', padding: '0 12px 6px' }}>
                       {saveStatus}
@@ -801,6 +921,32 @@ const loadList = useCallback(async () => {
                     <>
                       <div className="hcm-detail-sub hcm-mono">
                         {t('hcm.dataCount')}: {dataTotal}
+                        {typeof dataMeta.duration_ms === 'number' && (
+                          <span className="hcm-meta-duration">
+                            {' '}
+                            · {t('hcm.duration')}: {(dataMeta.duration_ms / 1000).toFixed(3)}s
+                          </span>
+                        )}
+                        {dataMeta.profile_index && (
+                          <a
+                            className="hcm-meta-link"
+                            href={`/document/temp/download?index=${dataMeta.profile_index}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {t('hcm.downloadProfile')}
+                          </a>
+                        )}
+                        {dataMeta.log_index && (
+                          <a
+                            className="hcm-meta-link"
+                            href={`/document/temp/download?index=${dataMeta.log_index}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {t('hcm.downloadLog')}
+                          </a>
+                        )}
                       </div>
                       <pre className="hcm-json">
                         {dataView.lines.map((ln, i) => (
