@@ -178,6 +178,38 @@
   white-space: nowrap;
 }
 
+/* cf 全局搜索高亮 + 匹配导航 */
+.cf-hl {
+  background: #fff3a3;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.cf-hl.active {
+  background: #ffb300;
+  color: #1a1a1a;
+  box-shadow: 0 0 0 1px #ff8f00;
+}
+.cf-match-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cf-match-pos {
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 44px;
+  text-align: center;
+  user-select: none;
+}
+.cf-match-nav .btn {
+  padding: 2px 9px;
+  line-height: 1.2;
+}
+.cf-log-row:has(.cf-hl.active) {
+  background: rgba(255, 179, 0, 0.10);
+}
+
 /* k8s-form-grid */
 .k8s-form-grid {
   display: grid;

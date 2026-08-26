@@ -528,6 +528,8 @@ export const ja: Dict = {
     clipboardToFile: 'クリップボード → ファイル',
     searchPlaceholder: 'ログ内容・時間・種類を検索…（リアルタイム絞込）',
     caseSensitive: '大文字小文字を区別',
+    prevMatch: '前の一致',
+    nextMatch: '次の一致',
     time: '時間',
     startHint: '環境を選択してログイン後、「ログをクエリ」をクリック。',
     noMatch: '現在の検索条件に一致するログなし',

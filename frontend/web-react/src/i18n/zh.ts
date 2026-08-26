@@ -528,6 +528,8 @@ export const zh: Dict = {
     clipboardToFile: '剪贴板转文件',
     searchPlaceholder: '搜索日志内容、时间、类型…（实时过滤）',
     caseSensitive: '大小写敏感',
+    prevMatch: '上一个匹配',
+    nextMatch: '下一个匹配',
     time: '时间',
     startHint: '选择环境并登录后，点击「查询日志」。',
     noMatch: '没有匹配当前搜索条件的日志',

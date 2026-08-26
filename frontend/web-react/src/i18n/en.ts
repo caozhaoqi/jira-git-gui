@@ -528,6 +528,8 @@ export const en: Dict = {
     clipboardToFile: 'Clipboard to file',
     searchPlaceholder: 'Search log content, time, type… (live filter)',
     caseSensitive: 'Case sensitive',
+    prevMatch: 'Previous match',
+    nextMatch: 'Next match',
     time: 'Time',
     startHint: 'Select an environment and log in, then click "Query logs".',
     noMatch: 'No logs match the current search',

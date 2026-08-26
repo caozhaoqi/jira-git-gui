@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
@@ -47,6 +47,44 @@ function cfLogType(row: CfLogsRow, fallback: string): string {
   return row.log_type || row.logType || fallback || '(未知)';
 }
 
+// —— 全局搜索高亮：定位匹配区间 + 渲染 <mark> ——
+function findMatches(text: string, q: string, caseSensitive: boolean): Array<[number, number]> {
+  if (!q) return [];
+  const hay = caseSensitive ? text : text.toLowerCase();
+  const needle = caseSensitive ? q : q.toLowerCase();
+  const out: Array<[number, number]> = [];
+  let idx = hay.indexOf(needle);
+  while (idx !== -1) {
+    out.push([idx, idx + needle.length]);
+    idx = hay.indexOf(needle, idx + needle.length);
+  }
+  return out;
+}
+
+function highlightNodes(
+  text: string,
+  matches: Array<[number, number]>,
+  ordStart: number,
+  activeMatch: number
+): ReactNode {
+  if (!matches.length) return text;
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  matches.forEach(([s, e], i) => {
+    if (s > last) nodes.push(text.slice(last, s));
+    const ord = ordStart + i;
+    const cls = ord === activeMatch ? 'cf-hl active' : 'cf-hl';
+    nodes.push(
+      <mark key={i} className={cls}>
+        {text.slice(s, e)}
+      </mark>
+    );
+    last = e;
+  });
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
 export function CfPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
@@ -74,6 +112,7 @@ export function CfPanel() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
+  const [activeMatch, setActiveMatch] = useState(0);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [status, setStatus] = useState<{ text: string; cls: string }>({ text: '', cls: '' });
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -501,9 +540,9 @@ export function CfPanel() {
     }
   };
 
-  // 排序 + 客户端实时过滤 + 本地分页
+  // 排序 + 客户端实时过滤 + 本地分页 + 匹配计数
   const view = useMemo(() => {
-    if (!result) return { rows: [] as CfLogsRow[], isFull: false, all: 0, total: 0, totalPages: 1, localPage: 1 };
+    if (!result) return { rows: [] as CfLogsRow[], isFull: false, all: 0, total: 0, totalPages: 1, localPage: 1, matchTotal: 0 };
     const all = result.rows.slice();
     const isFull = (result.total || 0) > 0 && result.rows.length >= result.total;
     all.sort((a, b) => {
@@ -513,15 +552,25 @@ export function CfPanel() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     const q = search.trim();
+    const needle = caseSensitive ? q : q.toLowerCase();
     let filtered = all;
     if (q) {
-      const needle = caseSensitive ? q : q.toLowerCase();
       filtered = all.filter((r) => {
         const content = caseSensitive ? cfContent(r) : cfContent(r).toLowerCase();
         const time = caseSensitive ? cfTime(r) : cfTime(r).toLowerCase();
         const type = caseSensitive ? cfLogType(r, result.log_type) : cfLogType(r, result.log_type).toLowerCase();
         return content.includes(needle) || time.includes(needle) || type.includes(needle);
       });
+    }
+    let matchTotal = 0;
+    if (q) {
+      const lt = result.log_type;
+      for (const r of filtered) {
+        matchTotal +=
+          findMatches(cfContent(r), q, caseSensitive).length +
+          findMatches(cfTime(r), q, caseSensitive).length +
+          findMatches(cfLogType(r, lt), q, caseSensitive).length;
+      }
     }
     const pageSize = result.page_size || 200;
     let display = filtered;
@@ -532,12 +581,84 @@ export function CfPanel() {
       if (localPage > totalPages) localPage = totalPages;
       display = filtered.slice((localPage - 1) * pageSize, localPage * pageSize);
     }
-    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage };
+    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal };
   }, [result, sortDir, search, caseSensitive]);
 
   const goLocalPage = (p: number) => {
     if (result) setResult({ ...result, localPage: p });
   };
+
+  // 选中匹配：上一个 / 下一个（循环），自动翻到匹配所在本地页
+  const gotoMatch = useCallback((dir: number) => {
+    const total = view.matchTotal || 0;
+    if (total === 0) return;
+    let next = activeMatch + dir;
+    if (next < 1) next = total;
+    if (next > total) next = 1;
+    if (result) {
+      const q2 = search.trim();
+      let ord = 0;
+      let targetDisplay = -1;
+      for (let i = 0; i < view.rows.length; i++) {
+        const r = view.rows[i];
+        const cnt = q2
+          ? findMatches(cfContent(r), q2, caseSensitive).length +
+            findMatches(cfTime(r), q2, caseSensitive).length +
+            findMatches(cfLogType(r, result.log_type), q2, caseSensitive).length
+          : 0;
+        if (next > ord && next <= ord + cnt) {
+          targetDisplay = i;
+          break;
+        }
+        ord += cnt;
+      }
+      if (targetDisplay >= 0 && view.totalPages > 1) {
+        const pageSize = result.page_size || 200;
+        const page = Math.floor(targetDisplay / pageSize) + 1;
+        if (page !== result.localPage) setResult({ ...result, localPage: page });
+      }
+    }
+    setActiveMatch(next);
+  }, [view.matchTotal, view.rows, view.totalPages, activeMatch, result, search, caseSensitive]);
+
+  // 搜索词变化时，重置/收敛选中匹配
+  useEffect(() => {
+    const total = view.matchTotal || 0;
+    if (!search.trim() || total === 0) {
+      if (activeMatch !== 0) setActiveMatch(0);
+    } else if (activeMatch < 1 || activeMatch > total) {
+      setActiveMatch(1);
+    }
+  }, [search, view.matchTotal, activeMatch]);
+
+  // 选中匹配变化时，滚动到对应行（若跨页已在上一步切页）
+  useEffect(() => {
+    if (!activeMatch || !result) return;
+    const q2 = search.trim();
+    if (!q2) return;
+    let ord = 0;
+    let target = -1;
+    for (let i = 0; i < view.rows.length; i++) {
+      const r = view.rows[i];
+      const cnt =
+        findMatches(cfContent(r), q2, caseSensitive).length +
+        findMatches(cfTime(r), q2, caseSensitive).length +
+        findMatches(cfLogType(r, result.log_type), q2, caseSensitive).length;
+      if (activeMatch > ord && activeMatch <= ord + cnt) {
+        target = i;
+        break;
+      }
+      ord += cnt;
+    }
+    if (target >= 0) {
+      const el = document.getElementById(`cf-row-${target}`);
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [activeMatch, view, search, caseSensitive, result]);
+
+  // 当前搜索词（组件作用域，供结果表渲染高亮使用）
+  const q = search.trim();
+  let rowOrd = 0;
 
   return (
     <div className="cf-panel">
@@ -802,7 +923,14 @@ export function CfPanel() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
+              setActiveMatch(e.target.value.trim() ? 1 : 0);
               if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                gotoMatch(e.shiftKey ? -1 : 1);
+              }
             }}
           />
           <label className="cf-search-case" title={t('cf.caseSensitive')}>
@@ -827,6 +955,27 @@ export function CfPanel() {
               ? `共 ${view.all} 条`
               : `本页 ${view.all} / 共 ${result.total} 条`}
           </span>
+          {search && view.matchTotal > 0 && (
+            <span className="cf-match-nav">
+              <button
+                className="btn btn-xs btn-ghost"
+                onClick={() => gotoMatch(-1)}
+                title={t('cf.prevMatch')}
+              >
+                ↑
+              </button>
+              <span className="cf-match-pos">
+                {activeMatch} / {view.matchTotal}
+              </span>
+              <button
+                className="btn btn-xs btn-ghost"
+                onClick={() => gotoMatch(1)}
+                title={t('cf.nextMatch')}
+              >
+                ↓
+              </button>
+            </span>
+          )}
         </div>
       )}
 
@@ -866,14 +1015,28 @@ export function CfPanel() {
                   const contentFull = cfContentFull(row);
                   const logTypeVal = cfLogType(row, result.log_type);
                   const globalIdx = result.rows.length - view.rows.length + i;
+                  const mContent = q ? findMatches(content, q, caseSensitive) : [];
+                  const mTime = q ? findMatches(createTime, q, caseSensitive) : [];
+                  const mType = q ? findMatches(logTypeVal, q, caseSensitive) : [];
+                  const mFull = q ? findMatches(contentFull, q, caseSensitive) : [];
+                  const rowCount = mContent.length + mTime.length + mType.length;
+                  const rowOrdStart = rowOrd;
+                  rowOrd += rowCount;
                   return (
                     <FragmentRow
                       key={globalIdx}
+                      displayIndex={i}
                       idx={i + 1}
                       type={logTypeVal}
                       time={createTime}
                       content={content}
                       contentFull={contentFull}
+                      mContent={mContent}
+                      mTime={mTime}
+                      mType={mType}
+                      mFull={mFull}
+                      rowOrdStart={rowOrdStart}
+                      activeMatch={activeMatch}
                       rowId={
                         row.id != null
                           ? String(row.id)
@@ -913,25 +1076,50 @@ export function CfPanel() {
 }
 
 function FragmentRow(props: {
+  displayIndex: number;
   idx: number;
   type: string;
   time: string;
   content: string;
   contentFull: string;
+  mContent: Array<[number, number]>;
+  mTime: Array<[number, number]>;
+  mType: Array<[number, number]>;
+  mFull: Array<[number, number]>;
+  rowOrdStart: number;
+  activeMatch: number;
   rowId: string;
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const { idx, type, time, content, contentFull, rowId, expanded, onToggle } = props;
+  const {
+    displayIndex,
+    idx,
+    type,
+    time,
+    content,
+    contentFull,
+    mContent,
+    mTime,
+    mType,
+    mFull,
+    rowOrdStart,
+    activeMatch,
+    rowId,
+    expanded,
+    onToggle,
+  } = props;
   return (
     <>
-      <tr className="cf-log-row" onClick={onToggle} style={{ cursor: 'pointer' }}>
+      <tr id={`cf-row-${displayIndex}`} className="cf-log-row" onClick={onToggle} style={{ cursor: 'pointer' }}>
         <td>{idx}</td>
         <td className="cf-log-type" title={type}>
-          {type}
+          {highlightNodes(type, mType, rowOrdStart + mContent.length + mTime.length, activeMatch)}
         </td>
-        <td className="cf-log-time">{time}</td>
-        <td className="cf-log-content">{content}</td>
+        <td className="cf-log-time">
+          {highlightNodes(time, mTime, rowOrdStart + mContent.length, activeMatch)}
+        </td>
+        <td className="cf-log-content">{highlightNodes(content, mContent, rowOrdStart, activeMatch)}</td>
       </tr>
       {expanded && (
         <tr className="cf-log-detail-row">
@@ -939,7 +1127,9 @@ function FragmentRow(props: {
             <div className="cf-log-meta">
               类型：{type} ｜ ID：{rowId} ｜ 时间：{time}
             </div>
-            <div className="cf-log-content-full">{contentFull}</div>
+            <div className="cf-log-content-full">
+              {highlightNodes(contentFull, mFull, rowOrdStart, activeMatch)}
+            </div>
           </td>
         </tr>
       )}
