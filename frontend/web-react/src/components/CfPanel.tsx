@@ -393,6 +393,25 @@ export function CfPanel() {
       setStatus({ text: t('cf.exportNeedData'), cls: 'error' });
       return;
     }
+    // 导出「当前过滤视图」的结果（而非未过滤的全量），与界面所见一致：
+    // 先按当前排序方向排好所有已加载行，再按搜索关键字过滤。
+    const allRows = r.rows.slice();
+    allRows.sort((a, b) => {
+      const ta = cfTime(a), tb = cfTime(b);
+      const cmp = ta < tb ? -1 : ta > tb ? 1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    const q = search.trim();
+    let rowsToExport = allRows;
+    if (q) {
+      const needle = caseSensitive ? q : q.toLowerCase();
+      rowsToExport = allRows.filter((row) => {
+        const content = caseSensitive ? cfContent(row) : cfContent(row).toLowerCase();
+        const time = caseSensitive ? cfTime(row) : cfTime(row).toLowerCase();
+        const type = caseSensitive ? cfLogType(row, r.log_type) : cfLogType(row, r.log_type).toLowerCase();
+        return content.includes(needle) || time.includes(needle) || type.includes(needle);
+      });
+    }
     setBusy('export', true);
     try {
       const res = await apiPost<{ path?: string; count?: number }>('/api/cf/logs/export', {
@@ -401,9 +420,11 @@ export function CfPanel() {
         auth_method: r.auth_method,
         page_index: r.page_index,
         page_size: r.page_size,
-        total: r.total,
-        rows: r.rows,
+        total: rowsToExport.length,
+        rows: rowsToExport,
         raw: r.raw,
+        keyword: q,
+        filtered: !!q,
       });
       if (res.path) {
         let copied = false;

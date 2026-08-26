@@ -57,7 +57,7 @@ async def api_cf_accounts():
 async def api_cf_captcha(server_url: str = "", proxy: str = ""):
     """获取 CF 登录验证码图片（返回 base64 data URL）。"""
     try:
-        return cf_captcha_fetch(server_url, proxy=proxy)
+        return await cf_captcha_fetch(server_url, proxy=proxy)
     except (ValueError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
 
@@ -67,7 +67,7 @@ async def api_cf_login(req: CfLoginReq):
     """手动登录单个 CF 账号（支持验证码），缓存并返回 token。"""
     try:
         r = await cf_login_account(
-            {"name": req.name, "server_url": req.server_url, "username": req.username, "password": req.password},
+            {"server_url": req.server_url, "username": req.mobile, "password": req.password},
             proxy=req.proxy,
         )
     except Exception as e:
@@ -77,13 +77,13 @@ async def api_cf_login(req: CfLoginReq):
     if r.get("ok"):
         _CF_TOKEN_CACHE[su] = {
             "token": r["token"], "cookie": r.get("cookie", ""),
-            "name": req.name, "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+            "name": req.mobile, "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
             "need_captcha": False, "last_error": "",
         }
         _cf_tokens_save()
-        broadcast("cf_token_update", {"server_url": su, "name": req.name, "ok": True})
+        broadcast("cf_token_update", {"server_url": su, "name": req.mobile, "ok": True})
         return {"ok": True, "token": r["token"], "cookie": r.get("cookie", ""), "message": "登录成功"}
-    _CF_TOKEN_CACHE.setdefault(su, {"token": "", "name": req.name})
+    _CF_TOKEN_CACHE.setdefault(su, {"token": "", "name": req.mobile})
     _CF_TOKEN_CACHE[su].update({"last_error": r.get("message", ""), "need_captcha": r.get("need_captcha", False)})
     return {"ok": False, "need_captcha": r.get("need_captcha", False), "message": r.get("message", "登录失败")}
 
@@ -114,7 +114,7 @@ async def api_cf_logs(req: CfLogReq):
         raise _http_error(e)
 
 
-@router.post("/api/cf/export")
+@router.post("/api/cf/logs/export")
 async def api_cf_export(req: CfLogExportReq):
     """导出 CF 日志到本地 JSON 文件。"""
     try:
@@ -123,7 +123,7 @@ async def api_cf_export(req: CfLogExportReq):
         raise _http_error(e)
 
 
-@router.post("/api/cf/clipboard/save")
+@router.post("/api/cf/clipboard-save")
 async def api_cf_clipboard_save(req: ClipboardSaveReq):
     """保存剪贴板内容到本地文件。"""
     try:

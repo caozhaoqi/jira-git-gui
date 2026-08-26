@@ -15,7 +15,7 @@ from fastapi import APIRouter
 from api.clash.clash_base import (
     _log, _log_route_table, _lan_gateway, _route_cmd_for, DEFAULT_PRIVATE_CIDRS,
     _privileged_shell, _ifconfig, _DEV_RE, _IP_HOST_RE,
-    _default_gateway, _route_get, _patch_clash_rules, _unpatch_clash_rules,
+    _default_gateway, _default_gateway_ip, _route_get, _patch_clash_rules, _unpatch_clash_rules,
     _list_services, GenReq, ApplyReq, RevertReq, FixRouteReq,
 )
 
@@ -261,7 +261,7 @@ async def clash_fix_service_order(req: FixRouteReq):
     order_ok = r.returncode == 0 and "error" not in out.lower()
 
     route_msg = "未调整默认路由"
-    gw = _default_gateway_ip() if False else _default_gateway_ip()
+    gw = _default_gateway_ip()
     cur_iface = _default_gateway()
     if req.wan_device and cur_iface and cur_iface != req.wan_device and gw:
         _log.info("恢复默认路由: 当前=%s(%s) → %s(%s)", cur_iface, gw, req.wan_device, gw)
