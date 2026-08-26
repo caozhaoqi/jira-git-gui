@@ -204,6 +204,8 @@ def cf_export_logs(req) -> "dict":
             "page_size": req.page_size,
             "total": req.total,
             "returned_count": len(req.rows),
+            "keyword": req.keyword or "",
+            "filtered_by_client": bool(req.filtered or req.keyword),
         },
         "logs": req.rows,
     }

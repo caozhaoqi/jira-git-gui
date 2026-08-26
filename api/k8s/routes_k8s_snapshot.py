@@ -268,6 +268,46 @@ async def api_k8s_log(
     )
 
 
+@router.get("/api/k8s/pod-containers")
+async def api_k8s_pod_containers(name: str = "", env: str = ""):
+    """列出指定 Pod 内的容器名（供日志 / 文件操作前选择容器）。
+
+    重构前随 ``api/routes_k8s.py`` 提供，分目录拆分时该端点被遗漏（历史日志中曾稳定返回
+    200）。此处补回以保证「前端调用路径 ↔ 后端路由」契约不变。响应结构对齐前端：
+    ``{"ok": true, "containers": [...], "namespace": "..."}``。
+    """
+    if not name:
+        raise HTTPException(status_code=400, detail="缺少 name 参数（Pod 名称）。")
+    # env 优先解析 kubeconfig / 命名空间，回退快照上下文
+    kc, ns = (None, None)
+    if env:
+        try:
+            kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
+        except Exception as ex:
+            return {"ok": False, "error": getattr(ex, "message", None) or str(ex),
+                    "containers": []}
+    if not kc:
+        kc = state.snap_meta.get("kubeconfig")
+        ns = ns or state.snap_meta.get("namespace")
+    if not kc:
+        return {"ok": False,
+                "error": "尚未连接集群（请先在当前环境运行一次快照或指定 env）。",
+                "containers": []}
+    ns_args = ["-n", ns] if ns else []
+    out, rc, err = _k8s_run_kubectl(
+        ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
+    )
+    if rc != 0:
+        return {"ok": False, "error": f"获取 Pod 失败：{err.strip()[:300]}",
+                "containers": []}
+    try:
+        obj = json.loads(out)
+        containers = [c.get("name") for c in obj.get("spec", {}).get("containers", [])]
+    except Exception as ex:
+        return {"ok": False, "error": f"解析 Pod JSON 失败：{ex}", "containers": []}
+    return {"ok": True, "containers": containers, "namespace": ns or ""}
+
+
 @router.get("/api/k8s/log/stream")
 async def api_k8s_log_stream(
     request: Request,

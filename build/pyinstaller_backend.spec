@@ -54,11 +54,16 @@ a = Analysis(
 # 避免 PyInstaller 因找不到源文件而报错退出（缺失 .env 时运行时回退到连接设置 UI）。
 _env_file = PROJ / ".env"
 if _env_file.exists():
-    a.datas.append((str(_env_file), "."))
+    # a.datas 是 TOC（要求 3 元组 (dest_name, src_name, typecode)）；直接 append 的 2 元组
+    # (src, dest_dir) 只适用于 Analysis(datas=[...]) 内，否则 EXE 阶段 normalize_toc
+    # 解包会报 "not enough values to unpack (expected 3, got 2)"。
+    a.datas.append((_env_file.name, str(_env_file), "DATA"))
 
-# 打包 config/ 下的示例模板（*.example.json）；含真实 IP 的 .local.json 绝不进包
+# 打包 config/ 下的示例模板（*.example.json）；含真实 IP 的 .local.json 绝不进包。
+# 同理：extend 进 a.datas（TOC）必须是 3 元组 (dest_name, src_name, "DATA")，
+# 2 元组 (src, dest_dir) 仅 Analysis(datas=[...]) 内部有效。
 _cfg_datas = [
-    (f, "config")
+    ("config/" + os.path.basename(f), f, "DATA")
     for f in glob.glob(str(PROJ / "config" / "*.json"))
     if not f.endswith(".local.json")
 ]
