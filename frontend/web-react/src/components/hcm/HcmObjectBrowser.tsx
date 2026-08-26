@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useT } from '../../i18n';
 import {
   hcmEnvs,
@@ -16,6 +16,24 @@ type MetaKind = 'list' | 'info' | 'view' | 'all';
 
 // 所有服务统一走后端直连（同源 /api/hcm/direct，由后端直连 HCM 网关），彻底摒弃 /hcm-api 代理。
 const DIRECT_ENDPOINT = '/api/hcm/direct';
+
+// 数据 JSON 搜索：保留全部行，仅对命中子串包裹 <mark>（不过滤、不隐藏行）。
+function hcmHighlightLine(text: string, q: string): ReactNode {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return text;
+  const hay = text.toLowerCase();
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let idx = hay.indexOf(needle);
+  while (idx !== -1) {
+    if (idx > last) nodes.push(text.slice(last, idx));
+    nodes.push(<mark key={nodes.length}>{text.slice(idx, idx + needle.length)}</mark>);
+    last = idx + needle.length;
+    idx = hay.indexOf(needle, last);
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
 
 export function HcmObjectBrowser() {
   const { t } = useT();
@@ -348,15 +366,15 @@ const loadList = useCallback(async () => {
     return { text: matchedLines.join('\n'), lines, matched: matchedLines.length };
   }, [meta, jsonQuery]);
 
-  // 数据 JSON 搜索：按关键字过滤 JSON 文本行，并统计命中行
+  // 数据 JSON 搜索：保留全部行，仅高亮命中（不过滤），并统计命中行数
   const dataView = useMemo(() => {
-    if (!dataResult) return { text: '', lines: [] as string[], matched: 0 };
+    if (!dataResult) return { lines: [] as string[], matched: 0 };
     const raw = JSON.stringify(dataResult, null, 2);
     const lines = raw.split('\n');
     const q = dataJsonQuery.trim().toLowerCase();
-    if (!q) return { text: raw, lines, matched: lines.length };
-    const matchedLines = lines.filter((ln) => ln.toLowerCase().includes(q));
-    return { text: matchedLines.join('\n'), lines, matched: matchedLines.length };
+    if (!q) return { lines, matched: 0 };
+    const matched = lines.filter((ln) => ln.toLowerCase().includes(q)).length;
+    return { lines, matched };
   }, [dataResult, dataJsonQuery]);
 
   // 复制 JSON
@@ -785,7 +803,12 @@ const loadList = useCallback(async () => {
                         {t('hcm.dataCount')}: {dataTotal}
                       </div>
                       <pre className="hcm-json">
-                        {dataView.text || `（无匹配 "${dataJsonQuery}" 的数据）`}
+                        {dataView.lines.map((ln, i) => (
+                          <Fragment key={i}>
+                            {hcmHighlightLine(ln, dataJsonQuery)}
+                            {'\n'}
+                          </Fragment>
+                        ))}
                       </pre>
                       <div className="hcm-pager">
                         <button
