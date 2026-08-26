@@ -38,6 +38,22 @@ class K8sEnvSave(BaseModel):
     namespace: str = ""
 
 
+class K8sYamlReq(BaseModel):
+    env: str = ""
+    kind: str = ""
+    name: str = ""
+    namespace: str = ""
+    action: str = "get"      # 'get' | 'apply'
+    clean: bool = True       # 仅 action='get' 使用（剔除服务端托管字段）
+    content: str = ""        # 仅 action='apply' 使用
+
+
+class K8sNetworkReq(BaseModel):
+    env: str = ""
+    extra_hosts: list = []   # 用户自定义内网探测目标（每行 host[:port]）
+    target: str = ""         # 兼容老字段（已废弃，detect_network 不使用）
+
+
 @router.get("/api/k8s/env")
 async def api_k8s_env():
     """列出所有已保存的 K8s 环境与当前生效环境。"""
@@ -138,28 +154,35 @@ async def api_k8s_pods(env: str = "", namespace: str = ""):
     return {"ok": True, "pods": pods}
 
 
-@router.get("/api/k8s/yaml")
-async def api_k8s_yaml(env: str = "", name: str = "", kind: str = "", namespace: str = ""):
-    """获取某个资源的 YAML 清单。"""
-    kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
-    if ns and not namespace:
-        namespace = ns
-    out, rc, err = _k8s_run_kubectl(
-        ["get", kind, name, "-o", "yaml"]
-        + (["-n", namespace] if namespace else []),
-        kc, timeout=30,
-    )
-    if rc != 0:
-        return {"ok": False, "error": err.strip()[:300]}
-    return {"ok": True, "yaml": out}
+@router.post("/api/k8s/yaml")
+async def api_k8s_yaml(body: K8sYamlReq):
+    """获取 / 应用某资源的 YAML 清单（POST，与前端 apiPost 对齐）。
 
-
-@router.get("/api/k8s/network")
-async def api_k8s_network(env: str = "", target: str = ""):
-    """探测从本机到集群某个地址的网络连通性（运维排障）。"""
-    kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
+    - action='get'  → 返回干净/原始 YAML 文本（d.yaml）
+    - action='apply' → kubectl apply -f，返回 (d.stdout, d.stderr)
+    """
     try:
-        res = _k8s_mgr.detect_network(target, kc, ns)
+        if body.action == "apply":
+            if not body.content or not body.content.strip():
+                return {"ok": False, "error": "YAML 内容为空，无法上传。"}
+            out, err = _k8s_mgr.apply_yaml_content(
+                body.env, body.content, body.namespace or None)
+            return {"ok": True, "stdout": out, "stderr": err}
+        # 默认 action='get'
+        if not body.kind or not body.name:
+            return {"ok": False, "error": "kind 与 name 不能为空。"}
+        text = _k8s_mgr.get_resource_yaml(
+            body.env, body.kind, body.name, body.namespace or None, clean=body.clean)
+        return {"ok": True, "yaml": text}
+    except Exception as ex:
+        return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
+
+
+@router.post("/api/k8s/network")
+async def api_k8s_network(body: K8sNetworkReq):
+    """探测本机到指定环境的网络连通性（POST，与前端 apiPost 对齐）。"""
+    try:
+        res = _k8s_mgr.detect_network(body.env, extra_hosts=body.extra_hosts or None)
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
     return {"ok": True, **res}
