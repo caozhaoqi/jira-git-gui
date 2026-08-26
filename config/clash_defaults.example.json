@@ -1,0 +1,7 @@
+{
+  "_comment": "Clash 面板默认值模板。复制为 clash_defaults.local.json 后按需修改，clash_defaults.local.json 已被 .gitignore 忽略，不进 git。本文件可提交，仅作结构占位。default_ips 为「一键应用/恢复默认」时填充的默认 IP 列表；lan_device 可选，指定后自动选中该局域网接口。",
+  "default_ips": [
+    "1.2.3.4"
+  ],
+  "lan_device": ""
+}

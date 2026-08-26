@@ -94,6 +94,7 @@ class TestDownloadFiles(unittest.TestCase):
     def setUp(self):
         self.c = _make_client()
         self.c._resolve_branch = lambda rid, b: b or "master"
+        self.c._resolve_head = lambda rid, b: "HEAD123"
         # head commit 探测
         fake_resp = mock.MagicMock()
         fake_resp.text = ""
@@ -193,6 +194,7 @@ class TestDownloadRepoOrchestration(unittest.TestCase):
     def setUp(self):
         self.c = _make_client()
         self.c._resolve_branch = lambda rid, b: b or "master"
+        self.c._resolve_head = lambda rid, b: "HEAD123"
         fake_resp = mock.MagicMock()
         fake_resp.text = ""
         self.c._fetch_browse = lambda *a, **k: fake_resp
@@ -280,23 +282,15 @@ class TestBinaryDownloadStaysBytes(unittest.TestCase):
         self.c._fetch_browse = lambda *a, **k: mock.MagicMock(text="")
         self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
 
-    def _fake_binary_response(self, binary: bytes, content_type: str):
-        resp = mock.MagicMock()
-        resp.status_code = 200
-        resp.content = binary
-        resp.headers = {"content-type": content_type}
-        resp.url = "https://example.com/x"
-        # 即便误用 .text 也绝不应当发生；这里模拟会损坏的字符串仅供参考
-        resp.text = binary.decode("utf-8", "replace")
-        self.c._request_with = lambda cl, u, h, **k: resp
-        self.c.http_get = lambda u, h, **k: resp
+    def _fake_binary_content(self, binary: bytes):
+        # 直接驱动 _cookie_file_content 返回二进制字节，验证下载链路按字节落盘
+        self.c._cookie_file_content = (
+            lambda rid, ref, path, client=None: (True, binary, ""))
 
     def test_docx_written_as_bytes_not_corrupted(self):
         # 构造含大量 >=0x80 字节的“二进制”，必须原样落盘
         binary = b"PK\x03\x04" + bytes(range(256)) * 10
-        ct = ("application/vnd.openxmlformats-officedocument"
-              ".wordprocessingml.document;charset=UTF-8")
-        self._fake_binary_response(binary, ct)
+        self._fake_binary_content(binary)
 
         with tempfile.TemporaryDirectory() as d:
             ok, fails, dest, skipped, ok_paths = self.c._download_files(
@@ -309,7 +303,7 @@ class TestBinaryDownloadStaysBytes(unittest.TestCase):
 
     def test_png_written_as_bytes(self):
         binary = b"\x89PNG\r\n\x1a\n" + bytes([i % 256 for i in range(500)])
-        self._fake_binary_response(binary, "image/png")
+        self._fake_binary_content(binary)
         with tempfile.TemporaryDirectory() as d:
             ok, _, dest, _, _ = self.c._download_files(
                 "895", "", d, ["a.png"], manifest={})

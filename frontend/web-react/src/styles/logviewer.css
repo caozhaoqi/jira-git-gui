@@ -1,0 +1,402 @@
+/* ============================================================
+   独立日志查看视图（?view=log）—— 迁移自 web/log_viewer.css
+
+   原生版依赖 styles.css 的令牌（--surface / --text-2 / --code-bg …），
+   React 版令牌名不同（global.css：--bg-panel / --text-dim / …），
+   这里做等价映射，并补齐代码区与告警底色令牌。
+   ============================================================ */
+
+:root {
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  --code-bg: #fbfcfd;
+  --code-fg: #1f2329;
+  --code-border: #e3e6ea;
+  --danger-bg: #fdecec;
+  --warning-bg: #fdf4e3;
+}
+
+html.dark {
+  --code-bg: #1b1e23;
+  --code-fg: #dfe3e9;
+  --code-border: #333941;
+  --danger-bg: #3a2226;
+  --warning-bg: #3a3120;
+}
+
+.logviewer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---------- 顶栏 ---------- */
+.lv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-head-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.lv-title {
+  min-width: 0;
+}
+.lv-podsel {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--mono);
+  max-width: 48vw;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.lv-podsel:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-weak);
+}
+.lv-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.lv-chip {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--row-hover);
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.lv-chip-env {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+.lv-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- 工具栏 ---------- */
+.lv-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 .input-sm {
+  width: 200px;
+  font-family: var(--mono);
+}
+.lv-toolbar-3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-copied {
+  font-size: 12px;
+  color: var(--success, #16a34a);
+  font-family: var(--mono);
+}
+.lv-events {
+  flex-shrink: 0;
+  max-height: 38vh;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.lv-events-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 16px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 2;
+}
+.lv-events-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.lv-events-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.lv-events-wrap {
+  padding: 0 16px 10px;
+}
+.lv-events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.lv-events-table th {
+  text-align: left;
+  padding: 4px 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lv-events-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--code-border);
+  vertical-align: top;
+}
+.lv-events-table .ev-time {
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.lv-events-table .ev-type {
+  white-space: nowrap;
+}
+.lv-events-table tr.ev-Warning .ev-type {
+  color: var(--warn);
+}
+.lv-events-table tr.ev-Warning {
+  background: var(--warning-bg);
+}
+.lv-events-table .ev-msg {
+  color: var(--text);
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-danger {
+  background: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+.lv-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lv-field .sel {
+  font-size: 12px;
+}
+.lv-field {
+  flex-wrap: wrap;
+}
+.lv-invalid {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.lv-field-warn {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.lv-ts-epoch .input-sm {
+  width: 130px;
+  font-family: var(--mono);
+}
+.lv-search {
+  flex: 1 1 340px;
+  min-width: 260px;
+}
+.lv-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.lv-searchbox .input {
+  flex: 1;
+  min-width: 80px;
+}
+.lv-match {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 40px;
+  text-align: center;
+}
+.lv-re {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.lv-toggle {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.lv-spacer {
+  flex: 1 1 auto;}
+.lv-font {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---------- 日志主体 ---------- */
+.lv-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+  background: var(--code-bg);
+}
+.lv-statusline {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 4px 16px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--code-border);
+}
+.lv-log {
+  margin: 0;
+  padding: 8px 0 45vh; /* 底部留白，便于滚动到真正末尾 */
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--code-fg);
+}
+.lv-line {
+  display: flex;
+  align-items: flex-start;
+  padding: 0 16px;
+  white-space: pre;
+}
+.lv-line .lv-no {
+  flex: 0 0 auto;
+  width: 54px;
+  text-align: right;
+  padding-right: 14px;
+  color: var(--text-dim);
+  user-select: none;
+  opacity: 0.65;
+}
+.lv-line .lv-text {
+  flex: 1 1 auto;
+  white-space: pre;
+  min-width: 0;
+}
+
+/* 换行模式 */
+.lv-log.wrap .lv-line,
+.lv-log.wrap .lv-line .lv-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 分隔行：===== container: xxx ===== */
+.lv-line.lv-sep {
+  background: var(--row-hover);
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 6px 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--code-border);
+}
+.lv-line.lv-sep .lv-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 级别高亮 */
+.lv-line.lev-ERROR,
+.lv-line.lev-FATAL {
+  background: var(--danger-bg);
+}
+.lv-line.lev-WARN {
+  background: var(--warning-bg);
+}
+.lv-line.lev-ERROR .lv-text,
+.lv-line.lev-FATAL .lv-text {
+  color: var(--danger);
+}
+.lv-line.lev-WARN .lv-text {
+  color: var(--warn);
+}
+.lv-line.lev-DEBUG {
+  opacity: 0.82;
+}
+
+/* 搜索匹配高亮 */
+mark.lv-hl {
+  background: #ffd54a;
+  color: #1a1a1a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+html.dark mark.lv-hl {
+  background: #c9a200;
+  color: #0c0c0c;
+}
+
+/* 当前匹配行：左侧高亮条 */
+.lv-line.lv-curmatch {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.lv-empty {
+  padding: 48px 16px;
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 13px;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}

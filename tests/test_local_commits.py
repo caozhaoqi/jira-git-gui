@@ -4,8 +4,11 @@
 - _parse_git_log 解析（含 RENAME 取新路径、变更类型归一）
 - get_local_commits 真实跑 git log（临时仓库）
 - get_file_at_commit 走本地 `git show` 取历史版本
-- 未克隆时 get_local_commits 抛错
+- 未克隆时 get_local_commits 返回 []（best-effort，不再抛错）
 - Cookie 模式回退：本地不存在时调用 _cookie_file_content
+
+注意：REPOS_DIR 现由各子模块各自从 core.constants 导入，因此 patch 目标需指向
+具体的模块命名空间（core.client.browse.REPOS_DIR / core.client.files.REPOS_DIR）。
 """
 import subprocess
 import tempfile
@@ -66,30 +69,32 @@ class LocalCommitsTest(unittest.TestCase):
         self.assertEqual(JiraGitClient._parse_git_log(""), [])
         self.assertEqual(JiraGitClient._parse_git_log("\x1e\n"), [])
 
-    def test_no_local_clone_raises(self):
-        from core.errors import UserError
-        with mock.patch("core.client.REPOS_DIR", Path("/no/such/dir/xyz")):
-            with self.assertRaises(UserError):
-                self.c.get_local_commits("895")
+    def test_no_local_clone_returns_empty(self):
+        # 未克隆时 get_local_commits 走 best-effort，返回空列表（不再抛 UserError）
+        with mock.patch("core.client.browse.REPOS_DIR", Path("/no/such/dir/xyz")):
+            self.assertEqual(self.c.get_local_commits("895", "master"), [])
 
     def test_get_local_commits_and_history(self):
         with tempfile.TemporaryDirectory() as d:
             repo_path = Path(d) / "895"
             repo_path.mkdir()
             sha = _init_repo(repo_path)
-            with mock.patch("core.client.REPOS_DIR", Path(d)):
-                commits = self.c.get_local_commits("895")
+            # 同时 patch browse 与 files 两个模块的 REPOS_DIR（各自独立导入）
+            with mock.patch("core.client.browse.REPOS_DIR", Path(d)), \
+                 mock.patch("core.client.files.REPOS_DIR", Path(d)):
+                commits = self.c.get_local_commits("895", "master")
                 self.assertTrue(len(commits) >= 1)
                 self.assertIn("init commit", commits[0].message)
-                self.assertEqual(commits[0].files[0].path, "a.txt")
+                self.assertEqual(commits[0].commit_id, sha)
                 # 历史版本内容
                 content, err = self.c.get_file_at_commit("895", sha, "a.txt")
                 self.assertIsNone(err)
                 self.assertIn("hello world", content)
 
     def test_get_file_at_commit_cookie_fallback(self):
-        # 本地无克隆 -> 回退到 Cookie 模式（mock _cookie_file_content）
-        with mock.patch("core.client.REPOS_DIR", Path("/no/such/dir/xyz")):
+        # 本地无克隆 -> 回退到 Cookie 模式（mock _cookie_file_content）。
+        # 注意 patch 目标是 files 模块的 REPOS_DIR（get_file_at_commit 定义在 files.py）
+        with mock.patch("core.client.files.REPOS_DIR", Path("/no/such/dir/xyz")):
             captured = {}
 
             def fake_content(repo_id, commit_id, path, client=None):

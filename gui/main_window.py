@@ -28,7 +28,7 @@ from gui.tree_panel import TreePanel
 from gui.commit_panel import CommitPanel
 from gui.k8s_panel import K8sPanel, yaml_get_task, yaml_apply_task, net_task
 from workers.tasks import Worker
-from core.k8s_snapshot import run_snapshot
+from core.k8s import run_snapshot
 from core import k8s_manager as k8s_mgr
 
 

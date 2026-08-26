@@ -12,7 +12,7 @@
   以及 set_yaml / set_yaml_result / set_net_result
 - 配置（抓取参数 + 当前环境）通过 QSettings 持久化
 
-后台执行统一交给 MainWindow 的 Worker（core.k8s_snapshot.run_snapshot / core.k8s_manager 函数），
+后台执行统一交给 MainWindow 的 Worker（core.k8s.run_snapshot / core.k8s 函数），
 本文件不自行开线程，避免 UI 线程安全问题。
 """
 from pathlib import Path
@@ -32,133 +32,8 @@ _SEV_FG = {"HIGH": "#c0392b", "MED": "#d97706", "OK": None}
 _COLUMNS = ["名称", "状态", "就绪", "重启", "原因", "节点", "HostIP", "PodIP", "时长", "严重度"]
 
 
-# --------------------------------------------------------------------- 后台任务包装
-# Worker 按参数名注入 on_log/on_progress/should_cancel；这些包装让 core.k8s_manager
-# 的函数能以统一方式在子线程跑，并把日志信号接到 UI。
-def yaml_get_task(env, kind, name, namespace, clean=True):
-    return km.get_resource_yaml(env, kind, name, namespace or None, clean=clean)
-
-
-def yaml_apply_task(env, kind, name, namespace, content):
-    out, err = km.apply_yaml_content(env, content, namespace or None)
-    return {"stdout": out, "stderr": err}
-
-
-def net_task(env, extra_hosts, on_log=None):
-    return km.detect_network(env, extra_hosts or None, on_log=on_log)
-
-
-# --------------------------------------------------------------------- 环境管理弹窗
-class EnvManageDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("环境管理")
-        self.resize(560, 420)
-        lay = QVBoxLayout(self)
-
-        form = QFormLayout()
-        self.name = QLineEdit(); self.name.setPlaceholderText("英文标识，如 dev")
-        self.label = QLineEdit(); self.label.setPlaceholderText("显示名，如 开发")
-        self.kubeconfig = QLineEdit(); self.kubeconfig.setPlaceholderText("kubeconfig 文件路径")
-        self.btn_kc = QPushButton("浏览…")
-        self.btn_kc.clicked.connect(self._browse)
-        kc_row = QHBoxLayout(); kc_row.addWidget(self.kubeconfig, 1); kc_row.addWidget(self.btn_kc)
-        self.context = QLineEdit(); self.context.setPlaceholderText("可选，留空用当前上下文")
-        self.namespace = QLineEdit("default")
-        self.intranet = QPlainTextEdit(); self.intranet.setPlaceholderText("每行一个 host:port，如 10.6.6.254:8080")
-        self.intranet.setMaximumHeight(70)
-        form.addRow("环境标识", self.name)
-        form.addRow("显示名", self.label)
-        form.addRow("kubeconfig", kc_row)
-        form.addRow("context", self.context)
-        form.addRow("默认命名空间", self.namespace)
-        form.addRow("内网探测主机", self.intranet)
-        lay.addLayout(form)
-
-        btn = QHBoxLayout()
-        self.btn_save = QPushButton("保存"); self.btn_save.setObjectName("primary")
-        self.btn_switch = QPushButton("切换为当前")
-        self.btn_delete = QPushButton("删除")
-        btn.addWidget(self.btn_save); btn.addWidget(self.btn_switch); btn.addWidget(self.btn_delete)
-        btn.addStretch(1)
-        self.msg = QLabel("")
-        lay.addLayout(btn)
-        lay.addWidget(self.msg)
-
-        self.listw = QListWidget()
-        self.listw.itemClicked.connect(self._on_pick)
-        lay.addWidget(QLabel("已配置环境（点击载入）："))
-        lay.addWidget(self.listw, 1)
-
-        dlg = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        dlg.rejected.connect(self.reject)
-        lay.addWidget(dlg)
-
-        self.btn_save.clicked.connect(self._save)
-        self.btn_switch.clicked.connect(self._switch)
-        self.btn_delete.clicked.connect(self._delete)
-        self._refresh()
-
-    def _browse(self):
-        p, _ = QFileDialog.getOpenFileName(self, "选择 kubeconfig", str(Path.home()), "YAML (*.yaml *.yml);;All (*)")
-        if p:
-            self.kubeconfig.setText(p)
-
-    def _refresh(self):
-        self.listw.clear()
-        for name, label, is_cur in km.list_envs():
-            env = km.get_env(name)[1]
-            txt = "%s (%s)%s  kubeconfig: %s" % (
-                label, name, "  [当前]" if is_cur else "",
-                env.get("kubeconfig") or "(无)")
-            self.listw.addItem(txt)
-        self.msg.setText("")
-
-    def _on_pick(self, item):
-        # 从列表文本解析 name（格式 "显示名 (name) ..."）
-        import re
-        m = re.search(r"\(([^)]+)\)", item.text())
-        if not m:
-            return
-        name = m.group(1)
-        _, env = km.get_env(name)
-        self.name.setText(name)
-        self.label.setText(env.get("label", name))
-        self.kubeconfig.setText(env.get("kubeconfig", ""))
-        self.context.setText(env.get("context", ""))
-        self.namespace.setText(env.get("namespace", "default"))
-        self.intranet.setPlainText("\n".join(env.get("intranet_hosts", [])))
-
-    def _save(self):
-        name = self.name.text().strip()
-        if not name:
-            self.msg.setText("请填写环境标识"); return
-        km.add_or_update_env(
-            name,
-            label=self.label.text().strip(),
-            kubeconfig=self.kubeconfig.text().strip(),
-            context=self.context.text().strip(),
-            namespace=self.namespace.text().strip() or "default",
-            intranet_hosts=[s.strip() for s in self.intranet.toPlainText().splitlines() if s.strip()],
-        )
-        self.msg.setText("已保存：%s" % name)
-        self._refresh()
-
-    def _switch(self):
-        name = self.name.text().strip()
-        if not name:
-            self.msg.setText("请先填写/选择环境"); return
-        km.set_current_env(name)
-        self.msg.setText("已切换为：%s" % name)
-        self._refresh()
-
-    def _delete(self):
-        name = self.name.text().strip()
-        if not name:
-            return
-        km.delete_env(name)
-        self.msg.setText("已删除：%s" % name)
-        self._refresh()
+from .k8s_env_dialog import EnvManageDialog
+from .k8s_tasks import yaml_get_task, yaml_apply_task, net_task
 
 
 # --------------------------------------------------------------------- 主面板

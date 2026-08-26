@@ -3,9 +3,9 @@
 """平台 object 直连脚本（绕过 8787 同源代理，服务端直接调用 HCM 网关）。
 
 为什么需要它：
-  前端 web-react 因浏览器同源策略无法直接连 HCM 网关，必须走 8787 的 /hcm-api 代理；
+  前端 frontend/web-react 因浏览器同源策略无法直接连 HCM 网关，必须走 8787 的 /hcm-api 代理；
   但代理链路一旦出问题（CORS/代理进程回收/转发异常），object 列表/元数据就取不到。
-  本脚本在服务端/本地直接用 Python 复刻前端 web-react/src/api/hcm/crypto.ts 的
+  本脚本在服务端/本地直接用 Python 复刻前端 frontend/web-react/src/api/hcm/crypto.ts 的
   AES-256-CBC + SM3 加解密逻辑，POST 到 HCM 网关 /api/<api_name>，带 token cookie，
   不经过任何中间代理，也就没有 CORS / 代理转发那一层报错来源。
 

@@ -1,8 +1,12 @@
 """仓库发现：翻页遍历 + 合并去重 + 发现数日志 的回归测试（纯逻辑，不联网）。"""
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from core.client import JiraGitClient, RepoInfo
+from core.client.repos import ReposMixin
 from core.models import ConnectConfig
 
 
@@ -30,6 +34,24 @@ def _make_client():
     c.config.cookie = "dummy-session-cookie"
     c.config.jira_url = "https://jira.example.com"
     return c
+
+
+class _CacheMixin:
+    """将仓库发现缓存（store/repos_cache.json）重定向到临时文件，避免污染真实
+    store 并隔离跨测试/多次调用间的缓存状态。"""
+
+    def setUp(self):
+        super().setUp()
+        self._tmp = tempfile.mkdtemp()
+        self._cache_file = Path(self._tmp) / "repos_cache.json"
+        self._cache_patch = mock.patch(
+            "core.client.repos.ReposMixin._REPO_CACHE_FILE", self._cache_file)
+        self._cache_patch.start()
+
+    def tearDown(self):
+        self._cache_patch.stop()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+        super().tearDown()
 
 
 class TestNormalizeAndParse(unittest.TestCase):
@@ -101,7 +123,7 @@ class TestHtmlPagination(unittest.TestCase):
                              content_type="text/html;charset=UTF-8")
 
         c.http_get = fake_get
-        with mock.patch("core.client.time") as t:
+        with mock.patch("core.client.repos.time") as t:
             t.strftime.return_value = "20200101_000000"
             out = c._discover_repos_html()
         self.assertEqual(len(out), 385)
@@ -276,7 +298,7 @@ class TestRestRepositoryAllEnvelope(unittest.TestCase):
         self.assertEqual(len(out), 385)
 
 
-class TestDiscoverMerge(unittest.TestCase):
+class TestDiscoverMerge(_CacheMixin, unittest.TestCase):
     def test_html_branch_enrichment_and_count_log(self):
         c = _make_client()
         html = {
@@ -286,8 +308,8 @@ class TestDiscoverMerge(unittest.TestCase):
             "1": RepoInfo(repo_id="1", display_name="repoA", clone_url="http://c1"),
             "2": RepoInfo(repo_id="2", display_name="repoB", clone_url="http://c2"),
         }
-        c._discover_repos_html = lambda *a: html
-        c._discover_repos_rest = lambda *a: rest
+        c._discover_repos_html = lambda *a, **k: html
+        c._discover_repos_rest = lambda *a, **k: rest
         with self.assertLogs("jira-git-gui", level="INFO") as cm:
             result = c.discover_repos()
         # 合并去重：2 个仓库；repo1 的默认分支由 HTML 补全
@@ -305,14 +327,14 @@ class TestDiscoverMerge(unittest.TestCase):
 
     def test_zero_discovery_warns(self):
         c = _make_client()
-        c._discover_repos_html = lambda *a: {}
-        c._discover_repos_rest = lambda *a: {}
+        c._discover_repos_html = lambda *a, **k: {}
+        c._discover_repos_rest = lambda *a, **k: {}
         with self.assertLogs("jira-git-gui", level="WARNING") as cm:
             self.assertEqual(c.discover_repos(), [])
         self.assertTrue(any("仓库发现：0 个" in m for m in cm.output))
 
 
-class TestRestUnavailableCache(unittest.TestCase):
+class TestRestUnavailableCache(_CacheMixin, unittest.TestCase):
     """真实场景回归：HTML 只给 3 个仓库、REST 全部 404 时，
     第一次发现应正常返回 3 个并把「REST 不可用」缓存；
     第二次发现应跳过 9 次 REST 白打，只请求 HTML。"""
@@ -342,7 +364,7 @@ class TestRestUnavailableCache(unittest.TestCase):
 
     def test_first_discovery_returns_html_repos_and_caches(self):
         c = self._make()
-        with mock.patch("core.client.time") as t:
+        with mock.patch("core.client.repos.time") as t:
             t.strftime.return_value = "20200101_000000"
             res = c.discover_repos()
         # 结果按 display_name 排序：acme/api(1032) < acme/core(895) < acme/web(1022)
@@ -354,11 +376,13 @@ class TestRestUnavailableCache(unittest.TestCase):
 
     def test_second_discovery_skips_rest(self):
         c = self._make()
-        with mock.patch("core.client.time") as t:
+        with mock.patch("core.client.repos.time") as t:
             t.strftime.return_value = "20200101_000000"
-            c.discover_repos()          # 第一次：REST 8 次
+            c.discover_repos()          # 第一次：REST 8 次，并写入文件缓存
             rest_after_first = c._calls["rest"]
-            c.discover_repos()          # 第二次：应跳过 REST
+            # 清掉文件缓存，仅保留内存中的「REST 不可用」标记，模拟同一会话内二次发现
+            self._cache_file.unlink(missing_ok=True)
+            c.discover_repos()          # 第二次：应跳过 REST（走内存缓存结论）
         self.assertEqual(c._calls["rest"], rest_after_first,
                          "第二次发现不应再发任何 REST 请求")
         self.assertEqual(c._calls["html"], 2,
@@ -366,7 +390,7 @@ class TestRestUnavailableCache(unittest.TestCase):
 
     def test_set_config_clears_cache(self):
         c = self._make()
-        with mock.patch("core.client.time") as t:
+        with mock.patch("core.client.repos.time") as t:
             t.strftime.return_value = "20200101_000000"
             c.discover_repos()
         self.assertTrue(c._rest_unavailable)
