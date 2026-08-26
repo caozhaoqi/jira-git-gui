@@ -8,7 +8,7 @@
  *  4) 渲染进程 -> 主进程：通过 IPC "log:from-renderer" 让前端日志也落盘
  */
 const electron = require('electron');
-const { app, BrowserWindow, dialog, ipcMain, clipboard } = electron;
+const { app, BrowserWindow, dialog, ipcMain, clipboard, Menu, shell } = electron;
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -179,6 +179,93 @@ if (!app || typeof app.whenReady !== 'function') {
   logErr('  2. cd /Users/caozhaoqi/PycharmProjects/jira-git-gui');
   logErr('  3. ./scripts/run_web.sh --electron');
   process.exit(1);
+}
+
+// ---- 首选项菜单：打开服务配置管理页（Jira / HCM / 云函数） ----
+// 以「独立窗口」打开：主窗口始终保持主界面，首选项窗口改完直接关闭即返回。
+// 配置在保存时已即时落盘，关闭窗口不会丢失任何修改。
+function openPreferences() {
+  const prefWin = new BrowserWindow({
+    width: 1080,
+    height: 760,
+    minWidth: 800,
+    minHeight: 560,
+    title: '首选项 · 系统配置',
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    }
+  });
+  prefWin.loadURL(`${BACKEND_URL}/services-config`);
+  prefWin.on('closed', () => {
+    log('首选项窗口已关闭。');
+  });
+}
+
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [];
+
+  if (isMac) {
+    template.push({
+      label: app.name || 'Jira Git GUI',
+      submenu: [
+        { label: '关于 Jira Git GUI', role: 'about' },
+        { type: 'separator' },
+        { label: '首选项…', accelerator: 'CmdOrCtrl+,', click: openPreferences },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { label: '退出', role: 'quit' },
+      ],
+    });
+  }
+
+  // 设置（非 macOS 下作为顶层菜单承载首选项）
+  const prefItem = { label: '首选项…', click: openPreferences };
+  if (!isMac) prefItem.accelerator = 'Ctrl+,';
+  template.push({ label: '设置', submenu: [prefItem] });
+
+  // 编辑（标准角色，保证复制 / 粘贴等可用）
+  template.push({
+    label: '编辑',
+    submenu: [
+      { role: 'undo' }, { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+    ],
+  });
+
+  // 视图
+  template.push({
+    label: '视图',
+    submenu: [
+      { role: 'reload' },
+      { role: 'toggleDevTools' },
+      { type: 'separator' },
+      { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+    ],
+  });
+
+  // 帮助
+  template.push({
+    label: '帮助',
+    submenu: [
+      { label: '打开日志文件', click: () => { try { shell.openPath(LOG_FILE); } catch (_) {} } },
+      { type: 'separator' },
+      { label: '关于 Jira Git GUI', role: 'about' },
+    ],
+  });
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // ---- IPC Handlers (registered in app.whenReady) ----
@@ -387,6 +474,7 @@ if (app && app.whenReady) {
     }
 
     registerIpcHandlers(); // Register IPC handlers
+    buildAppMenu();        // 构建原生菜单（含「首选项…」）
     log('app.whenReady() 触发');
     startPythonBackend();
 

@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 
 // ---------------------------------------------------------------------------
 //  Constants
@@ -503,6 +504,56 @@ pub fn run() {
                 .build()?;
 
             log_main(&app_handle, &log_file, "Window created.", "info");
+
+            // ---- 首选项菜单：打开服务配置管理页（Jira / HCM / 云函数） ----
+            // 菜单项「首选项…」(Cmd/Ctrl+,) 把 webview 导航到后端 /services-config。
+            {
+                let menu = match Menu::with_items(
+                    &app_handle,
+                    &[
+                        &MenuItem::with_id(&app_handle, "preferences", "首选项...", true, Some("CmdOrCtrl+,"))?,
+                        &PredefinedMenuItem::separator(&app_handle)?,
+                        &MenuItem::with_id(&app_handle, "quit", "退出", true, None)?,
+                    ],
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        log_main(&app_handle, &log_file, &format!("构建菜单失败: {}", e), "error");
+                        return Ok(());
+                    }
+                };
+                if let Err(e) = app.set_menu(menu) {
+                    log_main(&app_handle, &log_file, &format!("设置菜单失败: {}", e), "error");
+                }
+                let menu_port = port;
+                app.handle().clone().on_menu_event(move |app, event| {
+                    match event.id().as_ref() {
+                        "preferences" => {
+                            // 以「独立窗口」打开：关闭该窗口即返回主界面。
+                            // 配置在保存时已即时落盘，关闭窗口不会丢失任何修改。
+                            let url = format!("{}/services-config", backend_origin(menu_port));
+                            if let Some(existing) = app.get_webview_window("preferences") {
+                                let _ = existing.show();
+                                let _ = existing.set_focus();
+                            } else if let Err(e) = tauri::WebviewWindowBuilder::new(
+                                &app,
+                                "preferences",
+                                tauri::WebviewUrl::External(url.parse().unwrap()),
+                            )
+                            .title("首选项 · 系统配置")
+                            .inner_size(1080.0, 760.0)
+                            .build()
+                            {
+                                log_main(&app_handle, &log_file, &format!("打开首选项窗口失败: {}", e), "error");
+                            }
+                        }
+                        "quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    }
+                });
+            }
 
             // ---- 进程守卫：后端意外退出（OOM / 异常 / 崩溃）时自动重启 ----
             // 指数退避 1.5s→3s→6s→12s→24s，最多连续重启 8 次；恢复成功后计数归零。

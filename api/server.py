@@ -91,6 +91,7 @@ from api.hcm.routes_hcm import router as hcm_router                # noqa: E402
 from api.routes_settings import router as settings_router      # noqa: E402
 from api.k8s.routes_k8s import router as k8s_router                # noqa: E402
 from api.clash.routes_clash import router as clash_router            # noqa: E402
+from api.routes_services_config import router as services_config_router  # noqa: E402
 
 # 按业务域分组挂载（顺序无关，仅便于阅读）：
 #   仓库/下载/差异/缓存/同步/事件 → CF/HCM 平台 → 设置(汇总) → K8s/Clash 聚合域
@@ -104,6 +105,8 @@ for _r in (
     settings_router,
     # 聚合域（自身再 include 子模块）：K8s / Clash
     k8s_router, clash_router,
+    # 服务配置管理（云函数 / HCM 账号与代理配置）
+    services_config_router,
 ):
     app.include_router(_r)
 
