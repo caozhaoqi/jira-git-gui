@@ -14,6 +14,7 @@ console=True：保留标准输出，使 Electron 主进程能通过 pipe 捕获�
 """
 import os
 from pathlib import Path
+import glob
 
 SPEC_DIR = Path(os.path.dirname(os.path.abspath(SPEC)))
 PROJ = SPEC_DIR.parent
@@ -54,6 +55,14 @@ a = Analysis(
 _env_file = PROJ / ".env"
 if _env_file.exists():
     a.datas.append((str(_env_file), "."))
+
+# 打包 config/ 下的示例模板（*.example.json）；含真实 IP 的 .local.json 绝不进包
+_cfg_datas = [
+    (f, "config")
+    for f in glob.glob(str(PROJ / "config" / "*.json"))
+    if not f.endswith(".local.json")
+]
+a.datas.extend(_cfg_datas)
 
 pyz = PYZ(a.pure)
 

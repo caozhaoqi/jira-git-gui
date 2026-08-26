@@ -17,6 +17,18 @@ from core.client import JiraGitClient
 from core.models import ConnectConfig, TreeEntry
 
 
+class _FakeResp:
+    """最小 httpx.Response 替身（仅覆盖分支/HEAD 解析所需字段）。"""
+    def __init__(self, status=200, text=""):
+        self.status_code = status
+        self.text = text
+        self.url = ""
+        self.headers = {"content-type": "text/html"}
+
+    def json(self):
+        raise ValueError("no json")
+
+
 def _make_client():
     cfg = ConnectConfig()
     cfg.cookie = "DUMMY_SESSION=1"
@@ -32,10 +44,8 @@ class TestBinaryDownload(unittest.TestCase):
     def setUp(self):
         self.c = _make_client()
         self.c._resolve_branch = lambda rid, b: b or "master"
-        fake_resp = mock.MagicMock()
-        fake_resp.text = ""
-        self.c._fetch_browse = lambda *a, **k: fake_resp
-        self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
+        # 新下载链路依赖 _resolve_head 取 HEAD commit；这里直接桩掉，绕过真实 HTTP
+        self.c._resolve_head = lambda rid, b: "HEAD123"
 
     def test_text_file_written_as_text(self):
         self.c._cookie_file_content = (
@@ -77,15 +87,17 @@ class TestBranchCache(unittest.TestCase):
     def test_resolve_branch_caches_probe(self):
         c = _make_client()
         calls = {"n": 0}
+        # 分支解析现经 AllRepositories 浏览页解析 branchName，而非 _browse_has_tree
+        page = '<input type="hidden" name="branchName" value="master">'
 
-        def fake_has_tree(rid, branch):
+        def fake_get(url, headers=None):
             calls["n"] += 1
-            return branch == "master"
+            return _FakeResp(status=200, text=page)
 
-        c._browse_has_tree = fake_has_tree
-        # 首次：探测 master（命中），缓存 "master"
+        c.http_get = fake_get
+        # 首次：经浏览页探测出 master 并缓存
         self.assertEqual(c._resolve_branch("895", ""), "master")
-        # 再次：应直接命中缓存，不再探测
+        # 再次：应直接命中缓存，不再发 HTTP
         self.assertEqual(c._resolve_branch("895", ""), "master")
         self.assertEqual(calls["n"], 1)
 
@@ -128,6 +140,8 @@ class TestPatQuickTest(unittest.TestCase):
         self.assertIn("username", msg)
 
     def test_connect_uses_quick_test(self):
+        # 避免 connect() 真实请求文件浏览页（仅用于 cookie 探测，与 PAT 测试无关）
+        self.c._fetch_browse = lambda *a, **k: _FakeResp(status=200, text="")
         with mock.patch.object(subprocess, "run",
                               return_value=self._ls_remote(0, "x refs/heads/master\n")):
             res = self.c.connect()
@@ -139,10 +153,8 @@ class TestParallelDownload(unittest.TestCase):
     def setUp(self):
         self.c = _make_client()
         self.c._resolve_branch = lambda rid, b: b or "master"
-        fake_resp = mock.MagicMock()
-        fake_resp.text = ""
-        self.c._fetch_browse = lambda *a, **k: fake_resp
-        self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
+        # 新下载链路依赖 _resolve_head 取 HEAD commit；这里直接桩掉，绕过真实 HTTP
+        self.c._resolve_head = lambda rid, b: "HEAD123"
         self.tree = {
             "": [TreeEntry(f"f{i}.txt", f"f{i}.txt", "file", 3, False)
                  for i in range(12)],
@@ -210,10 +222,8 @@ class TestDownloadClientReuse(unittest.TestCase):
     def setUp(self):
         self.c = _make_client()
         self.c._resolve_branch = lambda rid, b: b or "master"
-        fake_resp = mock.MagicMock()
-        fake_resp.text = ""
-        self.c._fetch_browse = lambda *a, **k: fake_resp
-        self.c._parse_repo_info = lambda *a, **k: {"headCommit": "HEAD123"}
+        # 新下载链路依赖 _resolve_head 取 HEAD commit；这里直接桩掉，绕过真实 HTTP
+        self.c._resolve_head = lambda rid, b: "HEAD123"
         self.c._list_dir = lambda rid, branch, path="": [
             TreeEntry(f"f{i}.txt", f"f{i}.txt", "file", 1, False) for i in range(5)
         ]
@@ -247,20 +257,20 @@ class TestHeadCache(unittest.TestCase):
         c.set_repo("895", "repo", "master")
         calls = {"n": 0}
 
-        def fake_browse(rid, branch, path=""):
+        def fake_get(url, headers=None):
             calls["n"] += 1
-            r = mock.MagicMock()
-            r.text = ""
+            r = _FakeResp(status=200)
+            r._payload = {"values": [{"displayId": "master", "latestCommit": "abc123"}]}
+            r.json = lambda: r._payload
             return r
 
-        c._fetch_browse = fake_browse
-        c._parse_repo_info = lambda *a, **k: {"headCommit": "abc123"}
+        c.http_get = fake_get
         self.assertEqual(c._resolve_head("895", "master"), "abc123")
         self.assertEqual(c._resolve_head("895", "master"), "abc123")
-        self.assertEqual(calls["n"], 1)  # 命中缓存后不再 browse
+        self.assertEqual(calls["n"], 1)  # 命中缓存后不再请求
         # 切换仓库清空缓存
         c.set_repo("1022", "other", "")
-        c._resolve_head("1022", "")
+        self.assertEqual(c._resolve_head("1022", ""), "abc123")
         self.assertEqual(calls["n"], 2)
 
 

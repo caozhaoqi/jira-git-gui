@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.differ import (
+from core.diff import (
     DiffStatus, canonical_text, file_diff, compute_diff,
 )
 

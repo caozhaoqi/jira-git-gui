@@ -14,7 +14,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import core.k8s_manager as _m
+import core.k8s as _m
+import core.k8s.exec_cmd as _cmd
+import core.k8s.exec_fs as _fs
 from core.errors import UserError
 
 
@@ -55,7 +57,8 @@ def _fake_run(argv, timeout=60, sub_env=None):
 
 # ---- 测试 ------------------------------------------------------------------- #
 def test_list_dir():
-    _m._run_kubectl_bytes = _fake_run
+    _cmd._run_kubectl_bytes = _fake_run
+    _fs._run_kubectl_bytes = _fake_run
     entries = _m.list_dir("dev", "mypod", None, None, "/tmp", timeout=10)
     # 期望剔除 total / . / .. ；符号链接(link) 保留为 file 且显示名去掉 → 目标
     # （契约：d 开头为 dir，- 开头为 file，其余归为 file，符合 Xftp 简化模型）
@@ -75,7 +78,8 @@ def test_list_dir():
 
 
 def test_exec_command_cwd_tracking():
-    _m._run_kubectl_bytes = _fake_run
+    _cmd._run_kubectl_bytes = _fake_run
+    _fs._run_kubectl_bytes = _fake_run
     clean, new_cwd = _m.exec_command(
         "dev", "mypod", None, None, "echo hello", cwd="/tmp", timeout=10)
     assert "__PWD__" not in clean, "输出应剔除 __PWD__ 标记"
@@ -87,7 +91,8 @@ def test_exec_command_cwd_tracking():
 def test_exec_command_failure_raises_user_error():
     def _fail(argv, timeout=60, sub_env=None):
         return b"", 1, b"Error from server (NotFound): pods \"x\" not found"
-    _m._run_kubectl_bytes = _fail
+    _cmd._run_kubectl_bytes = _fail
+    _fs._run_kubectl_bytes = _fail
     caught = None
     try:
         _m.exec_command("dev", "mypod", None, None, "ls", cwd="/", timeout=10)
@@ -114,19 +119,19 @@ def test_write_file_binary_pipes_base64_text():
 
     import subprocess as _sp
 
-    def _fake_sp_run(argv, input=None, capture_output=False, timeout=60):
+    def _fake_sp_run(argv, input=None, capture_output=False, timeout=60, env=None):
         captured["argv"] = list(argv)
         captured["input"] = input
         return _sp.CompletedProcess(argv, 0, b"", b"")
 
-    _orig_sp_run = _m._subprocess.run
-    _m._subprocess.run = _fake_sp_run
+    _orig_sp_run = _fs._subprocess.run
+    _fs._subprocess.run = _fake_sp_run
     try:
         # 以 base64 文本作为 content 调用（与路由修复后透传的行为一致）
         b64 = "aGVsbG8="  # "hello"
         _m.write_file("dev", "mypod", None, None, "/tmp/x.bin", b64, binary=True)
     finally:
-        _m._subprocess.run = _orig_sp_run
+        _fs._subprocess.run = _orig_sp_run
 
     script = captured["argv"][captured["argv"].index("--") + 3]
     assert script.startswith("base64 -d >"), "二进制写入脚本应为 base64 -d，实际: %s" % script
@@ -142,17 +147,17 @@ def test_write_file_text_pipes_raw():
     captured = {}
     import subprocess as _sp
 
-    def _fake_sp_run(argv, input=None, capture_output=False, timeout=60):
+    def _fake_sp_run(argv, input=None, capture_output=False, timeout=60, env=None):
         captured["argv"] = list(argv)
         captured["input"] = input
         return _sp.CompletedProcess(argv, 0, b"", b"")
 
-    _orig_sp_run = _m._subprocess.run
-    _m._subprocess.run = _fake_sp_run
+    _orig_sp_run = _fs._subprocess.run
+    _fs._subprocess.run = _fake_sp_run
     try:
         _m.write_file("dev", "mypod", None, None, "/tmp/x.txt", "你好", binary=False)
     finally:
-        _m._subprocess.run = _orig_sp_run
+        _fs._subprocess.run = _orig_sp_run
     script = captured["argv"][captured["argv"].index("--") + 3]
     assert script.startswith("cat >"), "文本写入脚本应为 cat，实际: %s" % script
     assert captured["input"] == "你好".encode("utf-8"), "stdin 应为原文 UTF-8 字节"

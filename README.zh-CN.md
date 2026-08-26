@@ -2,12 +2,12 @@
 
 > 📗 English docs: [README.md](README.md)
 
-面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供 **两种桌面形态**，共用同一个 Python 后端与同一套 Web 前端（由 `web-react/` 构建）：
+面向 **Jira Git 集成插件**（Xiplink / BigBrassBand）**与 Kubernetes 日常运维**的统一桌面控制台。提供 **两种桌面形态**，共用同一个 Python 后端与同一套 Web 前端（由 `frontend/web-react/` 构建）：
 
 - **Electron 版**（`electron/` + `web/`）：基于 Electron + Chromium/WebKit webview 的跨平台桌面应用。
 - **Tauri 版**（`tauri/` + `web/`）：使用操作系统原生 WebView 的轻量桌面应用——包体小得多（几十 MB 对比几百 MB）。
 
-两种形态都加载同一套 Web 前端（由 `web-react/` 构建）、对接同一个共享 Python 后端（`api/server.py`，默认端口 8787），功能等价。Python 后端（FastAPI）会被打包进每个桌面应用，最终用户无需单独起服务或开浏览器。
+两种形态都加载同一套 Web 前端（由 `frontend/web-react/` 构建）、对接同一个共享 Python 后端（`api/server.py`，默认端口 8787），功能等价。Python 后端（FastAPI）会被打包进每个桌面应用，最终用户无需单独起服务或开浏览器。
 
 ## 功能总览
 
@@ -71,11 +71,12 @@ jira-git-gui/
 │   └── k8s_snapshot.py     # 快照引擎：Pod 状态 + 日志抓取、分级、HTML/JSON 报告
 ├── api/                    # Web / Electron / Tauri 共用的后端
 │   └── server.py           # FastAPI：50+ REST 端点 + SSE 推送 + WebSocket Shell，端口 8787
-├── web/                    # Web 前端生产构建产物（由 web-react/ 的 vite build 生成：
+├── web/                    # Web 前端生产构建产物（由 frontend/web-react/ 的 vite build 生成：
 │                          #   index.html + assets/），Electron / Tauri / 浏览器共用。
-│                          #   原生 vanilla-JS 版本已归档到 web-legacy/ 用于回退。
-├── web-react/             # React + TypeScript + Vite 前端——web/ 的实际源码来源
-│   ├── src/components/    # 功能面板：RepoPanel / CommitsPanel / DiffPanel / k8s/* / CfPanel
+│                          #   原生 vanilla-JS 版本已归档到 frontend/web-legacy/ 用于回退。
+├── frontend/               # Web 前端源码（按功能归组）
+│   ├── web-react/          # React + TypeScript + Vite 前端——web/ 的实际源码来源
+│   │   ├── src/components/ # 功能面板：RepoPanel / CommitsPanel / DiffPanel / k8s/* / CfPanel
 │   ├── src/api/           # 统一 API 客户端、SSE 事件管理器、类型化模型
 │   ├── src/store/         # Zustand 全局状态（logs / toasts / progress / activeTab）
 │   └── src/utils/         # 格式化（diff / 相对时间 / 体积）+ 剪贴板（Electron/Tauri/Web）

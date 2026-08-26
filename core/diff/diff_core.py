@@ -1,0 +1,179 @@
+# -*- coding: utf-8 -*-
+"""差异计算核心（自 ``core/diff_diff`` 拆分）。
+
+提供：
+- ``compute_diff``：对比单文件 old/new 文本，产出 ``DiffResult``
+- ``file_diff``：对比磁盘上的两个文件（自动判断文本/二进制）
+- ``is_whitespace_only_diff``：判断差异是否仅为空白/注释
+- ``_is_text_file`` / ``_is_same_normalized``：辅助判定
+"""
+import difflib
+import os
+from pathlib import Path
+from typing import Optional
+
+from .models import (
+    DiffStatus, DiffEntry, DiffResult, SKIP_DIRS, SKIP_FILES,
+    _TEXT_EXTENSIONS, clear_dir_cache, _log,
+)
+from .normalize import canonical_text
+
+
+def _is_text_file(path: Path) -> bool:
+    ext = path.suffix.lower()
+    if ext in _TEXT_EXTENSIONS:
+        return True
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(4096)
+        if b"\x00" in chunk:
+            return False
+        try:
+            chunk.decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            return False
+    except OSError:
+        return False
+
+
+def _is_same_normalized(a: str, b: str) -> bool:
+    """空白/注释无关等价：两侧先做 canonical_text 再比较。"""
+    na = canonical_text("<a>", a)
+    nb = canonical_text("<b>", b)
+    return na == nb
+
+
+def compute_file_diff(name, old: Optional[str], new: Optional[str],
+                      old_is_text=None, new_is_text=None) -> Optional[DiffResult]:
+    """计算单个文件的差异（文本内容级对比）。
+
+    - ``old``/``new`` 为文本内容或 ``None``（表示缺失）。
+    - 返回 ``DiffResult(status, hunks, old_text, new_text)``，或 ``None`` 表示无法比较（二进制）。
+    - 对二进制文件或文本编码异常，返回 ``status=BINARY``。
+    """
+    if old is not None and new is not None:
+        if old_is_text is False or new_is_text is False:
+            if old != new:
+                return DiffResult(status=DiffStatus.BINARY, hunks=[], old_text=old, new_text=new)
+            return DiffResult(status=DiffStatus.EQUAL, hunks=[], old_text=old, new_text=new)
+        ca = canonical_text(name, old)
+        cb = canonical_text(name, new)
+        if _is_same_normalized(old, new):
+            return DiffResult(status=DiffStatus.EQUAL, hunks=[], old_text=ca, new_text=cb)
+        sm = difflib.SequenceMatcher(None, ca.splitlines(keepends=True),
+                                     cb.splitlines(keepends=True))
+        hunks = []
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                continue
+            hunks.append({
+                "tag": tag,
+                "old": "".join(ca.splitlines(keepends=True)[i1:i2]),
+                "new": "".join(cb.splitlines(keepends=True)[j1:j2]),
+            })
+        return DiffResult(status=DiffStatus.CHANGED, hunks=hunks, old_text=ca, new_text=cb)
+    if old is None and new is not None:
+        if new_is_text is False:
+            return DiffResult(status=DiffStatus.ADDED, hunks=[], old_text=None, new_text=new)
+        return DiffResult(status=DiffStatus.ADDED, hunks=[], old_text=None, new_text=canonical_text(name, new))
+    if old is not None and new is None:
+        if old_is_text is False:
+            return DiffResult(status=DiffStatus.REMOVED, hunks=[], old_text=old, new_text=None)
+        return DiffResult(status=DiffStatus.REMOVED, hunks=[], old_text=canonical_text(name, old), new_text=None)
+    return None
+
+
+def file_diff(path, new_content) -> Optional[DiffResult]:
+    """对比磁盘文件 ``path``（旧）与字符串 ``new_content``（新），自动判断文本/二进制。
+
+    约定（与 ``api.routes_diff`` 及测试一致）：第一参数是旧文件路径，第二参数是新内容字符串。
+    一侧不存在时对应内容为 ``None``（视为新增/删除）。
+    """
+    p = Path(path)
+    old_text = None
+    old_is_text = None
+    if p.exists():
+        old_is_text = _is_text_file(p)
+        if old_is_text:
+            try:
+                old_text = p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                old_is_text = False
+                old_text = p.read_bytes().decode("utf-8", "replace")
+        else:
+            old_text = p.read_bytes().decode("utf-8", "replace")
+    new_is_text = True if new_content is not None else None
+    return compute_file_diff(path, old_text, new_content,
+                             old_is_text=old_is_text, new_is_text=new_is_text)
+
+
+def is_whitespace_only_diff(name, old, new) -> bool:
+    """判断 old/new 的差异是否仅为空白或注释（无实质代码改动）。"""
+    if old is None or new is None:
+        return False
+    return _is_same_normalized(old, new)
+
+
+def compute_diff(local_files: dict, remote_files: dict,
+                ignore_line_endings: bool = True) -> DiffResult:
+    """目录级差异对比（基于扫描元数据，不读取文件内容）。
+
+    约定（与 ``api.routes_diff`` 及测试一致）：
+    - ``local_files`` / ``remote_files`` 为 ``path -> {size, mtime, hash,
+      norm_hash?, norm_size?}`` 的字典（来自 ``scan_local`` / ``scan_remote``）。
+    - 双方都有时，优先比 ``hash``；再比 ``size``；若 ``ignore_line_endings`` 且
+      本地含 ``norm_size`` 且 ``norm_size == 远端 size``，则判定为 ``WHITESPACE_ONLY``
+      （内容语义相同，仅行尾符差异）。
+    - 仅一侧存在则为 ``LOCAL_ONLY`` / ``REMOTE_ONLY``。
+
+    Args:
+        local_files: 本地扫描结果字典
+        remote_files: 远端扫描结果字典
+        ignore_line_endings: 是否将"行尾符差异"识别为 WHITESPACE_ONLY
+
+    Returns:
+        DiffResult：聚合了全部条目的对比结果（含 summary()）。
+    """
+    result = DiffResult()
+    for path in sorted(set(local_files) | set(remote_files)):
+        l = local_files.get(path)
+        r = remote_files.get(path)
+        entry = DiffEntry(path=path)
+        if l and r:
+            entry.local_size = l.get("size")
+            entry.remote_size = r.get("size")
+            entry.local_hash = l.get("hash")
+            entry.remote_hash = r.get("hash")
+            # 严格相同：hash 优先，其次 size
+            if l.get("hash") and r.get("hash"):
+                same = l["hash"] == r["hash"]
+            elif l.get("size") is not None and r.get("size") is not None:
+                same = l["size"] == r["size"]
+            else:
+                same = False
+            if same:
+                entry.status = DiffStatus.SAME
+                result.same += 1
+            elif (ignore_line_endings
+                  and l.get("norm_size") is not None
+                  and r.get("size") is not None
+                  and l["norm_size"] == r["size"]):
+                entry.status = DiffStatus.WHITESPACE_ONLY
+                result.modified += 1
+            else:
+                entry.status = DiffStatus.MODIFIED
+                result.modified += 1
+        elif l:
+            entry.status = DiffStatus.LOCAL_ONLY
+            entry.local_size = l.get("size")
+            entry.local_hash = l.get("hash")
+            result.local_only += 1
+        else:
+            entry.status = DiffStatus.REMOTE_ONLY
+            entry.remote_size = r.get("size")
+            entry.remote_hash = r.get("hash")
+            result.remote_only += 1
+        result.entries.append(entry)
+    result.total = len(result.entries)
+    return result

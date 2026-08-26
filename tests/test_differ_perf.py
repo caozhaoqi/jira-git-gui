@@ -17,7 +17,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import differ
-from core.differ import (
+from core import diff_scan_local
+from core.diff import (
     DiffEntry, DiffStatus, scan_local, scan_local_cached,
     compute_diff, merge_entries, merge_to_local, clear_dir_cache,
 )
@@ -46,13 +47,19 @@ class TestScanLocalIncremental(unittest.TestCase):
             root = Path(td)
             _make_tree(root, 200)
             calls = {"n": 0}
-            orig = differ._file_hash
+            orig = diff_scan_local._file_hash
+            orig_hh = diff_scan_local._file_hashes
 
             def counting(path):
                 calls["n"] += 1
                 return orig(path)
 
-            differ._file_hash = counting
+            def counting_hh(path):
+                calls["n"] += 1
+                return orig_hh(path)
+
+            diff_scan_local._file_hash = counting
+            diff_scan_local._file_hashes = counting_hh
             try:
                 # 首次全量扫描，必然计算 MD5
                 r1 = scan_local(str(root))
@@ -64,7 +71,8 @@ class TestScanLocalIncremental(unittest.TestCase):
                 self.assertEqual(calls["n"], first_hash_calls,
                                  "未变文件不应重新计算 MD5")
             finally:
-                differ._file_hash = orig
+                diff_scan_local._file_hash = orig
+                diff_scan_local._file_hashes = orig_hh
 
             # 结果必须完全一致（哈希 + 大小 + mtime）
             self.assertEqual(r1, r2)
@@ -172,7 +180,7 @@ class TestLineEndingNormalization(unittest.TestCase):
             b = Path(td) / "b.txt"
             a.write_bytes(b"line1\r\nline2\r\n")
             b.write_bytes(b"line1\nline2\n")
-            self.assertEqual(differ._normalized_hash(a), differ._normalized_hash(b))
+            self.assertEqual(diff_scan_local._normalized_hash(a), diff_scan_local._normalized_hash(b))
 
     def test_merge_to_local_skips_crlf_only_change(self):
         with tempfile.TemporaryDirectory() as td:

@@ -64,7 +64,18 @@ config/hcm_whitelist.local.json
 clash_defaults.local.json
 config/clash_defaults.local.json
 
-web-react/node_modules/
+frontend/web-react/node_modules/
 
 web/
 docs/HCM_OBJECT_BROWSER.md
+
+.codebuddy/
+.pytest_cache/
+
+# 前端构建产物（web-react / React）：源码入库，依赖与构建产物忽略
+frontend/web-react/dist/
+frontend/web-react/build/
+frontend/web-react/.tsbuildinfo
+*.tsbuildinfo
+# 旧前端子目录（已迁移到 web-react，不再维护）
+frontend/web-legacy/

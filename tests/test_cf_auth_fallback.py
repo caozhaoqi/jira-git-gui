@@ -13,6 +13,10 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 import api.server as srv
+from api.common import _cf_token_stale, _cf_is_session_err
+from api.cf.cf_tokens import _CF_TOKEN_CACHE
+import api.cf.cf_logs as cf_logs
+from api.common import _cf_token_stale, _cf_is_session_err
 
 
 class _FakeResp:
@@ -63,40 +67,40 @@ class _FakeAsyncClient:
 class TestCfTokenStale(unittest.TestCase):
     def test_stale_on_last_error(self):
         v = {"token": "x", "cookie": "token=x", "last_error": "login failed", "ts": "2020-01-01 00:00:00"}
-        self.assertTrue(srv._cf_token_stale(v))
+        self.assertTrue(_cf_token_stale(v))
 
     def test_stale_on_old_ts(self):
         old = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 25 * 3600))
         v = {"token": "x", "cookie": "token=x", "last_error": "", "ts": old}
-        self.assertTrue(srv._cf_token_stale(v))
+        self.assertTrue(_cf_token_stale(v))
 
     def test_not_stale_recent(self):
         recent = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - 3600))
         v = {"token": "x", "cookie": "token=x", "last_error": "", "ts": recent}
-        self.assertFalse(srv._cf_token_stale(v))
+        self.assertFalse(_cf_token_stale(v))
 
     def test_not_stale_no_token_no_error(self):
         # 尚未获取过凭证（无 last_error、有 ts 占位）→ 不算 stale（避免一启动就提示）
         v = {"token": "", "cookie": "", "last_error": "", "ts": ""}
-        self.assertFalse(srv._cf_token_stale(v))
+        self.assertFalse(_cf_token_stale(v))
 
 
 class TestIsSessionErr(unittest.TestCase):
     def test_401_is_session(self):
-        self.assertTrue(srv._cf_is_session_err(401, None, ""))
+        self.assertTrue(_cf_is_session_err(401, None, ""))
 
     def test_403_is_session(self):
-        self.assertTrue(srv._cf_is_session_err(403, None, ""))
+        self.assertTrue(_cf_is_session_err(403, None, ""))
 
     def test_17003_is_session(self):
-        self.assertTrue(srv._cf_is_session_err(0, 17003, ""))
+        self.assertTrue(_cf_is_session_err(0, 17003, ""))
 
     def test_keyword_unauthorized(self):
-        self.assertTrue(srv._cf_is_session_err(200, 0, "用户未登录，请先登录"))
+        self.assertTrue(_cf_is_session_err(200, 0, "用户未登录，请先登录"))
 
     def test_5xx_not_session(self):
         # 平台 5xx 必须判为非会话类（不误判 token 失效）
-        self.assertFalse(srv._cf_is_session_err(500, None, "Internal Server Error"))
+        self.assertFalse(_cf_is_session_err(500, None, "Internal Server Error"))
 
 
 def _client():
@@ -109,12 +113,12 @@ class TestCfLogsFallback(unittest.TestCase):
     def test_5xx_returns_platform_error_not_token_invalid(self):
         """缓存 cookie 凭证，方式1 返回 500 → 应报「平台暂时错误」，detail 不含 token 失效。"""
         server_url = "http://test-cf-5xx.invalid"
-        srv._CF_TOKEN_CACHE[server_url] = {
+        _CF_TOKEN_CACHE[server_url] = {
             "token": "", "cookie": "token=abc", "name": "t",
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "need_captcha": False, "last_error": "",
         }
         resp_500 = _FakeResp(500, text="<html>Internal Server Error</html>")
-        with mock.patch.object(srv.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([resp_500])):
+        with mock.patch.object(cf_logs.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([resp_500])):
             client = _client()
             r = client.post("/api/cf/logs", json={
                 "server_url": server_url, "token": "", "log_type": "",
@@ -128,12 +132,12 @@ class TestCfLogsFallback(unittest.TestCase):
     def test_401_session_triggers_token_invalid_hint(self):
         """缓存 cookie 凭证，方式1 返回 401 + 未登录 → 应提示 token 可能失效。"""
         server_url = "http://test-cf-401.invalid"
-        srv._CF_TOKEN_CACHE[server_url] = {
+        _CF_TOKEN_CACHE[server_url] = {
             "token": "", "cookie": "token=abc", "name": "t",
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "need_captcha": False, "last_error": "",
         }
         resp_401 = _FakeResp(401, {"errcode": 0, "errmsg": "未登录，请先登录"})
-        with mock.patch.object(srv.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([resp_401])):
+        with mock.patch.object(cf_logs.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([resp_401])):
             client = _client()
             r = client.post("/api/cf/logs", json={
                 "server_url": server_url, "token": "", "log_type": "",
@@ -149,7 +153,7 @@ class TestCfPageSizeClamp(unittest.TestCase):
 
     def test_clamp_via_endpoint(self):
         server_url = "http://test-cf-clamp.invalid"
-        srv._CF_TOKEN_CACHE[server_url] = {
+        _CF_TOKEN_CACHE[server_url] = {
             "token": "", "cookie": "token=abc", "name": "t",
             "ts": time.strftime("%Y-%m-%d %H:%M:%S"), "need_captcha": False, "last_error": "",
         }
@@ -159,7 +163,7 @@ class TestCfPageSizeClamp(unittest.TestCase):
             captured["page_size"] = kwargs.get("json", {}).get("page_size")
             return _FakeResp(200, {"result": {"list": [], "total": 0}})
 
-        with mock.patch.object(srv.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([_FakeResp(200, {"result": {"list": [], "total": 0}})])):
+        with mock.patch.object(cf_logs.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient([_FakeResp(200, {"result": {"list": [], "total": 0}})])):
             # 注入一个能捕获 payload 的 client：直接给 AsyncClient 的 post 加 wrapper
             def _wrap(**kw):
                 inst = _FakeAsyncClient([_FakeResp(200, {"result": {"list": [], "total": 0}})])
@@ -169,7 +173,7 @@ class TestCfPageSizeClamp(unittest.TestCase):
                     return await real_post(url, **kk)
                 inst.post = _post
                 return inst
-            with mock.patch.object(srv.httpx, "AsyncClient", _wrap):
+            with mock.patch.object(cf_logs.httpx, "AsyncClient", _wrap):
                 client = _client()
                 r = client.post("/api/cf/logs", json={
                     "server_url": server_url, "token": "", "log_type": "",

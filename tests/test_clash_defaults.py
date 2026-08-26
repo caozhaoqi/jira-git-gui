@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from api import routes_clash as rc
+from api.clash import routes_clash as rc
 
 
 def _write(tmp: Path, data):
@@ -29,28 +29,48 @@ class TestClashDefaults(unittest.TestCase):
     def test_read_valid(self):
         _write(self._dir, {"default_ips": ["73.2.3.27", "73.2.192.1", "83.0.16.1", "73.8.0.10"], "lan_device": "en13"})
         with self._patch_file():
-            d = rc._load_clash_defaults()
+            d = rc._load_clash_defaults(project_root=self._dir)
         self.assertEqual(d["default_ips"], ["73.2.3.27", "73.2.192.1", "83.0.16.1", "73.8.0.10"])
         self.assertEqual(d["lan_device"], "en13")
 
     def test_missing_file(self):
         with self._patch_file():
-            d = rc._load_clash_defaults()
+            d = rc._load_clash_defaults(project_root=self._dir)
         self.assertEqual(d["default_ips"], [])
         self.assertEqual(d["lan_device"], "")
 
     def test_corrupt_json(self):
         (self._dir / "clash_defaults.local.json").write_text("{ not json", encoding="utf-8")
         with self._patch_file():
-            d = rc._load_clash_defaults()
+            d = rc._load_clash_defaults(project_root=self._dir)
         self.assertEqual(d["default_ips"], [])
 
     def test_blank_entries_filtered(self):
         _write(self._dir, {"default_ips": ["  ", "73.2.3.27", "", " 73.8.0.10 "], "lan_device": "  "})
         with self._patch_file():
-            d = rc._load_clash_defaults()
+            d = rc._load_clash_defaults(project_root=self._dir)
         self.assertEqual(d["default_ips"], ["73.2.3.27", "73.8.0.10"])
         self.assertEqual(d["lan_device"], "")
+
+    def test_example_fallback(self):
+        (self._dir / "clash_defaults.example.json").write_text(
+            json.dumps({"default_ips": ["1.2.3.4"], "lan_device": ""}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        with self._patch_file():
+            res, _, src = rc._resolve_clash_defaults_source(
+                self._dir / "clash_defaults.local.json", self._dir
+            )
+        self.assertEqual(res["default_ips"], ["1.2.3.4"])
+        self.assertEqual(src, "example")
+
+    def test_source_field(self):
+        _write(self._dir, {"default_ips": ["73.2.3.27"], "lan_device": ""})
+        with self._patch_file():
+            _, _, src = rc._resolve_clash_defaults_source(
+                self._dir / "clash_defaults.local.json", self._dir
+            )
+        self.assertEqual(src, "local")
 
 
 if __name__ == "__main__":

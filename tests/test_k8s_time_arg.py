@@ -2,7 +2,7 @@
 """kubectl 时间参数容错校验（since/until 非法值不再让查询崩溃）。"""
 import unittest
 
-import api.routes_k8s as rk
+from api.k8s import routes_k8s as rk
 
 
 class TestK8sTimeArg(unittest.TestCase):
