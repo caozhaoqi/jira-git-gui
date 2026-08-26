@@ -112,6 +112,7 @@ export function CfPanel() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
+  const [filterOn, setFilterOn] = useState(true);
   const [activeMatch, setActiveMatch] = useState(0);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [status, setStatus] = useState<{ text: string; cls: string }>({ text: '', cls: '' });
@@ -554,7 +555,7 @@ export function CfPanel() {
     const q = search.trim();
     const needle = caseSensitive ? q : q.toLowerCase();
     let filtered = all;
-    if (q) {
+    if (q && filterOn) {
       filtered = all.filter((r) => {
         const content = caseSensitive ? cfContent(r) : cfContent(r).toLowerCase();
         const time = caseSensitive ? cfTime(r) : cfTime(r).toLowerCase();
@@ -563,13 +564,16 @@ export function CfPanel() {
       });
     }
     let matchTotal = 0;
+    let matchRows = 0;
     if (q) {
       const lt = result.log_type;
       for (const r of filtered) {
-        matchTotal +=
+        const c =
           findMatches(cfContent(r), q, caseSensitive).length +
           findMatches(cfTime(r), q, caseSensitive).length +
           findMatches(cfLogType(r, lt), q, caseSensitive).length;
+        if (c > 0) matchRows += 1;
+        matchTotal += c;
       }
     }
     const pageSize = result.page_size || 200;
@@ -581,8 +585,8 @@ export function CfPanel() {
       if (localPage > totalPages) localPage = totalPages;
       display = filtered.slice((localPage - 1) * pageSize, localPage * pageSize);
     }
-    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal };
-  }, [result, sortDir, search, caseSensitive]);
+    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows };
+  }, [result, sortDir, search, caseSensitive, filterOn]);
 
   const goLocalPage = (p: number) => {
     if (result) setResult({ ...result, localPage: p });
@@ -941,6 +945,17 @@ export function CfPanel() {
             />{' '}
             {t('cf.caseSensitive')}
           </label>
+          <label className="cf-search-case" title={t('cf.filterToggleHint')}>
+            <input
+              type="checkbox"
+              checked={filterOn}
+              onChange={(e) => {
+                setFilterOn(e.target.checked);
+                if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+              }}
+            />{' '}
+            {t('cf.filterToggle')}
+          </label>
           <button
             className="btn btn-sm btn-ghost cf-btn-sort-time"
             onClick={toggleSort}
@@ -950,7 +965,9 @@ export function CfPanel() {
           </button>
           <span className="cf-search-count">
             {search
-              ? `匹配 ${view.all} / ${view.isFull ? '全部' : '本页'} ${result.rows.length}`
+              ? filterOn
+                ? `匹配 ${view.all} / ${view.isFull ? '全部' : '本页'} ${result.rows.length}`
+                : `高亮 ${view.matchTotal} 处 · ${view.matchRows} 行（未过滤）`
               : view.isFull
               ? `共 ${view.all} 条`
               : `本页 ${view.all} / 共 ${result.total} 条`}
@@ -984,6 +1001,9 @@ export function CfPanel() {
       {result && view.rows.length === 0 && (
         <div className="empty-hint">{t('cf.noMatch')}</div>
       )}
+      {result && search && !filterOn && view.matchTotal === 0 && view.rows.length > 0 && (
+        <div className="empty-hint">{t('cf.noMatch')}</div>
+      )}
 
       {/* ===== 日志结果表 ===== */}
       {result && view.rows.length > 0 && (
@@ -991,7 +1011,9 @@ export function CfPanel() {
           <div className="cf-result-meta">
             <span className="cf-result-count">
               {search
-                ? `匹配 ${view.all} 条`
+                ? filterOn
+                  ? `匹配 ${view.all} 条`
+                  : `高亮 ${view.matchTotal} 处 · ${view.matchRows} 行（未过滤）`
                 : view.isFull
                 ? `共 ${view.all} 条`
                 : `本页 ${view.all} / 共 ${result.total} 条`}
