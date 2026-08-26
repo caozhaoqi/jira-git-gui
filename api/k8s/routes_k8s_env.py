@@ -11,6 +11,8 @@
 """
 import logging
 
+import json
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -44,7 +46,7 @@ async def api_k8s_env():
         current = _k8s_get_env(None)[0]
     except Exception:
         current = None
-    return {"envs": envs, "current": current}
+    return {"environments": envs, "current": current}
 
 
 @router.post("/api/k8s/env")
@@ -106,7 +108,7 @@ async def api_k8s_env_export(name: str = ""):
 
 @router.get("/api/k8s/pods")
 async def api_k8s_pods(env: str = "", namespace: str = ""):
-    """列出指定环境的 Pod（带状态摘要）。"""
+    """列出指定环境的 Pod（带状态摘要），返回与前端 K8sPodsResp.pods 兼容的结构。"""
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
@@ -116,7 +118,24 @@ async def api_k8s_pods(env: str = "", namespace: str = ""):
     )
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
-    return {"ok": True, "raw": out}
+    try:
+        raw = json.loads(out)
+        items = raw.get("items", []) if isinstance(raw, dict) else []
+    except Exception:
+        return {"ok": False, "error": "kubectl 返回非 JSON（可能未配置 kubeconfig / 上下文）"}
+    pods = []
+    for it in items:
+        md = it.get("metadata", {}) or {}
+        st = it.get("status", {}) or {}
+        cs = st.get("containerStatuses", []) or []
+        restarts = sum(c.get("restartCount", 0) for c in cs) if cs else 0
+        pods.append({
+            "name": md.get("name", ""),
+            "namespace": md.get("namespace", ""),
+            "phase": st.get("phase", ""),
+            "restarts": restarts,
+        })
+    return {"ok": True, "pods": pods}
 
 
 @router.get("/api/k8s/yaml")
