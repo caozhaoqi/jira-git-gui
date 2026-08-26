@@ -12,6 +12,7 @@ import logging
 import shlex
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from core import k8s_manager as _k8s_mgr
 from core.k8s import run_kubectl as _k8s_run_kubectl
@@ -20,10 +21,21 @@ logger = logging.getLogger("api.routes_k8s_files")
 router = APIRouter()
 
 
-@router.get("/api/k8s/file/list")
-async def api_k8s_file_list(env: str = "", pod: str = "", container: str = "",
-                            namespace: str = "", path: str = "/"):
+class K8sFileReq(BaseModel):
+    """容器内文件操作统一请求体（list/read/search 共用）。"""
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = "/"
+    pattern: str = ""
+    max_lines: int = 2000
+
+
+@router.post("/api/k8s/file/list")
+async def api_k8s_file_list(body: K8sFileReq):
     """列出容器内某路径下的文件（含目录标记）。"""
+    env, pod, container, namespace, path = body.env, body.pod, body.container, body.namespace, body.path
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
@@ -54,10 +66,11 @@ async def api_k8s_file_list(env: str = "", pod: str = "", container: str = "",
     return {"ok": True, "items": items}
 
 
-@router.get("/api/k8s/file/read")
-async def api_k8s_file_read(env: str = "", pod: str = "", container: str = "",
-                            namespace: str = "", path: str = "", max_lines: int = 2000):
+@router.post("/api/k8s/file/read")
+async def api_k8s_file_read(body: K8sFileReq):
     """读取容器内文件内容（文本）。"""
+    env, pod, container, namespace, path, max_lines = (
+        body.env, body.pod, body.container, body.namespace, body.path, body.max_lines)
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
@@ -77,11 +90,11 @@ async def api_k8s_file_read(env: str = "", pod: str = "", container: str = "",
     return {"ok": True, "content": out}
 
 
-@router.get("/api/k8s/file/search")
-async def api_k8s_file_search(env: str = "", pod: str = "", container: str = "",
-                              namespace: str = "", path: str = "/",
-                              pattern: str = "", max_lines: int = 500):
+@router.post("/api/k8s/file/search")
+async def api_k8s_file_search(body: K8sFileReq):
     """在容器内按文本模式搜索文件内容（grep -rn）。"""
+    env, pod, container, namespace, path, pattern, max_lines = (
+        body.env, body.pod, body.container, body.namespace, body.path, body.pattern, body.max_lines)
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
