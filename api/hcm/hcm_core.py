@@ -6,6 +6,7 @@
 """
 import importlib.util as _ilu
 import json
+from datetime import datetime
 
 import httpx
 from fastapi import HTTPException
@@ -179,3 +180,28 @@ async def hcm_direct(req) -> "dict":
         result = inner.get("result", inner) if isinstance(inner, dict) else inner
         logger.info("[HCM直连] 解密成功 result=%s", type(result).__name__)
     return {"ok": True, "data": result}
+
+
+def hcm_save_data(req) -> "dict":
+    """将 HCM 对象数据 JSON 写入本地文件（logs/hcm_data/），返回路径与大小。
+
+    提供给前端「保存 JSON」按钮：后端写盘，前端拿到绝对路径并复制到剪贴板。
+    """
+    content = getattr(req, "content", None)
+    if not content or not str(content).strip():
+        raise ValueError("无数据可保存")
+    export_dir = _PROJECT_ROOT / "logs" / "hcm_data"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    model = (getattr(req, "model", "") or "unknown").strip()
+    safe_model = "".join(c if c.isalnum() or c in "-_." else "_" for c in model)[:80] or "unknown"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"hcm_data_{safe_model}_{ts}.json"
+    fpath = export_dir / fname
+    try:
+        fpath.write_text(str(content), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[HCM] 数据文件写入失败: %s", e)
+        raise RuntimeError(f"写入文件失败: {e}")
+    size = fpath.stat().st_size
+    logger.info("[HCM] 对象数据已保存: %s (%d bytes)", fpath, size)
+    return {"ok": True, "path": str(fpath), "filename": fname, "size": size}

@@ -6,6 +6,8 @@ import {
   type HcmEnv,
 } from '../../api/hcm/client';
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
+import { apiPost } from '../../api/client';
+import { writeClipboardText } from '../../utils/clipboard';
 
 const LS_TOKEN = 'hcm.token';
 
@@ -84,6 +86,7 @@ export function HcmObjectBrowser() {
   const [dataPageSize, setDataPageSize] = useState(20);
   const [dataFilter, setDataFilter] = useState('');
   const [dataJsonQuery, setDataJsonQuery] = useState('');
+  const [saveStatus, setSaveStatus] = useState('');
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
   useEffect(() => {
@@ -241,20 +244,32 @@ const loadList = useCallback(async () => {
     [dataResult, dataLoading, loadData]
   );
 
-  // 保存数据 JSON：浏览器端触发下载（落盘到下载目录，无需后端中转）
-  const saveDataJson = useCallback(() => {
+  // 保存数据 JSON：交给后端写盘（logs/hcm_data/），拿到绝对路径并复制到剪贴板
+  const saveDataJson = useCallback(async () => {
     if (!dataResult) return;
-    const text = JSON.stringify(dataResult, null, 2);
-    const blob = new Blob([text], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${selected?.id || 'hcm-data'}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [dataResult, selected]);
+    const content = JSON.stringify(dataResult, null, 2);
+    setSaveStatus(t('hcm.loading'));
+    try {
+      const res = await apiPost<{ path?: string; filename?: string; size?: number }>(
+        '/api/hcm/data/save',
+        { model: selected?.id || '', content }
+      );
+      if (res.path) {
+        let copied = false;
+        try {
+          await writeClipboardText(res.path);
+          copied = true;
+        } catch {
+          /* 剪贴板不可用时仍返回路径 */
+        }
+        setSaveStatus(`${t('hcm.savedPath')}: ${res.path}${copied ? '（已复制到剪贴板）' : ''}`);
+      } else {
+        throw new Error('未返回文件路径');
+      }
+    } catch (e: any) {
+      setSaveStatus(`保存失败：${e?.message || e}`);
+    }
+  }, [dataResult, selected, t]);
 
   // 支持从 URL 参数 ?hcm-model=<id> 打开时自动定位到该模型（用于双击新窗口场景）
   useEffect(() => {
@@ -739,6 +754,11 @@ const loadList = useCallback(async () => {
                       {t('hcm.saveJson')}
                     </button>
                   </div>
+                  {saveStatus && (
+                    <div className="hcm-detail-sub hcm-mono" style={{ fontSize: 11, wordBreak: 'break-all', padding: '0 12px 6px' }}>
+                      {saveStatus}
+                    </div>
+                  )}
 
                   {/* 数据 JSON 内搜索 */}
                   <div className="hcm-fields-toolbar">

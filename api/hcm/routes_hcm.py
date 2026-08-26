@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter
 from api.common import app
-from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct
+from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_save_data
 
 router = APIRouter()
 
@@ -38,3 +38,15 @@ async def api_hcm_proxy(api_name: str, request: Request) -> Response:
 async def api_hcm_direct(req: HcmDirectReq) -> dict:
     """「能直连就走直连」：由后端直接 POST HCM 网关并解密响应。"""
     return await hcm_direct(req)
+
+
+class HcmSaveDataReq(BaseModel):
+    """保存 HCM 对象数据 JSON 到本地文件。"""
+    model: str = ""
+    content: str = ""
+
+
+@router.post("/api/hcm/data/save")
+async def api_hcm_data_save(req: HcmSaveDataReq) -> dict:
+    """将 HCM 对象数据 JSON 写入本地文件，返回绝对路径（前端复制该路径到剪贴板）。"""
+    return hcm_save_data(req)
