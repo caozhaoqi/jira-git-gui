@@ -16,8 +16,9 @@ from pathlib import Path
 
 from core.errors import UserError
 
-from .kubectl import run_kubectl, _resolve_kubectl_binary
+from .kubectl import run_kubectl, _resolve_kubectl_binary, _current_context
 from .models import parse_pod, compute_age, classify
+from .snapshot_render import render_html
 
 SEV_COLOR = {"HIGH": "#c0392b", "MED": "#d97706", "OK": "#16a34a"}
 LOG_LEVELS = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}

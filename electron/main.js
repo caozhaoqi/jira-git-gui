@@ -206,6 +206,30 @@ function openPreferences() {
   });
 }
 
+// ---- HCM 元数据浏览器：独立窗口打开 web/hcm-meta.html ----
+// 主窗口始终保持主界面；元数据浏览器窗口可独立关闭返回，便于搜索 / 排查。
+function openHcmMeta() {
+  const metaWin = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 860,
+    minHeight: 560,
+    title: 'HCM 元数据浏览器',
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    }
+  });
+  metaWin.loadURL(`${BACKEND_URL}/hcm-meta`);
+  metaWin.on('closed', () => {
+    log('HCM 元数据窗口已关闭。');
+  });
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   const template = [];
@@ -217,6 +241,7 @@ function buildAppMenu() {
         { label: '关于 Jira Git GUI', role: 'about' },
         { type: 'separator' },
         { label: '首选项…', accelerator: 'CmdOrCtrl+,', click: openPreferences },
+        // { label: 'HCM 元数据…', accelerator: 'CmdOrCtrl+Shift+M', click: openHcmMeta },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -227,10 +252,12 @@ function buildAppMenu() {
     });
   }
 
-  // 设置（非 macOS 下作为顶层菜单承载首选项）
+  // 设置（非 macOS 下作为顶层菜单承载首选项 / HCM 元数据）
   const prefItem = { label: '首选项…', click: openPreferences };
   if (!isMac) prefItem.accelerator = 'Ctrl+,';
-  template.push({ label: '设置', submenu: [prefItem] });
+  const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
+  if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
+  template.push({ label: '设置', submenu: [prefItem, hcmItem] });
 
   // 编辑（标准角色，保证复制 / 粘贴等可用）
   template.push({

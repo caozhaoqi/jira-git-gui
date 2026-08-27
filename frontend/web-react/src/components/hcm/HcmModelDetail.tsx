@@ -3,6 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
 import type { HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
+import { HcmMetaFileBrowser } from './HcmMetaFileBrowser';
 
 const LS_TOKEN = 'hcm.token';
 
@@ -22,7 +23,7 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-type DetailTab = 'fields' | 'list' | 'info' | 'view' | 'meta';
+type DetailTab = 'fields' | 'list' | 'info' | 'view' | 'meta' | 'files';
 
 // 按展示维度从完整 meta 中裁剪出对应 JSON 节点
 function sliceByKind(meta: HcmModelMeta, kind: Exclude<DetailTab, 'fields' | 'meta'>): Record<string, any> {
@@ -64,13 +65,22 @@ function sliceByKind(meta: HcmModelMeta, kind: Exclude<DetailTab, 'fields' | 'me
 
 export function HcmModelDetail() {
   const { t } = useT();
+  const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const modelId = useMemo(
-    () => new URLSearchParams(window.location.search).get('hcm-model') || '',
-    []
+    () => urlParams.get('hcm-model') || urlParams.get('hcm-meta') || '',
+    [urlParams]
   );
 
+  // 初始 tab：?hcm-tab 可指定（如 files）；仅有 ?hcm-meta 时默认定位到「元数据文件」；否则默认字段表。
+  const initialTab = useMemo<DetailTab>(() => {
+    const req = urlParams.get('hcm-tab');
+    if (req === 'files' || req === 'list' || req === 'info' || req === 'view' || req === 'meta') return req;
+    if (urlParams.has('hcm-meta')) return 'files';
+    return 'fields';
+  }, [urlParams]);
+
   const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
-  const [tab, setTab] = useState<DetailTab>('fields');
+  const [tab, setTab] = useState<DetailTab>(initialTab);
   const [meta, setMeta] = useState<HcmModelMeta | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -235,6 +245,9 @@ export function HcmModelDetail() {
         <button className={tab === 'meta' ? 'btn btn-sm btn-active' : 'btn btn-sm'} onClick={() => setTab('meta')}>
           {t('hcm.tabJson')}
         </button>
+        <button className={tab === 'files' ? 'btn btn-sm btn-active' : 'btn btn-sm'} onClick={() => setTab('files')}>
+          {t('hcm.tabMetaFiles')}
+        </button>
         <span className="hcm-kind-sep" />
         {/* 保存 JSON 为独立按钮：仅当前查看维度可保存，直接下载不弹确认 */}
         {tab !== 'fields' && (
@@ -283,6 +296,13 @@ export function HcmModelDetail() {
         {/* 元数据 JSON（完整） */}
         {tab === 'meta' && jsonMeta && (
           <JsonBlock html={jsonMeta.html} text={jsonMeta.text} matched={jsonMeta.matched} q={qMeta} setQ={setQMeta} onCopy={copyJson} t={t} />
+        )}
+
+        {/* 元数据文件浏览器：内嵌 HcmMetaFileBrowser（合并「查看元数据」独立窗口） */}
+        {tab === 'files' && (
+          <div className="hcm-detail-files">
+            <HcmMetaFileBrowser embedded />
+          </div>
         )}
       </div>
     </div>

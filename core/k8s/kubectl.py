@@ -41,14 +41,26 @@ def _kubectl_env():
     return env
 
 
-def run_kubectl(args, kubeconfig=None, timeout=60):
+def run_kubectl(args, kubeconfig=None, timeout=60, input=None):
+    """执行 kubectl。
+
+    ``input`` 为非 None 时作为 stdin 传入（用于 ``kubectl exec -i ... cat > file``
+    等写场景）。由于 stdin 可能是字节流（如二进制上传），此时走字节模式并在返回前
+    将 stdout/stderr 解码为字符串，避免 ``text=True`` 与 bytes 输入冲突。
+    """
     cmd = [_resolve_kubectl_binary()]
     if kubeconfig:
         cmd += ["--kubeconfig", kubeconfig]
     cmd += args
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_kubectl_env())
-        return proc.stdout, proc.returncode, proc.stderr
+        if input is None:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_kubectl_env())
+            return proc.stdout, proc.returncode, proc.stderr
+        # 有 stdin：字节模式，兼容二进制内容
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout, env=_kubectl_env(), input=input)
+        out = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, bytes) else proc.stdout
+        err = proc.stderr.decode("utf-8", "replace") if isinstance(proc.stderr, bytes) else proc.stderr
+        return out, proc.returncode, err
     except subprocess.TimeoutExpired:
         return "", 124, "kubectl timed out"
     except FileNotFoundError:

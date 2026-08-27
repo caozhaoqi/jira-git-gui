@@ -77,11 +77,24 @@ def save_envs(data):
 
 
 def list_envs():
-    """返回 [(name, label, is_current), ...]。"""
+    """返回每个环境的完整信息 dict 列表，键与前端 K8sEnv 一致。
+
+    字段：name / label / is_current / kubeconfig / context / namespace / intranet_hosts
+    """
     data = load_envs()
     cur = data.get("current")
-    return [(n, e.get("label", n), n == cur)
-            for n, e in data["environments"].items()]
+    return [
+        {
+            "name": n,
+            "label": e.get("label", n),
+            "is_current": n == cur,
+            "kubeconfig": e.get("kubeconfig", ""),
+            "context": e.get("context", ""),
+            "namespace": e.get("namespace", ""),
+            "intranet_hosts": e.get("intranet_hosts", []),
+        }
+        for n, e in data["environments"].items()
+    ]
 
 
 def get_env(name=None):

@@ -6,6 +6,7 @@
 """
 import importlib.util as _ilu
 import json
+from datetime import datetime
 
 import httpx
 from fastapi import HTTPException
@@ -115,9 +116,14 @@ async def hcm_direct(req) -> "dict":
         raise HTTPException(400, "未提供 token 且预设 token 为空，请先配置 token 或传入 token")
 
     api_name = req.api_name.strip() or "hcm.paas.object.list"
-    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}"
+    query = ["debug=1"]
+    if getattr(req, "sql_debug", False):
+        query.append("sql_debug=1")
+    if getattr(req, "profile_debug", False):
+        query.append("profile_debug=1")
+    target = f"{_HCM_PROXY_TARGET.rstrip('/')}/api/{api_name}?{'&'.join(query)}"
     if req.model:
-        target += f"?model={req.model}"
+        target += f"&model={req.model}"
 
     hp = _hd.encrypt_param(req.params)
     body = json.dumps({
@@ -178,4 +184,39 @@ async def hcm_direct(req) -> "dict":
         inner = _hd.decrypt_param(data["hcm_param"], data.get("hcm_transfer_strategy", "hb5"))
         result = inner.get("result", inner) if isinstance(inner, dict) else inner
         logger.info("[HCM直连] 解密成功 result=%s", type(result).__name__)
-    return {"ok": True, "data": result}
+
+    meta = {}
+    if isinstance(data, dict):
+        meta = {
+            k: data[k]
+            for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+            if k in data
+        }
+        if "srv_begin" in meta and "srv_end" in meta:
+            meta["duration_ms"] = meta["srv_end"] - meta["srv_begin"]
+    return {"ok": True, "data": result, "meta": meta}
+
+
+def hcm_save_data(req) -> "dict":
+    """将 HCM 对象数据 JSON 写入本地文件（logs/hcm_data/），返回路径与大小。
+
+    提供给前端「保存 JSON」按钮：后端写盘，前端拿到绝对路径并复制到剪贴板。
+    """
+    content = getattr(req, "content", None)
+    if not content or not str(content).strip():
+        raise ValueError("无数据可保存")
+    export_dir = _PROJECT_ROOT / "logs" / "hcm_data"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    model = (getattr(req, "model", "") or "unknown").strip()
+    safe_model = "".join(c if c.isalnum() or c in "-_." else "_" for c in model)[:80] or "unknown"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"hcm_data_{safe_model}_{ts}.json"
+    fpath = export_dir / fname
+    try:
+        fpath.write_text(str(content), encoding="utf-8")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("[HCM] 数据文件写入失败: %s", e)
+        raise RuntimeError(f"写入文件失败: {e}")
+    size = fpath.stat().st_size
+    logger.info("[HCM] 对象数据已保存: %s (%d bytes)", fpath, size)
+    return {"ok": True, "path": str(fpath), "filename": fname, "size": size}

@@ -5,7 +5,10 @@
 覆盖：
   * _parse_ls：目录/文件分类、size/mode/modtime 字段提取、`.`/`..`/符号链接剔除
   * exec_command：__PWD__ 标记解析、clean output、cd 后新 cwd 追踪、失败抛 UserError
+  * _ws_k8s_exec_tty：与前端 K8sShell 的 `input`/`output`/`cwd` 协议对齐、行缓冲、
+    退格/回车、cd 工作目录连续追踪（回归：旧实现只认 `data` 帧、回 `data` 帧导致输不了命令）
 """
+import asyncio
 import sys
 from pathlib import Path
 
@@ -164,10 +167,91 @@ def test_write_file_text_pipes_raw():
     print("[OK] test_write_file_text_pipes_raw -> script=%r" % script)
 
 
+# ---- WebSocket 终端协议（与前端 K8sShell 对齐） --------------------------------- #
+def test_ws_k8s_exec_protocol():
+    """回归：前端逐键发送 {type:"input"}，后端必须回显 + 执行 + 回 {type:"output"/"cwd"}。
+
+    旧实现只认 `data` 帧、回 `data` 帧，导致前端每敲一个键都被静默丢弃（输不了命令）。
+    """
+    from fastapi import WebSocketDisconnect
+    import api.k8s.routes_k8s_exec as _rt
+
+    # 替身 exec_command：模拟 cd 追踪 + 回显命令
+    def _fake_exec(env, pod, container, namespace, command, cwd=None, timeout=60):
+        cwd = cwd or "/"
+        if command.startswith("cd "):
+            target = command[3:].strip()
+            if target.startswith("/"):
+                return "", target
+            return "", cwd  # 相对路径在 mock 中保持不动
+        if command == "pwd":
+            return cwd + "\n", cwd
+        return "out:%s\n" % command, cwd
+
+    _orig = _rt._k8s_exec_command
+    _rt._k8s_exec_command = _fake_exec
+    try:
+        # 模拟前端逐键输入：l s \r  ->  cd /tmp \r  ->  pwd \r
+        frames = []
+        for s in ["l", "s", "\r", "c", "d", " ", "/", "t", "m", "p", "\r", "p", "w", "d", "\r"]:
+            frames.append('{"type":"input","data":%s}' % __import__("json").dumps(s))
+        frames.append("__DISCONNECT__")  # 触发结束
+
+        store = {"sent": []}
+
+        class _FakeWS:
+            def __init__(self, msgs):
+                self._msgs = list(msgs)
+                self.accepted = False
+                self.closed = False
+
+            async def accept(self):
+                self.accepted = True
+
+            async def receive_text(self):
+                if not self._msgs:
+                    raise WebSocketDisconnect
+                m = self._msgs.pop(0)
+                if m == "__DISCONNECT__":
+                    raise WebSocketDisconnect
+                return m
+
+            async def send_json(self, obj):
+                store["sent"].append(obj)
+
+            async def close(self):
+                self.closed = True
+
+        ws = _FakeWS(frames)
+        asyncio.run(_rt._ws_k8s_exec_tty(ws, "dev", "", "mypod", None, {}))
+    finally:
+        _rt._k8s_exec_command = _orig
+
+    sent = store["sent"]
+    types = [m.get("type") for m in sent]
+    assert types[0] == "ready", "首帧应为 ready，实际 %r" % types[0]
+    assert sent[0].get("cwd") == "/", "ready 应带初始 cwd '/'"
+    # 回显：逐键 'l' 's' 应分别回 output
+    out_text = "".join(m.get("data", "") for m in sent if m.get("type") == "output")
+    assert "ls" in out_text, "应回显用户输入 'ls'，实际 %r" % out_text
+    # 执行结果：ls 的 out:ls 应出现在 output
+    assert any("out:ls" in m.get("data", "") for m in sent if m.get("type") == "output"), \
+        "应执行 ls 并返回 output，实际 %r" % sent
+    # cd /tmp 后 cwd 应变为 /tmp
+    cwd_values = [m.get("cwd") for m in sent if m.get("type") == "cwd"]
+    assert "/tmp" in cwd_values, "cd /tmp 后应有 cwd='/tmp' 帧，实际 %r" % cwd_values
+    # pwd 输出应反映新目录 /tmp
+    assert any(m.get("type") == "output" and "/tmp" in m.get("data", "")
+               for m in sent), "pwd 应输出 /tmp，实际 %r" % sent
+    assert types[-1] == "exit", "末帧应为 exit，实际 %r" % types[-1]
+    print("[OK] test_ws_k8s_exec_protocol -> types=%r cwds=%r" % (types, cwd_values))
+
+
 if __name__ == "__main__":
     test_list_dir()
     test_exec_command_cwd_tracking()
     test_exec_command_failure_raises_user_error()
     test_write_file_binary_pipes_base64_text()
     test_write_file_text_pipes_raw()
+    test_ws_k8s_exec_protocol()
     print("\nALL MOCK TESTS PASSED")

@@ -512,6 +512,7 @@ pub fn run() {
                     &app_handle,
                     &[
                         &MenuItem::with_id(&app_handle, "preferences", "首选项...", true, Some("CmdOrCtrl+,"))?,
+                        // &MenuItem::with_id(&app_handle, "hcm_meta", "HCM 元数据...", true, Some("CmdOrCtrl+Shift+M"))?,
                         &PredefinedMenuItem::separator(&app_handle)?,
                         &MenuItem::with_id(&app_handle, "quit", "退出", true, None)?,
                     ],
@@ -545,6 +546,24 @@ pub fn run() {
                             .build()
                             {
                                 log_main(&app_handle, &log_file, &format!("打开首选项窗口失败: {}", e), "error");
+                            }
+                        }
+                        "hcm_meta" => {
+                            // 以「独立窗口」打开 HCM 元数据浏览器；关闭即返回主界面。
+                            let url = format!("{}/hcm-meta", backend_origin(menu_port));
+                            if let Some(existing) = app.get_webview_window("hcm_meta") {
+                                let _ = existing.show();
+                                let _ = existing.set_focus();
+                            } else if let Err(e) = tauri::WebviewWindowBuilder::new(
+                                &app,
+                                "hcm_meta",
+                                tauri::WebviewUrl::External(url.parse().unwrap()),
+                            )
+                            .title("HCM 元数据浏览器")
+                            .inner_size(1180.0, 820.0)
+                            .build()
+                            {
+                                log_main(&app_handle, &log_file, &format!("打开 HCM 元数据窗口失败: {}", e), "error");
                             }
                         }
                         "quit" => {
