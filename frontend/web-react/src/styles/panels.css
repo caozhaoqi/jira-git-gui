@@ -297,6 +297,68 @@
   max-height: 220px;
 }
 
+/* k8s-yaml 高亮搜索栏（查看态） */
+.k8s-yaml-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.k8s-yaml-search {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+}
+.k8s-yaml-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.k8s-yaml-modebar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 10px;
+}
+
+/* k8s-yaml 语法高亮 + 搜索高亮只读视图 */
+.k8s-yaml-pre {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.k8s-yaml-pre .yk-key { color: #61afef; }
+.k8s-yaml-pre .yk-str { color: #98c379; }
+.k8s-yaml-pre .yk-num { color: #d19a66; }
+.k8s-yaml-pre .yk-comment { color: #7f848e; font-style: italic; }
+.k8s-yaml-pre mark {
+  background: #fff3a3;
+  color: #1a1a1a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.k8s-yaml-pre mark.active {
+  background: #ff8a3d;
+  color: #1a1a1a;
+  box-shadow: 0 0 0 2px rgba(255, 138, 61, 0.35);
+}
+
 /* k8s-chk-name */
 .k8s-chk-name {
   font-weight: 600;
