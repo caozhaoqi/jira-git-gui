@@ -57,6 +57,23 @@ export default function App() {
     );
   }
 
+  // ?hcm-meta=<model>：与 ?hcm-detail 合并为同一个「对象详情 + 元数据文件」窗口。
+  // 该窗口内 HcmModelDetail 会读取 hcm-meta 作为模型并默认定位到「元数据文件」tab，
+  // 不再单独渲染 HcmMetaFileBrowser 独立窗口（两者合二为一）。
+  const isMetaWindow = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('hcm-meta');
+  if (isMetaWindow) {
+    return (
+      <div className="app-shell app-shell--detail">
+        <main className="workspace">
+          <div className="workspace-body">
+            <HcmModelDetail />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   // 双击对象打开的新窗口带 ?hcm-model=<id>，自动切到 HCM 面板以触发自动定位
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has('hcm-model')) {

@@ -1512,6 +1512,12 @@ body {
   .hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; }
 }
 
+/* 文件列表名字段高亮搜索命中标记（与 JSON 高亮一致，自适应浅/深主题） */
+.hcm-meta-name mark, .hcm-list mark { background: #fff3a3; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
+@media (prefers-color-scheme: dark) {
+  .hcm-meta-name mark, .hcm-list mark { background: #b58900; color: #1a1a1a; }
+}
+
 /* ===== HCM 模型详情独立页（双击新窗口） ===== */
 .app-shell--detail { height: 100vh; }
 /* 修复：新窗口路由的 .workspace / .workspace-body 此前无高度规则，
@@ -1525,4 +1531,40 @@ body {
 .hcm-detail-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .hcm-detail-sub2 { font-size: 13px; color: var(--muted); margin-top: 4px; }
 .hcm-detail-body { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
+/* 合并窗口内嵌的「元数据文件」tab：让 HcmMetaFileBrowser 占满并内部滚动 */
+.hcm-detail-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.hcm-detail-files > .hcm-detail-page { flex: 1; min-height: 0; }
 .hcm-json-block { flex: 1; overflow: auto; min-height: 0; margin: 0; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; }
+
+/* ===== HCM 元数据文件浏览器（独立新窗口） ===== */
+.hcm-meta-config { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-top: 10px; }
+.hcm-config-label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.hcm-config-label span { opacity: .8; }
+.hcm-config-label input, .hcm-config-label select {
+  min-width: 180px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-input); color: var(--text); font-size: 13px;
+}
+.hcm-config-token input { min-width: 240px; }
+.hcm-meta-subline { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.hcm-search-inline { flex: 1; max-width: 360px; }
+.hcm-meta-split { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(420px, 1.4fr); gap: 12px; flex: 1; min-height: 0; }
+.hcm-meta-group { border-bottom: 1px solid var(--border-soft, var(--border)); }
+.hcm-meta-group-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; position: sticky; top: 0; background: var(--bg-panel); z-index: 1; }
+.hcm-meta-group-name { font-weight: 600; color: var(--text); font-size: 13px; }
+.hcm-meta-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcm-meta-type { width: 86px; }
+.hcm-meta-time { width: 96px; color: var(--muted); font-size: 11px; }
+.hcm-type-badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 600; line-height: 1.6; }
+.hcm-type-system { background: rgba(56,132,255,.16); color: #3b82f6; }
+.hcm-type-program { background: rgba(255,138,61,.18); color: #ff8a3d; }
+.hcm-type-manual { background: rgba(46,160,67,.18); color: #2ea043; }
+.hcm-meta-detail { padding: 0; overflow: auto; }
+.hcm-meta-file-head { border-bottom: 1px solid var(--border); padding: 12px 14px 10px; }
+.hcm-meta-file-meta { display: flex; align-items: center; gap: 12px; margin-top: 6px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.hcm-meta-section { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--border); }
+.hcm-meta-section-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.hcm-meta-run .hcm-adv-vertical { padding: 8px 12px; }
+.hcm-meta-check { margin-left: 4px; font-size: 12px; }
+.hcm-meta-run-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
+.hcm-meta-run-result .hcm-json-block { max-height: 42vh; }

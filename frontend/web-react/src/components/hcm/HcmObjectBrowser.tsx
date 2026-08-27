@@ -370,11 +370,12 @@ const loadList = useCallback(async () => {
     return () => clearTimeout(t1);
   }, [items, loadMeta]);
 
-  // 双击对象：在新窗口打开模型详情页（独立页面，主窗口不受影响）
+  // 双击对象：在新窗口打开「对象详情 + 元数据文件」合并窗口（同一模型只有一个窗口）。
+  // 合并窗口由 HcmModelDetail 渲染，包含 字段 / list / info / view / JSON元数据 / 元数据文件 多个 tab。
   const openDetailWindow = useCallback(
     (obj: HcmObjectItem) => {
       const url = `/web/?hcm-model=${encodeURIComponent(obj.id)}&hcm-detail=1`;
-      const w = window.open(url, `hcm-${obj.id}`, 'width=1100,height=820,menubar=no,toolbar=no,location=no');
+      const w = window.open(url, `hcm-detail-${obj.id}`, 'width=1280,height=860,menubar=no,toolbar=no,location=no');
       if (w) {
         // 把当前 token 传给新窗口，让它自己能拉数据（所有连接均走直连，无需传模式）
         try {

@@ -48,9 +48,13 @@ def _resolve(env, namespace):
 
 
 def _exec(env, pod, container, namespace, args, timeout=30, input=None):
-    """在容器内执行命令，返回 (out, rc, err)。"""
+    """在容器内执行命令，返回 (out, rc, err)。
+
+    当 ``input`` 非 None（写文件/上传）时自动加 ``-i``，使 kubectl exec 真正消费 stdin。
+    """
     kc, ns = _resolve(env, namespace)
-    cmd = (["exec", pod] + (["-c", container] if container else [])
+    cmd = (["exec"] + (["-i"] if input is not None else []) + [pod]
+           + (["-c", container] if container else [])
            + (["-n", ns] if ns else []) + ["--"] + args)
     try:
         return _k8s_run_kubectl(cmd, kc, timeout=timeout, input=input)
