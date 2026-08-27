@@ -462,6 +462,7 @@ export const zh: Dict = {
       dir: '目录',
       file: '文件',
       searchStatusMatches: '共 {{n}} 处匹配',
+      searchStatusTruncated: '（已截断前 2000 条，请缩小范围）',
       searchStatusNoKw: '请输入搜索关键词',
       searchStatusNoPod: '请先选择 Pod',
       searchStatusSearching: '搜索中…',

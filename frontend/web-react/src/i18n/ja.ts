@@ -462,6 +462,7 @@ export const ja: Dict = {
       dir: 'ディレクトリ',
       file: 'ファイル',
       searchStatusMatches: '合計 {{n}} 件一致',
+      searchStatusTruncated: '（最初の2000件に切り詰め、範囲を絞ってください）',
       searchStatusNoKw: '検索キーワードを入力してください',
       searchStatusNoPod: '先に Pod を選択してください',
       searchStatusSearching: '検索中…',

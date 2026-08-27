@@ -462,6 +462,7 @@ export const en: Dict = {
       dir: 'Dir',
       file: 'File',
       searchStatusMatches: '{{n}} match(es) total',
+      searchStatusTruncated: ' (truncated to first 2000, narrow the scope)',
       searchStatusNoKw: 'Please enter a search keyword',
       searchStatusNoPod: 'Please select a Pod first',
       searchStatusSearching: 'Searching…',

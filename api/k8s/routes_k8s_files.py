@@ -113,14 +113,30 @@ async def api_k8s_file_read(body: K8sFileReq):
 
 @router.post("/api/k8s/file/search")
 async def api_k8s_file_search(body: K8sFileReq):
-    """在容器内按文本模式搜索文件内容（grep -rn），结果解析为对象数组。"""
+    """在容器内按文本模式搜索文件内容（grep -rn），结果解析为对象数组。
+
+    为避免在大目录（/、/proc、/sys 等）递归 grep 触发 kubectl 超时：
+      - 排除常见虚拟/巨型目录（proc/sys/dev/.git/node_modules/__pycache__）
+      - 经 head 限制输出行数（命中即停，grep 收 SIGPIPE 提前退出）
+      - 超时放大到 120s，超时返回友好提示而非裸 "kubectl timed out"
+    """
     pattern = body.pattern or body.q or ""
     if not pattern:
         return {"ok": False, "error": "pattern(q) 为必填"}
+    # 排除项：虚拟文件系统 + 常见体积巨大的依赖/缓存目录
+    excludes = ["proc", "sys", "dev", ".git", "node_modules", "__pycache__"]
+    exclude_args = " ".join(f"--exclude-dir={d}" for d in excludes)
+    # 注意：grep 走管道到 head，不使用 pipefail（容器 sh 不一定支持），
+    # 故正常/无匹配均表现为管道 rc=0；仅 kubectl 整体超时才会得到 rc=124。
+    shell_cmd = (
+        f"grep -rn {exclude_args} -- {shlex.quote(pattern)} "
+        f"{shlex.quote(body.path)} 2>/dev/null | head -n 2000"
+    )
     out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
-                         ["grep", "-rn", "--", pattern, body.path], timeout=30)
-    # grep 无匹配返回 rc=1，属正常结果
-    if rc != 0 and rc != 1:
+                         ["sh", "-c", shell_cmd], timeout=120)
+    if rc == 124 or "timed out" in (err or ""):
+        return {"ok": False, "error": "搜索超时：建议指定更具体的目录（避免从 / 全量递归）或缩短关键词后重试"}
+    if rc not in (0, 1):
         return {"ok": False, "error": err.strip()[:300]}
     results = []
     for ln in out.splitlines():
@@ -131,7 +147,8 @@ async def api_k8s_file_search(body: K8sFileReq):
             results.append({"path": m.group(1), "line": int(m.group(2)), "snippet": m.group(3)})
         else:
             results.append({"path": body.path, "line": 0, "snippet": ln})
-    return {"ok": True, "results": results, "total": len(results)}
+    truncated = len(results) >= 2000
+    return {"ok": True, "results": results, "total": len(results), "truncated": truncated}
 
 
 @router.post("/api/k8s/file/write")
