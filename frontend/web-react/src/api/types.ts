@@ -405,6 +405,7 @@ export interface K8sFileSearchResp {
   ok?: boolean;
   results?: K8sFileSearchHit[];
   total?: number;
+  truncated?: boolean;
   error?: string;
 }
 export interface K8sLogResp {

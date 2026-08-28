@@ -75,7 +75,10 @@ async def hcm_proxy(api_name: str, request) -> "Response":
         api_name, target, "header" if request.headers.get("X-HCM-Token") else "preset", len(body),
     )
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # 复用 CF 共享的 SSL 上下文（开启旧式重协商），对 HTTP 目标无害；
+        # 若将来 _HCM_PROXY_TARGET 配成 HTTPS legacy 服务器也能兼容。
+        from api.cf.cf_tokens import _cf_ssl_context
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=_cf_ssl_context()) as client:
             resp = await client.post(target, content=body, headers=headers, cookies=cookies)
         logger.info(
             "[代理] 网关响应 %s len=%dB head=%s",
@@ -136,7 +139,10 @@ async def hcm_direct(req) -> "dict":
                 "preset" if not req.token.strip() else "provided")
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        # 复用 CF 共享的 SSL 上下文（开启旧式重协商），对 HTTP 目标无害；
+        # 若将来 _HCM_PROXY_TARGET 配成 HTTPS legacy 服务器也能兼容。
+        from api.cf.cf_tokens import _cf_ssl_context
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=_cf_ssl_context()) as client:
             resp = await client.post(
                 target, content=body,
                 headers={"Content-Type": "application/json"},

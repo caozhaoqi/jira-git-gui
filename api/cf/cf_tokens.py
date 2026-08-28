@@ -11,6 +11,7 @@
 """
 import json
 import os
+import ssl
 import time
 import secrets
 import base64
@@ -96,13 +97,33 @@ def sniff_image_type(data: bytes) -> "str | None":
     return None
 
 
+def _cf_ssl_context() -> "ssl.SSLContext":
+    """CF 云函数服务器（如 rcbhlj 旧版 HCM）TLS 栈要求「旧式重协商」，
+
+    而 OpenSSL 3.x 默认拒绝，握手会报
+    ``[SSL: UNSAFE_LEGACY_RENEGOTIATION_DISABLED] unsafe legacy renegotiation disabled``。
+
+    OpenSSL 3.x 已移除 ``OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION``，改用
+    ``OP_LEGACY_SERVER_CONNECT``（允许连接/重协商到遗留服务器）。旧版 Python/OpenSSL
+    仍暴露前者，这里两个都尝试叠加（取非零值），**仍执行证书校验**（不关闭 verify）。
+    """
+    ctx = ssl.create_default_context()
+    for name in ("OP_LEGACY_SERVER_CONNECT", "OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION"):
+        opt = getattr(ssl, name, 0)
+        if opt:
+            ctx.options |= opt
+    return ctx
+
+
 def new_cf_client(req_proxy: str, existing_cookies=None):
     """创建 httpx 客户端；existing_cookies 可选 CookieJar（验证码→登录同会话）。"""
-    kwargs = dict(timeout=15, follow_redirects=True)
+    ctx = _cf_ssl_context()
+    kwargs = dict(timeout=15, follow_redirects=True, verify=ctx)
     if req_proxy:
         kwargs["proxy"] = req_proxy
     else:
-        kwargs["transport"] = httpx.AsyncHTTPTransport()
+        # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
+        kwargs["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
     if existing_cookies is not None:
         kwargs["cookies"] = existing_cookies
     return httpx.AsyncClient(**kwargs)

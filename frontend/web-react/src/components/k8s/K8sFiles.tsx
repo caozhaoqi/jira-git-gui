@@ -172,7 +172,10 @@ export function K8sFiles() {
       });
       if (!d.ok) { setSearchStatus(t('k8s.files.searchFail') + (d.error || '')); return; }
       setSearchResults(d.results || []);
-      setSearchStatus(t('k8s.files.searchStatusMatches', { n: d.total ?? 0 }));
+      const n = d.total ?? 0;
+      setSearchStatus(
+        t('k8s.files.searchStatusMatches', { n }) + (d.truncated ? t('k8s.files.searchStatusTruncated') : '')
+      );
     } catch (ex: any) { setSearchStatus(t('k8s.files.searchFail') + ex.message); }
   }, [searchQ, target.env, target.pod, target.container, target.namespace, path, t]);
 
