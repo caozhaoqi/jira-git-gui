@@ -8,7 +8,7 @@ import time
 import httpx
 
 from api.common import logger, get_cf_accounts
-from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save
+from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, _cf_ssl_context
 
 
 async def cf_login_account(account: "dict", proxy: str = "") -> "dict":
@@ -25,11 +25,13 @@ async def cf_login_account(account: "dict", proxy: str = "") -> "dict":
                 "message": "缺少 server_url / 用户名 / 密码，跳过"}
     base = server_url.rstrip("/")
     url = f"{base}/login"
-    kwargs = dict(timeout=15, follow_redirects=True)
+    ctx = _cf_ssl_context()
+    kwargs = dict(timeout=15, follow_redirects=True, verify=ctx)
     if proxy:
         kwargs["proxy"] = proxy
     else:
-        kwargs["transport"] = httpx.AsyncHTTPTransport()
+        # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
+        kwargs["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
     form_data = {
         "mobile": mobile,
         "password": password,

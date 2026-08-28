@@ -12,6 +12,7 @@ from api.common import logger, _PROJECT_ROOT, _HCM_WL, _cf_is_session_err, _cf_t
 from api.cf.cf_tokens import (
     _CF_TOKEN_CACHE, _cf_tokens_save,
     _HCM_MODEL_LIST_API, _HCM_HCMINNER_HEADER, _HCM_HCMINNER_VALUE,
+    _cf_ssl_context,
 )
 from api.cf.cf_login import cf_refresh_token
 
@@ -87,11 +88,13 @@ async def cf_query_logs(req) -> "dict":
     }
 
     def _client_kwargs():
-        kw = dict(timeout=30, follow_redirects=True)
+        ctx = _cf_ssl_context()
+        kw = dict(timeout=30, follow_redirects=True, verify=ctx)
         if req.proxy:
             kw["proxy"] = req.proxy
         else:
-            kw["transport"] = httpx.AsyncHTTPTransport()
+            # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
+            kw["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
         return kw
 
     def _build_attempts():
