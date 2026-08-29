@@ -38,13 +38,26 @@ run_kubectl_env,
 )
 
 from .exec import (
-exec_command,
+    exec_command,
     list_dir,
     read_file,
     write_file,
     delete_path,
     mkdir_path,
     resolve_env_kubeconfig,
+    # 交互式终端（PTY）：vim / top 等全屏程序需要真实 TTY
+    PtySession,
+    build_pty_argv,
+    build_pty_script,
+    spawn_kubectl_pty,
+    interactive_command_hint,
+    kubectl_available,
+    INTERACTIVE_COMMANDS,
+    READY_MARKER,
+    READY_MARKER_RE,
+    DEFAULT_COLS,
+    DEFAULT_ROWS,
+    DEFAULT_TERM,
 )
 
 __all__ = [

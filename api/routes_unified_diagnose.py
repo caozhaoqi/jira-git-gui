@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.common import logger
 from api.schemas import FullDiagnoseReq, UnifiedDiagnoseReq
+from api.diagnosis_capabilities import capability_manifest
 from api.full_diagnose import full_diagnose
 from api.unified_diagnose import unified_diagnose, k8s_collect_diagnostics
 
@@ -24,6 +25,12 @@ def _http_error(e: Exception) -> HTTPException:
     if isinstance(e, (ValueError,)):
         return HTTPException(400, msg)
     return HTTPException(500, msg)
+
+
+@router.get("/api/diagnose/capabilities")
+async def api_diagnose_capabilities():
+    """返回 AI 可用诊断接口、调用条件、输入输出和降级规则。"""
+    return capability_manifest()
 
 
 @router.post("/api/diagnose/full")

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
 import { hcmDirect } from '../../api/hcm/direct';
@@ -9,6 +9,7 @@ import {
 
 const LS_TOKEN = 'hcm.token';
 const LS_HISTORY = 'hcm.cfErrHistory';
+const LS_GW = 'hcm.cfErrGw';
 const HISTORY_MAX = 20;
 const BATCH_MAX = 50;
 
@@ -21,6 +22,7 @@ interface LocInfo {
   errorCode?: string;   // 毫秒时间戳（服务端日志索引）
   errcode?: number;     // 业务错误码（查词典用）
   message?: string;
+  raw?: string;         // 该定位块原始文本（多块分诊用）
 }
 
 interface HistoryItem {
@@ -100,6 +102,69 @@ function parseLoc(text: string): LocInfo {
 function hasAnyInfo(i: LocInfo | null): boolean {
   if (!i) return false;
   return Boolean(i.model || i.objectId || i.field || i.errorCode || i.errcode);
+}
+
+// P2-1: 把整段日志拆成多个 [定位] 块，逐块独立解析，供多错误分诊。
+// 单条日志（无 [定位] 或仅一个）整体作为一块，保持旧行为。
+function parseBlocks(raw: string): LocInfo[] {
+  if (!raw.trim()) return [];
+  const segs = raw.split(/\[定位\]/);
+  const blocks: LocInfo[] = [];
+  segs.forEach((seg, idx) => {
+    const segText = (idx === 0 ? seg : `[定位]${seg}`).trim();
+    if (!segText) return;
+    const info = parseLoc(segText);
+    if (hasAnyInfo(info)) {
+      info.raw = segText;
+      blocks.push(info);
+    }
+  });
+  return blocks;
+}
+
+// P2-2: 从粘贴日志中识别已知网关域名（server_url），自动预选对应环境。
+function matchGatewayByText(text: string, gateways: { key: string; server_url: string; name?: string }[]): { key: string; server_url: string; name?: string } | null {
+  if (!text) return null;
+  const hostOf = (u: string) => {
+    try { return new URL(u).host; } catch { return u.replace(/^https?:\/\//, '').split('/')[0]; }
+  };
+  for (const g of gateways) {
+    if (!g.server_url) continue;
+    const host = hostOf(g.server_url);
+    if (host && text.includes(host)) return g;
+  }
+  return null;
+}
+
+// 合并多个定位块给 AI：逐块列出已解析信息与词典含义，便于一次性排查一批错误。
+function buildAiMultiContext(blocks: LocInfo[], gwName: string, gwUrl: string): string {
+  const L: string[] = [];
+  L.push(`# HCM 云函数批量错误排查（共 ${blocks.length} 条）`);
+  L.push('');
+  L.push(`- 网关: ${gwName}（${gwUrl || '默认 proxy_target'}）`);
+  L.push(`- 时间: ${new Date().toLocaleString('zh-CN')}`);
+  L.push('');
+  blocks.forEach((p, i) => {
+    L.push(`## 第 ${i + 1} 条`);
+    L.push(`- 模型(model): ${p.model ?? '未知'}`);
+    L.push(`- 对象ID: ${p.objectId ?? '未知'}`);
+    L.push(`- 字段(field): ${p.field ?? '未知'}`);
+    L.push(`- 字段值(脱敏): ${mask(p.value)}`);
+    if (p.stage) L.push(`- 阶段(stage): ${p.stage}`);
+    if (p.errcode) {
+      const d = lookupErrcode(p.errcode);
+      L.push(`- 业务错误码: ${p.errcode}${d ? ` (${d.name})` : ''}`);
+      if (d?.meaning) L.push(`  - 含义: ${d.meaning}`);
+      if (d?.fix) L.push(`  - 建议: ${d.fix}`);
+    }
+    if (p.errorCode) L.push(`- 错误号: ${p.errorCode}`);
+    if (p.message) L.push(`- 原因: ${p.message}`);
+    L.push('');
+  });
+  L.push('## 请回答');
+  L.push('1. 以上多条错误是否存在共同根因（如同一网关 token 过期、同一字段缺失）？');
+  L.push('2. 分别给出最小修复方案或修复 SQL。');
+  return L.join('\n');
 }
 
 // 一键给 AI：把错误原文 + 解析出的对象/字段/值 + 词典建议 + 当前数据 + 网关，汇总成一段
@@ -235,6 +300,8 @@ export function HcmCloudFuncErrorLocator() {
   });
 
   const [parsed, setParsed] = useState<LocInfo | null>(null);
+  const [blocks, setBlocks] = useState<LocInfo[]>([]);   // P2-1: 多 [定位] 块分诊
+  const [gwAutoName, setGwAutoName] = useState('');       // P2-2: 自动识别网关提示
   const [current, setCurrent] = useState<{ value: string; present: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -252,6 +319,16 @@ export function HcmCloudFuncErrorLocator() {
     applied_changes?: { errdict_new?: string[]; errdict_updated?: string[]; route_new?: string[] };
     proposal_path?: string | null;
   } | null>(null);
+
+  // 案例库 & 反馈闭环（写入侧）：把本次定位存成案例，并支持把诊断准确率反馈写回闭环
+  const [caseFile, setCaseFile] = useState('');
+  const [caseBusy, setCaseBusy] = useState(false);
+  const [caseMsg, setCaseMsg] = useState('');
+  const [fbResult, setFbResult] = useState('correct');
+  const [fbRootCause, setFbRootCause] = useState('');
+  const [fbNotes, setFbNotes] = useState('');
+  const [fbBusy, setFbBusy] = useState(false);
+  const [fbMsg, setFbMsg] = useState('');
 
   // ③ 最近错误历史本
   const [history, setHistory] = useState<HistoryItem[]>(() => {
@@ -276,10 +353,79 @@ export function HcmCloudFuncErrorLocator() {
   const [reloginBusy, setReloginBusy] = useState(false);
   const [reloginMsg, setReloginMsg] = useState('');
 
+  // P2-4 改造工具前端化：上传云函数 .py → 审计/预览 diff/应用下载
+  const [retroContent, setRetroContent] = useState('');
+  const [retroName, setRetroName] = useState('');
+  const [retroMode, setRetroMode] = useState<'audit' | 'diff' | 'apply'>('audit');
+  const [retroRedact, setRetroRedact] = useState(false);
+  const [retroBusy, setRetroBusy] = useState(false);
+  const [retroReport, setRetroReport] = useState<any>(null);
+  const [retroDiff, setRetroDiff] = useState('');
+  const [retroNewContent, setRetroNewContent] = useState('');
+  const [retroChanged, setRetroChanged] = useState(false);
+  const [retroMsg, setRetroMsg] = useState('');
+
+  const onRetroFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setRetroName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => setRetroContent(String(reader.result || ''));
+    reader.readAsText(f);
+  };
+
+  const runRetrofit = async () => {
+    if (!retroContent.trim()) { setRetroMsg(t('hcm.cfErrRetrofitNeedFile')); return; }
+    setRetroBusy(true);
+    setRetroMsg('');
+    setRetroReport(null);
+    setRetroDiff('');
+    setRetroNewContent('');
+    try {
+      const res = await fetch('/api/cf/retrofit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: retroContent, mode: retroMode, redact_sensitive: retroRedact }),
+      });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok || d?.ok === false) throw new Error(d?.detail || `HTTP ${res.status}`);
+      setRetroChanged(Boolean(d.changed));
+      if (retroMode === 'audit') {
+        setRetroReport(d.report || null);
+      } else if (retroMode === 'diff') {
+        setRetroDiff(d.diff || '');
+      } else {
+        setRetroNewContent(d.new_content || '');
+        if (!d.changed) setRetroMsg(t('hcm.cfErrRetrofitNoChange'));
+      }
+      if (d.changed && retroMode !== 'apply') setRetroMsg(`${t('hcm.cfErrRetrofitChanged')}: ${retroMode}`);
+    } catch (e: any) {
+      setRetroMsg(String(e?.message || e));
+    } finally {
+      setRetroBusy(false);
+    }
+  };
+
+  const downloadRetro = () => {
+    if (!retroNewContent) return;
+    const blob = new Blob([retroNewContent], { type: 'text/x-python;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = retroName ? `${retroName.replace(/\.py$/, '')}.patched.py` : 'cloud_function.patched.py';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // 网关选择：默认用后端 proxy_target；当该网关 502 不可达时，可临时切到其它可达的 HCM 部署。
   interface Gateway { key: string; name: string; server_url: string; source: string; has_preset_token: boolean }
   const [gateways, setGateways] = useState<Gateway[]>([]);
-  const [gwKey, setGwKey] = useState('hcm_proxy');
+  const [gwKey, setGwKey] = useState(() => localStorage.getItem(LS_GW) || 'hcm_proxy');
+  // 用 ref 镜像 gwKey，使自动选网关的 effect 不依赖 gwKey，避免手动切换后被日志域名再次覆盖
+  const gwKeyRef = useRef(gwKey);
+  useEffect(() => { gwKeyRef.current = gwKey; }, [gwKey]);
   const [gwTokenOverride, setGwTokenOverride] = useState('');
   const selectedGw = useMemo(() => gateways.find((g) => g.key === gwKey), [gateways, gwKey]);
   const targetArg = selectedGw?.server_url || ''; // 空 → 后端用默认 proxy_target
@@ -291,6 +437,11 @@ export function HcmCloudFuncErrorLocator() {
       .then((d) => { if (Array.isArray(d?.envs)) setGateways(d.envs); })
       .catch(() => { /* 取不到环境列表时回退到默认网关 */ });
   }, []);
+
+  // 网关选择持久化：刷新后仍保留上次选的网关（与 HcmObjectBrowser 的 hcm.selectedEnv 一致）
+  useEffect(() => {
+    try { localStorage.setItem(LS_GW, gwKey); } catch { /* 忽略 */ }
+  }, [gwKey]);
 
   // 把 HcmApiError 分级为可读提示（502=网关不可达 / 504=超时 / 业务 errcode=词典）
   function classifyError(e: any): { kind: 'gw' | 'biz' | 'other'; title: string; hint: string } {
@@ -326,15 +477,25 @@ export function HcmCloudFuncErrorLocator() {
     });
   };
 
-  // ⑤ 粘贴即解析：输入变化（含粘贴）时自动尝试定位，无需点按钮
+  // ⑤ 粘贴即解析：输入变化（含粘贴）时自动尝试定位，无需点按钮。
+  // P2-1 多块分诊 + P2-2 粘贴即自动选网关，都在这里统一处理。
+  // 注意：自动选网关用 gwKeyRef 比较，不把 gwKey 列入依赖，否则手动切换网关会被日志域名再次覆盖。
   useEffect(() => {
-    const fromText = parseLoc(text);
-    if (hasAnyInfo(fromText)) {
-      setParsed((prev) => ({ ...(prev || {}), ...fromText }));
+    const bs = parseBlocks(text);
+    setBlocks(bs);
+    // P2-2: 日志里含已知网关域名时，自动预选对应环境（仅在匹配到且与当前不同才切）
+    const gw = matchGatewayByText(text, gateways);
+    if (gw && gw.key !== gwKeyRef.current) {
+      setGwKey(gw.key);
+      setGwAutoName(gw.name ?? '');
+    }
+    if (bs.length === 1) {
+      setParsed(bs[0]);
       setCurrent(null);
     }
+    // 多块时交由分诊列表交互选择，避免覆盖用户正在看的那条
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text]);
+  }, [text, gateways]);
 
   const locate = () => {
     const fromText = parseLoc(text);
@@ -355,9 +516,34 @@ export function HcmCloudFuncErrorLocator() {
     pushHistory(text || fmt(merged));
   };
 
+  // P2-1: 分诊列表点击某条 → 载入主解析区（定位/查看/查询/给AI 都基于它）
+  const selectBlock = (b: LocInfo) => {
+    setParsed(b);
+    setCurrent(null);
+    setError('');
+  };
+
+  // P2-1: 合并所有定位块生成给 AI 的批量排查上下文，并逐条存案例
+  const genAiMulti = async () => {
+    if (blocks.length <= 1) return;
+    setAiBusy(true);
+    setError('');
+    try {
+      setAi(buildAiMultiContext(blocks, selectedGw?.name || t('hcm.cfErrGatewayDefault'), targetArg || selectedGw?.server_url || ''));
+      // 顺带把每条存成案例，让案例库自增长
+      for (const b of blocks) {
+        try { await saveCase(b); } catch { /* 非关键 */ }
+      }
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const viewObject = () => {
     if (!parsed?.objectId) return;
-    const u = `/web/?hcm-model=${encodeURIComponent(parsed.objectId)}&hcm-detail=1`;
+    // 走 ?hcm-model=<对象ID> 分支：渲染 HCM 面板并触发对象浏览器自动定位到该对象。
+    // 不能带 &hcm-detail=1 —— 那会渲染 HcmModelDetail 且把对象ID当模型名，打不开正确页。
+    const u = `/web/?hcm-model=${encodeURIComponent(parsed.objectId)}`;
     window.open(u, '_blank', 'width=1280,height=860');
   };
 
@@ -430,6 +616,29 @@ export function HcmCloudFuncErrorLocator() {
     } finally {
       setBatchRunning(false);
     }
+  };
+
+  // P2-3: 批量体检结果导出 CSV（带 BOM 供 Excel 正确识别中文）。missingOnly 仅导出空值/异常行。
+  const exportCsv = (missingOnly: boolean) => {
+    if (batchRows.length === 0) return;
+    const rows = missingOnly ? batchRows.filter((r) => !r.present) : batchRows;
+    if (rows.length === 0) return;
+    const header = ['对象ID', '字段', '当前值', '状态', '修复建议'];
+    const lines = rows.map((r) => [
+      r.id, r.field, r.value,
+      r.present ? '有值' : '空/异常',
+      r.present ? '' : `补 ${r.field}（参考其它对象取值）`,
+    ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    const csv = '﻿' + [header.join(','), ...lines].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hcm-batch-${missingOnly ? 'missing' : 'all'}-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const copy = async (val: string, key: string) => {
@@ -529,6 +738,9 @@ export function HcmCloudFuncErrorLocator() {
         throw new Error(typeof data?.detail === 'string' ? data.detail : `HTTP ${res.status}`);
       }
       setAi(buildAiContext({ ...baseOpts, diagnosis: data as DiagnosisContext }));
+      // P1-3: 顺带把本次定位存成案例（best-effort，失败不阻塞 AI 上下文），
+      // 让 similarCases / feedback_metrics 随时间自增长，闭环真正闭合。
+      try { await saveCase(); } catch { /* 非关键，忽略 */ }
     } catch (e) {
       // 诊断聚合是增强能力，后端暂不可用不应阻断本地 AI 上下文。
       setAi(buildAiContext(baseOpts));
@@ -588,6 +800,91 @@ export function HcmCloudFuncErrorLocator() {
     }
   }
 
+  // 把本次定位结果存成案例（写入案例库，供 similarCases / 反馈闭环使用）。
+  // 返回保存的文件名，供后续反馈引用；失败返回 ''。可传入指定 LocInfo（多块分诊逐条存）。
+  const saveCase = async (srcIn?: LocInfo): Promise<string> => {
+    const src = srcIn || parsed;
+    if (!src) { setCaseMsg(t('hcm.cfErrNoInput')); return ''; }
+    const eInfo = lookupErrcode(src.errcode);
+    setCaseBusy(true);
+    setCaseMsg('');
+    try {
+      const content = [
+        '## HCM 云函数错误定位案例',
+        '',
+        `- 时间: ${new Date().toLocaleString('zh-CN')}`,
+        `- 网关: ${selectedGw?.name || t('hcm.cfErrGatewayDefault')}`,
+        `- 模型: ${src.model ?? '?'}`,
+        `- 对象ID: ${src.objectId ?? '?'}`,
+        `- 字段: ${src.field ?? '?'}`,
+        `- 字段值(报错时,脱敏): ${mask(src.value)}`,
+        src.stage ? `- 阶段: ${src.stage}` : '',
+        src.errcode ? `- 业务错误码: ${src.errcode}${eInfo ? ` (${eInfo.name})` : ''}` : '',
+        src.errorCode ? `- 错误号: ${src.errorCode}` : '',
+        src.message ? `- 原因: ${src.message}` : '',
+        current ? `- 当前字段值: ${current.value}（${current.present ? '有值' : '空/不存在'}）` : '',
+        '',
+        '### 定位文本',
+        '```',
+        fmt(src),
+        '```',
+      ].filter(Boolean).join('\n');
+      const res = await fetch('/api/cf/cases/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content,
+          errcode: String(src.errcode ?? ''),
+          log_type: '',
+          source: 'panel',
+        }),
+      });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok || d?.ok === false) throw new Error(d?.detail || d?.error || `HTTP ${res.status}`);
+      setCaseFile(d.filename || '');
+      setCaseMsg(`${t('hcm.cfErrSaveCaseOk')}: ${d.filename || ''}`);
+      return d.filename || '';
+    } catch (e: any) {
+      setCaseMsg(`${t('hcm.cfErrSaveCase')} ${t('hcm.cfErrLearnFail')}: ${e?.message || e}`);
+      return '';
+    } finally {
+      setCaseBusy(false);
+    }
+  };
+
+  // 反馈诊断结果（correct/partially_correct/wrong），写回 diagnosis_feedback.jsonl 驱动闭环反哺。
+  // 若尚未保存案例，先自动存案例再关联反馈。
+  const submitFeedback = async () => {
+    let file = caseFile;
+    if (!file) file = await saveCase();
+    if (!file) { setFbMsg(t('hcm.cfErrNeedCase')); return; }
+    setFbBusy(true);
+    setFbMsg('');
+    try {
+      const res = await fetch('/api/cf/cases/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          case_file: file,
+          result: fbResult,
+          actual_root_cause: fbRootCause.trim(),
+          fix_applied: null,
+          notes: fbNotes.trim(),
+          source: 'panel',
+        }),
+      });
+      const d = await res.json().catch(() => ({} as any));
+      if (!res.ok || d?.ok === false) throw new Error(d?.detail || d?.error || `HTTP ${res.status}`);
+      setFbMsg(t('hcm.cfErrFeedbackOk'));
+      setFbRootCause('');
+      setFbNotes('');
+    } catch (e: any) {
+      setFbMsg(`${t('hcm.cfErrFeedbackSubmit')} ${t('hcm.cfErrLearnFail')}: ${e?.message || e}`);
+    } finally {
+      setFbBusy(false);
+    }
+  };
+
   // ---- Token 健康度 + 一键重新登录 ---------------------------------------- //
   // HCM token 默认仅 2 小时有效（hcm_cloud.context_expire_seconds）。过期后服务端
   // 解析不出会话，接口内部异常被兜底成 17003（而非标准的 51006）——这是 17003 最常见真因。
@@ -636,7 +933,7 @@ export function HcmCloudFuncErrorLocator() {
         <div className="hcm-cf-err-gateway">
           <label className="hcm-config-label">
             {t('hcm.cfErrGateway')}
-            <select className="hcm-input" value={gwKey} onChange={(e) => { setGwKey(e.target.value); setErrKind(''); }}>
+            <select className="hcm-input" value={gwKey} onChange={(e) => { setGwKey(e.target.value); setGwAutoName(''); setErrKind(''); }}>
               {gateways.length === 0 && <option value="hcm_proxy">{t('hcm.cfErrGatewayDefault')}</option>}
               {gateways.map((g) => (
                 <option key={g.key} value={g.key}>
@@ -645,6 +942,9 @@ export function HcmCloudFuncErrorLocator() {
               ))}
             </select>
           </label>
+          {gwAutoName && (
+            <span className="hcm-cf-err-gwauto">{t('hcm.cfErrGatewayAuto')}{gwAutoName}</span>
+          )}
           {selectedGw && !selectedGw.has_preset_token && (
             <input className="hcm-input" placeholder={t('hcm.cfErrGatewayToken')}
               value={gwTokenOverride} onChange={(e) => setGwTokenOverride(e.target.value)} />
@@ -707,6 +1007,30 @@ export function HcmCloudFuncErrorLocator() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* P2-1 多错误批量分诊：粘贴含多个 [定位] 块时，逐条列出并支持定位/给AI */}
+      {blocks.length > 1 && (
+        <div className="hcm-cf-err-triage">
+          <div className="hcm-cf-err-section-title">{t('hcm.cfErrTriageTitle')}（{blocks.length}）</div>
+          <p className="hcm-cf-err-hint">{t('hcm.cfErrTriageHint')}</p>
+          <ul className="hcm-cf-err-triage-list">
+            {blocks.map((b, i) => (
+              <li key={i} className={parsed === b ? 'active' : ''}>
+                <button className="hcm-cf-err-triage-item" onClick={() => selectBlock(b)}>
+                  <span className="hcm-mono">#{i + 1}</span>
+                  <span className="hcm-mono">{b.model ?? '?'}#{b.objectId ?? '?'}</span>
+                  <span className="hcm-mono">{b.field ?? '?'}</span>
+                  {b.errcode ? <span className="hcm-mono">err {b.errcode}</span> : null}
+                </button>
+                <button className="btn btn-xs" onClick={() => selectBlock(b)}>{t('hcm.cfErrTriageLocate')}</button>
+              </li>
+            ))}
+          </ul>
+          <button className="btn btn-sm" onClick={genAiMulti} disabled={aiBusy}>
+            {aiBusy ? t('hcm.loading') : t('hcm.cfErrTriageAllAi')}
+          </button>
         </div>
       )}
 
@@ -818,6 +1142,40 @@ export function HcmCloudFuncErrorLocator() {
         )}
       </div>
 
+      {/* 案例库 & 反馈闭环（写入侧）：存案例 + 反馈诊断结果，喂给 similarCases / feedback-learn */}
+      {parsed && (
+        <div className="hcm-cf-err-learn">
+          <div className="hcm-cf-err-section-title">{t('hcm.cfErrCaseTitle')}</div>
+          <p className="hcm-cf-err-hint">{t('hcm.cfErrCaseHint')}</p>
+          <div className="hcm-cf-err-ai-actions">
+            <button className="btn btn-sm" onClick={() => saveCase()} disabled={caseBusy}>
+              {caseBusy ? t('hcm.cfErrSaveCaseBusy') : t('hcm.cfErrSaveCase')}
+            </button>
+            {caseFile && (
+              <span className="hcm-cf-err-learn-msg">{t('hcm.cfErrSaveCaseOk')}: {caseFile}</span>
+            )}
+          </div>
+          {caseMsg && !caseFile && <div className="hcm-cf-err-learn-msg">{caseMsg}</div>}
+
+          <div className="hcm-cf-err-manual">
+            <select className="hcm-input" value={fbResult} onChange={(e) => setFbResult(e.target.value)}>
+              <option value="correct">{t('hcm.cfErrFbCorrect')}</option>
+              <option value="partially_correct">{t('hcm.cfErrFbPartial')}</option>
+              <option value="wrong">{t('hcm.cfErrFbWrong')}</option>
+              <option value="unknown">{t('hcm.cfErrFbUnknown')}</option>
+            </select>
+            <input className="hcm-input" placeholder={t('hcm.cfErrFeedbackRootCause')} value={fbRootCause}
+              onChange={(e) => setFbRootCause(e.target.value)} />
+            <input className="hcm-input hcm-input-wide" placeholder={t('hcm.cfErrFeedbackNotes')} value={fbNotes}
+              onChange={(e) => setFbNotes(e.target.value)} />
+            <button className="btn btn-sm btn-primary" onClick={submitFeedback} disabled={fbBusy}>
+              {fbBusy ? t('hcm.cfErrFeedbackBusy') : t('hcm.cfErrFeedbackSubmit')}
+            </button>
+          </div>
+          {fbMsg && <div className="hcm-cf-err-learn-msg">{fbMsg}</div>}
+        </div>
+      )}
+
       {/* 反馈闭环反哺：把人工确认的诊断结果写回词典 / 路由索引，形成自我修正闭环 */}
       <div className="hcm-cf-err-learn">
         <div className="hcm-cf-err-section-title">{t('hcm.cfErrLearnTitle')}</div>
@@ -905,6 +1263,12 @@ export function HcmCloudFuncErrorLocator() {
                 </tbody>
               </table>
             </div>
+            <div className="hcm-cf-err-batch-actions">
+              <button className="btn btn-sm" onClick={() => exportCsv(false)}>{t('hcm.cfErrBatchExportCsv')}</button>
+              <button className="btn btn-sm" onClick={() => exportCsv(true)} disabled={batchMissing === 0}>
+                {t('hcm.cfErrBatchExportCsvMissing')}（{batchMissing}）
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -942,6 +1306,87 @@ export function HcmCloudFuncErrorLocator() {
           </ul>
         )}
       </div>
+
+      {/* P2-4 改造工具前端化：上传云函数 .py → 审计/预览 diff/应用下载，全部浏览器内完成 */}
+      <div className="hcm-cf-err-retrofit">
+        <div className="hcm-cf-err-section-title">{t('hcm.cfErrRetrofitTitle')}</div>
+        <p className="hcm-cf-err-hint">{t('hcm.cfErrRetrofitHint')}</p>
+        <div className="hcm-cf-err-manual">
+          <label className="hcm-config-label hcm-cf-err-upload">
+            {t('hcm.cfErrRetrofitUpload')}
+            <input type="file" accept=".py,text/x-python" onChange={onRetroFile} />
+          </label>
+          {retroName && <span className="hcm-cf-err-token-msg">{retroName}</span>}
+          <select className="hcm-input" value={retroMode} onChange={(e) => setRetroMode(e.target.value as any)}>
+            <option value="audit">{t('hcm.cfErrRetrofitModeAudit')}</option>
+            <option value="diff">{t('hcm.cfErrRetrofitModeDiff')}</option>
+            <option value="apply">{t('hcm.cfErrRetrofitModeApply')}</option>
+          </select>
+          <label className="hcm-config-label hcm-cf-err-redact">
+            <input type="checkbox" checked={retroRedact} onChange={(e) => setRetroRedact(e.target.checked)} />
+            {t('hcm.cfErrRetrofitRedact')}
+          </label>
+          <button className="btn btn-sm btn-primary" onClick={runRetrofit} disabled={retroBusy}>
+            {retroBusy ? t('hcm.loading') : t('hcm.cfErrRetrofitRun')}
+          </button>
+        </div>
+
+        {retroMsg && <div className="hcm-cf-err-learn-msg">{retroMsg}</div>}
+
+        {retroMode === 'audit' && retroReport && (
+          <div className="hcm-cf-err-table-wrap">
+            {retroReport.risks?.length ? (
+              <table className="hcm-cf-err-table">
+                <thead>
+                  <tr>
+                    <th>{t('hcm.cfErrRiskLevel')}</th>
+                    <th>{t('hcm.cfErrRiskType')}</th>
+                    <th>{t('hcm.cfErrRiskLine')}</th>
+                    <th>{t('hcm.cfErrRiskMsg')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {retroReport.risks.map((r: any, i: number) => (
+                    <tr key={i} className={r.severity === 'high' ? 'bad' : ''}>
+                      <td>{r.severity}</td>
+                      <td className="hcm-mono">{r.type}</td>
+                      <td className="hcm-mono">{r.line ?? '-'}</td>
+                      <td>{r.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="hcm-cf-err-hint">{t('hcm.cfErrRetrofitNoRisk')}</div>
+            )}
+            {retroReport.classes?.length > 0 && (
+              <div className="hcm-cf-err-learn-msg">class: {retroReport.classes.join(', ')}</div>
+            )}
+          </div>
+        )}
+
+        {retroMode === 'diff' && (
+          <div className="hcm-cf-err-retrofit-diff">
+            {retroChanged
+              ? <pre>{retroDiff}</pre>
+              : <div className="hcm-cf-err-hint">{t('hcm.cfErrRetrofitNoChange')}</div>}
+          </div>
+        )}
+
+        {retroMode === 'apply' && retroNewContent && (
+          <div className="hcm-cf-err-retrofit-diff">
+            {retroChanged ? (
+              <>
+                <pre>{retroDiff}</pre>
+                <button className="btn btn-sm btn-primary" onClick={downloadRetro}>{t('hcm.cfErrRetrofitApplyDownload')}</button>
+              </>
+            ) : (
+              <div className="hcm-cf-err-hint">{t('hcm.cfErrRetrofitNoChange')}</div>
+            )}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }

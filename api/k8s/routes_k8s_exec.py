@@ -2,40 +2,71 @@
 """K8s 命令执行与 WebSocket 终端路由。
 
 拆分自 ``api/routes_k8s.py``，业务子域：
-- ``POST /api/k8s/exec``：一次性命令执行；
-- ``WS /ws/k8s/exec``：交互式终端（降级实现，见下方说明）。
+- ``POST /api/k8s/exec``：一次性命令执行（**无 TTY**，用于脚本化取数，可断言退出码）；
+- ``WS /ws/k8s/exec``：交互式终端（**真 PTY 常驻会话**，失败时降级为行缓冲）。
 
 环境解析沿用 ``core.k8s.resolve_env_kubeconfig``。
 
-符号说明：原 ``routes_k8s.py`` 依赖的 ``start_exec_pty`` / ``build_exec_command`` 在
-core 拆分后已不存在。此处改用 ``core.k8s.exec.exec_command`` 作为底层执行能力：
+交互式终端的两种模式
+--------------------
+1. **PTY 模式（默认）**：``core.k8s.exec_pty.spawn_kubectl_pty`` 用本地
+   ``pty.fork()`` + ``kubectl exec -it`` 起一个常驻会话，键盘字节原样透传、
+   窗口 resize 通过 ``TIOCSWINSZ`` → SIGWINCH 同步到远端，因此
+   ``vim`` / ``top`` / ``htop`` / ``less`` 等全屏程序可正常渲染与交互。
+   就绪时后端回 ``{"type":"ready","tty":true,"cwd":...}``。
 
-- 一次性 exec：直接 ``exec_command(env, pod, container, namespace, command)``，
-  返回 ``(clean_output, new_cwd)``；
-- 交互式 WebSocket：core 当前无 PTY 常驻能力，降级为「行缓冲 + 单条命令一次性执行」。
-  前端 ``K8sShell.tsx`` 逐键发送 ``{type:"input", data}``，后端回显、遇回车执行整行
-  （每次 exec 以 ``cd "<cwd>" &&`` 前缀保持工作目录连续），再回 ``{type:"output"}`` /
-  ``{type:"cwd"}`` / ``{type:"error"}``。协议与前端严格对齐，真正的 PTY 行编辑 / resize
-  需在 core.k8s.exec 补充常驻 PTY 能力后再启用。
+2. **行缓冲模式（降级）**：PTY 不可用（无 kubectl / fork 失败 / 客户端 ``tty=0``）
+   时自动回退。累积按键、遇回车执行一次 ``kubectl exec``（以 ``cd "<cwd>" &&``
+   前缀保持工作目录连续），回 ``{"type":"ready"}``（**不带 tty**）。
+   此模式**不支持**全屏程序，前端会显示本地假提示符。
+
+前后端协议（务必与 ``frontend/web-react/src/components/k8s/K8sShell.tsx`` 保持一致）：
+  - 前端→后端：``{type:"input", data}`` / ``{type:"resize", cols, rows}`` /
+                ``{type:"disconnect"}``
+  - 后端→前端：``{type:"ready", cwd, tty?}`` / ``{type:"output", data}`` /
+                ``{type:"cwd", cwd}`` / ``{type:"error", msg}`` / ``{type:"exit", code}``
 """
 import asyncio
+import codecs
 import json
 import logging
+import re
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from core import k8s_manager as _k8s_mgr
-from core.k8s.exec import exec_command as _k8s_exec_command
+from core.k8s.exec import (
+    DEFAULT_COLS,
+    DEFAULT_ROWS,
+    READY_MARKER_RE,
+    exec_command as _k8s_exec_command,
+    interactive_command_hint,
+    kubectl_available,
+    spawn_kubectl_pty,
+)
 
 logger = logging.getLogger("api.routes_k8s_exec")
 router = APIRouter()
+
+#: 等待 PTY 会话就绪（kubectl 建连 + 远端 shell 启动 + 打印 READY 标记）的上限秒数。
+#: 集群网络慢 / 镜像拉取慢时会偏大，但过长会让用户对着黑屏干等。
+READY_TIMEOUT = 20.0
+
+#: 从 PTY 早期输出里剥掉 ANSI 转义，便于把 kubectl 的报错原样呈现给用户
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[a-zA-Z]"
+    r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"
+    r"|\x1b[()][A-Z0-9]"
+    r"|\x1b[=>]"
+    r"|\r"
+)
 
 
 @router.post("/api/k8s/exec")
 async def api_k8s_exec(body: dict):
     """在指定 Pod 容器中执行命令（一次性）。
 
-    请求体（application/json）：::
+    请求体（application/json）::
 
         {
           "env": "prod",
@@ -77,6 +108,12 @@ async def api_k8s_exec(body: dict):
             },
         }
 
+    # 全屏/交互式程序走一次性通道必然「无反馈」，提前拦截并给出可读指引，
+    # 免得用户等满 60s 只拿到一句 TimeoutExpired。
+    hint = interactive_command_hint(command)
+    if hint:
+        return {"ok": False, "error": hint, "hint": True}
+
     # 一次性执行：core.k8s.exec.exec_command 返回 (clean_output, new_cwd)
     try:
         out, new_cwd = _k8s_exec_command(
@@ -87,34 +124,146 @@ async def api_k8s_exec(body: dict):
     return {"ok": True, "stdout": out, "stderr": "", "rc": 0, "cwd": new_cwd}
 
 
-async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
-                           pod: str, container: str, env_vars: dict):
-    """WebSocket 终端（降级版，但协议与前端 K8sShell 对齐）。
+# --------------------------------------------------------------------------- #
+# PTY 模式
+# --------------------------------------------------------------------------- #
+def _pty_wanted(websocket: WebSocket) -> bool:
+    """客户端是否要真 PTY。``?tty=0`` 可强制降级为行缓冲（排障用）。"""
+    raw = (websocket.query_params.get("tty") or "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
-    前端 ``K8sShell.tsx`` 通过 ``term.onData`` 把每个按键以 ``{type:"input", data}`` 帧
-    发来，并期望后端回 ``{type:"output"}`` / ``{type:"cwd"}`` / ``{type:"error"}``。
 
-    core 当前无 PTY 常驻能力，因此做**行缓冲降级**：累积输入字符，遇到回车执行整行命令
-    （每次 exec 以 ``cd "<cwd>" &&`` 前缀保持工作目录连续），把输出与新的 cwd 回传，
-    从而让简单的命令行交互（含 ``cd`` / 相对路径）可用；并支持退格、Ctrl-C、忽略方向键等
-    ANSI 转义序列。
+def _pty_error_detail(buf: str, limit: int = 400) -> str:
+    """把 PTY 早期输出整理成一句人类可读的失败原因。"""
+    text = _ANSI_RE.sub(" ", buf or "")
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return ("kubectl exec 会话立即退出且未输出任何内容。"
+                "请检查 Pod/容器是否存在、kubectl 能否连通集群。")
+    tail = "\n".join(lines[-6:])
+    if len(tail) > limit:
+        tail = "…" + tail[-limit:]
+    return "无法建立终端会话：\n" + tail
 
-    协议（务必与 frontend/web-react/src/components/k8s/K8sShell.tsx 保持一致）：
-      - 前端→后端：``{type:"input", data}`` / ``{type:"resize"}``(忽略) / ``{type:"disconnect"}``
-      - 后端→前端：``{type:"ready", cwd}`` / ``{type:"output", data}`` / ``{type:"cwd", cwd}`` /
-                    ``{type:"error", msg}`` / ``{type:"exit", code}``
+
+async def _pty_await_ready(sess, timeout: float = READY_TIMEOUT):
+    """等待远端 shell 打印 READY 标记。
+
+    返回 ``(ok, cwd, pending_bytes, reason)``：
+      * ``ok=True`` 时 ``cwd`` 为远端真实起始目录，``pending_bytes`` 是标记之后
+        已被读出的输出（须在 ``ready`` 之后补发给前端，否则会丢首屏内容）；
+      * ``ok=False`` 时 ``reason`` 是给用户看的失败原因。
     """
-    await websocket.accept()
+    loop = asyncio.get_running_loop()
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    buf = ""
+    deadline = loop.time() + timeout
+    while True:
+        remain = deadline - loop.time()
+        if remain <= 0:
+            return False, "/", b"", "等待终端会话就绪超时（%.0fs）" % timeout
+        chunk = await sess.read(timeout=remain)
+        if chunk is None:
+            # EOF：kubectl 已退出，多半是 Pod/容器不存在或连不上集群
+            return False, "/", b"", _pty_error_detail(buf)
+        if not chunk:
+            continue
+        buf += decoder.decode(chunk)
+        m = READY_MARKER_RE.search(buf)
+        if m:
+            cwd = (m.group(1) or "").strip() or "/"
+            return True, cwd, chunk, buf[m.end():]
+
+
+async def _pty_pump(websocket: WebSocket, sess, initial: bytes = b""):
+    """PTY 会话的主循环：双向搬运字节，直到任一端断开。"""
+    loop = asyncio.get_running_loop()
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+
+    if initial:
+        # READY 标记之后残留的输出（首屏 prompt 等），先补上
+        await websocket.send_json({"type": "output", "data": decoder.decode(initial)})
+
+    async def _out():
+        while True:
+            chunk = await sess.read()
+            if chunk is None:      # EOF：远端 shell / kubectl 退出
+                return
+            if not chunk:
+                continue
+            await websocket.send_json({"type": "output", "data": decoder.decode(chunk)})
+
+    async def _in():
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                payload = json.loads(raw)
+            except Exception:
+                continue
+            ptype = payload.get("type")
+            if ptype == "input":
+                # 原样透传：不过滤控制字符，vim 的转义序列依赖这些字节
+                sess.write(payload.get("data", ""))
+            elif ptype == "resize":
+                sess.resize(payload.get("cols"), payload.get("rows"))
+            elif ptype == "disconnect":
+                return
+
+    out_task = asyncio.ensure_future(_out())
+    in_task = asyncio.ensure_future(_in())
+    try:
+        await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in (out_task, in_task):
+            if not t.done():
+                t.cancel()
+        for t in (out_task, in_task):
+            try:
+                await t
+            except (asyncio.CancelledError, WebSocketDisconnect):
+                pass
+            except Exception as ex:  # 断开后的收尾异常不该冒泡
+                logger.debug("PTY 泵协程结束: %s", ex)
+        # close() 里有 join(1.0)，丢线程池避免阻塞事件循环
+        try:
+            await loop.run_in_executor(None, sess.close)
+        except Exception:
+            pass
+        try:
+            await websocket.send_json({"type": "exit", "code": 0})
+        except Exception:
+            pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
+# --------------------------------------------------------------------------- #
+# 行缓冲降级模式
+# --------------------------------------------------------------------------- #
+async def _ws_k8s_exec_line(websocket: WebSocket, env: str, namespace: str,
+                            pod: str, container: str, notice: str = ""):
+    """降级终端：无 PTY，逐行执行一次 ``kubectl exec``。
+
+    不支持 vim / top 等全屏程序，仅保证 ``cd``、相对路径、简单命令可用。
+    ``notice`` 不为空时，在 ``ready`` 之后回一条 ``error``，向用户解释为何降级。
+    """
     cwd_ref = ["/"]
     line: list = []
     skip_esc = False   # 跨帧保持，避免把方向键等转义序列误当作输入回显
     esc_len = 0
     await websocket.send_json({"type": "ready", "cwd": cwd_ref[0]})
+    if notice:
+        await websocket.send_json({"type": "error", "msg": notice})
 
     async def _emit_cmd(cmd: str):
         try:
-            out, new_cwd = _k8s_exec_command(
-                env, pod, container, namespace, cmd, cwd=cwd_ref[0], timeout=60,
+            out, new_cwd = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: _k8s_exec_command(
+                    env, pod, container, namespace, cmd, cwd=cwd_ref[0], timeout=60,
+                ),
             )
         except Exception as ex:
             msg = getattr(ex, "message", None) or str(ex)
@@ -192,6 +341,54 @@ async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
             await websocket.close()
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# 入口：先 PTY，不行再降级
+# --------------------------------------------------------------------------- #
+async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
+                           pod: str, container: str, env_vars: dict):
+    """WebSocket 终端：优先真 PTY（支持 vim/top），不可用时降级行缓冲。"""
+    await websocket.accept()
+
+    sess = None
+    reason = ""
+    if _pty_wanted(websocket):
+        if not kubectl_available():
+            reason = ("未找到 kubectl 可执行文件，已降级为行缓冲模式"
+                      "（不支持 vim / top 等全屏程序）。")
+        else:
+            try:
+                sess = spawn_kubectl_pty(
+                    env, pod, container or None, namespace or None,
+                    cwd="/", cols=DEFAULT_COLS, rows=DEFAULT_ROWS,
+                    loop=asyncio.get_running_loop(),
+                )
+            except Exception as ex:
+                sess = None
+                reason = "启动 PTY 会话失败（%s），已降级为行缓冲模式。" % ex
+    else:
+        reason = "客户端指定 tty=0，使用行缓冲模式。"
+
+    if sess is not None:
+        try:
+            ok, cwd, _raw, pending = await _pty_await_ready(sess)
+        except Exception as ex:
+            ok, cwd, pending, reason = False, "/", "", "建立终端会话异常：%s" % ex
+            logger.warning("PTY 会话就绪等待异常 pod=%s: %s", pod, ex)
+        if ok:
+            await websocket.send_json({"type": "ready", "tty": True, "cwd": cwd})
+            await _pty_pump(websocket, sess, pending)
+            return
+        # 就绪失败：收掉半死的会话，把原因带给降级模式
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, sess.close)
+        except Exception:
+            pass
+        sess = None
+        reason = reason or "终端会话未就绪，已降级为行缓冲模式。"
+
+    await _ws_k8s_exec_line(websocket, env, namespace, pod, container, notice=reason)
 
 
 @router.websocket("/ws/k8s/exec")

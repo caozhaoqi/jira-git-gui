@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from api.common import _PROJECT_ROOT, logger
 from api.cf.cf_diagnose import _redact_text, cf_parse_error, cf_parse_log_rows
 from api.cf.cf_logs import cf_query_logs
+from api.diagnosis_capabilities import build_query_plan
 from api.unified_diagnose import unified_diagnose
 
 _REFERENCE_DIR = _PROJECT_ROOT / "store" / "downloads" / "895" / "docs" / "metadata" / "reference"
@@ -250,14 +251,18 @@ def _extract_total(data, fallback: int) -> int:
 
 
 def _build_full_prompt(base_prompt: str, target: dict, dynamic: dict,
-                       metadata: dict, coding_rules: dict) -> str:
+                       metadata: dict, coding_rules: dict, query_plan: dict) -> str:
     lines = [base_prompt or "# CF + K8s 诊断上下文", "", "# 一键诊断 AI 执行规范", ""]
     lines += [
         "你是 HCM 云函数故障诊断 AI。必须先区分‘已验证事实’和‘候选推断’，不要仅凭单条日志下结论。",
         "证据优先级：K8s previous/current 日志与事件 > 匹配的 dynamic_log > [定位] 错误文本 > JSON 元数据 > 源码/Wiki 推断。",
         "如果 K8s OOM/Crash/NodeNotReady 与应用错误同时出现，先判断基础设施是否覆盖应用层结论。",
         "如果 dynamic_log 没有命中，不得声称‘没有发生’，只能说‘当前采样范围未命中’。",
-        "输出必须包含：根因层级、事实证据、候选根因及置信度、排除项、下一步检查、最小修复方案、代码规范风险。",
+        "先查看 query_plan，已经 completed 的步骤不要重复调用；只有 missing_inputs 或 optional_enrichment 指向的接口才按需补查。",
+        "输出必须包含：根因层级、事实证据、候选根因及置信度、排除项、下一步检查、最小修复方案、代码规范风险。", 
+        "", 
+        "## AI 接口调用计划",
+        json.dumps(query_plan, ensure_ascii=False),
         "写代码建议必须遵守：类内状态、输入/输出日志、避免冗余 import、异常记录后保留 traceback、关系 key 批量读取、safe_get/[定位]、敏感日志脱敏、插件少日志。",
         "",
         "## 关联目标",
@@ -307,6 +312,7 @@ async def full_diagnose(req) -> dict:
     dynamic = await _fetch_dynamic_log(req, target)
     metadata = _load_metadata(req)
     coding_rules = _load_coding_rules(req)
+    query_plan = build_query_plan(req, target, dynamic=dynamic, base=base, metadata=metadata)
 
     references = []
     cf_bundle = (base.get("cf_diagnosis") or {}).get("evidenceBundle") or {}
@@ -328,7 +334,9 @@ async def full_diagnose(req) -> dict:
         "metadata_available": metadata.get("available", False),
         "coding_rules_file": coding_rules.get("file"),
     }
-    prompt = _build_full_prompt(base.get("aiPrompt", ""), target, dynamic, metadata, coding_rules)
+    prompt = _build_full_prompt(
+        base.get("aiPrompt", ""), target, dynamic, metadata, coding_rules, query_plan,
+    )
     return {
         "ok": True,
         "diagnosed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -340,6 +348,11 @@ async def full_diagnose(req) -> dict:
             "k8s_pod_filter": getattr(req, "k8s_pod_filter", ""),
         },
         "summary": base.get("unified_summary", {}),
+        "tooling": {
+            "query_plan": query_plan,
+            "recommended_entrypoint": "POST /api/diagnose/full",
+            "capabilities_endpoint": "GET /api/diagnose/capabilities",
+        },
         "cf_diagnosis": base.get("cf_diagnosis", {}),
         "k8s_diagnosis": base.get("k8s_diagnosis", {}),
         "dynamic_log": dynamic,

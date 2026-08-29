@@ -7,6 +7,7 @@ SSE 广播副作用（如登录成功后广播 token 更新）。
 from fastapi import HTTPException
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 from api.common import app, logger, broadcast, get_cf_accounts
 from api.cf.cf_core import (
     cf_captcha_fetch, cf_login_account, cf_autologin_all,
@@ -233,5 +234,80 @@ async def api_cf_logs_parse(req: CfLogExportReq):
     """
     try:
         return {"rows": cf_parse_log_rows(req.rows), "count": len(req.rows or [])}
+    except Exception as e:  # noqa: BLE001
+        raise _http_error(e)
+
+
+# --------------------------------------------------------------------------- #
+# 云函数改造工具（前端化）：上传 .py → 审计/预览 diff/应用下载，全部在内存完成，
+# 不写真实文件、不触碰 git。直接复用 tools/cf_locate_retrofit.py 的核心函数。
+# --------------------------------------------------------------------------- #
+class CfRetrofitReq(BaseModel):
+    content: str
+    mode: str = "audit"          # audit | diff | apply
+    redact_sensitive: bool = False
+
+
+def _load_retrofit():
+    """懒加载改造工具模块（tools/cf_locate_retrofit.py），避免常驻导入开销。"""
+    import importlib.util
+    tools_dir = Path(__file__).resolve().parents[2] / "tools"
+    mod_path = tools_dir / "cf_locate_retrofit.py"
+    if not mod_path.exists():
+        raise RuntimeError("retrofit tool not found at tools/cf_locate_retrofit.py")
+    spec = importlib.util.spec_from_file_location("cf_locate_retrofit", str(mod_path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, tools_dir
+
+
+@router.post("/api/cf/retrofit")
+async def api_cf_retrofit(req: CfRetrofitReq):
+    """上传云函数源码，返回审计/改造结果（不写盘）。
+
+    - audit: 返回风险清单（含字段访问面），供前端表格展示；
+    - diff : 返回 unified diff（未写盘），供预览；
+    - apply: 返回改造后完整源码，供前端下载（原文件由用户本地保留）。
+    """
+    import difflib
+    import tempfile
+    from pathlib import Path
+
+    if not req.content.strip():
+        raise HTTPException(400, "empty content")
+    mode = req.mode if req.mode in ("audit", "diff", "apply") else "audit"
+    try:
+        rt, tools_dir = _load_retrofit()
+        snippet_path = tools_dir / "cf_locate_kit" / "locate_snippet.py"
+
+        # audit 需要真实文件路径；写到临时文件，用完即删。
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8") as tf:
+            tf.write(req.content)
+            tmp_path = Path(tf.name)
+        try:
+            if mode == "audit":
+                info = rt.audit_file(tmp_path)
+                info_public = {k: v for k, v in info.items() if k != "_accesses"}
+                info_public["accesses"] = info.get("_accesses", [])
+                return {"ok": True, "mode": "audit", "report": info_public}
+
+            # diff / apply 需要注入的 snippet
+            snippet = rt._snippet_body(snippet_path)
+            new = rt._transform(req.content, snippet, redact_sensitive=bool(req.redact_sensitive))
+            changed = new != req.content
+            if mode == "diff":
+                diff = "".join(difflib.unified_diff(
+                    req.content.splitlines(keepends=True),
+                    new.splitlines(keepends=True),
+                    fromfile="a/uploaded.py", tofile="b/uploaded.py", n=3,
+                ))
+                return {"ok": True, "mode": "diff", "changed": changed, "diff": diff}
+            # apply
+            return {"ok": True, "mode": "apply", "changed": changed, "new_content": new}
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
     except Exception as e:  # noqa: BLE001
         raise _http_error(e)

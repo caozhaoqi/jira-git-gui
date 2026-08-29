@@ -1636,6 +1636,25 @@ body {
 .hcm-cf-err-ai-preview summary { font-size: 12px; color: var(--muted); cursor: pointer; margin-bottom: 6px; }
 .hcm-cf-err-ai-preview pre { margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
 
+/* P2-1 多错误分诊 / P2-2 自动选网关提示 */
+.hcm-cf-err-gwauto { font-size: 11px; color: #2ea043; align-self: center; }
+.hcm-cf-err-triage { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-left: 3px solid #f59e0b; border-radius: 8px; padding: 12px; background: rgba(245,158,11,.06); }
+.hcm-cf-err-triage-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hcm-cf-err-triage-list li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; }
+.hcm-cf-err-triage-list li.active { border-color: var(--accent, #3b82f6); background: rgba(59,130,246,.1); }
+.hcm-cf-err-triage-item { flex: 1; display: flex; gap: 12px; align-items: center; text-align: left; padding: 4px 6px; border: none; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.hcm-cf-err-triage-item:hover { text-decoration: underline; }
+
+/* P2-3 批量体检导出 */
+.hcm-cf-err-batch-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+/* P2-4 改造工具前端化 */
+.hcm-cf-err-retrofit { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-left: 3px solid #8b5cf6; border-radius: 8px; padding: 12px; background: rgba(139,92,246,.06); }
+.hcm-cf-err-upload input[type="file"] { display: block; margin-top: 4px; font-size: 12px; color: var(--text); }
+.hcm-cf-err-redact { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.hcm-cf-err-redact input { width: auto; }
+.hcm-cf-err-retrofit-diff pre { margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; max-height: 360px; overflow: auto; }
+
 .hcm-meta-run-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
 .hcm-meta-run-result .hcm-json-block { max-height: 42vh; }

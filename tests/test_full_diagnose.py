@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import api.full_diagnose as full
+from api.diagnosis_capabilities import build_query_plan, capability_manifest
 
 
 def _req(**kwargs):
@@ -102,7 +103,22 @@ def test_full_orchestration_correlates_and_redacts():
     assert "代码书写规则" in result["aiPrompt"]
 
 
-def test_full_orchestration_degrades_without_dynamic_log_credentials():
+def test_capability_manifest_and_adaptive_plan():
+    manifest = capability_manifest()
+    assert manifest["recommended_entrypoint"] == "POST /api/diagnose/full"
+    paths = {item["path"] for item in manifest["capabilities"]}
+    assert "/api/cf/logs" in paths
+    assert "/api/cf/cases/feedback" in paths
+
+    req = _req(server_url="", token="", k8s_env="", metadata={})
+    plan = build_query_plan(req, {"errcode": 400014}, dynamic={}, base={}, metadata={})
+    assert plan["strategy"] == "full_first_adaptive_fallback"
+    assert any(item["field"] == "server_url/token" for item in plan["missing_inputs"])
+    assert any(item["action"] == "collect_k8s" and item["status"] == "skipped" for item in plan["steps"])
+    assert plan["evidence_completeness"]["score_percent"] < 60
+
+
+def test_full_orchestration_degrades_without_dynamic_log_credentials(): 
     original_unified = full.unified_diagnose
     full.unified_diagnose = lambda req: {
         "ok": True,
@@ -126,4 +142,4 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print(f"PASS {name}")
-    print("2/2 passed")
+    print("3/3 passed")
