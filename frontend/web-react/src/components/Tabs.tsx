@@ -10,6 +10,7 @@ const TABS: { key: TabKey; icon: string; labelKey: string }[] = [
   { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
   { key: 'clash', icon: '🛰', labelKey: 'tab.clash' },
   { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
+  { key: 'diagnose', icon: '🔍', labelKey: 'tab.diagnose' },
   { key: 'settings', icon: '⚙', labelKey: 'tab.settings' },
 ];
 

@@ -92,6 +92,8 @@ from api.routes_settings import router as settings_router      # noqa: E402
 from api.k8s.routes_k8s import router as k8s_router                # noqa: E402
 from api.clash.routes_clash import router as clash_router            # noqa: E402
 from api.routes_services_config import router as services_config_router  # noqa: E402
+from api.routes_jira_issue import router as jira_issue_router            # noqa: E402
+from api.routes_unified_diagnose import router as unified_diagnose_router  # noqa: E402
 
 # 按业务域分组挂载（顺序无关，仅便于阅读）：
 #   仓库/下载/差异/缓存/同步/事件 → CF/HCM 平台 → 设置(汇总) → K8s/Clash 聚合域
@@ -107,6 +109,10 @@ for _r in (
     k8s_router, clash_router,
     # 服务配置管理（云函数 / HCM 账号与代理配置）
     services_config_router,
+    # Jira 建单（供 HCM 云函数错误定位面板把结论转成 issue）
+    jira_issue_router,
+    # 统一诊断（CF + K8s 联合诊断）
+    unified_diagnose_router,
 ):
     app.include_router(_r)
 

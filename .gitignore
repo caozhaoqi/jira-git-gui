@@ -79,3 +79,5 @@ frontend/web-react/.tsbuildinfo
 *.tsbuildinfo
 # 旧前端子目录（已迁移到 web-react，不再维护）
 frontend/web-legacy/
+
+.workbuddy-ai/

@@ -15,6 +15,7 @@ from api.cf.cf_tokens import (
     _cf_ssl_context,
 )
 from api.cf.cf_login import cf_refresh_token
+from api.cf.cf_diagnose import cf_parse_log_rows
 
 
 _IS_MODEL_MISSING = lambda errcode, errmsg: (
@@ -187,7 +188,13 @@ async def cf_query_logs(req) -> "dict":
 
 
 def cf_export_logs(req) -> "dict":
-    """将查询到的 CF 云函数日志导出为本地 JSON 文件，返回文件路径与内容。"""
+    """将查询到的 CF 云函数日志导出为本地 JSON 文件，返回文件路径与内容。
+
+    dynamic_log 的 ``content`` 是**字符串**（Python repr 或 ``[TAG] 正文``），
+    格式不统一。这里统一做一次结构化解析，为每行补上 ``parsed_content``
+    （tags/level/stage/dept_id/object_id/errcode/is_error/locate），
+    并在顶层给出 ``error_summary``，便于 AI/前端直接消费而不必逐条适应格式。
+    """
     if not req.rows:
         raise ValueError("无可导出的日志数据")
     export_dir = _PROJECT_ROOT / "logs" / "cf_logs"
@@ -196,6 +203,8 @@ def cf_export_logs(req) -> "dict":
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"cf_logs_{safe_log_type}_{ts}.json"
     fpath = export_dir / fname
+
+    rows = cf_parse_log_rows(req.rows)  # 结构化解析，保留原字段
     out = {
         "export_info": {
             "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -209,8 +218,10 @@ def cf_export_logs(req) -> "dict":
             "returned_count": len(req.rows),
             "keyword": req.keyword or "",
             "filtered_by_client": bool(req.filtered or req.keyword),
+            "parsed": True,  # 标记本文件已做结构化解析
         },
-        "logs": req.rows,
+        "error_summary": _summarize_parsed(rows),
+        "logs": rows,
     }
     if req.raw is not None:
         out["raw_response"] = req.raw
@@ -222,6 +233,45 @@ def cf_export_logs(req) -> "dict":
         raise RuntimeError(f"写入文件失败: {e}")
     logger.info(f"[CF] 日志已导出: {fpath} ({len(req.rows)} 条)")
     return {"ok": True, "path": str(fpath), "filename": fname, "count": len(req.rows), "content": content}
+
+
+def _summarize_parsed(rows: "list") -> "dict":
+    """对结构化后的日志做汇总统计，让 AI 一眼看到错误分布。"""
+    total = len(rows)
+    errors, errcodes, stages, levels = [], {}, {}, {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        pc = r.get("parsed_content") or {}
+        lv = pc.get("level") or "OTHER"
+        levels[lv] = levels.get(lv, 0) + 1
+        if pc.get("stage"):
+            stages[pc["stage"]] = stages.get(pc["stage"], 0) + 1
+        ec = pc.get("errcode")
+        if isinstance(ec, int) and ec != 0:
+            errcodes[str(ec)] = errcodes.get(str(ec), 0) + 1
+        if pc.get("is_error"):
+            errors.append({
+                "id": r.get("id"),
+                "create_time": r.get("create_time"),
+                "log_type": r.get("log_type"),
+                "stage": pc.get("stage"),
+                "dept_id": pc.get("dept_id"),
+                "object_id": pc.get("object_id"),
+                "errcode": ec,
+                "message": (pc.get("message") or "")[:300],
+                "locate": pc.get("locate"),
+            })
+    return {
+        "total_rows": total,
+        "error_count": len(errors),
+        "levels": levels,
+        "stages": stages,
+        "errcodes": errcodes,
+        # 只保留最近 50 条错误明细，避免导出文件过大
+        "errors": errors[:50],
+        "errors_truncated": len(errors) > 50,
+    }
 
 
 def cf_save_clipboard(req) -> "dict":
