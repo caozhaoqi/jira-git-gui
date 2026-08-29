@@ -17,6 +17,7 @@ class HcmDirectReq(BaseModel):
     params: dict = {}
     token: str = ""
     model: str = ""
+    target: str = ""  # 可选：覆盖 proxy_target，指向其它可达的 HCM 网关
     sql_debug: bool = False
     profile_debug: bool = False
 

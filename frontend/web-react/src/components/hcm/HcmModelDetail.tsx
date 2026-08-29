@@ -258,6 +258,20 @@ export function HcmModelDetail() {
         <button className="btn btn-sm" onClick={load} disabled={loading}>
           {t('hcm.refresh')}
         </button>
+        <span className="hcm-kind-sep" />
+        <button
+          className="btn btn-sm"
+          onClick={() =>
+            window.open(
+              `/web/?hcm-cf-err=1&hcm-loc-model=${encodeURIComponent(modelId)}`,
+              '_blank',
+              'width=1100,height=820'
+            )
+          }
+          title={t('hcm.cfErrLauncherHint')}
+        >
+          {t('hcm.cfErrLauncher')}
+        </button>
       </div>
 
       {savedPath && (

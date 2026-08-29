@@ -1,5 +1,11 @@
 # CHANGELOG
 
+
+## v0.0.6
+
+- feat：cloud function error snippet locate
+- fix: some bug
+
 ## v0.0.5
 
 - React 前端迁移完成：`web/` 已全面切换为 `web-react/` 的构建产物，原生 vanilla-JS 版本归档至 `web-legacy/`。

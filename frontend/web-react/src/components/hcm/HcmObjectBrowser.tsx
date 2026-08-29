@@ -10,6 +10,7 @@ import { apiPost } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
 
 const LS_TOKEN = 'hcm.token';
+const LS_ENV = 'hcm.selectedEnv';
 
 type RightTab = 'fields' | 'json' | 'data';
 type MetaKind = 'list' | 'info' | 'view' | 'all';
@@ -42,20 +43,40 @@ export function HcmObjectBrowser() {
 
   // 可选服务器环境（后端从配置汇总，脱敏）与「使用配置 Token」开关
   const [envs, setEnvs] = useState<HcmEnv[]>([]);
-  const [selectedEnv, setSelectedEnv] = useState<string>('');
+  const [selectedEnv, setSelectedEnv] = useState<string>(() => localStorage.getItem(LS_ENV) || '');
   const [usePresetToken, setUsePresetToken] = useState(false);
   const [envsError, setEnvsError] = useState('');
 
-  // token 持久化：每次变更（非空）自动写入 localStorage，避免依赖 blur 导致漏存。
+  // 根据 key 查当前环境
+  const currentEnv = useMemo(() => envs.find((ev) => ev.key === selectedEnv), [envs, selectedEnv]);
+  const targetUrl = currentEnv?.server_url || '';
+
+  // token / 环境选择持久化
   useEffect(() => {
     if (token.trim()) localStorage.setItem(LS_TOKEN, token.trim());
   }, [token]);
+  useEffect(() => {
+    localStorage.setItem(LS_ENV, selectedEnv);
+  }, [selectedEnv]);
+
+  // 切到没有预设 token 的环境时，自动关闭「用配置 Token」，避免误用空 token
+  useEffect(() => {
+    if (currentEnv && !currentEnv.has_preset_token && usePresetToken) {
+      setUsePresetToken(false);
+    }
+  }, [currentEnv, usePresetToken]);
 
   const loadEnvs = useCallback(async () => {
     try {
       const list = await hcmEnvs();
       setEnvs(list);
       setEnvsError('');
+      // 首次拿到环境列表时：若本地没有保存过有效 key，默认选第一个（通常是 proxy）
+      setSelectedEnv((prev) => {
+        const valid = list.some((ev) => ev.key === prev);
+        if (prev && valid) return prev;
+        return list[0]?.key || '';
+      });
     } catch (e: any) {
       setEnvsError(String(e?.message || e));
     }
@@ -126,7 +147,13 @@ export function HcmObjectBrowser() {
     const res = await fetch('/api/hcm/direct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_name: apiName, params, model, token: usePresetToken ? '' : token.trim() }),
+      body: JSON.stringify({
+        api_name: apiName,
+        params,
+        model,
+        token: usePresetToken ? '' : token.trim(),
+        target: targetUrl,
+      }),
     });
     const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
     if (!res.ok) {
@@ -135,7 +162,7 @@ export function HcmObjectBrowser() {
       throw new HcmApiError(detail || `HTTP ${res.status}`, res.status);
     }
     return data?.data;
-  }, [token, usePresetToken]);
+  }, [token, usePresetToken, targetUrl]);
 
   // 直连原始响应：返回 {data, meta}，meta 含 srv_begin/srv_end/duration_ms/profile_index/log_index
   const directCallRaw = useCallback(
@@ -153,6 +180,7 @@ export function HcmObjectBrowser() {
           params,
           model,
           token: usePresetToken ? '' : token.trim(),
+          target: targetUrl,
           sql_debug: opts.sqlDebug,
           profile_debug: opts.profileDebug,
         }),
@@ -165,7 +193,7 @@ export function HcmObjectBrowser() {
       }
       return { data: data?.data, meta: data?.meta || {} };
     },
-    [token, usePresetToken]
+    [token, usePresetToken, targetUrl]
   );
 
 const loadList = useCallback(async () => {
@@ -493,7 +521,7 @@ const loadList = useCallback(async () => {
             <option value="">{t('hcm.serverEnvSelect')}</option>
             {envs.map((ev) => (
               <option key={ev.key} value={ev.key}>
-                {ev.name}（{ev.server_url}）
+                {ev.name}（{ev.server_url}）{ev.has_preset_token ? '●' : ''}
               </option>
             ))}
           </select>
@@ -516,11 +544,23 @@ const loadList = useCallback(async () => {
           className={`btn btn-sm ${usePresetToken ? 'btn-primary' : ''}`}
           onClick={() => setUsePresetToken((v) => !v)}
           title={t('hcm.usePresetHint')}
+          disabled={!currentEnv?.has_preset_token}
         >
           {usePresetToken ? t('hcm.presetOn') : t('hcm.presetOff')}
         </button>
         <button className="btn btn-sm btn-primary" onClick={loadList} disabled={loading}>
           {loading ? t('hcm.loading') : t('hcm.refresh')}
+        </button>
+        {/* 云函数错误定位：常驻入口，避免只能靠拼 URL 打开 */}
+        <span className="hcm-kind-sep" />
+        <button
+          className="btn btn-sm"
+          onClick={() =>
+            window.open('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900')
+          }
+          title={t('hcm.cfErrLauncherHint')}
+        >
+          {t('hcm.cfErrLauncher')}
         </button>
       </div>
 

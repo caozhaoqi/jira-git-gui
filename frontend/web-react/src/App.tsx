@@ -23,6 +23,8 @@ import { ClashPanel } from './components/ClashPanel';
 import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
 import { SettingsPanel } from './components/SettingsPanel';
 import { HcmModelDetail } from './components/hcm/HcmModelDetail';
+import { HcmCloudFuncErrorLocator } from './components/hcm/HcmCloudFuncErrorLocator';
+import { UnifiedDiagnosisPanel } from './components/UnifiedDiagnosisPanel';
 import { ToastStack } from './components/Toast';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
@@ -68,6 +70,21 @@ export default function App() {
         <main className="workspace">
           <div className="workspace-body">
             <HcmModelDetail />
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ?hcm-cf-err=1：云函数错误定位（独立轻窗口）。可带 ?hcm-loc=<文本> / ?hcm-loc-model / ?hcm-loc-id / ?hcm-loc-field 预填。
+  const isCfErrWindow = typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('hcm-cf-err');
+  if (isCfErrWindow) {
+    return (
+      <div className="app-shell app-shell--detail">
+        <main className="workspace">
+          <div className="workspace-body">
+            <HcmCloudFuncErrorLocator />
           </div>
         </main>
       </div>
@@ -159,6 +176,7 @@ export default function App() {
             {activeTab === 'cf' && <CfPanel />}
             {activeTab === 'clash' && <ClashPanel />}
             {activeTab === 'hcm' && <HcmObjectBrowser />}
+            {activeTab === 'diagnose' && <UnifiedDiagnosisPanel />}
             {activeTab === 'settings' && <SettingsPanel />}
           </div>
         </main>

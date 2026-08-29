@@ -1565,6 +1565,77 @@ body {
 .hcm-meta-section-title { font-size: 13px; font-weight: 600; color: var(--text); }
 .hcm-meta-run .hcm-adv-vertical { padding: 8px 12px; }
 .hcm-meta-check { margin-left: 4px; font-size: 12px; }
+
+/* ===== HCM 云函数错误定位（?hcm-cf-err 独立窗口） ===== */
+.hcm-cf-err { padding: 16px; gap: 12px; overflow: auto; }
+.hcm-cf-err-head h3 { margin: 0 0 4px; font-size: 17px; color: var(--text); }
+.hcm-cf-err-hint { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.hcm-cf-err-input { display: flex; flex-direction: column; gap: 10px; }
+.hcm-cf-err-textarea {
+  width: 100%; min-height: 64px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.hcm-cf-err-manual { display: flex; gap: 8px; flex-wrap: wrap; }
+.hcm-cf-err-gateway { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 6px; background: rgba(127,127,127,.06); }
+.hcm-cf-err-gateway .hcm-config-label { flex: 0 1 320px; }
+.hcm-cf-err-gateway .hcm-input { min-width: 200px; }
+.hcm-input { min-width: 140px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-cf-err-error { padding: 8px 10px; border-radius: 6px; background: rgba(220,38,38,.12); color: #e5484d; font-size: 13px; }
+.hcm-cf-err-error--gw { background: rgba(217,119,6,.14); color: #c2620a; }
+.hcm-cf-err-error--biz { background: rgba(220,38,38,.12); color: #e5484d; }
+.hcm-cf-err-error--other { background: rgba(127,127,127,.14); color: var(--muted); }
+.hcm-cf-err-gwtip { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.hcm-cf-err-gwtip .btn { margin-left: 8px; }
+
+/* Token 健康度：HCM token 默认仅 2 小时有效，过期即 17003 */
+.hcm-cf-err-token { margin-bottom: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 6px; background: rgba(127,127,127,.06); }
+.hcm-cf-err-token.is-expired { border-color: #e5484d; background: rgba(229,72,77,.12); }
+.hcm-cf-err-token-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hcm-cf-err-token-label { font-size: 12px; color: var(--muted); }
+.hcm-cf-err-token-val { font-size: 13px; color: var(--text); font-weight: 600; }
+.hcm-cf-err-token.is-expired .hcm-cf-err-token-val { color: #e5484d; }
+.hcm-cf-err-token-hint { margin: 6px 0 0; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.hcm-cf-err-token-msg { margin: 6px 0 0; font-size: 12px; color: var(--text); }
+.hcm-cf-err-result { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.hcm-loc-card { display: flex; gap: 10px; align-items: baseline; font-size: 13px; }
+.hcm-loc-card--msg { align-items: flex-start; }
+.hcm-loc-k { flex: 0 0 72px; color: var(--muted); }
+.hcm-loc-v { color: var(--text); word-break: break-all; }
+.hcm-loc-v .btn-xs { margin-left: 8px; }
+.hcm-cf-err-actions { display: flex; gap: 8px; margin-top: 4px; }
+.hcm-cf-err-current { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.hcm-cf-err-present { font-size: 12px; }
+.hcm-cf-err-present.ok { color: #2ea043; }
+.hcm-cf-err-present.bad { color: #e5484d; }
+.btn-xs { padding: 2px 8px; font-size: 11px; border-radius: 5px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); cursor: pointer; }
+.btn-xs:hover { border-color: var(--accent, #3b82f6); }
+
+/* 错误码词典 / 批量体检 / 最近错误历史本 */
+.hcm-cf-err-dict { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-left: 3px solid #3b82f6; border-radius: 8px; padding: 12px; background: rgba(59,130,246,.06); }
+.hcm-cf-err-section-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); margin: 4px 0 6px; }
+.hcm-cf-err-batch, .hcm-cf-err-history { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.hcm-input-wide { min-width: 260px; flex: 1; }
+.hcm-cf-err-batch-summary { font-size: 12px; color: var(--muted); }
+.hcm-cf-err-table-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.hcm-cf-err-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hcm-cf-err-table th, .hcm-cf-err-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+.hcm-cf-err-table th { position: sticky; top: 0; background: var(--bg-panel); color: var(--muted); font-weight: 600; z-index: 1; }
+.hcm-cf-err-table tr.bad td { background: rgba(229,72,77,.08); }
+.hcm-cf-err-history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.hcm-cf-err-history-item { display: flex; gap: 10px; align-items: baseline; width: 100%; text-align: left; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font-size: 12px; cursor: pointer; }
+.hcm-cf-err-history-item:hover { border-color: var(--border); background: var(--bg-input); }
+.hcm-cf-err-history-ts { flex: 0 0 150px; color: var(--muted); font-size: 11px; }
+.hcm-cf-err-history-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Jira 工单 */
+.hcm-cf-err-jira { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.hcm-cf-err-jira-ok { font-size: 12px; color: #2ea043; }
+.hcm-cf-err-jira-ok a { color: inherit; text-decoration: underline; }
+.hcm-cf-err-ai { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.hcm-cf-err-ai-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.hcm-cf-err-ai-preview summary { font-size: 12px; color: var(--muted); cursor: pointer; margin-bottom: 6px; }
+.hcm-cf-err-ai-preview pre { margin: 0; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 320px; overflow: auto; }
+
 .hcm-meta-run-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
 .hcm-meta-run-result .hcm-json-block { max-height: 42vh; }

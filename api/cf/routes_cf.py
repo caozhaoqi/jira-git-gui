@@ -11,10 +11,13 @@ from api.common import app, logger, broadcast, get_cf_accounts
 from api.cf.cf_core import (
     cf_captcha_fetch, cf_login_account, cf_autologin_all,
     cf_refresh_token, cf_query_logs, cf_export_logs, cf_save_clipboard,
-    cf_mask_tokens,
+    cf_mask_tokens, cf_diagnose_context, cf_save_case, cf_save_feedback,
+    cf_feedback_metrics, cf_list_cases, cf_rebuild_source_index, cf_parse_log_rows,
+    cf_apply_feedback_learnings,
 )
 from api.schemas import (
     CfLogReq, CfLogExportReq, CfLoginReq, CfCaptchaReq, CfAutoLoginReq, ClipboardSaveReq,
+    CfDiagnoseReq, CfCaseSaveReq, CfCaseFeedbackReq, CfFeedbackLearnReq,
 )
 
 router = APIRouter()
@@ -99,6 +102,32 @@ async def api_cf_auto_login(req: CfAutoLoginReq):
     return {"results": results, "count": len(results)}
 
 
+@router.post("/api/cf/refresh-token")
+async def api_cf_refresh_token(req: CfLoginReq):
+    """对**单个**网关重新登录，取回新 token。
+
+    HCM token 默认仅 2 小时有效（hcm_cloud.context_expire_seconds），过期后查询会报
+    17003/51006。这里用 cf_accounts 中该网关已存的账号密码重登，比 auto-login（全量）快得多。
+    """
+    server_url = (req.server_url or "").strip()
+    if not server_url:
+        raise HTTPException(400, "缺少 server_url")
+    try:
+        entry = await cf_refresh_token(server_url, req.proxy)
+    except Exception as e:
+        raise _http_error(e)
+    if not entry or not (entry.get("token") or entry.get("cookie")):
+        raise HTTPException(401, f"重新登录失败：{server_url}（请确认 cf_accounts 已配置该网关账号密码）")
+    broadcast("cf_token_update", {"server_url": server_url.rstrip("/"), "ok": True})
+    return {
+        "ok": True,
+        "server_url": server_url,
+        "token": entry.get("token", ""),
+        "cookie": entry.get("cookie", ""),
+        "ts": entry.get("ts", ""),
+    }
+
+
 @router.get("/api/cf/tokens")
 async def api_cf_tokens():
     """返回已缓存 token 状态（掩码，不含明文）。"""
@@ -129,4 +158,80 @@ async def api_cf_clipboard_save(req: ClipboardSaveReq):
     try:
         return cf_save_clipboard(req)
     except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.post("/api/cf/diagnose-context")
+async def api_cf_diagnose_context(req: CfDiagnoseReq):
+    """聚合诊断上下文：解析错误 + 查词典 + 路由 Wiki + Token 健康度 + 历史案例。
+
+    一次调用拿到全部素材，AI（或前端面板）无需再逐个文件读。
+    路由规则运行时从 ERROR_ROUTE_INDEX.md 解析，改 md 即改路由。
+    """
+    try:
+        return cf_diagnose_context(req)
+    except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.post("/api/cf/cases/save")
+async def api_cf_case_save(req: CfCaseSaveReq):
+    """保存诊断案例到 logs/cf_cases/。"""
+    try:
+        return cf_save_case(req)
+    except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.get("/api/cf/cases")
+async def api_cf_cases(keyword: str = "", limit: int = 50):
+    """列出诊断案例库条目（可按关键词过滤）。"""
+    return cf_list_cases(keyword=keyword, limit=limit)
+
+
+@router.post("/api/cf/cases/feedback")
+async def api_cf_case_feedback(req: CfCaseFeedbackReq):
+    """记录 AI 诊断的人工确认结果，供准确率统计和规则迭代。"""
+    try:
+        return cf_save_feedback(req)
+    except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.get("/api/cf/cases/metrics")
+async def api_cf_case_metrics():
+    """返回诊断反馈准确率与结果分布。"""
+    return cf_feedback_metrics()
+
+
+@router.post("/api/cf/cases/feedback-learn")
+async def api_cf_case_feedback_learn(req: CfFeedbackLearnReq):
+    """诊断→规范闭环：根据人工反馈反哺 errdict.json 与 ERROR_ROUTE_INDEX.md。
+
+    ``apply=false`` 仅产出提案预览（默认，安全）；``apply=true`` 先备份再回写。
+    """
+    try:
+        return cf_apply_feedback_learnings(apply=bool(req.apply), max_proposals=int(req.max_proposals or 100))
+    except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.post("/api/cf/diagnose-index/rebuild")
+async def api_cf_diagnose_index_rebuild():
+    """重建参考云函数源码索引；源码更新后调用一次即可。"""
+    try:
+        return cf_rebuild_source_index()
+    except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.post("/api/cf/logs/parse")
+async def api_cf_logs_parse(req: CfLogExportReq):
+    """把日志行的 content 字段解析成结构化字段（不改文件，仅返回解析结果）。
+
+    用于前端「结构化预览」与 AI 消费：标签、级别、stage、dept_id、errcode、是否疑似错误。
+    """
+    try:
+        return {"rows": cf_parse_log_rows(req.rows), "count": len(req.rows or [])}
+    except Exception as e:  # noqa: BLE001
         raise _http_error(e)
