@@ -947,6 +947,14 @@ button {
   min-height: 0;
   flex: 1;
 }
+/* 每个子标签的常驻容器：显隐由内联 display 控制（flex=显示 / none=隐藏），
+   自身作为 flex 列撑满 .k8s-subpane，使内部组件（flex:1）可纵向滚动。*/
+.k8s-subtab-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .k8s-form,
 .k8s-snapshot-cfg,
 .k8s-yaml-cfg,

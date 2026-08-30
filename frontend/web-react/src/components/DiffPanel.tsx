@@ -442,11 +442,16 @@ export function DiffPanel() {
               style={{ minWidth: 200 }}
             >
               <option value="">{t('diff.pickRepo')}</option>
-              {repos.map((r) => (
-                <option key={r.repo_id} value={r.repo_id}>
-                  {r.display_name || r.name || r.repo_id}
-                </option>
-              ))}
+              {repos.map((r) => {
+                // 同名仓库场景下，仅靠名称无法区分，必须同时显示仓库 ID
+                const label = r.display_name || r.name;
+                const text = label ? `${label}  ·  ID ${r.repo_id}` : r.repo_id;
+                return (
+                  <option key={r.repo_id} value={r.repo_id}>
+                    {text}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <label className="field-inline">

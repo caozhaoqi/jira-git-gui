@@ -29,7 +29,9 @@ class FakeClient:
 
     ⚠️ 必须与真实实现保持同一契约：``core.client.files.FilesMixin.get_file``
     返回 ``(content, error)`` 元组，``core.diff.scan_remote.get_file_cached``
-    内部执行 ``content, err = client.get_file(path)`` 解包。
+    内部执行 ``content, err = client.get_file(path, allow_binary=...)`` 解包。
+    ``allow_binary`` 在本测试里用不到（数据全是文本），但签名必须照抄真实实现，
+    否则 ``get_file_cached`` 传 keyword 会抛 ``unexpected keyword argument``。
 
     此前这里返回裸字符串，解包会抛 ``ValueError: too many values to unpack``，
     被 get_file_cached 的 except 吞掉后返回 None，于是 merge_entries 把
@@ -39,7 +41,7 @@ class FakeClient:
     def __init__(self, data):
         self._data = data
 
-    def get_file(self, path):
+    def get_file(self, path, allow_binary=False):
         if path not in self._data:
             return None, f"远端文件不存在：{path}"
         return self._data[path], None
@@ -270,9 +272,9 @@ class TestMergeEntriesParallel(unittest.TestCase):
 
             # 用真实文件写入模拟 I/O；为放大并发差异，给 FakeClient 加 fetch 延迟
             class SlowClient(FakeClient):
-                def get_file(self, path):
+                def get_file(self, path, allow_binary=False):
                     time.sleep(0.005)
-                    return super().get_file(path)  # 同样遵守 (content, error) 契约
+                    return super().get_file(path, allow_binary=allow_binary)  # 同样遵守 (content, error) 契约
 
             slow = SlowClient(data)
             clear_dir_cache()

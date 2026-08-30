@@ -83,3 +83,5 @@ frontend/web-legacy/
 .workbuddy-ai/
 
 .pytest_tmp/
+
+merge_state/

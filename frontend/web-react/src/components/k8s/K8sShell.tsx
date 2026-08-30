@@ -53,6 +53,9 @@ export function K8sShell() {
       }
     };
     const doFit = () => {
+      // 子标签隐藏（display:none）时容器尺寸为 0，xterm 无法正确测量，跳过；
+      // 切回该标签时 ResizeObserver / window resize 会触发真正的 fit。
+      if (!termRef.current || termRef.current.offsetParent === null) return;
       try { fit.fit(); } catch { /* 容器尚未布局，忽略 */ }
       sendResize();
     };

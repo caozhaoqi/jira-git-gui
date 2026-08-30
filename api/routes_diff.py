@@ -238,7 +238,7 @@ async def api_diff_merge(req: MergeReq):
     # → merge_to_local 的 open(target, "w") 会把本地文件清空（静默数据丢失！）。
     remote_full = (compare_dir + "/" + req.path) if compare_dir else req.path
     remote_content = await asyncio.to_thread(
-        _differ.get_file_cached, client, remote_full, namespace, 86400, req.use_cache)
+        _differ.get_file_cached, client, remote_full, namespace, 86400, req.use_cache, "", True)
 
     if remote_content is None:
         # 远端取不到内容时绝不能写入：空串会把本地文件截断为 0 字节。
@@ -332,7 +332,7 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
             # 远端路径需拼上 compare_dir 前缀，才是相对仓库根的完整路径。
             remote_full = (compare_dir + "/" + req.path) if compare_dir else req.path
             content = await asyncio.to_thread(
-                _differ.get_file_cached, client, remote_full, namespace, 86400, req.use_cache)
+                _differ.get_file_cached, client, remote_full, namespace, 86400, req.use_cache, "", True)
             if content is None:
                 err = f"远端内容获取失败：{remote_full}"
         except Exception as ex:

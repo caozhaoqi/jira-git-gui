@@ -215,6 +215,7 @@ def get_file_cached(
     ttl: int = 86400,
     use_cache: bool = True,
     content_hash: str = "",
+    allow_binary: bool = False,
 ) -> Optional[bytes]:
     """带内容缓存的远端文件读取。
 
@@ -246,7 +247,8 @@ def get_file_cached(
         # get_file 返回 (content, error) —— 必须解包。
         # 若把 tuple 原样返回，下游 file_diff 会对它调用 splitlines() 而崩溃
         # （AttributeError: 'tuple' object has no attribute 'splitlines'）。
-        content, err = client.get_file(path)
+        # allow_binary=True 时合并场景允许返回二进制字节（写回本地），预览场景保持 False。
+        content, err = client.get_file(path, allow_binary=allow_binary)
     except Exception as ex:
         _log.warning("远端文件读取失败：%s（%s: %s）", path, type(ex).__name__, ex)
         return None

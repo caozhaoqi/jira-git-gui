@@ -7,6 +7,7 @@ Cookie 模式下的有界并发批量下载与整库递归下载（支持断点�
 
 共享常量在此重新定义（与 ``core/client.py`` 顶部一致），避免与聚合主类形成循环 import。
 """
+import base64
 import json
 import re
 import subprocess
@@ -39,16 +40,20 @@ _FILE_BROWSE_ERROR_RE = re.compile(
 class FilesMixin:
     """文件读取 / 批量下载能力。"""
 
-    def get_file(self, path: str) -> tuple:
+    def get_file(self, path: str, allow_binary: bool = False) -> tuple:
         """返回 (content, error)。content 为 None 时 error 有值。
 
-        二进制文件（图片/压缩包等）在 Cookie 模式下无法预览，返回提示，
-        引导用户用「下载选中」保存到本地查看。
+        - 预览场景（默认 ``allow_binary=False``）：二进制文件（图片/压缩包等）在 Cookie
+          模式下无法预览，返回提示，引导用户用「下载选中」保存到本地查看。
+        - 合并场景（``allow_binary=True``）：需要把远端字节原样写回本地，故二进制内容
+          也要返回（不再以「无法预览」为由拒绝）——这是 git 风格同步能合并不透明文件的前提。
         """
         if self.config.mode == "pat" and (REPOS_DIR / str(self.repo_id)).exists():
             try:
                 content = self._local_file_read(REPOS_DIR / str(self.repo_id), path)
                 if isinstance(content, (bytes, bytearray)):
+                    if allow_binary:
+                        return content, None
                     return None, "二进制文件，请在文件树勾选后用「下载选中」保存到本地查看。"
                 return content, None
             except Exception as ex:
@@ -64,6 +69,8 @@ class FilesMixin:
         if not ok:
             return None, note
         if isinstance(content, (bytes, bytearray)):
+            if allow_binary:
+                return content, None
             return None, (f"二进制文件（{len(content)} 字节），"
                           f"请在文件树勾选后用「下载选中」保存到本地查看。")
         return content, None
@@ -372,6 +379,56 @@ class FilesMixin:
         # 回退：原 browse 端点（多候选 + 跳过登录页）
         return self._fetch_browse(repo_id, "", path), False
 
+    def _fetch_raw_file(self, repo_id: str, ref: str, path: str):
+        """绕过 web viewer 的大小限制，用插件 REST 原始文件端点直接取字节。
+
+        仅当 web viewer 内嵌失败（文件过大/二进制）时作为兜底。接受「原始字节」响应
+        （``text/plain`` / ``application/octet-stream`` / 未知类型），或 JSON 包内含
+        ``content``/``rawFile``（base64 或文本）；其余（HTML/JSON 错误包）一律拒绝，
+        绝不把错误页当文件内容写坏。返回 bytes/str 或 None。
+        """
+        if not ref or not self.config.cookie:
+            return None
+        base = self.config.jira_url.rstrip("/")
+        safe_path = path.lstrip("/")
+        candidates = [
+            f"{base}/rest/git/1.0/repositories/{repo_id}/files/{ref}?path={safe_path}",
+            f"{base}/rest/gitplugin/1.0/repository/{repo_id}/files/{ref}?path={safe_path}",
+        ]
+        for url in candidates:
+            try:
+                r = self.http_get(url, headers=self.cookie_headers())
+            except Exception:
+                continue
+            if r.status_code != 200:
+                continue
+            ct = (r.headers.get("Content-Type") or "").lower()
+            body = r.content
+            if "html" in ct:
+                continue  # 仍是 viewer / 登录 / 错误页
+            if "json" in ct:
+                try:
+                    j = r.json()
+                except Exception:
+                    j = None
+                if isinstance(j, dict):
+                    c = j.get("content") or j.get("rawFile") or j.get("fileContent")
+                    if isinstance(c, str):
+                        try:
+                            return base64.b64decode(c, validate=True)
+                        except Exception:
+                            return c
+                continue
+            # text/plain / octet-stream / 未知类型 → 原始内容
+            if b"\x00" in body[:4096]:
+                return body
+            try:
+                return body.decode("utf-8")
+            except UnicodeDecodeError:
+                return body
+        return None
+
+
     @staticmethod
     def _extract_balanced_json(html_text: str) -> Optional[dict]:
         """从 <script id="git-file-content-json">…</script> 稳健提取 JSON 对象。
@@ -527,7 +584,13 @@ class FilesMixin:
         # 根本不会跑到这里——这是修掉「点 .py 也报文件过大或为二进制」误报的关键。
         if self._is_likely_text(html_text.encode("utf-8", "replace"), "text/html"):
             if _FILE_BROWSE_ERROR_RE.search(html_text):
-                return False, None, "文件过大或为二进制，预览不可用"
+                # web viewer 不内嵌内容（文件过大/二进制）：尝试插件 REST 原始文件端点兜底，
+                # 绕过 viewer 的大小限制直接取字节。任一端点返回原始内容即采用。
+                raw = self._fetch_raw_file(repo_id, ref, path)
+                if raw is not None:
+                    return True, raw, ""
+                return False, None, ("远端文件过大或为二进制，Cookie 模式的 web 预览无法获取其内容；"
+                                     "请改用本地克隆/PAT 后合并，或在文件树用「下载选中」保存到本地")
         return False, None, "未能从文件页解析出结构化内容"
 
     @staticmethod

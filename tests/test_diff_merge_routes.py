@@ -49,7 +49,7 @@ def _install_spy(monkeypatch, returns):
     calls = []
 
     def spy(client, path, namespace="default", ttl=86400,
-            use_cache=True, content_hash=""):
+            use_cache=True, content_hash="", allow_binary=False):
         calls.append({"path": path, "namespace": namespace})
         return returns(path) if callable(returns) else returns
 
@@ -163,7 +163,7 @@ def test_merge_batch_resume_skips_already_merged(monkeypatch, tmp_path):
     fetched = []
 
     def spy(client, path, namespace="default", ttl=86400,
-            use_cache=True, content_hash=""):
+            use_cache=True, content_hash="", allow_binary=False):
         fetched.append(path)
         return f"remote {path}\n"
 
@@ -204,7 +204,7 @@ def test_merge_batch_resume_refetches_when_local_changed(monkeypatch, tmp_path):
     fetched = []
 
     def spy(client, path, namespace="default", ttl=86400,
-            use_cache=True, content_hash=""):
+            use_cache=True, content_hash="", allow_binary=False):
         fetched.append(path)
         return f"remote {path}\n"
 
