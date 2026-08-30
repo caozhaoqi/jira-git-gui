@@ -87,7 +87,9 @@ class TestBranchCache(unittest.TestCase):
     def test_resolve_branch_caches_probe(self):
         c = _make_client()
         calls = {"n": 0}
-        # 分支解析现经 AllRepositories 浏览页解析 branchName，而非 _browse_has_tree
+        # 分支解析现在「REST 优先」：先打 /rest/gitplugin/1.0/repository/branches
+        # 取 mainBranch；REST 解析失败（这里 fake 返回非 JSON 页面）才回退到浏览页
+        # 探测 branchName。两种路径解析到的分支都会写入 _branch_cache。
         page = '<input type="hidden" name="branchName" value="master">'
 
         def fake_get(url, headers=None):
@@ -95,11 +97,12 @@ class TestBranchCache(unittest.TestCase):
             return _FakeResp(status=200, text=page)
 
         c.http_get = fake_get
-        # 首次：经浏览页探测出 master 并缓存
+        # 首次：REST 探测（非 JSON→失败）+ 浏览页回退探测出 master，共 2 次 HTTP，并缓存
         self.assertEqual(c._resolve_branch("895", ""), "master")
-        # 再次：应直接命中缓存，不再发 HTTP
+        self.assertEqual(calls["n"], 2)
+        # 再次：应直接命中缓存，不再发 HTTP（仍 2 次）
         self.assertEqual(c._resolve_branch("895", ""), "master")
-        self.assertEqual(calls["n"], 1)
+        self.assertEqual(calls["n"], 2)
 
     def test_set_repo_clears_cache(self):
         c = _make_client()

@@ -73,7 +73,14 @@ def canonical_text(name: str, content: str) -> str:
 
     非受支持扩展名或解析失败时回退原文（不抛异常）。
     """
-    low = name.lower()
+    # 防御：调用方偶有传入 bytes（远端抓取结果）甚至 tuple（历史缓存数据）。
+    # 若原样回退，非 str 会泄漏给下游的 .splitlines()，
+    # 引发 AttributeError: 'tuple' object has no attribute 'splitlines'。
+    if isinstance(content, (bytes, bytearray)):
+        content = bytes(content).decode("utf-8", "replace")
+    elif not isinstance(content, str):
+        content = str(content)
+    low = str(name).lower()
     for ext in _JSON_EXTENSIONS:
         if low.endswith(ext):
             try:

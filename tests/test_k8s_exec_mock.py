@@ -204,6 +204,10 @@ def test_ws_k8s_exec_protocol():
                 self._msgs = list(msgs)
                 self.accepted = False
                 self.closed = False
+                # 路由会读 ?tty= 决定走真 PTY 还是行缓冲；本用例验证的是
+                # **行缓冲降级协议**，故显式传 tty=0（否则本机装了 kubectl 时
+                # 会走 PTY 分支，拿不到行缓冲的 output/cwd 帧）。
+                self.query_params = {"tty": "0"}
 
             async def accept(self):
                 self.accepted = True

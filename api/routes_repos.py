@@ -20,7 +20,7 @@ from api.common import (
     commit_to_dict,
 )
 from core.config import save_session, get_session_path
-from core.constants import DEFAULT_REQUEST_QPS
+from core.constants import DEFAULT_REQUEST_QPS, REPOS_DIR
 from core.client import DEFAULT_DOWNLOAD_WORKERS
 from core.app_paths import get_data_root
 from core.models import ConnectConfig
@@ -140,13 +140,39 @@ async def api_select_repo(req: RepoSelectReq):
 
 
 @router.get("/api/tree")
-async def api_tree(path: str = ""):
-    """列出目录单层子项（懒加载）。"""
+async def api_tree(path: str = "", local_dir: str = ""):
+    """列出目录单层子项（懒加载）。支持 local_dir 本地目录模式。"""
+    if local_dir and Path(local_dir).is_dir():
+        try:
+            entries = await asyncio.to_thread(
+                client.list_level_local_dir, local_dir, path)
+            return {
+                "entries": [
+                    {
+                        "name": e.name,
+                        "path": e.path,
+                        "type": e.type,
+                        "size": e.size,
+                        "has_children": e.has_children,
+                        "mtime": e.mtime,
+                    }
+                    for e in entries
+                ],
+                "local": True,
+            }
+        except Exception as ex:
+            raise HTTPException(500, str(ex))
     if not client.repo_id:
         raise HTTPException(400, "尚未指定仓库")
     try:
-        entries = await asyncio.to_thread(client.list_level, path)
+        # list_level 签名是 (repo_id, branch, path)，三个参数缺一不可。
+        # 用 list_level_ex 取失败原因：Cookie 失效 / 分支解析不出来时老实现只返回
+        # 空列表，前端显示「空」而没有任何提示，用户完全无从处理（「文件树无法预览」
+        # 就是这么来的）。
+        entries, tree_err = await asyncio.to_thread(
+            client.list_level_ex, client.repo_id, client.branch, path)
         return {
+            "error": tree_err or None,
             "entries": [
                 {
                     "name": e.name,
@@ -164,8 +190,21 @@ async def api_tree(path: str = ""):
 
 
 @router.get("/api/file")
-async def api_file(path: str):
-    """获取文件内容。"""
+async def api_file(path: str, local_dir: str = ""):
+    """获取文件内容。支持 local_dir 本地目录模式（直接读本地文件）。"""
+    if local_dir and Path(local_dir).is_dir():
+        try:
+            full = (Path(local_dir) / path.lstrip("/")) if path else Path(local_dir)
+            if not full.exists() or not full.is_file():
+                return {"error": f"本地文件不存在：{path}"}
+            with open(full, "rb") as fh:
+                head = fh.read(8000)
+            if b"\x00" in head:
+                return {"error": "二进制文件，请在文件树勾选后下载查看"}
+            content = full.read_text(encoding="utf-8", errors="replace")
+            return {"content": content}
+        except Exception as ex:
+            return {"error": str(ex)}
     content, err = await asyncio.to_thread(client.get_file, path)
     if err:
         return {"error": err}
@@ -185,18 +224,18 @@ async def api_search(
 ):
     """在已克隆到本地的仓库中搜索（文件名 / 文件内容）。
 
-    限制：依赖 PAT 模式克隆到本地的仓库副本（store/repos/<repo_name>）。
+    限制：依赖 PAT 模式克隆到本地的仓库副本（store/repos/<repo_id>）。
     未克隆时报错，引导用户先克隆。两种模式都用纯 Python 遍历，零新依赖。
     """
     q = (q or "").strip()
     if not q:
         return {"results": [], "total": 0, "truncated": False}
 
-    if not client.repo_name:
+    if not client.repo_id:
         return {"error": "请先选择并克隆仓库到本地（PAT 模式）才能搜索"}
 
-    # 本地仓库根目录
-    local_root = Path(get_data_root()) / "repos" / client.repo_name
+    # 本地仓库根目录（与 store/repos/<repo_id> 基准一致，避免路径分裂）
+    local_root = REPOS_DIR / str(client.repo_id)
     if not local_root.is_dir():
         return {"error": f"本地仓库不存在：{local_root}。请先克隆。"}
     # 限定子目录（必须落在 local_root 内，防越权）

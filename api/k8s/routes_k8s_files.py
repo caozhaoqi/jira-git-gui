@@ -25,6 +25,12 @@ from core.k8s import run_kubectl as _k8s_run_kubectl
 logger = logging.getLogger("api.routes_k8s_files")
 router = APIRouter()
 
+#: 分片下载单片默认 / 上限字节数。kubectl exec 每次建连有固定开销（约 0.5~2s），
+#: 片太小会让 10MB 文件花掉几十秒；片太大则单次 JSON 过大、失败重试代价高。
+#: 1MB 是实测较舒服的折中，前端可按网络情况调整。
+DEFAULT_CHUNK = 1024 * 1024
+MAX_CHUNK = 8 * 1024 * 1024
+
 
 class K8sFileReq(BaseModel):
     """容器内文件操作统一请求体（list/read/search 共用）。"""
@@ -109,6 +115,129 @@ async def api_k8s_file_read(body: K8sFileReq):
         out = "\n".join(kept) + f"\n... (truncated, total {len(out.splitlines())} lines)"
         truncated = True
     return {"ok": True, "content": out, "is_binary": False, "truncated": truncated}
+
+
+class K8sFileDownloadReq(BaseModel):
+    """分片下载请求：读取 ``[offset, offset+length)`` 区间的字节。"""
+    env: str = ""
+    pod: str = ""
+    container: str = ""
+    namespace: str = ""
+    path: str = ""
+    offset: int = 0
+    length: int = DEFAULT_CHUNK
+
+
+def _stat_script(path: str) -> str:
+    """容器内取文件大小 + mtime（mtime 尽力而为，失败不影响下载）。
+
+    * ``wc -c <`` 走重定向而非参数，避免文件名以 ``-`` 开头被当成选项；
+    * ``wc`` 失败立刻 ``exit 1``，让 kubectl 的非零 rc 把 stderr（如
+      "No such file or directory"）带回前端，而不是返回一个含糊的 size=0；
+    * mtime 依次尝试 GNU ``stat -c %Y`` 与 BSD ``stat -f %m``（busybox 走前者），
+      都失败也只是丢 mtime，不影响下载。
+    """
+    q = shlex.quote(path)
+    return (
+        f"wc -c < {q} || exit 1\n"
+        f"stat -c %Y {q} 2>/dev/null || stat -f %m {q} 2>/dev/null || true"
+    )
+
+
+def _chunk_script(path: str, offset: int, length: int) -> str:
+    """容器内读取 ``[offset, offset+length)`` 并编码成可安全穿过 kubectl stdout 的文本。
+
+    * 首行输出 ``B64`` / ``HEX`` 标记本次用的编码，后端据此解码；
+    * 优先 ``base64``（比 hex 省 50% 体积）；精简镜像没有 base64 时回退
+      ``od -An -tx1`` 十六进制，让 distroless 这类无 coreutils 的镜像也能下载；
+    * ``tr -d`` 去掉空白/换行，避免 kubectl 传输时被插入换行导致解码失败；
+    * ``tail -c +N`` 的 N 从 1 开始，故 offset 要 +1。
+    """
+    q = shlex.quote(path)
+    tail = f"tail -c +{int(offset) + 1} {q}"
+    return (
+        "if command -v base64 >/dev/null 2>&1; then\n"
+        f"  printf 'B64\\n'; {tail} | head -c {int(length)} | base64 | tr -d '\\n'\n"
+        "else\n"
+        f"  printf 'HEX\\n'; {tail} | head -c {int(length)} | od -An -v -tx1 | tr -d ' \\n'\n"
+        "fi"
+    )
+
+
+@router.post("/api/k8s/file/stat")
+async def api_k8s_file_stat(body: K8sFileReq):
+    """容器内文件大小与修改时间，供下载前算分片数与进度分母。"""
+    if not (body.pod and body.path):
+        return {"ok": False, "error": "pod / path 均为必填"}
+    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+                         ["sh", "-c", _stat_script(body.path)], timeout=30)
+    if rc != 0:
+        return {"ok": False, "error": err.strip()[:300]}
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if not lines:
+        return {"ok": False, "error": "无法获取文件大小（文件不存在或不可读）"}
+    try:
+        size = int(lines[0])
+    except ValueError:
+        return {"ok": False, "error": "无法解析文件大小：%s" % lines[0][:80]}
+    mtime = None
+    if len(lines) > 1:
+        try:
+            mtime = int(lines[1])
+        except ValueError:
+            mtime = None
+    return {"ok": True, "size": size, "mtime": mtime}
+
+
+@router.post("/api/k8s/file/download")
+async def api_k8s_file_download(body: K8sFileDownloadReq):
+    """分片读取容器内文件（**二进制安全**，供断点续传与进度条使用）。
+
+    为什么不能再走 ``cat`` + 编辑器内容：编辑内容是截断过的文本（默认 200KB），
+    二进制还会被直接拦下 —— 10MB 文件自然只能下来几百 KB。
+
+    返回 ``{encoding, data, offset, length, requested, eof}``；无论容器内用的是
+    base64 还是 hex，出参一律统一为 **base64**，前端只需处理一种编码。
+    """
+    if not (body.pod and body.path):
+        return {"ok": False, "error": "pod / path 均为必填"}
+    offset = max(0, int(body.offset or 0))
+    length = int(body.length or DEFAULT_CHUNK)
+    if length <= 0:
+        length = DEFAULT_CHUNK
+    length = min(length, MAX_CHUNK)
+
+    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+                         ["sh", "-c", _chunk_script(body.path, offset, length)],
+                         timeout=60)
+    if rc != 0:
+        return {"ok": False, "error": err.strip()[:300]}
+
+    # 首行是编码标记，其后才是数据
+    head, _, payload = out.partition("\n")
+    encoding = head.strip().upper()
+    data = "".join(payload.split())   # 去掉所有空白，防止传输中被插入换行
+    if encoding == "B64":
+        try:
+            raw = base64.b64decode(data)
+        except Exception as ex:
+            return {"ok": False, "error": "base64 解码失败：%s" % ex}
+    elif encoding == "HEX":
+        try:
+            raw = bytes.fromhex(data)
+        except ValueError as ex:
+            return {"ok": False, "error": "hex 解码失败：%s" % ex}
+    else:
+        return {"ok": False, "error": "无法识别的编码标记：%r" % head[:40]}
+
+    return {
+        "ok": True,
+        "data": base64.b64encode(raw).decode("ascii"),
+        "offset": offset,
+        "length": len(raw),
+        "requested": length,
+        "eof": len(raw) < length,
+    }
 
 
 @router.post("/api/k8s/file/search")

@@ -62,4 +62,6 @@ class JiraGitClient(ConnectionMixin, ReposMixin, BrowseMixin, FilesMixin, CloneM
         self._head_cache: dict = {}
         # REST 端点可用性结论（一旦确认不可用，本次会话内跳过 REST 探测以省请求）
         self._rest_unavailable = False
+        # 最近一次扫描是否出现「登录态失效」信号（跳转登录页 / 401 / 403）
+        self._last_auth_failed = False
 

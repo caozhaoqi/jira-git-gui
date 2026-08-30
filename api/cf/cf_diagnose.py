@@ -838,6 +838,18 @@ _SOURCE_SKIP_PARTS = {".venv", "venv", "__pycache__", ".git", "site-packages", "
 _SOURCE_DIRS = ("cloud_functions", "config/cf_backup")
 _SOURCE_FIXED_FILES = ("errors.py", "core/service/handlers.py", "apps/idm/auth_util.py")
 
+# 特定错误码 → 最权威的参考源码（命中即强加权）。
+# 业务云函数里常有成百上千处引用同一错误码，靠词频排序必然把真正的
+# 「定性文件」淹没掉。这里按错误码显式指定该优先看哪个框架文件。
+_ERRCODE_KEY_SOURCES = {
+    # 17003 = Token 过期/未登录：先看 handlers.py 的异常包装（hide_error_msg
+    # 会吞掉挂载信息），再看 auth_util.py 的 Token 校验与 TTL。
+    17003: {
+        "core/service/handlers.py": 20,
+        "apps/idm/auth_util.py": 16,
+    },
+}
+
 
 def _redact_text(value: str, max_chars: int = 700) -> str:
     """对源码/日志摘要做轻量脱敏，避免诊断上下文带出凭据或长敏感串。"""
@@ -1090,19 +1102,47 @@ def _find_source_evidence(parsed: dict, limit: int = 8) -> dict:
 
     records = index.get("files") or []
     term_files = index.get("term_files") or {}
-    candidate_scores = {}
+    log_type = str(parsed.get("log_type") or "").lower()
+    errcode = parsed.get("errcode")
+    fixed_files = set(_SOURCE_FIXED_FILES)
+
+    # ---- 阶段一：只用索引打分（不读源码），得到完整排序 ---------------------- #
+    # ⚠️ 旧实现在这里踩过坑：先按 base_score 取前 limit*2 个候选、再读文件算 bonus。
+    # 当某个错误码在 cloud_functions 里命中超过 16 个文件时（17003 有上百个），
+    # 由于所有候选 base_score 都是 1，sorted 保持稳定顺序 = 索引下标顺序，
+    # 而固定证据文件（errors.py / core/service/handlers.py / apps/idm/auth_util.py）
+    # 是追加在索引末尾的（下标 403/404/405），于是**永远进不了候选集**，
+    # 它的 +12 固定加权与 +20 错误码加权根本没机会生效 —— 最权威的证据被
+    # 一堆只是恰好写了该错误码的业务云函数挤掉。
+    # 正确做法：先把加权全部算完再排序，最后才按名次读文件。
+    base_scores = {}
     for term in terms:
         for file_index in term_files.get(term.lower(), []):
-            candidate_scores[file_index] = candidate_scores.get(file_index, 0) + 1
-    log_type = str(parsed.get("log_type") or "").lower()
+            base_scores[file_index] = base_scores.get(file_index, 0) + 1
     for record in records:
         if log_type and log_type in Path(record.get("path", "")).stem.lower():
-            candidate_scores[record.get("index")] = candidate_scores.get(record.get("index"), 0) + 8
-    candidates = []
-    for file_index, base_score in sorted(candidate_scores.items(), key=lambda item: -item[1]):
+            base_scores[record.get("index")] = base_scores.get(record.get("index"), 0) + 8
+
+    scored = []
+    for file_index, base_score in base_scores.items():
         if not isinstance(file_index, int) or file_index >= len(records):
             continue
         record = records[file_index]
+        rel = record.get("path", "")
+        score = base_score
+        if rel in fixed_files:
+            score += 12
+        for path_key, bonus in _ERRCODE_KEY_SOURCES.get(errcode, {}).items():
+            if rel == path_key:
+                score += bonus
+        scored.append((score, rel, record))
+
+    # 同分时按相对路径排序，保证结果稳定可复现（不依赖索引下标顺序）
+    scored.sort(key=lambda item: (-item[0], item[1]))
+
+    # ---- 阶段二：只读取进入前列的文件，构建带行号的证据 ---------------------- #
+    candidates = []
+    for score, rel, record in scored[:limit * 2]:
         path = Path(record.get("absolute_path", ""))
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -1125,16 +1165,10 @@ def _find_source_evidence(parsed: dict, limit: int = 8) -> dict:
                 break
         if not local_hits:
             continue
-        filename_bonus = 8 if log_type and log_type in path.stem.lower() else 0
-        fixed_bonus = 0
-        if record.get("path") in _SOURCE_FIXED_FILES:
-            fixed_bonus += 12
-        if parsed.get("errcode") == 17003 and record.get("path") == "core/service/handlers.py":
-            fixed_bonus += 20
         candidates.append({
-            "file": record.get("path"),
+            "file": rel,
             "address": _file_address(path),
-            "score": base_score + filename_bonus + fixed_bonus,
+            "score": score,
             "hits": local_hits,
             "signals": record.get("signals", {}),
             "index_record": {
@@ -1144,8 +1178,6 @@ def _find_source_evidence(parsed: dict, limit: int = 8) -> dict:
                 "models": record.get("models", []),
             },
         })
-        if len(candidates) >= limit * 2:
-            break
 
     candidates.sort(key=lambda x: (-x["score"], x["file"]))
     return {

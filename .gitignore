@@ -81,3 +81,5 @@ frontend/web-react/.tsbuildinfo
 frontend/web-legacy/
 
 .workbuddy-ai/
+
+.pytest_tmp/

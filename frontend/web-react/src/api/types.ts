@@ -376,6 +376,27 @@ export interface K8sFileReadResp {
   truncated?: boolean;
   error?: string;
 }
+/** 分片下载：取文件总大小，用于算分片数与进度分母。 */
+export interface K8sFileStatResp {
+  ok?: boolean;
+  size?: number;
+  mtime?: number | null;
+  error?: string;
+}
+/**
+ * 分片下载：读取 [offset, offset+length) 区间的字节。
+ * `data` 恒为 base64（后端已把容器内的 hex 回退统一成 base64），
+ * `eof` 为本片长度小于请求长度，即已到文件末尾。
+ */
+export interface K8sFileDownloadResp {
+  ok?: boolean;
+  data?: string;
+  offset?: number;
+  length?: number;
+  requested?: number;
+  eof?: boolean;
+  error?: string;
+}
 export interface K8sFileWriteReq {
   env: string;
   pod: string;

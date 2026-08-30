@@ -24,6 +24,7 @@ export function ProgressBar() {
         <progress className="progress-bar indeterminate" />
       )}
       {progress.detail && <div className="progress-detail">{progress.detail}</div>}
+      {progress.eta && <div className="progress-eta">⏱ 预计剩余 {progress.eta}</div>}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import threading
 from fastapi import HTTPException
 
 from fastapi import APIRouter
+from api.eventbus import broadcast
 from api.common import (
     app, client, logger,
     download_cancel, task_status,
@@ -21,6 +22,7 @@ from core.client import NetworkWatchdog
 from api.schemas import (
     CloneReq, DownloadReq, DownloadRepoReq, RateLimitReq,
 )
+
 
 router = APIRouter()
 

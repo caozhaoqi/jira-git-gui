@@ -51,6 +51,10 @@ _NOISE_NAMES = {"", "commits", "files", "branches", "tags", "browse", "view", "c
 
 # 这些状态码表示「该 REST 端点对当前实例/账号确实不可用」
 _REST_DEAD_STATUS = {401, 403, 404, 405, 410}
+# 授权类状态码：与「端点不存在（404/410）」本质不同 —— 401/403 是 Cookie 会话过期，
+# 更新 Cookie 后即可恢复。因此**不能**把它们缓存成「REST 端点不可用」，
+# 否则用户即使更新了 Cookie，REST 也永远不会再探测（而全量仓库主要来自 REST）。
+_AUTH_ERROR_STATUS = {401, 403}
 
 
 class ReposMixin:
@@ -63,7 +67,10 @@ class ReposMixin:
             return []
         if not force:
             cached = self._load_repo_cache()
-            if cached is not None:
+            # 关键：用真值判断而非 `is not None`。空列表 [] 不是「有效缓存」，
+            # 否则一次失败（如 Cookie 过期导致发现 0 个）会把空结果缓存 10 分钟，
+            # 期间反复返回空列表，并把真实故障掩盖成一句「命中缓存 0 个」。
+            if cached:
                 logger.info("仓库发现：命中缓存 %d 个（10 分钟内），force=False 跳过网络请求",
                             len(cached))
                 return cached
@@ -80,6 +87,9 @@ class ReposMixin:
 
     def _do_discover_repos(self) -> List[RepoInfo]:
         """实际执行发现（限流已放宽，供 discover_repos 调用）。"""
+        # 本次扫描是否出现过「登录态失效」信号（跳转登录页 / 401 / 403）。
+        # 每次扫描前重置，供最后的 0 结果提示区分「Cookie 过期」与「接口不可用」。
+        self._last_auth_failed = False
         ts = time.strftime("%Y%m%d_%H%M%S")
         raw_path = Path("logs") / f"discover_raw_{ts}.txt"
         try:
@@ -117,8 +127,13 @@ class ReposMixin:
             for rid, ri in html.items():
                 merged[rid] = ri
         if not merged:
-            logger.warning("仓库发现：0 个。可能会话已过期，或该账号无可见仓库，"
-                           "或 REST/HTML 接口均不可用。")
+            # 区分「Cookie 过期」与「接口不可用」，前者才是 0 结果的绝大多数真因
+            if getattr(self, "_last_auth_failed", False):
+                logger.warning("仓库发现：0 个 —— 检测到跳转登录页或 401/403，"
+                               "Jira Cookie 会话已过期。请在「连接设置」更新 Cookie 后重试。")
+            else:
+                logger.warning("仓库发现：0 个。可能会话已过期，或该账号无可见仓库，"
+                               "或 REST/HTML 接口均不可用。")
         else:
             logger.info("仓库发现完成：HTML 页面解析 %d 个，REST 全量遍历 %d 个，"
                         "合并去重后共 %d 个。", len(html), len(rest), len(merged))
@@ -129,6 +144,11 @@ class ReposMixin:
     _REPO_CACHE_TTL = 600  # 秒
 
     def _save_repo_cache(self, repos: List[RepoInfo]) -> None:
+        # 空结果不写入缓存：否则「发现 0 个」会被当作有效缓存保存 10 分钟，
+        # 期间反复返回空列表，并把 Cookie 过期这类真实故障掩盖成「命中缓存 0 个」。
+        if not repos:
+            logger.info("仓库列表缓存：本次发现 0 个，不写入缓存（避免空结果掩盖真实故障）")
+            return
         try:
             data = {
                 "ts": time.time(),
@@ -173,6 +193,8 @@ class ReposMixin:
                 tag = f"HTML AllRepositories [page {page_idx}]"
                 self._dump_raw(raw_fp, tag, url, r)
                 if r.status_code != 200 or "login" in str(r.url):
+                    # 标记登录态失效，供最终提示区分「Cookie 过期」与「接口不可用」
+                    self._last_auth_failed = True
                     logger.warning("[发现-HTML] page=%d 状态码=%s 或跳转登录页（%s），停止翻页",
                                    page_idx, r.status_code, r.url)
                     break
@@ -211,6 +233,7 @@ class ReposMixin:
         """翻页遍历 git 插件 REST 仓库列表，返回 repoId -> RepoInfo（权威全量）。"""
         out: Dict[str, RepoInfo] = {}
         saw_dead = False
+        saw_auth = False   # 401/403 或跳转登录页：授权失效，Cookie 更新后可恢复
         base = self.config.jira_url.rstrip("/")
         for ep in REST_ENDPOINTS:
             if out:
@@ -230,11 +253,17 @@ class ReposMixin:
                         r = self.http_get(paged, headers=self.cookie_headers())
                         self._dump_raw(raw_fp, f"REST {ep} [{cname}] {start}", paged, r)
                         if r.status_code != 200 or self._looks_like_login(r):
-                            if r.status_code in _REST_DEAD_STATUS:
+                            login_like = self._looks_like_login(r)
+                            # 401/403 或跳转登录页 = 授权失效（Cookie 过期），更新 Cookie 即可恢复，
+                            # 绝不能与 404「端点不存在」一样被缓存成永久不可用。
+                            if r.status_code in _AUTH_ERROR_STATUS or login_like:
+                                saw_auth = True
+                                self._last_auth_failed = True
+                            elif r.status_code in _REST_DEAD_STATUS:
                                 saw_dead = True
                             logger.warning("[发现-REST] %s [%s] %s：状态=%s%s",
                                            ep, cname, start, r.status_code,
-                                           "（疑似登录页）" if self._looks_like_login(r) else "")
+                                           "（疑似登录页）" if login_like else "")
                             break
                         items, total = self._normalize_rest_envelope(r)
                         if not items:
@@ -263,10 +292,13 @@ class ReposMixin:
                         break
             if ep_out:
                 out.update(ep_out)
-        if not out and saw_dead:
+        if not out and saw_dead and not saw_auth:
             self._rest_unavailable = True
             logger.info("[发现-REST] 所有 REST 端点均不可用（多为 404），已缓存该结论；"
                         "后续「发现仓库」将跳过 REST 探测以节省请求。")
+        elif not out and saw_auth:
+            logger.warning("[发现-REST] 端点返回 401/403 或跳转登录页 —— 这是 Cookie 会话过期，"
+                           "并非端点不存在；因此不缓存「不可用」结论，更新 Cookie 后会自动重试。")
         return out
 
     # ---- 原始响应诊断辅助 ----

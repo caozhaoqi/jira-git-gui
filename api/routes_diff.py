@@ -132,10 +132,20 @@ async def api_diff_file(req: DiffFileReq):
         local_content = Path(local_path).read_text(encoding="utf-8", errors="replace")
 
     namespace = str(client.repo_id) if client.repo_id else "default"
+    # ⚠️ 签名是 get_file_cached(client, path, namespace, ttl, use_cache)。
+    # 之前把 namespace 与 path 写反：拿 namespace（如 "1596"）当文件路径去抓取，
+    # 必然失败 → remote_content 为 None → 退化成空字符串与本地比对
+    # → 本地内容被判为「整篇删除」，差异对比显示全是差异。
     remote_content = await asyncio.to_thread(
-        _differ.get_file_cached, client, namespace, req.path, 86400, req.use_cache)
+        _differ.get_file_cached, client, req.path, namespace, 86400, req.use_cache)
 
-    diff_text = _differ.file_diff(local_path, remote_content or "")
+    if remote_content is None:
+        # 远端内容取不到时不要伪装成空内容参与比对（会被判为全量差异），
+        # 明确抛出错误让前端提示「远端内容获取失败」。
+        raise HTTPException(502, f"远端内容获取失败：{req.path}"
+                                 f"（请检查仓库/分支选择与 Cookie 是否有效）")
+
+    diff_text = _differ.file_diff(local_path, remote_content)
     normalized_same = _differ.is_whitespace_only_diff(local_path, remote_content or "")
     show_local = _differ.canonical_text(local_path, local_content) if local_content else ""
     show_remote = _differ.canonical_text(req.path, remote_content or "") if remote_content else ""
@@ -151,9 +161,21 @@ async def api_diff_file(req: DiffFileReq):
 async def api_diff_merge(req: MergeReq):
     """将远程文件合并到本地（远程内容缓存优先）。"""
     namespace = str(client.repo_id) if client.repo_id else "default"
+    # ⚠️ 签名是 get_file_cached(client, path, namespace, ttl, use_cache)。
+    # 之前把 namespace 与 path 写反：拿 namespace（如 "1596"）当文件路径去抓取，
+    # 必然失败 → remote_content 为 None → 退化成空字符串写入本地
+    # → merge_to_local 的 open(target, "w") 会把本地文件清空（静默数据丢失！）。
     remote_content = await asyncio.to_thread(
-        _differ.get_file_cached, client, namespace, req.path, 86400, req.use_cache)
-    ok = _differ.merge_to_local(req.local_dir, req.path, remote_content or "")
+        _differ.get_file_cached, client, req.path, namespace, 86400, req.use_cache)
+
+    if remote_content is None:
+        # 远端取不到内容时绝不能写入：空串会把本地文件截断为 0 字节。
+        raise HTTPException(502, f"远端内容获取失败：{req.path}"
+                                 f"（已中止合并，本地文件未被修改）")
+
+    ok = _differ.merge_to_local(req.local_dir, req.path, remote_content)
+    if not ok:
+        raise HTTPException(500, f"写入本地失败：{req.path}（可能权限不足）")
     return {"ok": ok, "path": req.path}
 
 
@@ -179,10 +201,14 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
 
     async def _fetch(idx: int, req: MergeReq):
         err: Optional[str] = None
-        content: Optional[str] = ""
+        content: Optional[bytes] = None
         try:
+            # ⚠️ 签名是 get_file_cached(client, path, namespace, ttl, use_cache)，
+            # 顺序写反会把 namespace 当路径抓取，详见 api_diff_file 处的说明。
             content = await asyncio.to_thread(
-                _differ.get_file_cached, client, namespace, req.path, 86400, req.use_cache)
+                _differ.get_file_cached, client, req.path, namespace, 86400, req.use_cache)
+            if content is None:
+                err = f"远端内容获取失败：{req.path}"
         except Exception as ex:
             err = str(ex)
         await pipe.put((idx, req, content, err))
@@ -197,9 +223,13 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                     break
                 ok = False
                 err = fetch_err
+                if err is None and content is None:
+                    # 防御：content 为 None 意味着「没取到」，不是「远端就是空文件」。
+                    # 若退化成 "" 写入，open(target,"w") 会把本地文件截断成 0 字节。
+                    err = f"远端内容获取失败：{req.path}（已跳过写入）"
                 if err is None:
                     try:
-                        ok = _differ.merge_to_local(req.local_dir, req.path, content or "")
+                        ok = _differ.merge_to_local(req.local_dir, req.path, content)
                     except Exception as ex:
                         ok = False
                         err = str(ex)

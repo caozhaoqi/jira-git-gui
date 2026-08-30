@@ -54,13 +54,21 @@ def merge_entries(
     def _work(entry):
         if should_cancel and should_cancel():
             return
+        err: Optional[str] = None
         try:
             content = get_file_cached(
                 client, entry.path, namespace,
                 ttl=file_ttl, use_cache=use_cache,
             )
-            success = merge_to_local(local_dir, entry.path, content if content is not None else "")
-            err: Optional[str] = None
+            if content is None:
+                # ⚠️ 抓取失败时绝不能写空内容：merge_to_local 用 open(..., "w") 写入，
+                # 会先把文件截断为 0 字节 —— 本地已有文件会被静默清空（数据丢失）。
+                # 正确做法是跳过并计入失败，保持本地文件原样。
+                success = False
+                err = "远端内容抓取失败（返回 None），已跳过，未改动本地文件"
+            else:
+                # 注意：远端确实是空文件时 content 为 b""（不是 None），属合法内容，正常写入。
+                success = merge_to_local(local_dir, entry.path, content)
         except Exception as e:  # noqa: BLE001
             success = False
             err = str(e)

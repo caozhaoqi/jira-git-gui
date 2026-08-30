@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiPost } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
+import { EtaTracker, formatEta } from '../utils/eta';
 import type {
   DiffEntry,
   DiffStatus,
@@ -34,6 +35,7 @@ export function DiffPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const setProgress = useAppStore((s) => s.setProgress);
+  const progress = useAppStore((s) => s.progress);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
   const { t } = useT();
 
@@ -53,6 +55,11 @@ export function DiffPanel() {
   const localDirRef = useRef(localDir);
   localDirRef.current = localDir;
   const scanningRef = useRef(false);
+  // ETA 估算：扫描阶段与合并阶段各自独立计时（后端给的文件数 / 完成比例不同源）
+  const scanEta = useRef(new EtaTracker());
+  const scanEtaStarted = useRef(false);
+  const mergeEta = useRef(new EtaTracker());
+  const mergeEtaStarted = useRef(false);
 
   // ===== SSE 接线（扫描 / 合并进度） =====
   useEffect(() => {
@@ -64,12 +71,31 @@ export function DiffPanel() {
       sse.on('scan_progress', (d: any) => {
         if (!scanningRef.current) return;
         const pct = typeof d.pct === 'number' ? d.pct : 0;
-        setProgress({ visible: true, mode: 'determinate', pct, stage: d.message || t('diff.scanning'), detail: `${d.done ?? 0}/${d.total ?? 0}` });
+        const done = typeof d.done === 'number' ? d.done : 0;
+        // 后端 total 是「已发现目录数」而非文件数，done 才是真实文件数；
+        // 远程扫描阶段 pct 落在 10~80，用 (pct-10)/70 当作该阶段完成比例反推总量。
+        if (!scanEtaStarted.current) {
+          scanEta.current.reset(done);
+          scanEtaStarted.current = true;
+        }
+        const frac = (pct - 10) / 70;
+        const etaSec = scanEta.current.etaFromFraction(done, frac);
+        const eta = etaSec != null ? formatEta(etaSec) : '';
+        setProgress({
+          visible: true,
+          mode: 'determinate',
+          pct,
+          stage: t('diff.scanRemote'),
+          detail: t('diff.filesScanned', { n: done.toLocaleString() }),
+          eta,
+        });
       }),
       sse.on('scan_done', () => {
+        scanEtaStarted.current = false;
         if (scanningRef.current) setProgress({ visible: false });
       }),
       sse.on('scan_error', (d: any) => {
+        scanEtaStarted.current = false;
         if (!scanningRef.current) return;
         setProgress({ visible: false });
         addToast(d.message || t('diff.scanFail', { msg: '' }), 'error');
@@ -77,9 +103,27 @@ export function DiffPanel() {
       }),
       sse.on('merge_progress', (d: any) => {
         const pct = typeof d.pct === 'number' ? d.pct : 0;
-        setProgress({ visible: true, mode: 'determinate', pct, stage: t('diff.merging'), detail: d.error ? `${d.path}: ${d.error}` : `${d.done}/${d.total}` });
+        const done = typeof d.done === 'number' ? d.done : 0;
+        const total = typeof d.total === 'number' ? d.total : 0;
+        if (!mergeEtaStarted.current) {
+          mergeEta.current.reset(done);
+          mergeEtaStarted.current = true;
+        }
+        const etaSec = mergeEta.current.etaFromTotal(done, total);
+        const eta = etaSec != null ? formatEta(etaSec) : '';
+        setProgress({
+          visible: true,
+          mode: 'determinate',
+          pct,
+          stage: t('diff.merging'),
+          detail: d.error
+            ? `${d.path}: ${d.error}`
+            : t('diff.mergingFiles', { done, total }),
+          eta,
+        });
       }),
       sse.on('merge_done', () => {
+        mergeEtaStarted.current = false;
         setProgress({ visible: false });
       }),
     ];
@@ -92,6 +136,7 @@ export function DiffPanel() {
     if (!selectedRepo) { pushLog(t('diff.selectRemoteFirst'), 'warning'); addToast(t('diff.selectRemoteFirst'), 'warn'); return; }
     setBusy(true);
     scanningRef.current = true;
+    scanEtaStarted.current = false;
     setErrors([]);
     setProgress({ visible: true, mode: 'indeterminate', stage: t('diff.preparing'), detail: '' });
     setEntries([]);
@@ -189,6 +234,7 @@ export function DiffPanel() {
       return;
     }
     setBusy(true);
+    mergeEtaStarted.current = false;
     const modeHint = mergeRemoteOnly ? `（${t('diff.mergeRemoteOnly')}）` : '';
     pushLog(t('diff.batchMergeStart', { n: targets.length }) + modeHint);
     try {
@@ -237,6 +283,27 @@ export function DiffPanel() {
           <label className="chk"><input type="checkbox" checked={mergeRemoteOnly} onChange={(e) => setMergeRemoteOnly(e.target.checked)} /> {t('diff.mergeRemoteOnly')}</label>
         </div>
       </div>
+
+      {/* 面板内进度条：直接订阅全局 progress store，复用 scan_progress / merge_progress SSE 事件。
+          旧原生版的 #diff-progress 在 React 重构时漏搬，这里补回，让对比 / 合并进度在面板内可见。 */}
+      {progress.visible && (
+        <div className={`diff-progress ${progress.mode === 'indeterminate' ? 'indeterminate' : ''} ${progress.mode === 'error' ? 'error' : ''}`}>
+          <div className="diff-progress-bar">
+            <div
+              className="diff-progress-fill"
+              style={progress.mode === 'determinate' ? { width: `${Math.max(0, Math.min(100, progress.pct))}%` } : undefined}
+            />
+          </div>
+          <div className="diff-progress-meta">
+            <span className="diff-progress-stage">{progress.stage}</span>
+            {progress.mode === 'determinate' && (
+              <span className="diff-progress-pct">{Math.max(0, Math.min(100, progress.pct))}%</span>
+            )}
+          </div>
+          {progress.detail && <div className="diff-progress-detail">{progress.detail}</div>}
+          {progress.eta && <div className="diff-progress-eta">⏱ 预计剩余 {progress.eta}</div>}
+        </div>
+      )}
 
       {!selectedRepo && <div className="empty-hint">{t('diff.pickRepo')}</div>}
 

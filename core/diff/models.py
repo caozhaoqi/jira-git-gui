@@ -64,6 +64,20 @@ class DiffEntry:
 
 
 @dataclass
+class FileDiffResult:
+    """**单个文件**的结构化 diff 结果（供 compute_file_diff / 展示层使用）。
+
+    与下面的 ``DiffResult`` 职责不同，切勿混用：
+      - ``DiffResult``    = 整次扫描的汇总（entries/total/same/...）
+      - ``FileDiffResult``= 单文件比较（status/hunks/old_text/new_text）
+    """
+    status: DiffStatus = DiffStatus.SAME
+    hunks: list = field(default_factory=list)
+    old_text: Optional[str] = None
+    new_text: Optional[str] = None
+
+
+@dataclass
 class DiffResult:
     """整个扫描的结果。"""
     entries: list[DiffEntry] = field(default_factory=list)
