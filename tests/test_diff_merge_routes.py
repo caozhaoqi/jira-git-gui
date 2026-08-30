@@ -147,3 +147,88 @@ def test_merge_writes_empty_remote_file(monkeypatch, tmp_path):
 
     assert resp["ok"] is True, resp
     assert target.read_bytes() == b"", "空远端内容应把本地文件清空，实际：%r" % target.read_bytes()
+
+
+# ---- 4. 断点续传：已合并且本地一致的文件不再抓取 ------------------------------ #
+def test_merge_batch_resume_skips_already_merged(monkeypatch, tmp_path):
+    """回归断点续传：第一次合并写盘并落 manifest；第二次合并应跳过已一致文件，
+    不再调用 get_file_cached 抓取（省掉「重抓缓存」那一步）。
+
+    manifest 存于应用数据目录 sidecar（此处重定向到 tmp_path 以隔离）。
+    """
+    import core.diff.merge_manifest as _mm
+
+    monkeypatch.setattr(_mm, "get_data_root", lambda: tmp_path / "appdata")
+
+    fetched = []
+
+    def spy(client, path, namespace="default", ttl=86400,
+            use_cache=True, content_hash=""):
+        fetched.append(path)
+        return f"remote {path}\n"
+
+    monkeypatch.setattr(_rd._differ, "get_file_cached", spy)
+    monkeypatch.setattr(_rd, "client", _StubClient("895"))
+
+    local = tmp_path / "local"
+    local.mkdir()
+    paths = ["a.txt", "sub/b.txt", "c.txt"]
+
+    # 第一次：全量合并，全部抓取
+    res1 = asyncio.run(_rd.api_diff_merge_batch(
+        [_rd.MergeReq(local_dir=str(local), path=p, use_cache=True) for p in paths]))
+    assert all(r["ok"] for r in res1["results"]), res1
+    assert res1.get("skipped", 0) == 0, res1
+    assert set(fetched) == set(paths), fetched
+
+    # 第二次：应全部命中续传，不再抓取
+    fetched.clear()
+    res2 = asyncio.run(_rd.api_diff_merge_batch(
+        [_rd.MergeReq(local_dir=str(local), path=p, use_cache=True) for p in paths]))
+    assert res2.get("skipped", 0) == 3, res2
+    assert all(r.get("skipped") for r in res2["results"]), res2
+    assert fetched == [], f"续传不应再抓取：{fetched}"
+
+    # manifest 真的落盘，且记录全部成功
+    manifest = _mm.load_manifest(str(local))
+    assert set(manifest.keys()) == set(paths), manifest
+    assert all(v["ok"] for v in manifest.values()), manifest
+
+
+def test_merge_batch_resume_refetches_when_local_changed(monkeypatch, tmp_path):
+    """续传只跳过『本地仍一致』的文件：本地被改后，下次合并必须重新抓取该文件。"""
+    import core.diff.merge_manifest as _mm
+
+    monkeypatch.setattr(_mm, "get_data_root", lambda: tmp_path / "appdata")
+
+    fetched = []
+
+    def spy(client, path, namespace="default", ttl=86400,
+            use_cache=True, content_hash=""):
+        fetched.append(path)
+        return f"remote {path}\n"
+
+    monkeypatch.setattr(_rd._differ, "get_file_cached", spy)
+    monkeypatch.setattr(_rd, "client", _StubClient("895"))
+
+    local = tmp_path / "local"
+    local.mkdir()
+    paths = ["a.txt", "b.txt"]
+
+    asyncio.run(_rd.api_diff_merge_batch(
+        [_rd.MergeReq(local_dir=str(local), path=p, use_cache=True) for p in paths]))
+    assert fetched == paths
+
+    # 模拟用户改了 a.txt（与远端不一致）
+    (local / "a.txt").write_text("LOCAL EDIT\n", encoding="utf-8")
+    fetched.clear()
+    res = asyncio.run(_rd.api_diff_merge_batch(
+        [_rd.MergeReq(local_dir=str(local), path=p, use_cache=True) for p in paths]))
+    # a.txt 本地变了 → 必须重新抓取；b.txt 仍一致 → 跳过
+    assert set(fetched) == {"a.txt"}, f"本地被改的文件应重新抓取：{fetched}"
+    assert res.get("skipped", 0) == 1, res
+
+    # 重新抓取后 a.txt 被覆盖回远端内容，manifest 仍标记 ok
+    assert (local / "a.txt").read_text() == "remote a.txt\n"
+    manifest = _mm.load_manifest(str(local))
+    assert manifest["a.txt"]["ok"] is True

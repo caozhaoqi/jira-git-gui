@@ -144,6 +144,8 @@ export interface DiffEntry {
   status: DiffStatus;
   lines_added?: number;
   lines_removed?: number;
+  /** 已通过 merge_manifest 合并过（仅 fast_scan 时可信） */
+  merged?: boolean;
 }
 export interface DiffSummary {
   total?: number;
@@ -155,17 +157,28 @@ export interface DiffSummary {
 }
 export interface DiffScanReq {
   local_dir: string;
-  repo_name: string;
+  repo_name?: string;
+  repo_id?: string;
+  branch?: string;
+  compare_dir?: string;
+  use_cache?: boolean;
   ignore_line_endings?: boolean;
+  fast_scan?: boolean;
 }
 export interface DiffScanResp {
   entries?: DiffEntry[];
   summary?: DiffSummary;
   error?: string;
+  compare_dir?: string;
+  local_base?: string;
+  fast_scan?: boolean;
+  merged_count?: number;
 }
 export interface DiffFileReq {
   local_dir: string;
   path: string;
+  compare_dir?: string;
+  use_cache?: boolean;
 }
 export interface DiffFileResp {
   diff?: string;
@@ -177,24 +190,44 @@ export interface DiffFileResp {
 export interface DiffMergeReq {
   local_dir: string;
   path: string;
+  compare_dir?: string;
+  use_cache?: boolean;
   status?: string;
 }
 export interface DiffMergeResp {
   ok?: boolean;
   error?: string;
+  skipped?: boolean;
+  reason?: string;
 }
 export interface DiffMergeBatchReq {
   local_dir: string;
   path: string;
+  compare_dir?: string;
   status?: string;
 }
 export interface DiffMergeBatchItem {
   local_dir: string;
   path: string;
+  compare_dir?: string;
   status?: string;
 }
 export interface DiffMergeBatchResp {
-  results?: { path: string; ok: boolean; error?: string }[];
+  results?: { path: string; ok: boolean; error?: string; skipped?: boolean }[];
+  error?: string;
+  skipped?: number;
+}
+/** 已合并记录（merge_manifest）：path -> {ok, remote_hash} */
+export interface MergeManifestResp {
+  local_dir?: string;
+  compare_dir?: string;
+  count?: number;
+  entries?: Record<string, { ok: boolean; remote_hash: string }>;
+  error?: string;
+}
+/** 对比目录范围内的最近更新记录（git log 风格） */
+export interface DiffCommitsResp {
+  commits?: Commit[];
   error?: string;
 }
 
