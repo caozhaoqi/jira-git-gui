@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { sse } from './api/events';
 import { apiGet } from './api/client';
-import { useAppStore } from './store/useAppStore';
+import { useAppStore, type TabKey } from './store/useAppStore';
 import { EtaTracker, formatEta } from './utils/eta';
 import type {
   StatusResp,
@@ -33,6 +33,23 @@ import { ConnectModal } from './components/ConnectModal';
 
 const ACTIONBAR_TABS = new Set(['repo']);
 
+// 每个标签页对应的面板。一次性建好元素引用，App 重渲染时复用同一引用，
+// 配合下面的「访问过就常驻挂载、非当前页用 display:none 隐藏」策略，
+// 让切换标签页时组件实例不卸载 —— 文件树、diff 结果、扫描进度、终端会话、
+// 表单输入、滚动位置等本地状态全部保留，直到整个程序（窗口）关闭才随 React 卸载而清理。
+// 未访问过的标签页不会预挂载，避免冷启动就拉起所有面板（K8s 终端等）。
+const PANELS: { key: TabKey; el: ReactNode }[] = [
+  { key: 'repo', el: <RepoPanel /> },
+  { key: 'diff', el: <DiffPanel /> },
+  { key: 'logs', el: <LogPanel /> },
+  { key: 'k8s', el: <K8sPanel /> },
+  { key: 'cf', el: <CfPanel /> },
+  { key: 'clash', el: <ClashPanel /> },
+  { key: 'hcm', el: <HcmObjectBrowser /> },
+  { key: 'diagnose', el: <UnifiedDiagnosisPanel /> },
+  { key: 'settings', el: <SettingsPanel /> },
+];
+
 export default function App() {
   const setStatus = useAppStore((s) => s.setStatus);
   const setRepos = useAppStore((s) => s.setRepos);
@@ -44,6 +61,16 @@ export default function App() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
   const [connectOpen, setConnectOpen] = useState(false);
+  // 访问过的标签页集合：首次切到某标签页就加入并永久保持挂载（仅隐藏），
+  // 因此来回切换不会重置该面板内容。清空只发生在整个 App 卸载（程序关闭）。
+  const [visited, setVisited] = useState<Set<TabKey>>(
+    () => new Set<TabKey>([activeTab]),
+  );
+  useEffect(() => {
+    setVisited((prev) =>
+      prev.has(activeTab) ? prev : new Set(prev).add(activeTab),
+    );
+  }, [activeTab]);
   // 克隆 / 下载进度的 ETA 估算（后端给真实 total，可用 etaFromTotal）
   const cloneEta = useRef(new EtaTracker());
   const cloneEtaStarted = useRef(false);
@@ -185,15 +212,16 @@ export default function App() {
             </div>
           )}
           <div className="workspace-body">
-            {activeTab === 'repo' && <RepoPanel />}
-            {activeTab === 'diff' && <DiffPanel />}
-            {activeTab === 'logs' && <LogPanel />}
-            {activeTab === 'k8s' && <K8sPanel />}
-            {activeTab === 'cf' && <CfPanel />}
-            {activeTab === 'clash' && <ClashPanel />}
-            {activeTab === 'hcm' && <HcmObjectBrowser />}
-            {activeTab === 'diagnose' && <UnifiedDiagnosisPanel />}
-            {activeTab === 'settings' && <SettingsPanel />}
+            {PANELS.map(({ key, el }) =>
+              visited.has(key) || activeTab === key ? (
+                <div
+                  key={key}
+                  className={`tab-pane${activeTab === key ? '' : ' tab-pane--hidden'}`}
+                >
+                  {el}
+                </div>
+              ) : null,
+            )}
           </div>
         </main>
       </div>

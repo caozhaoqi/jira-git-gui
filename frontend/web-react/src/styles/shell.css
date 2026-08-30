@@ -319,6 +319,15 @@ button {
   overflow: auto;
   padding: 16px 18px;
 }
+/* 标签页常驻挂载容器：当前页正常显示，非当前页仅隐藏（display:none）不卸载，
+   从而保留各面板的本地状态（文件树/diff 结果/进度/终端/表单/滚动位置）。
+   高度撑满 .workspace-body，使内部 height:100% 的面板照常工作。 */
+.tab-pane {
+  height: 100%;
+}
+.tab-pane--hidden {
+  display: none;
+}
 
 .actionbar {
   display: flex;
@@ -1338,8 +1347,11 @@ button {
 
 /* ---- 动效（对齐 HTML 参考版） ---- */
 
-/* tab 切换：面板淡入上浮（HTML 版 .tab-pane.active 的 pane-in） */
-.workspace-body > * {
+/* tab 切换：面板淡入上浮（HTML 版 .tab-pane.active 的 pane-in）。
+   注意：标签页现在常驻挂载、仅用 display:none 隐藏（见 .tab-pane），
+   display 从 none 切回 block 会重启 CSS 动画，若作用到 .tab-pane 上会导致每次切回标签页都重放动画。
+   因此这里用 :not(.tab-pane) 排除常驻面板，避免来回切换时的动画闪烁。 */
+.workspace-body > *:not(.tab-pane) {
   animation: pane-in 0.3s var(--ease-out);
 }
 @keyframes pane-in {
