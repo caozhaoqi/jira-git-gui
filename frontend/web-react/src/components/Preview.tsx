@@ -24,6 +24,7 @@ export function Preview() {
   const [error, setError] = useState('');
   const [maximized, setMaximized] = useState(false);
   const pushLog = useAppStore((s) => s.pushLog);
+  const treeLocalDir = useAppStore((s) => s.treeLocalDir);
   const { t } = useT();
 
   useEffect(() => {
@@ -37,7 +38,11 @@ export function Preview() {
     setLoading(true);
     setTitle(t('file.loadingFile') + selectedFilePath);
     setError('');
-    apiGet<FileResp>(`/api/file?path=${encodeURIComponent(selectedFilePath)}`)
+    const ld = treeLocalDir.trim();
+    const url = ld
+      ? `/api/file?path=${encodeURIComponent(selectedFilePath)}&local_dir=${encodeURIComponent(ld)}`
+      : `/api/file?path=${encodeURIComponent(selectedFilePath)}`;
+    apiGet<FileResp>(url)
       .then((res) => {
         if (cancelled) return;
         if (res.error) {

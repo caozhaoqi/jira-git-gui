@@ -149,8 +149,16 @@ export async function apiText(path: string): Promise<string> {
   return text;
 }
 
-export async function apiPost<T = any>(path: string, body: unknown): Promise<T> {
-  return api<T>(path, { method: 'POST', body: JSON.stringify(body) });
+/**
+ * POST JSON。`opts` 可传额外 RequestInit（如 `signal` 用于取消在途请求），
+ * 不能覆盖 method / body。
+ */
+export async function apiPost<T = any>(
+  path: string,
+  body: unknown,
+  opts: Omit<RequestInit, 'method' | 'body'> = {}
+): Promise<T> {
+  return api<T>(path, { ...opts, method: 'POST', body: JSON.stringify(body) });
 }
 
 export async function apiDelete<T = any>(path: string): Promise<T> {

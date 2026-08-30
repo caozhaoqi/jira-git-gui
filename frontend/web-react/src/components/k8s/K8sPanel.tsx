@@ -128,14 +128,17 @@ export function K8sPanel() {
           ))}
         </div>
 
-        <div className="k8s-subpane active" style={{ display: 'block' }}>
-          {sub === 'snapshot' && <K8sSnapshot />}
-          {sub === 'yaml' && <K8sYaml />}
-          {sub === 'network' && <K8sNetwork />}
-          {sub === 'events' && <K8sEvents />}
-          {sub === 'top' && <K8sTop />}
-          {sub === 'shell' && <K8sShell />}
-          {sub === 'files' && <K8sFiles />}
+        {/* 始终挂载所有子标签、用 display 切换显隐，避免切换标签时组件卸载导致
+            本地状态 / 连接丢失（shell 的 WebSocket+xterm、files/yaml 的未保存编辑、
+            snapshot 的在途抓取、events/top 的自动刷新等都会因卸载而复位）。*/}
+        <div className="k8s-subpane active">
+          <div className="k8s-subtab-pane" style={{ display: sub === 'snapshot' ? 'flex' : 'none' }}><K8sSnapshot /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'yaml' ? 'flex' : 'none' }}><K8sYaml /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'network' ? 'flex' : 'none' }}><K8sNetwork /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'events' ? 'flex' : 'none' }}><K8sEvents /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'top' ? 'flex' : 'none' }}><K8sTop /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'shell' ? 'flex' : 'none' }}><K8sShell /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'files' ? 'flex' : 'none' }}><K8sFiles /></div>
         </div>
 
         {envModalOpen && <K8sEnvModal onClose={() => setEnvModalOpen(false)} />}

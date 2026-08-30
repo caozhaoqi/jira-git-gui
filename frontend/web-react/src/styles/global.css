@@ -363,9 +363,11 @@ body {
   flex: none;
 }
 .tree-name {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tree-size {
   color: var(--text-dim);
@@ -385,6 +387,29 @@ body {
 .tree-loading {
   padding: 10px;
   color: var(--text-dim);
+}
+
+/* 文件树加载失败：把后端给的真实原因显示出来，
+   否则界面只有「空」，用户不知道该更新 Cookie 还是改用 PAT 克隆。 */
+.tree-error-box {
+  margin: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.tree-error-title {
+  font-weight: 600;
+  color: var(--danger);
+}
+.tree-error-msg {
+  color: var(--text);
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 /* 搜索结果 */
@@ -463,44 +488,79 @@ body {
 .toast {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  min-width: 240px;
-  max-width: 360px;
+  gap: 10px;
+  min-width: 264px;
+  max-width: 384px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--text-dim);
+  border-left: 4px solid var(--text-dim);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  padding: 11px 13px;
   box-shadow: var(--shadow);
+  color: var(--text);
 }
 .toast.success {
   border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-panel));
 }
 .toast.warn {
   border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 11%, var(--bg-panel));
 }
 .toast.error {
   border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg-panel));
 }
 .toast.info {
   border-left-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-panel));
 }
 .toast-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 1;
+}
+.toast.success .toast-icon {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+}
+.toast.warn .toast-icon {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+}
+.toast.error .toast-icon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 18%, transparent);
+}
+.toast.info .toast-icon {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
 }
 .toast-body {
   flex: 1;
   font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .toast-actions {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 .toast-actions button {
   border: 1px solid var(--primary);
   background: var(--primary);
   color: #fff;
   border-radius: 6px;
-  padding: 3px 10px;
+  padding: 4px 12px;
   cursor: pointer;
   font-size: 12px;
 }
@@ -511,6 +571,10 @@ body {
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
+  padding: 0 2px;
+}
+.toast-close:hover {
+  color: var(--text);
 }
 
 /* ===== 进度条 ===== */
@@ -549,6 +613,30 @@ body {
   font-size: 11px;
   color: var(--text-dim);
   margin-top: 4px;
+}
+.progress-eta {
+  font-size: 12px;
+  color: var(--text);
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+/* ===== 文件树：本地目录条 ===== */
+.tree-local-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.tree-local-bar .field-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tree-local-input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ===== 弹窗 ===== */
@@ -1584,6 +1672,48 @@ body {
 .hcm-cf-err-error--gw { background: rgba(217,119,6,.14); color: #c2620a; }
 .hcm-cf-err-error--biz { background: rgba(220,38,38,.12); color: #e5484d; }
 .hcm-cf-err-error--other { background: rgba(127,127,127,.14); color: var(--muted); }
+
+/* P3-3: 后端未启动提示 —— 直接给出可复制的启动命令 */
+.hcm-cf-err-backend-down {
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;
+  padding: 10px 12px; border: 1px solid #e5484d; border-radius: 6px;
+  background: rgba(229,72,77,.12); color: #e5484d; font-size: 13px;
+}
+.hcm-cf-err-backend-hint { color: var(--muted); font-size: 12px; }
+.hcm-cf-err-backend-down code {
+  align-self: flex-start; padding: 4px 8px; border-radius: 4px;
+  background: rgba(127,127,127,.16); color: var(--text); font-size: 12px;
+}
+.hcm-cf-err-backend-down .btn { align-self: flex-start; }
+
+/* P3-4: 错误类别徽标 + 排查路径 */
+.hcm-cf-err-kindbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-bottom: 8px; border-bottom: 1px dashed var(--border);
+  font-size: 12px; color: var(--text);
+}
+.hcm-cf-err-kind {
+  padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: rgba(127,127,127,.16); color: var(--muted);
+}
+.hcm-cf-err-kind--db { background: rgba(220,38,38,.14); color: #e5484d; }
+.hcm-cf-err-kind--network { background: rgba(217,119,6,.14); color: #c2620a; }
+.hcm-cf-err-kind--token { background: rgba(59,130,246,.16); color: #3b82f6; }
+.hcm-cf-err-kind--business { background: rgba(46,160,67,.16); color: #2ea043; }
+.hcm-cf-err-kind--unknown { background: rgba(127,127,127,.16); color: var(--muted); }
+.hcm-cf-err-trace { color: var(--muted); word-break: break-all; }
+
+.hcm-cf-err-guide {
+  display: flex; flex-direction: column; gap: 8px;
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+}
+.hcm-cf-err-guide-label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.hcm-cf-err-guide-steps { margin: 0; padding-left: 18px; font-size: 12px; color: var(--text); line-height: 1.8; }
+.hcm-cf-err-dict-card { padding: 8px 10px; border-radius: 6px; background: rgba(127,127,127,.08); font-size: 12px; }
+.hcm-cf-err-dict-name { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.hcm-cf-err-dict-meaning { color: var(--text); line-height: 1.6; }
+.hcm-cf-err-dict-fix { color: var(--muted); margin-top: 4px; line-height: 1.6; }
+
 .hcm-cf-err-gwtip { margin-top: 6px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 .hcm-cf-err-gwtip .btn { margin-left: 8px; }
 

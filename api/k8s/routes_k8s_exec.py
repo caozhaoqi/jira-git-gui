@@ -133,6 +133,24 @@ def _pty_wanted(websocket: WebSocket) -> bool:
     return raw not in ("0", "false", "no", "off")
 
 
+def _initial_size(websocket: WebSocket):
+    """客户端首屏窗口尺寸（``?cols=&rows=``）。
+
+    前端连接时就把 xterm 的列数/行数带上，让远端启动脚本的 ``stty`` 直接用真实
+    尺寸，避免「先按 80x24 起来、再被 resize 追着改」导致的首屏错位。
+    缺省或越界（异常客户端/手改 URL）时回退默认值。
+    """
+    def _int(key, default, lo, hi):
+        try:
+            val = int(str(websocket.query_params.get(key) or "").strip())
+        except (TypeError, ValueError):
+            return default
+        return val if lo <= val <= hi else default
+
+    return (_int("cols", DEFAULT_COLS, 20, 500),
+            _int("rows", DEFAULT_ROWS, 5, 200))
+
+
 def _pty_error_detail(buf: str, limit: int = 400) -> str:
     """把 PTY 早期输出整理成一句人类可读的失败原因。"""
     text = _ANSI_RE.sub(" ", buf or "")
@@ -149,10 +167,17 @@ def _pty_error_detail(buf: str, limit: int = 400) -> str:
 async def _pty_await_ready(sess, timeout: float = READY_TIMEOUT):
     """等待远端 shell 打印 READY 标记。
 
-    返回 ``(ok, cwd, pending_bytes, reason)``：
-      * ``ok=True`` 时 ``cwd`` 为远端真实起始目录，``pending_bytes`` 是标记之后
-        已被读出的输出（须在 ``ready`` 之后补发给前端，否则会丢首屏内容）；
+    返回 ``(ok, cwd, pending_text, reason)``：
+      * ``ok=True`` 时 ``cwd`` 为远端真实起始目录，``pending_text`` 是**已解码的
+        str**，即 READY 标记之后残留在同一批输出里的首屏内容（须在 ``ready``
+        之后补发给前端，否则会丢首屏）；
       * ``ok=False`` 时 ``reason`` 是给用户看的失败原因。
+
+    .. note::
+       ``pending_text`` 必须是 **str** 而不是 bytes。``_pty_pump`` 里的增量解码器
+       只吃 bytes；早期实现在这里返回了已解码的 str，``decoder.decode(str)`` 抛出
+       ``TypeError``，导致 pump 起不来 —— 表现为「终端显示已连接，但敲任何命令
+       都没有反馈」。只要 READY 标记与首屏输出落在同一批读取里就必现。
     """
     loop = asyncio.get_running_loop()
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -161,33 +186,36 @@ async def _pty_await_ready(sess, timeout: float = READY_TIMEOUT):
     while True:
         remain = deadline - loop.time()
         if remain <= 0:
-            return False, "/", b"", "等待终端会话就绪超时（%.0fs）" % timeout
+            return False, "/", "", "等待终端会话就绪超时（%.0fs）" % timeout
         chunk = await sess.read(timeout=remain)
         if chunk is None:
             # EOF：kubectl 已退出，多半是 Pod/容器不存在或连不上集群
-            return False, "/", b"", _pty_error_detail(buf)
+            return False, "/", "", _pty_error_detail(buf)
         if not chunk:
             continue
         buf += decoder.decode(chunk)
         m = READY_MARKER_RE.search(buf)
         if m:
             cwd = (m.group(1) or "").strip() or "/"
-            return True, cwd, chunk, buf[m.end():]
+            return True, cwd, buf[m.end():], ""
 
 
-async def _pty_pump(websocket: WebSocket, sess, initial: bytes = b""):
-    """PTY 会话的主循环：双向搬运字节，直到任一端断开。"""
+async def _pty_pump(websocket: WebSocket, sess, initial: str = ""):
+    """PTY 会话的主循环：双向搬运字节，直到任一端断开。
+
+    ``initial`` 是 READY 标记之后残留的首屏输出，必须是**已解码的 str**
+    （与 ``_pty_await_ready`` 的返回保持一致）。
+    """
     loop = asyncio.get_running_loop()
     decoder = codecs.getincrementaldecoder("utf-8")("replace")
-
-    if initial:
-        # READY 标记之后残留的输出（首屏 prompt 等），先补上
-        await websocket.send_json({"type": "output", "data": decoder.decode(initial)})
 
     async def _out():
         while True:
             chunk = await sess.read()
             if chunk is None:      # EOF：远端 shell / kubectl 退出
+                # 给一句明确的收尾，否则用户只看到光标卡住、以为又「没反馈」
+                await websocket.send_json(
+                    {"type": "output", "data": "\r\n— 会话已结束 —\r\n"})
                 return
             if not chunk:
                 continue
@@ -212,6 +240,9 @@ async def _pty_pump(websocket: WebSocket, sess, initial: bytes = b""):
     out_task = asyncio.ensure_future(_out())
     in_task = asyncio.ensure_future(_in())
     try:
+        if initial:
+            # READY 标记之后残留的首屏输出（远端 prompt 等），先补发给前端
+            await websocket.send_json({"type": "output", "data": initial})
         await asyncio.wait({out_task, in_task}, return_when=asyncio.FIRST_COMPLETED)
     finally:
         for t in (out_task, in_task):
@@ -258,6 +289,19 @@ async def _ws_k8s_exec_line(websocket: WebSocket, env: str, namespace: str,
         await websocket.send_json({"type": "error", "msg": notice})
 
     async def _emit_cmd(cmd: str):
+        # 降级模式没有 TTY：vim/top 这类全屏程序执行下去要么立刻退出、要么挂到
+        # 60s 超时，输出还被丢弃 —— 用户看到的就是「敲了没反应」。这里直接拦下并
+        # 说明原因，比静默失败好排查得多。
+        if interactive_command_hint(cmd):
+            await websocket.send_json({
+                "type": "error",
+                "msg": "「%s」是全屏/交互式程序，当前行缓冲降级模式没有 TTY，"
+                       "无法渲染也不会转发键盘输入。请安装 kubectl 后重连，"
+                       "即可启用真正的 PTY 终端。" % cmd.strip().split()[0],
+            })
+            await websocket.send_json({"type": "output", "data": "\r\n"})
+            await websocket.send_json({"type": "cwd", "cwd": cwd_ref[0]})
+            return
         try:
             out, new_cwd = await asyncio.get_running_loop().run_in_executor(
                 None,
@@ -358,10 +402,11 @@ async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
             reason = ("未找到 kubectl 可执行文件，已降级为行缓冲模式"
                       "（不支持 vim / top 等全屏程序）。")
         else:
+            cols, rows = _initial_size(websocket)
             try:
                 sess = spawn_kubectl_pty(
                     env, pod, container or None, namespace or None,
-                    cwd="/", cols=DEFAULT_COLS, rows=DEFAULT_ROWS,
+                    cwd="/", cols=cols, rows=rows,
                     loop=asyncio.get_running_loop(),
                 )
             except Exception as ex:
@@ -372,7 +417,7 @@ async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
 
     if sess is not None:
         try:
-            ok, cwd, _raw, pending = await _pty_await_ready(sess)
+            ok, cwd, pending, reason = await _pty_await_ready(sess)
         except Exception as ex:
             ok, cwd, pending, reason = False, "/", "", "建立终端会话异常：%s" % ex
             logger.warning("PTY 会话就绪等待异常 pod=%s: %s", pod, ex)

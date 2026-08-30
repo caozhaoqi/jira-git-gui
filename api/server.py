@@ -15,7 +15,7 @@ import asyncio
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.common import app, logger, broadcast, _PROJECT_ROOT
+from api.common import app, logger, broadcast, capture_loop, _PROJECT_ROOT
 from api.cf.cf_core import cf_autologin_all
 
 # --------------------------------------------------------------------------- #
@@ -38,6 +38,15 @@ async def _unhandled_exception_handler(request, exc):
 # --------------------------------------------------------------------------- #
 @app.on_event("startup")
 async def _startup_cf_autologin():
+    # 事件总线必须捕获主事件循环，否则 broadcast() 在工作线程里只能走
+    # q.put_nowait 分支（不会唤醒 await q.get() 的消费者），导致 scan_progress /
+    # merge_progress 等 SSE 事件要等到 15s 心跳才被推送给前端 —— 进度条表现为
+    # 「卡住→突跳→消失」。在启动钩子里拿到运行中的 loop 即可让 call_soon_threadsafe
+    # 立即唤醒消费者，进度条实时更新。
+    try:
+        capture_loop()
+    except Exception as e:
+        logger.warning(f"[SSE] 事件总线主循环捕获失败: {e}")
     try:
         asyncio.create_task(cf_autologin_all())
     except Exception as e:

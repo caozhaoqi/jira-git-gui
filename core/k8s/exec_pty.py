@@ -55,6 +55,11 @@ DEFAULT_COLS = 80
 DEFAULT_ROWS = 24
 DEFAULT_TERM = "xterm-256color"
 
+#: resize 之后隔多久重放一次窗口尺寸（秒）。用于对抗远端启动脚本 ``stty rows/cols``
+#: 对刚下发尺寸的覆盖：READY 标记先打印、stty 后执行，而客户端一收到 ready 就上报
+#: 真实尺寸，两者存在竞态。0.5s 足以让远端 shell 启动脚本跑完，又不影响交互手感。
+RESIZE_REPLAY_DELAY = 0.5
+
 # 需要真实终端才能工作的程序（全屏 / 持续刷新 / 分页器）
 INTERACTIVE_COMMANDS = (
     "vim", "vi", "nvim", "nano", "pico", "emacs",
@@ -106,6 +111,10 @@ def build_pty_argv(env, pod, container, namespace, cwd=None,
         idx = base.index("exec")
     except ValueError:  # pragma: no cover - 防御：_exec_base_args 结构变更
         raise ValueError("_exec_base_args 返回参数中缺少 'exec' 子命令")
+    # argv[0] 换成解析出的绝对路径：子进程会整体替换 os.environ，若把查找交给
+    # execvp 的 PATH，kubectl 装在非标准目录时会 exec 失败（127）→ 终端一片黑。
+    if base and base[0] == "kubectl":
+        base = [_resolve_kubectl_binary()] + base[1:]
     argv = base[:idx] + ["exec", "-it"] + base[idx + 1:]
     argv += ["--", "sh", "-c", build_pty_script(cwd, cols, rows, shell)]
     return argv
@@ -211,6 +220,8 @@ class PtySession:
         self._closed = True
         self._eof = False
         self.exit_code = None
+        self._replay_pending = False
+        self._resize_lock = threading.Lock()
 
     # ---- 生命周期 ------------------------------------------------------- #
     @property
@@ -338,12 +349,42 @@ class PtySession:
             return False
 
     def resize(self, cols, rows):
-        """调整窗口大小：改本地 pty 尺寸 → kubectl 收到 SIGWINCH → 转发远端。"""
+        """调整窗口大小：改本地 pty 尺寸 → kubectl 收到 SIGWINCH → 转发远端。
+
+        **为什么要重放**：远端启动脚本里有 ``stty rows R cols C``（用于让首屏就是
+        正确布局），它在 READY 标记之后才执行。客户端一收到 ``ready`` 就上报真实
+        尺寸，于是刚下发的尺寸会被那句 stty 覆盖回默认值——表现为终端永远锁在
+        80x24、vim/top 布局错乱、拖动窗口无反应。故此处在改完尺寸后再**延迟重放
+        一次**（幂等，用的是最后一次请求的尺寸），保证最终生效。
+        """
         if self._master is None or self._closed:
             return False
         self.cols = max(1, int(cols or self.cols))
         self.rows = max(1, int(rows or self.rows))
-        return _set_winsize(self._master, self.rows, self.cols)
+        ok = _set_winsize(self._master, self.rows, self.cols)
+        self._schedule_resize_replay()
+        return ok
+
+    def _schedule_resize_replay(self):
+        """延迟重放当前尺寸；已有待处理的重放时直接复用（避免窗口拖动刷线程）。"""
+        with self._resize_lock:
+            if self._replay_pending:
+                return
+            self._replay_pending = True
+
+        def _replay():
+            try:
+                time.sleep(RESIZE_REPLAY_DELAY)
+                master = self._master
+                if not self._closed and master is not None:
+                    _set_winsize(master, self.rows, self.cols)
+            except Exception as ex:  # pragma: no cover - 重放失败不影响会话
+                logger.debug("PTY 尺寸重放失败: %s", ex)
+            finally:
+                self._replay_pending = False
+
+        threading.Thread(target=_replay, name="k8s-pty-resize-replay",
+                         daemon=True).start()
 
     async def read(self, timeout=None):
         """读取一段输出；返回 ``None`` 表示 EOF（子进程退出）。"""

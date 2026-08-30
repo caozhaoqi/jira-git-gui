@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
-import { apiGet } from '../api/client';
+import { apiGet, apiPost } from '../api/client';
 import type { TreeEntry, TreeResp, SearchResp, SearchHit } from '../api/types';
 import { useT } from '../i18n';
 
@@ -33,12 +33,19 @@ export function FileTree() {
   const toggleCheckedPath = useAppStore((s) => s.toggleCheckedPath);
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const treeLocalDir = useAppStore((s) => s.treeLocalDir);
+  const setTreeLocalDir = useAppStore((s) => s.setTreeLocalDir);
   const { t } = useT();
 
   const [rootEntries, setRootEntries] = useState<TreeEntry[]>([]);
   const [dirCache, setDirCache] = useState<Record<string, TreeEntry[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
+  // 文件树为空的真实原因（Cookie 失效 / 分支解析失败 / 浏览页不可用…）。
+  // 后端 /api/tree 现在会带回这个原因；没有它，界面只会显示「空」，
+  // 用户完全不知道该更新 Cookie 还是改用 PAT 克隆。
+  const [treeError, setTreeError] = useState('');
+  const [cloning, setCloning] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -51,10 +58,16 @@ export function FileTree() {
 
   async function loadRoot() {
     setLoading(true);
+    setTreeError('');
     try {
-      const res = await apiGet<TreeResp>('/api/tree?path=');
+      const ld = treeLocalDir.trim();
+      const url = ld
+        ? `/api/tree?path=&local_dir=${encodeURIComponent(ld)}`
+        : '/api/tree?path=';
+      const res = await apiGet<TreeResp>(url);
       if (res.error) {
         setRootEntries([]);
+        setTreeError(res.error);
         pushLog(`${t('repo.fileTree')}：${res.error}`, 'error');
         addToast(res.error, 'error');
       } else {
@@ -63,6 +76,7 @@ export function FileTree() {
       }
     } catch (e: any) {
       setRootEntries([]);
+      setTreeError(e.message || t('file.loadErr'));
       pushLog(`${t('repo.fileTree')}：${e.message}`, 'error');
       addToast(e.message, 'error');
     } finally {
@@ -70,8 +84,23 @@ export function FileTree() {
     }
   }
 
+  /** 远端浏览不可用时的逃生口：克隆到本地后文件树改走本地 git，不再依赖 Jira 页面。 */
+  async function cloneRepo() {
+    setCloning(true);
+    try {
+      await apiPost('/api/clone', {});
+      pushLog(t('repo.cloneStart'));
+      addToast(t('repo.cloneStart'), 'info');
+    } catch (e: any) {
+      pushLog(t('repo.cloneFail', { msg: e.message }), 'error');
+      addToast(e.message, 'error');
+    } finally {
+      setCloning(false);
+    }
+  }
+
   useEffect(() => {
-    if (!selectedRepo) {
+    if (!selectedRepo && !treeLocalDir.trim()) {
       setRootEntries([]);
       setDirCache({});
       setExpanded(new Set());
@@ -79,16 +108,18 @@ export function FileTree() {
     }
     loadRoot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRepo?.repo_id]);
+  }, [selectedRepo?.repo_id, treeLocalDir]);
 
   async function toggleDir(entry: TreeEntry) {
     const isOpen = expanded.has(entry.path);
     if (!isOpen) {
       if (!dirCache[entry.path]) {
         try {
-          const res = await apiGet<TreeResp>(
-            `/api/tree?path=${encodeURIComponent(entry.path)}`
-          );
+          const ld = treeLocalDir.trim();
+          const url = ld
+            ? `/api/tree?path=${encodeURIComponent(entry.path)}&local_dir=${encodeURIComponent(ld)}`
+            : `/api/tree?path=${encodeURIComponent(entry.path)}`;
+          const res = await apiGet<TreeResp>(url);
           setDirCache((c) => ({ ...c, [entry.path]: res.entries || [] }));
         } catch (e: any) {
           addToast(e.message, 'error');
@@ -181,12 +212,16 @@ export function FileTree() {
           <span className="tree-toggle">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
           <span className="tree-icon">{isDir ? '📁' : '📄'}</span>
           <span className="tree-name">{entry.name}</span>
-          <span className="tree-size">
-            {entry.size != null ? fmtSize(entry.size) : ''}
-          </span>
-          <span className="tree-mtime" title={entry.mtime ? new Date(entry.mtime * 1000).toLocaleString() : ''}>
-            {entry.mtime ? fmtMtime(entry.mtime) : ''}
-          </span>
+          {/* 仅在有数据时才渲染 size / mtime 列；否则那两列会固定占 60+120=180px，
+              把 flex:1 的 name 挤成 "trans..." 截断。 */}
+          {entry.size != null && (
+            <span className="tree-size">{fmtSize(entry.size)}</span>
+          )}
+          {entry.mtime ? (
+            <span className="tree-mtime" title={new Date(entry.mtime * 1000).toLocaleString()}>
+              {fmtMtime(entry.mtime)}
+            </span>
+          ) : null}
         </div>
         {isDir && isOpen && dirCache[entry.path] && (
           <div className="tree-children">
@@ -207,6 +242,17 @@ export function FileTree() {
       <div className="panel-header">
         <h2 className="section-title">{t('file.browser')}</h2>
         <span className="panel-sub">{t('file.checkedHint')}</span>
+      </div>
+      <div className="tree-local-bar">
+        <label className="field-inline">
+          {t('file.localDir')}
+          <input
+            className="input tree-local-input"
+            placeholder={t('file.localDirPlaceholder')}
+            value={treeLocalDir}
+            onChange={(e) => setTreeLocalDir(e.target.value)}
+          />
+        </label>
       </div>
       <div className="tree-toolbar">
         <div className="tree-toolbar-row">
@@ -286,7 +332,23 @@ export function FileTree() {
           <div className="empty-hint">{t('file.noRepo')}</div>
         )}
         {selectedRepo && loading && <div className="tree-loading">{t('common.loading')}</div>}
-        {selectedRepo && !loading && sortedRoot.length === 0 && (
+        {treeError && (
+          <div className="tree-error-box">
+            <div className="tree-error-title">⚠️ {t('file.treeError')}</div>
+            <div className="tree-error-msg">{treeError}</div>
+            {!treeLocalDir.trim() && (
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={cloneRepo}
+                disabled={cloning || !selectedRepo}
+                title="克隆到本地后文件树直接读本地 git，不再依赖 Jira 浏览页"
+              >
+                {cloning ? t('common.loading') : t('repo.clone')}
+              </button>
+            )}
+          </div>
+        )}
+        {selectedRepo && !loading && !treeError && sortedRoot.length === 0 && (
           <div className="empty-hint">{t('file.empty')}</div>
         )}
         {sortedRoot.map(renderNode)}

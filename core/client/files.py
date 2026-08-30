@@ -7,6 +7,7 @@ Cookie 模式下的有界并发批量下载与整库递归下载（支持断点�
 
 共享常量在此重新定义（与 ``core/client.py`` 顶部一致），避免与聚合主类形成循环 import。
 """
+import base64
 import json
 import re
 import subprocess
@@ -39,16 +40,20 @@ _FILE_BROWSE_ERROR_RE = re.compile(
 class FilesMixin:
     """文件读取 / 批量下载能力。"""
 
-    def get_file(self, path: str) -> tuple:
+    def get_file(self, path: str, allow_binary: bool = False) -> tuple:
         """返回 (content, error)。content 为 None 时 error 有值。
 
-        二进制文件（图片/压缩包等）在 Cookie 模式下无法预览，返回提示，
-        引导用户用「下载选中」保存到本地查看。
+        - 预览场景（默认 ``allow_binary=False``）：二进制文件（图片/压缩包等）在 Cookie
+          模式下无法预览，返回提示，引导用户用「下载选中」保存到本地查看。
+        - 合并场景（``allow_binary=True``）：需要把远端字节原样写回本地，故二进制内容
+          也要返回（不再以「无法预览」为由拒绝）——这是 git 风格同步能合并不透明文件的前提。
         """
         if self.config.mode == "pat" and (REPOS_DIR / str(self.repo_id)).exists():
             try:
                 content = self._local_file_read(REPOS_DIR / str(self.repo_id), path)
                 if isinstance(content, (bytes, bytearray)):
+                    if allow_binary:
+                        return content, None
                     return None, "二进制文件，请在文件树勾选后用「下载选中」保存到本地查看。"
                 return content, None
             except Exception as ex:
@@ -64,6 +69,8 @@ class FilesMixin:
         if not ok:
             return None, note
         if isinstance(content, (bytes, bytearray)):
+            if allow_binary:
+                return content, None
             return None, (f"二进制文件（{len(content)} 字节），"
                           f"请在文件树勾选后用「下载选中」保存到本地查看。")
         return content, None
@@ -308,17 +315,119 @@ class FilesMixin:
         return ok_count, fail_list, dest, skipped
 
     # ------------------------------------------------------ 底层抓取与解析
-    def _fetch_browse(self, repo_id: str, branch: str = "", path: str = "") -> httpx.Response:
-        """抓取一次文件浏览页（带 .json 扩展名，拿到结构化数据）。"""
-        if self.config.cookie:
-            url = (f"{self.config.jira_url.rstrip('/')}/secure/GIJFileBrowser.jspa.json"
-                   f"?repoId={repo_id}")
-            if branch:
-                url += f"&branchName={branch}"
-            if path:
-                url += "&filePath=" + path.lstrip("/")
-            return self.http_get(url, headers=self.cookie_headers())
+    def _fetch_browse(self, repo_id: str, branch: str = "", path: str = "") -> Optional[httpx.Response]:
+        """抓取一次文件浏览页，返回首个 200 且非登录页的响应。
+
+        旧实现只用 ``GIJFileBrowser.jspa.json`` 单端点，且调用方固定传 ``branch=""``，
+        导致文件接口不带 ``branchName`` → 本实例返回 404/跳登录，「文件树能展开但点开文件
+        报『文件浏览页请求失败』」。这里：
+          - 自动补 ``branchName``（分支为空时复用 :meth:`_resolve_branch` 的缓存解析）；
+          - 依次尝试多个候选端点（``.json`` 结构化优先，回退 ``.jspa``），首个可用即返回；
+          - 3xx 重定向到登录页 / 登录页本身会被跳过，全部失败时返回最后一个响应，
+            便于调用方据状态码给出清晰报错；无 Cookie 时返回 None。
+        """
+        if not self.config.cookie:
+            return None
+        base = self.config.jira_url.rstrip("/")
+        # 分支兜底：调用方常传空分支，这里解析一次（复用缓存，避免每次重探）。
+        branch = branch or self._resolve_branch(repo_id, self.branch) or ""
+        # 候选端点（按优先度排列）
+        candidates = [
+            f"{base}/secure/GIJFileBrowser.jspa.json?repoId={repo_id}",
+            f"{base}/secure/GIJFileBrowser.jspa?repoId={repo_id}",
+        ]
+        if branch:
+            candidates = [c + f"&branchName={branch}" for c in candidates]
+        if path:
+            candidates = [c + "&filePath=" + path.lstrip("/") for c in candidates]
+        last: Optional[httpx.Response] = None
+        for url in candidates:
+            try:
+                r = self.http_get(url, headers=self.cookie_headers())
+            except Exception:
+                continue
+            # 3xx 重定向到登录页 / 登录页本身 → 跳过，尝试下一端点
+            if r.status_code == 200 and not self._is_login_page(r.text):
+                return r
+            last = r
+        return last
+
+    def _fetch_content(self, repo_id: str, ref: str, path: str):
+        """抓取单文件内容页，返回 ``(response, used_view)``。
+
+        - ``used_view=True``：命中 ``GIJViewGitFileContent.jspa?revision=<ref>``（指定提交，
+          该实例上可用；而 ``GIJFileBrowser.jspa.json`` 在本实例返回 404）。这正是浏览器里
+          「查看文件」能预览的原因——它带上了具体的 ``revision``（commit SHA）。
+        - ``used_view=False``：回退到 :meth:`_fetch_browse`（``GIJFileBrowser``，自动补
+          branchName + filePath）。
+
+        优先用 revision 端点：最贴合「某次提交的某文件」语义，且本实例实测可用；
+        revision 端点不可用（无 ref / 非 200 / 登录页）再回退 browse 端点。
+        """
+        if not self.config.cookie:
+            return None, False
+        base = self.config.jira_url.rstrip("/")
+        if ref:
+            url = (f"{base}/secure/GIJViewGitFileContent.jspa"
+                   f"?revision={ref}&repoId={repo_id}&path={path.lstrip('/')}")
+            try:
+                r = self.http_get(url, headers=self.cookie_headers())
+            except Exception:
+                r = None
+            if r is not None and r.status_code == 200 and not self._is_login_page(r.text):
+                return r, True
+        # 回退：原 browse 端点（多候选 + 跳过登录页）
+        return self._fetch_browse(repo_id, "", path), False
+
+    def _fetch_raw_file(self, repo_id: str, ref: str, path: str):
+        """绕过 web viewer 的大小限制，用插件 REST 原始文件端点直接取字节。
+
+        仅当 web viewer 内嵌失败（文件过大/二进制）时作为兜底。接受「原始字节」响应
+        （``text/plain`` / ``application/octet-stream`` / 未知类型），或 JSON 包内含
+        ``content``/``rawFile``（base64 或文本）；其余（HTML/JSON 错误包）一律拒绝，
+        绝不把错误页当文件内容写坏。返回 bytes/str 或 None。
+        """
+        if not ref or not self.config.cookie:
+            return None
+        base = self.config.jira_url.rstrip("/")
+        safe_path = path.lstrip("/")
+        candidates = [
+            f"{base}/rest/git/1.0/repositories/{repo_id}/files/{ref}?path={safe_path}",
+            f"{base}/rest/gitplugin/1.0/repository/{repo_id}/files/{ref}?path={safe_path}",
+        ]
+        for url in candidates:
+            try:
+                r = self.http_get(url, headers=self.cookie_headers())
+            except Exception:
+                continue
+            if r.status_code != 200:
+                continue
+            ct = (r.headers.get("Content-Type") or "").lower()
+            body = r.content
+            if "html" in ct:
+                continue  # 仍是 viewer / 登录 / 错误页
+            if "json" in ct:
+                try:
+                    j = r.json()
+                except Exception:
+                    j = None
+                if isinstance(j, dict):
+                    c = j.get("content") or j.get("rawFile") or j.get("fileContent")
+                    if isinstance(c, str):
+                        try:
+                            return base64.b64decode(c, validate=True)
+                        except Exception:
+                            return c
+                continue
+            # text/plain / octet-stream / 未知类型 → 原始内容
+            if b"\x00" in body[:4096]:
+                return body
+            try:
+                return body.decode("utf-8")
+            except UnicodeDecodeError:
+                return body
         return None
+
 
     @staticmethod
     def _extract_balanced_json(html_text: str) -> Optional[dict]:
@@ -429,31 +538,60 @@ class FilesMixin:
 
         - ok=True 时 content 为 str（文本）或 bytes（二进制），note=""
         - ok=False 时 content=None，note 为失败原因
+
+        优先按 ``revision=<ref>`` 打 ``GIJViewGitFileContent.jspa``（浏览器「查看文件」同款
+        端点，本实例实测可用）；ref 缺失或该端点不可用时回退 ``GIJFileBrowser``。
         """
-        r = self._fetch_browse(repo_id, "", path)
-        if r is None or r.status_code != 200:
-            return False, None, "文件浏览页请求失败"
+        r, used_view = self._fetch_content(repo_id, ref, path)
+        if r is None:
+            return False, None, "未配置 Cookie，无法访问远端文件"
+        if r.status_code != 200:
+            # 3xx 重定向到登录页 / 401 / 403 多半是 Cookie 过期或会话失效；
+            # 404 通常是 Jira 侧文件浏览端点不可用（此类实例远端预览本就不可用）。
+            if r.status_code in (301, 302, 303, 307, 308, 401, 403):
+                return False, None, ("远端文件浏览被拒绝（HTTP %s），"
+                                      "多半是 Cookie 已过期或会话失效，请在连接设置更新 Cookie"
+                                      % r.status_code)
+            return False, None, ("远端文件浏览端点不可用（HTTP %s），"
+                                  "该 Jira 实例的文件接口可能未启用；可改用 PAT 模式克隆到本地后预览"
+                                  % r.status_code)
         html_text = r.text
         if self._looks_like_error_envelope(html_text):
             return False, None, "文件接口返回错误包（可能无权限或文件不存在）"
+        # 1) 优先解析结构化内容（<script id="git-file-content-json">）。
+        data = self._extract_balanced_json(html_text)
+        if data:
+            raw = data.get("rawFile") or data.get("content") or data.get("fileContent")
+            if raw is None and isinstance(data.get("file"), dict):
+                raw = data["file"].get("content")
+            if raw is None:
+                return False, None, "文件内容字段缺失"
+            content = raw
+            ct = data.get("contentType") or data.get("mimeType") or ""
+            if isinstance(content, str):
+                if self._is_likely_text(content.encode("utf-8", "replace"), ct):
+                    return True, content, ""
+                return True, content.encode("utf-8", "replace"), ""
+            return True, content, ""
+        # 2) 若是 GIJViewGitFileContent 渲染页，用 <pre>/<code> 兜底取正文。
+        if used_view:
+            code = self._extract_code_from_html(html_text)
+            if code and code.strip():
+                return True, code, ""
+        # 3) 提取全部失败 → 再跑诊断正则给出具体原因。
+        # ⚠️ ``_FILE_BROWSE_ERROR_RE`` 含 "image" 等宽泛词，正常 viewer 页（带图片预览图标/
+        # "image/*" 等）也会误中，所以必须放到提取失败之后才检查。提取成功就提前 return，
+        # 根本不会跑到这里——这是修掉「点 .py 也报文件过大或为二进制」误报的关键。
         if self._is_likely_text(html_text.encode("utf-8", "replace"), "text/html"):
             if _FILE_BROWSE_ERROR_RE.search(html_text):
-                return False, None, "文件过大或为二进制，预览不可用"
-        data = self._extract_balanced_json(html_text)
-        if not data:
-            return False, None, "未能从文件页解析出结构化内容"
-        raw = data.get("rawFile") or data.get("content") or data.get("fileContent")
-        if raw is None and isinstance(data.get("file"), dict):
-            raw = data["file"].get("content")
-        if raw is None:
-            return False, None, "文件内容字段缺失"
-        content = raw
-        ct = data.get("contentType") or data.get("mimeType") or ""
-        if isinstance(content, str):
-            if self._is_likely_text(content.encode("utf-8", "replace"), ct):
-                return True, content, ""
-            return True, content.encode("utf-8", "replace"), ""
-        return True, content, ""
+                # web viewer 不内嵌内容（文件过大/二进制）：尝试插件 REST 原始文件端点兜底，
+                # 绕过 viewer 的大小限制直接取字节。任一端点返回原始内容即采用。
+                raw = self._fetch_raw_file(repo_id, ref, path)
+                if raw is not None:
+                    return True, raw, ""
+                return False, None, ("远端文件过大或为二进制，Cookie 模式的 web 预览无法获取其内容；"
+                                     "请改用本地克隆/PAT 后合并，或在文件树用「下载选中」保存到本地")
+        return False, None, "未能从文件页解析出结构化内容"
 
     @staticmethod
     def _looks_like_error_envelope(html_text: str) -> bool:
@@ -461,10 +599,10 @@ class FilesMixin:
         b = (html_text or "").lower()
         head = b[:2000]
         return bool(
-            b'"success": false' in head
-            or b'"errorcode"' in head
-            or b'"errormessage"' in head
-            or b'{"error"' in head)
+            '"success": false' in head
+            or '"errorcode"' in head
+            or '"errormessage"' in head
+            or '{"error"' in head)
 
     @staticmethod
     def _is_likely_text(data: bytes, content_type: str) -> bool:

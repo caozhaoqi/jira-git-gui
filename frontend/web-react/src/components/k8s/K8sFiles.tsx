@@ -7,6 +7,11 @@ import { useK8s } from './context';
 import { k8sPathJoin, k8sPathParent, fmtSize } from '../../utils/format';
 import { langFromName, highlightCode } from '../../utils/highlight';
 import { useT } from '../../i18n';
+import {
+  K8sFileDownloader, baseNameOf, saveBlob,
+  type DownloadProgress,
+} from '../../utils/k8sFileDownload';
+import { K8sDownloadBar } from './K8sDownloadBar';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
 interface SelectedFile { name: string; isDir: boolean; }
@@ -45,6 +50,18 @@ export function K8sFiles() {
   }, [target.env, target.namespace]);
 
   useEffect(() => { if (target.env) loadPods(); }, [target.env, loadPods]);
+
+  // 切换 Pod / 卸载面板时中断在途下载，避免旧 Pod 的分片继续跑并把进度写回新界面
+  useEffect(() => {
+    return () => { dlRef.current?.cancel(); };
+  }, []);
+  useEffect(() => {
+    if (dlRef.current?.isActive) {
+      dlRef.current.cancel();
+      setDlProg(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.pod, target.env]);
 
   const listFiles = useCallback(async (p?: string) => {
     const pp = p !== undefined ? p : path;
@@ -86,7 +103,8 @@ export function K8sFiles() {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: full, max_bytes: 200000,
       });
       if (!d.ok) { addToast(t('k8s.files.readFail') + (d.error || ''), 'error'); return; }
-      if (d.is_binary) { addToast(t('k8s.files.binaryFile'), 'info'); return; }
+      // 二进制不进编辑器（会把字节流当字符串截断/损坏），改提示用户走分片下载
+      if (d.is_binary) { addToast(t('k8s.files.dlBinaryHint'), 'info'); return; }
       setEditPath(full);
       setEditContent(d.content || '');
       setEditLang(langFromName(full).label);
@@ -113,14 +131,48 @@ export function K8sFiles() {
     }
   }, [editPath, editContent, target.env, target.pod, target.container, target.namespace, listFiles, path, t]);
 
+  // ===== 分片下载（断点续传 + 进度条） =====
+  //
+  // 旧实现直接 `new Blob([editContent])`：editContent 是后端 file/read 按
+  // max_bytes=200000 截断后的文本，所以 10MB 的文件下载下来只有几百 KB，
+  // 二进制文件还会被 is_binary 直接拦下。现在改为从服务端按 offset 分片拉取原始字节。
+  const [dlProg, setDlProg] = useState<DownloadProgress | null>(null);
+  const [dlName, setDlName] = useState('');
+  const dlRef = useRef<K8sFileDownloader | null>(null);
+
+  const startDownload = useCallback(async (filePath: string) => {
+    if (!target.pod) { addToast(t('k8s.files.dlNoPod'), 'warn'); return; }
+    if (dlRef.current?.isActive) { addToast(t('k8s.files.dlDownloading'), 'info'); return; }
+    const name = baseNameOf(filePath);
+    setDlName(name);
+    const dl = new K8sFileDownloader(
+      {
+        env: target.env, pod: target.pod,
+        container: target.container, namespace: target.namespace,
+        path: filePath,
+      },
+      { onProgress: setDlProg },
+    );
+    dlRef.current = dl;
+    try {
+      const blob = await dl.run();
+      if (blob) saveBlob(blob, name);
+    } finally {
+      dlRef.current = null;
+    }
+  }, [target.env, target.pod, target.container, target.namespace, addToast, t]);
+
+  // 下载完成后 2s 自动收起进度条（失败/取消保留，便于看到原因）
+  useEffect(() => {
+    if (dlProg?.status !== 'done') return;
+    const timer = setTimeout(() => setDlProg(null), 2000);
+    return () => clearTimeout(timer);
+  }, [dlProg?.status]);
+
   const fileDownload = useCallback(() => {
-    const blob = new Blob([editContent], { type: 'text/plain;charset=utf-8' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = (editPath.split('/').pop()) || 'file.txt';
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(a.href);
-  }, [editContent, editPath]);
+    if (!editPath) return;
+    startDownload(editPath);
+  }, [editPath, startDownload]);
 
   const mkdir = useCallback(async () => {
     const name = window.prompt(t('k8s.files.newFolderPrompt'));
@@ -293,6 +345,17 @@ export function K8sFiles() {
         </div>
       )}
 
+      {dlProg && (
+        <K8sDownloadBar
+          name={dlName}
+          prog={dlProg}
+          onPause={() => dlRef.current?.pause()}
+          onResume={() => dlRef.current?.resume()}
+          onCancel={() => dlRef.current?.cancel()}
+          onDismiss={() => setDlProg(null)}
+        />
+      )}
+
       <div className="k8s-files-list-wrap card-soft">
         <div className="k8s-table-scroll">
           <table className="k8s-files-table">
@@ -322,18 +385,21 @@ export function K8sFiles() {
                     {sort.key === 'mtime' ? (sort.dir === 'desc' ? '▼' : '▲') : ''}
                   </span>
                 </th>
+                <th className="k8s-files-col-ops" title={t('k8s.files.dlRowBtn')}>
+                  {t('k8s.files.colOps')}
+                </th>
               </tr>
             </thead>
             <tbody>
               {!target.pod ? (
                 <tr>
-                  <td colSpan={4} className="empty-hint">
+                  <td colSpan={5} className="empty-hint">
                     {t('k8s.files.noPod')}
                   </td>
                 </tr>
               ) : sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="empty-hint">
+                  <td colSpan={5} className="empty-hint">
                     {t('k8s.files.emptyDir')}
                   </td>
                 </tr>
@@ -355,6 +421,20 @@ export function K8sFiles() {
                       <td className="k8s-files-size">{isDir ? '—' : fmtSize(e.size)}</td>
                       <td className="k8s-files-time">
                         {(e.modtime || '').replace('T', ' ').replace('Z', '').slice(0, 19)}
+                      </td>
+                      <td className="k8s-files-ops">
+                        {!isDir && (
+                          <button
+                            className="btn btn-sm btn-ghost k8s-files-dl-btn"
+                            title={t('k8s.files.dlRowBtn')}
+                            onClick={(ev) => {
+                              ev.stopPropagation(); // 别触发选中行 / 双击打开
+                              startDownload(k8sPathJoin(path, e.name));
+                            }}
+                          >
+                            ⬇
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

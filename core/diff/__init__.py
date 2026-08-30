@@ -112,9 +112,13 @@ from .merge_file import (
     merge_to_local, merge_to_local_bytes, _write_file, _force_writable,
 )
 from .merge_entries import merge_entries
+from .merge_manifest import (
+    load_manifest, save_manifest, is_already_merged, content_hash,
+)
 
 __all__ = [
     "merge_to_local", "merge_to_local_bytes", "_write_file", "_force_writable",
     "merge_entries",
+    "load_manifest", "save_manifest", "is_already_merged", "content_hash",
 ]
 

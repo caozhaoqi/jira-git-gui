@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiPost } from '../api/client';
-import { ProgressBar } from './ProgressBar';
 import { useT } from '../i18n';
 
 export function ActionBar() {
@@ -136,7 +135,6 @@ export function ActionBar() {
       </div>
       <div className="actionbar-spacer" />
       <div className="actionbar-group">
-        <ProgressBar />
         {progress.visible && (
           <button className="btn btn-sm btn-ghost" onClick={cancelDownload}>
             {t('repo.cancelDownload')}

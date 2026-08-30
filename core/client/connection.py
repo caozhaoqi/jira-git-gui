@@ -52,6 +52,7 @@ class ConnectionMixin:
         self.config = cfg
         # 连接配置变化（服务器/账号/cookie）后，REST 可用性结论作废，需重新探测
         self._rest_unavailable = False
+        self._last_auth_failed = False
 
     def set_rate_limit(self, qps: float) -> None:
         """设置对外请求速率上限（每秒请求数），热更新全局限流器。

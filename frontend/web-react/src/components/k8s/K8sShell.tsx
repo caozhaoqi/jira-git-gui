@@ -19,7 +19,9 @@ export function K8sShell() {
   const [cwd, setCwd] = useState('/');
 
   const termRef = useRef<HTMLDivElement | null>(null);
-  const termObj = useRef<{ term: Terminal; fit: FitAddon } | null>(null);
+  const termObj = useRef<{
+    term: Terminal; fit: FitAddon; sendResize: () => void;
+  } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const cwdRef = useRef('/'); // 始终与状态同期、供 send 使用
 
@@ -31,35 +33,50 @@ export function K8sShell() {
     const term = new Terminal({
       fontSize: 13,
       cursorBlink: true,
-      convertEol: true,
+      // TTY 模式下远端 pty 输出的已经是 CRLF；convertEol 会把每个 \n 再转成 \r\n，
+      // 变成 \r\r\n —— vim / top 的全屏光标定位会整体错位。因此必须关闭，
+      // 本地提示文案统一手写 \r\n。
+      convertEol: false,
       theme: { background: '#1e1e1e' },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(termRef.current);
-    try { fit.fit(); } catch { /* noop */ }
-    // TTY 模式：xterm 直接接受键盘输入并转发给后端 pty（支持 vim / htop 全屏交互）
+
+    const sendResize = () => {
+      const ws = wsRef.current;
+      // cols/rows 为 0 说明容器还没布局完，此时上报会把远端窗口压成 1x1
+      if (ws && ws.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
+        try {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        } catch { /* noop */ }
+      }
+    };
+    const doFit = () => {
+      // 子标签隐藏（display:none）时容器尺寸为 0，xterm 无法正确测量，跳过；
+      // 切回该标签时 ResizeObserver / window resize 会触发真正的 fit。
+      if (!termRef.current || termRef.current.offsetParent === null) return;
+      try { fit.fit(); } catch { /* 容器尚未布局，忽略 */ }
+      sendResize();
+    };
+
+    // TTY 模式：xterm 直接接受键盘输入并转发给后端 pty（支持 vim / top 全屏交互）
     term.onData((data) => {
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         try { ws.send(JSON.stringify({ type: 'input', data })); } catch { /* noop */ }
       }
     });
-    const sendResize = () => {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-        } catch { /* noop */ }
-      }
-    };
-    const onResize = () => {
-      try { fit.fit(); sendResize(); } catch { /* noop */ }
-    };
-    window.addEventListener('resize', onResize);
-    termObj.current = { term, fit };
+
+    doFit();
+    // 面板折叠/展开、分栏拖动时 window.resize 不触发，必须监听容器本身
+    const ro = new ResizeObserver(() => doFit());
+    ro.observe(termRef.current);
+    window.addEventListener('resize', doFit);
+    termObj.current = { term, fit, sendResize };
     return () => {
-      window.removeEventListener('resize', onResize);
+      ro.disconnect();
+      window.removeEventListener('resize', doFit);
       disconnect();
       term.dispose();
       termObj.current = null;
@@ -101,16 +118,24 @@ export function K8sShell() {
     const q = new URLSearchParams({ env: target.env, pod: tgt.pod, tty: '1' });
     if (tgt.container) q.set('container', tgt.container);
     if (tgt.namespace) q.set('namespace', tgt.namespace);
+    // 建连时就带上首屏尺寸，让远端启动脚本直接按真实大小布局，避免先按 80x24
+    // 起来再被 resize 追着改（首屏错位 + 拖窗口无反应）。
+    const term = termObj.current?.term;
+    if (term && term.cols > 0 && term.rows > 0) {
+      q.set('cols', String(term.cols));
+      q.set('rows', String(term.rows));
+    }
     let ws: WebSocket;
     try {
       ws = new WebSocket(`${proto}${location.host}/ws/k8s/exec?${q.toString()}`);
     } catch (ex: any) {
-      termObj.current?.term.writeln(t('k8s.shell.cannotConnect') + ex.message);
+      termObj.current?.term.write(`\r\n${t('k8s.shell.cannotConnect')}${ex.message}\r\n`);
       return;
     }
     wsRef.current = ws;
     setConnected(false);
-    termObj.current?.term.writeln(`${t('k8s.shell.connecting')} ${tgt.pod}${tgt.container ? '/' + tgt.container : ''} …`);
+    termObj.current?.term.write(
+      `\r\n${t('k8s.shell.connecting')} ${tgt.pod}${tgt.container ? '/' + tgt.container : ''} …\r\n`);
     ws.onopen = () => {};
     ws.onmessage = (ev) => {
       let m: any;
@@ -119,21 +144,19 @@ export function K8sShell() {
         cwdRef.current = m.cwd || '/';
         setCwd(cwdRef.current);
         setConnected(true);
-        termObj.current?.term.clear();
-        termObj.current?.term.writeln(`${t('k8s.shell.connectedAs', { pod: tgt.pod + (tgt.container ? '/' + tgt.container : '') })} · ${t('k8s.shell.cwd')} ${cwdRef.current}`);
+        const obj = termObj.current;
         if (m.tty) {
-          // TTY 模式：等远程 shell 的 prompt，无本地 prompt；通知后端终端尺寸
-          const fit = termObj.current?.fit;
-          try { fit?.fit(); } catch { /* noop */ }
-          try {
-            ws.send(JSON.stringify({
-              type: 'resize',
-              cols: termObj.current?.term.cols ?? 80,
-              rows: termObj.current?.term.rows ?? 24,
-            }));
-          } catch { /* noop */ }
+          // TTY 模式：清掉连接日志，让本地屏幕与远端 pty 完全对齐，然后交给远端
+          // shell 自己画 prompt。**这里不能写任何本地文案** —— 多占一行会让
+          // vim / top 的全屏光标定位整体下移、退出后残留错位。
+          obj?.term.clear();
+          try { obj?.fit.fit(); } catch { /* noop */ }
+          obj?.sendResize();
         } else {
-          termObj.current?.term.write(`${cwdRef.current} $ `);
+          // 降级模式没有远端 prompt，只能本地画一个
+          obj?.term.write(
+            `\r\n${t('k8s.shell.connectedAs', { pod: tgt.pod + (tgt.container ? '/' + tgt.container : '') })} · ${t('k8s.shell.cwd')} ${cwdRef.current}\r\n`);
+          obj?.term.write(`${cwdRef.current} $ `);
         }
       } else if (m.type === 'output') {
         const text = m.data || '';
@@ -146,15 +169,17 @@ export function K8sShell() {
         // cwd 更新后补一个 prompt、次の行出力が旧 prompt の後ろに直接継がないよう
         termObj.current?.term.write(`\r\n${cwdRef.current} $ `);
       } else if (m.type === 'error') {
-        termObj.current?.term.writeln('\r\n' + t('k8s.shell.error') + (m.msg || ''));
+        termObj.current?.term.write(`\r\n${t('k8s.shell.error')}${m.msg || ''}\r\n`);
       }
     };
     ws.onclose = () => {
       setConnected(false);
       if (wsRef.current === ws) wsRef.current = null;
-      termObj.current?.term.writeln('\r\n— ' + t('k8s.shell.closed') + ' —');
+      termObj.current?.term.write(`\r\n— ${t('k8s.shell.closed')} —\r\n`);
     };
-    ws.onerror = () => { termObj.current?.term.writeln('\r\n' + t('k8s.shell.wsError')); };
+    ws.onerror = () => {
+      termObj.current?.term.write(`\r\n${t('k8s.shell.wsError')}\r\n`);
+    };
   }, [target.env, target.pod, target.container, target.namespace, addToast, t]);
 
   function disconnect() {
@@ -184,7 +209,7 @@ export function K8sShell() {
       </div>
       <div className="k8s-shell-term" ref={termRef} />
       <div className="k8s-shell-tip">
-        TTY 模式：直接在终端中输入命令，支持 vim / top / htop 等全屏程序
+        {connected ? t('k8s.shell.tipTty') : t('k8s.shell.tipIdle')}
       </div>
     </div>
   );

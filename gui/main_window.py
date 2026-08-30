@@ -257,7 +257,8 @@ class MainWindow(QMainWindow):
         self.tree_panel.clear()
         self._log("加载文件树根目录…")
         self._spawn(
-            self.client.list_level, "",
+            # list_level 签名是 (repo_id, branch, path)，三个参数缺一不可
+            self.client.list_level, self.client.repo_id, self.client.branch, "",
             on_finished=lambda entries: self._on_root_loaded(entries),
             on_error=lambda m: self._log(f"加载树失败：{m}"),
         )
@@ -284,7 +285,7 @@ class MainWindow(QMainWindow):
 
     def _load_children(self, path):
         self._spawn(
-            self.client.list_level, path,
+            self.client.list_level, self.client.repo_id, self.client.branch, path,
             on_finished=lambda entries: self._set_children(path, entries),
             on_error=lambda m: self._log(f"加载子目录失败 {path}：{m}"),
         )

@@ -4,6 +4,8 @@ import { HcmApiError } from '../../api/hcm/client';
 import { hcmDirect } from '../../api/hcm/direct';
 import {
   extractErrcode, lookupErrcode,
+  extractInfraErrcode, lookupInfraErrcode,
+  classifyErrorKind, ERR_KIND_GUIDE, type ErrKind,
   HCM_TOKEN_TTL_HOURS, tokenAgeHours, isTokenLikelyExpired,
 } from '../../api/hcm/errDict';
 
@@ -23,6 +25,12 @@ interface LocInfo {
   errcode?: number;     // 业务错误码（查词典用）
   message?: string;
   raw?: string;         // 该定位块原始文本（多块分诊用）
+  // P3-1: 面向「无 [定位] 埋点」的通用错误（如达梦 -70028），
+  // 保证这类错误也能解析出有效信息，而不是被判为「无有效信息」。
+  exception?: string;   // 异常类型，如 dmPython.DatabaseError
+  dbCode?: number;      // 基础设施错误码（负数），如 -70028
+  trace?: string;       // 关键栈帧（取最接近抛出点的一帧），如 xxx.py:264 in _dm
+  kind?: ErrKind;       // 错误类别，决定排查路径
 }
 
 interface HistoryItem {
@@ -96,12 +104,39 @@ function parseLoc(text: string): LocInfo {
   }
   // 业务错误码（4~6 位），用于查词典
   info.errcode = extractErrcode(text);
+
+  // ---- P3-1: 通用错误特征（无 [定位] 埋点也能提取出有效信息）----
+  // 异常类型：如 dmPython.DatabaseError / ValueError
+  const excMatch = /([A-Za-z_][\w.]*(?:Error|Exception|Warning))\s*:/.exec(text);
+  if (excMatch) info.exception = excMatch[1];
+
+  // 基础设施错误码（达梦 [CODE:-70028]，负数）；正数归业务 errcode，互不干扰
+  info.dbCode = extractInfraErrcode(text);
+
+  // 关键栈帧：取最后一条 File "...", line N, in xxx（最接近抛出点）。
+  // 用 exec 循环而非 matchAll，避免依赖 ES2020 lib。
+  const frameRe = /File\s+"([^"]+)",\s*line\s+(\d+)(?:,\s*in\s+(\S+))?/g;
+  let lastFrame: RegExpExecArray | null = null;
+  let fm: RegExpExecArray | null;
+  while ((fm = frameRe.exec(text)) !== null) lastFrame = fm;
+  if (lastFrame) {
+    info.trace = `${lastFrame[1]}:${lastFrame[2]}${lastFrame[3] ? ` in ${lastFrame[3]}` : ''}`;
+  }
+
+  // 错误类别：决定排查路径（token / db / network / business / unknown）
+  info.kind = classifyErrorKind(text);
+
   return info;
 }
 
 function hasAnyInfo(i: LocInfo | null): boolean {
   if (!i) return false;
-  return Boolean(i.model || i.objectId || i.field || i.errorCode || i.errcode);
+  // P3-1: 补上 dbCode / exception / trace —— 否则达梦这类「无 [定位]」的
+  // 错误会被判成无有效信息，面板直接卡在「请先输入」。
+  return Boolean(
+    i.model || i.objectId || i.field || i.errorCode || i.errcode ||
+    i.dbCode || i.exception || i.trace,
+  );
 }
 
 // P2-1: 把整段日志拆成多个 [定位] 块，逐块独立解析，供多错误分诊。
@@ -422,6 +457,9 @@ export function HcmCloudFuncErrorLocator() {
   // 网关选择：默认用后端 proxy_target；当该网关 502 不可达时，可临时切到其它可达的 HCM 部署。
   interface Gateway { key: string; name: string; server_url: string; source: string; has_preset_token: boolean }
   const [gateways, setGateways] = useState<Gateway[]>([]);
+  // P3-3: 后端连通性。连不上时直接在页面给出启动命令，
+  // 避免「界面所有功能都失效」却没有任何提示、难以定位。
+  const [backendDown, setBackendDown] = useState(false);
   const [gwKey, setGwKey] = useState(() => localStorage.getItem(LS_GW) || 'hcm_proxy');
   // 用 ref 镜像 gwKey，使自动选网关的 effect 不依赖 gwKey，避免手动切换后被日志域名再次覆盖
   const gwKeyRef = useRef(gwKey);
@@ -434,8 +472,14 @@ export function HcmCloudFuncErrorLocator() {
   useEffect(() => {
     fetch('/api/hcm/envs')
       .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.envs)) setGateways(d.envs); })
-      .catch(() => { /* 取不到环境列表时回退到默认网关 */ });
+      .then((d) => {
+        if (Array.isArray(d?.envs)) setGateways(d.envs);
+        setBackendDown(false);
+      })
+      .catch(() => {
+        // 连不上后端：置位后在顶部显示启动命令，而不是静默回退到默认网关
+        setBackendDown(true);
+      });
   }, []);
 
   // 网关选择持久化：刷新后仍保留上次选的网关（与 HcmObjectBrowser 的 hcm.selectedEnv 一致）
@@ -652,6 +696,8 @@ export function HcmCloudFuncErrorLocator() {
   };
 
   const errInfo = lookupErrcode(parsed?.errcode);
+  // P3-2: 基础设施错误码（如达梦 -70028）走独立词典，正数业务码查不到它
+  const infraInfo = lookupInfraErrcode(parsed?.dbCode);
   const batchMissing = batchRows.filter((r) => !r.present).length;
 
   // ⑥ Jira 工单：把定位结论转成 issue
@@ -928,6 +974,18 @@ export function HcmCloudFuncErrorLocator() {
         <p className="hcm-cf-err-hint">{t('hcm.cfErrHint')}</p>
       </div>
 
+      {/* P3-3: 后端健康检查 —— 连不上时直接给启动命令，避免界面「不可用」却无提示 */}
+      {backendDown && (
+        <div className="hcm-cf-err-backend-down">
+          <strong>{t('hcm.cfErrBackendDown')}</strong>
+          <div className="hcm-cf-err-backend-hint">{t('hcm.cfErrBackendHint')}</div>
+          <code className="hcm-mono">python3 api/server.py</code>
+          <button className="btn btn-xs" onClick={() => copy('python3 api/server.py', 'be')}>
+            {copied === 'be' ? t('hcm.copied') : t('hcm.cfErrCopyCode')}
+          </button>
+        </div>
+      )}
+
       <div className="hcm-cf-err-input">
         {/* 网关选择：默认用配置的 proxy_target；当其 502 不可达时，可切到其它可达的 HCM 部署 */}
         <div className="hcm-cf-err-gateway">
@@ -1054,6 +1112,18 @@ export function HcmCloudFuncErrorLocator() {
 
       {parsed && (
         <div className="hcm-cf-err-result">
+          {/* P3-4: 错误类别 + 通用错误特征。无 [定位] 埋点的错误（如达梦 -70028）
+              也能一眼看出「是什么类别、哪个异常、哪个错误码、哪行代码抛出」 */}
+          {(parsed.kind && parsed.kind !== 'unknown') || parsed.exception || parsed.dbCode !== undefined || parsed.trace ? (
+            <div className="hcm-cf-err-kindbar">
+              <span className={`hcm-cf-err-kind hcm-cf-err-kind--${parsed.kind || 'unknown'}`}>
+                {ERR_KIND_GUIDE[parsed.kind || 'unknown'].label}
+              </span>
+              {parsed.exception && <span className="hcm-mono">{parsed.exception}</span>}
+              {parsed.dbCode !== undefined && <span className="hcm-mono">CODE:{parsed.dbCode}</span>}
+              {parsed.trace && <span className="hcm-mono hcm-cf-err-trace">{parsed.trace}</span>}
+            </div>
+          ) : null}
           <div className="hcm-loc-card">
             <span className="hcm-loc-k">{t('hcm.cfErrObject')}</span>
             <span className="hcm-loc-v hcm-mono">
@@ -1115,6 +1185,34 @@ export function HcmCloudFuncErrorLocator() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* P3-4: 错误分类与排查路径 —— 让非业务类错误（DB/网络/Token）也有可执行指引，
+          而不是只显示「无有效信息」把人卡住 */}
+      {parsed && (parsed.kind || parsed.dbCode !== undefined || parsed.exception) && (
+        <div className="hcm-cf-err-guide">
+          <div className="hcm-cf-err-section-title">{t('hcm.cfErrGuideTitle')}</div>
+          {infraInfo && (
+            <div className="hcm-cf-err-dict-card">
+              <div className="hcm-cf-err-dict-name">
+                {infraInfo.name} · <span className="hcm-mono">{parsed.dbCode}</span>
+              </div>
+              <div className="hcm-cf-err-dict-meaning">{infraInfo.meaning}</div>
+              <div className="hcm-cf-err-dict-fix">{infraInfo.fix}</div>
+            </div>
+          )}
+          <div className="hcm-cf-err-guide-label">
+            {t('hcm.cfErrGuideKind')}：
+            <span className={`hcm-cf-err-kind hcm-cf-err-kind--${parsed.kind || 'unknown'}`}>
+              {ERR_KIND_GUIDE[parsed.kind || 'unknown'].label}
+            </span>
+          </div>
+          <ol className="hcm-cf-err-guide-steps">
+            {ERR_KIND_GUIDE[parsed.kind || 'unknown'].steps.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ol>
         </div>
       )}
 

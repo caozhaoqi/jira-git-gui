@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { sse } from './api/events';
 import { apiGet } from './api/client';
-import { useAppStore } from './store/useAppStore';
+import { useAppStore, type TabKey } from './store/useAppStore';
+import { EtaTracker, formatEta } from './utils/eta';
 import type {
   StatusResp,
   ReposResp,
@@ -26,10 +27,28 @@ import { HcmModelDetail } from './components/hcm/HcmModelDetail';
 import { HcmCloudFuncErrorLocator } from './components/hcm/HcmCloudFuncErrorLocator';
 import { UnifiedDiagnosisPanel } from './components/UnifiedDiagnosisPanel';
 import { ToastStack } from './components/Toast';
+import { ProgressBar } from './components/ProgressBar';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
 
 const ACTIONBAR_TABS = new Set(['repo']);
+
+// 每个标签页对应的面板。一次性建好元素引用，App 重渲染时复用同一引用，
+// 配合下面的「访问过就常驻挂载、非当前页用 display:none 隐藏」策略，
+// 让切换标签页时组件实例不卸载 —— 文件树、diff 结果、扫描进度、终端会话、
+// 表单输入、滚动位置等本地状态全部保留，直到整个程序（窗口）关闭才随 React 卸载而清理。
+// 未访问过的标签页不会预挂载，避免冷启动就拉起所有面板（K8s 终端等）。
+const PANELS: { key: TabKey; el: ReactNode }[] = [
+  { key: 'repo', el: <RepoPanel /> },
+  { key: 'diff', el: <DiffPanel /> },
+  { key: 'logs', el: <LogPanel /> },
+  { key: 'k8s', el: <K8sPanel /> },
+  { key: 'cf', el: <CfPanel /> },
+  { key: 'clash', el: <ClashPanel /> },
+  { key: 'hcm', el: <HcmObjectBrowser /> },
+  { key: 'diagnose', el: <UnifiedDiagnosisPanel /> },
+  { key: 'settings', el: <SettingsPanel /> },
+];
 
 export default function App() {
   const setStatus = useAppStore((s) => s.setStatus);
@@ -42,6 +61,19 @@ export default function App() {
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
   const [connectOpen, setConnectOpen] = useState(false);
+  // 访问过的标签页集合：首次切到某标签页就加入并永久保持挂载（仅隐藏），
+  // 因此来回切换不会重置该面板内容。清空只发生在整个 App 卸载（程序关闭）。
+  const [visited, setVisited] = useState<Set<TabKey>>(
+    () => new Set<TabKey>([activeTab]),
+  );
+  useEffect(() => {
+    setVisited((prev) =>
+      prev.has(activeTab) ? prev : new Set(prev).add(activeTab),
+    );
+  }, [activeTab]);
+  // 克隆 / 下载进度的 ETA 估算（后端给真实 total，可用 etaFromTotal）
+  const cloneEta = useRef(new EtaTracker());
+  const cloneEtaStarted = useRef(false);
 
   // 双击对象打开的新窗口带 ?hcm-model=<id>&hcm-detail=1：直接渲染独立模型详情页，
   // 不加载主应用外壳（TopBar/Tabs），保持轻量独立窗口。
@@ -124,15 +156,25 @@ export default function App() {
     const offs = [
       sse.on('log', (d: SSELog) => pushLog(d.msg, d.level || 'info')),
       sse.on('progress', (d: SSEProgress) => {
+        const total = d.total ?? 0;
+        const done = d.done ?? 0;
+        if (!cloneEtaStarted.current) {
+          cloneEta.current.reset(done);
+          cloneEtaStarted.current = true;
+        }
+        const etaSec = cloneEta.current.etaFromTotal(done, total);
+        const eta = etaSec != null ? formatEta(etaSec) : '';
         setProgress({
           visible: true,
-          mode: d.total > 0 ? 'determinate' : 'indeterminate',
-          pct: d.total > 0 ? Math.round((d.done / d.total) * 100) : 0,
+          mode: total > 0 ? 'determinate' : 'indeterminate',
+          pct: total > 0 ? Math.round((done / total) * 100) : 0,
           stage: '处理中',
-          detail: d.total > 0 ? `${d.done}/${d.total} (${d.pct ?? 0}%)` : `已处理 ${d.done}…`,
+          detail: total > 0 ? `${done}/${total} (${Math.round((done / total) * 100)}%)` : `已处理 ${done}…`,
+          eta,
         });
       }),
       sse.on('clone_done', (d: SSECloneDone) => {
+        cloneEtaStarted.current = false;
         if (d.ok) {
           pushLog(`克隆结果：${d.msg}`);
           if (d.path) pushLog(`本地路径：${d.path}`);
@@ -140,6 +182,7 @@ export default function App() {
         setProgress({ visible: false });
       }),
       sse.on('download_done', (d: SSEDownloadDone) => {
+        cloneEtaStarted.current = false;
         pushLog(
           `下载完成：成功 ${d.ok_count}（跳过 ${d.skipped}），失败 ${d.fail_count}。`
         );
@@ -169,19 +212,21 @@ export default function App() {
             </div>
           )}
           <div className="workspace-body">
-            {activeTab === 'repo' && <RepoPanel />}
-            {activeTab === 'diff' && <DiffPanel />}
-            {activeTab === 'logs' && <LogPanel />}
-            {activeTab === 'k8s' && <K8sPanel />}
-            {activeTab === 'cf' && <CfPanel />}
-            {activeTab === 'clash' && <ClashPanel />}
-            {activeTab === 'hcm' && <HcmObjectBrowser />}
-            {activeTab === 'diagnose' && <UnifiedDiagnosisPanel />}
-            {activeTab === 'settings' && <SettingsPanel />}
+            {PANELS.map(({ key, el }) =>
+              visited.has(key) || activeTab === key ? (
+                <div
+                  key={key}
+                  className={`tab-pane${activeTab === key ? '' : ' tab-pane--hidden'}`}
+                >
+                  {el}
+                </div>
+              ) : null,
+            )}
           </div>
         </main>
       </div>
       <ToastStack />
+      <ProgressBar />
       {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
     </div>
   );
