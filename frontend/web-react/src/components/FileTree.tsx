@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
-import type { TreeEntry, TreeResp, SearchResp, SearchHit } from '../api/types';
+import type {
+  TreeEntry,
+  TreeResp,
+  TreeResolveResp,
+  SearchResp,
+  SearchHit,
+} from '../api/types';
 import { useT } from '../i18n';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
@@ -56,6 +62,18 @@ export function FileTree() {
   const [searching, setSearching] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 「粘贴完整路径直达」：一次请求并行拉回根到目标的每一层，
+  // 避免逐层点开时每层都付一次远端页面渲染的等待。
+  const [jumpPath, setJumpPath] = useState('');
+  const [jumping, setJumping] = useState(false);
+  const [jumpError, setJumpError] = useState('');
+  // jumpFocus=高亮（持久）；pendingScroll=待滚动（滚到即清空）。
+  // 拆成两个是为了让滚动只发生一次——若滚动 effect 依赖 expanded/dirCache，
+  // 之后用户每展开一个无关目录都会被拽回直达目标。
+  const [jumpFocus, setJumpFocus] = useState('');
+  const [pendingScroll, setPendingScroll] = useState('');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   async function loadRoot() {
     setLoading(true);
     setTreeError('');
@@ -104,6 +122,8 @@ export function FileTree() {
       setRootEntries([]);
       setDirCache({});
       setExpanded(new Set());
+      setJumpFocus('');
+      setPendingScroll('');
       return;
     }
     loadRoot();
@@ -139,6 +159,105 @@ export function FileTree() {
   function onFileClick(entry: TreeEntry) {
     setSelectedFile(entry.path);
   }
+
+  /** 粘贴完整路径直达：一次请求拿回整条祖先链并展开。 */
+  async function gotoPath() {
+    const raw = jumpPath.trim();
+    if (!raw) {
+      addToast(t('file.jumpEmpty'), 'warn');
+      return;
+    }
+    if (!selectedRepo && !treeLocalDir.trim()) {
+      addToast(t('file.jumpNeedRepo'), 'warn');
+      return;
+    }
+    setJumping(true);
+    setJumpError('');
+    try {
+      const ld = treeLocalDir.trim();
+      const url =
+        `/api/tree/resolve?path=${encodeURIComponent(raw)}` +
+        (ld ? `&local_dir=${encodeURIComponent(ld)}` : '');
+      const res = await apiGet<TreeResolveResp>(url);
+
+      if (res.error) {
+        // 请求级失败（Cookie 失效 / 浏览页不可用）也塞进 treeError，
+        // 好让下面的错误框给出「克隆到本地」这个逃生口。
+        setJumpError(res.error);
+        setTreeError(res.error);
+        addToast(res.error, 'error');
+        return;
+      }
+
+      const levels = res.levels || [];
+      // 每一层都灌进 dirCache，根层（path === ''）落到 rootEntries
+      const next: Record<string, TreeEntry[]> = { ...dirCache };
+      const toExpand: string[] = [];
+      for (const lv of levels) {
+        next[lv.path] = lv.entries || [];
+        if (lv.path) toExpand.push(lv.path);
+      }
+      setRootEntries(next[''] || []);
+      setDirCache(next);
+      setExpanded((s) => {
+        const n = new Set(s);
+        for (const p of toExpand) n.add(p);
+        return n;
+      });
+
+      const target = res.target;
+      if (target?.type === 'file') {
+        setSelectedFile(target.path);
+        setJumpFocus(target.path);
+        setPendingScroll(target.path);
+      } else if (target?.type === 'dir') {
+        setJumpFocus(res.path);
+        setPendingScroll(res.path);
+      }
+
+      if (res.broken_at) {
+        const msg = t('file.jumpBroken', { p: res.broken_at });
+        setJumpError(msg);
+        addToast(msg, 'warn');
+      } else {
+        pushLog(
+          t('file.jumpOk', {
+            p: res.path || '/',
+            n: levels.length,
+            ms: res.elapsed_ms ?? 0,
+          })
+        );
+      }
+    } catch (e: any) {
+      setJumpError(e.message || t('file.loadErr'));
+      addToast(e.message, 'error');
+    } finally {
+      setJumping(false);
+    }
+  }
+
+  // 直达后把目标节点滚到可视区中央。只依赖 pendingScroll，
+  // 逐帧重试若干次（等展开后的 DOM 提交），滚到或放弃后清空，不重复触发。
+  useEffect(() => {
+    if (!pendingScroll) return;
+    let raf = 0;
+    let tries = 0;
+    const tryScroll = () => {
+      const el = containerRef.current?.querySelector<HTMLElement>(
+        `[data-tree-path="${attrEscape(pendingScroll)}"]`
+      );
+      if (el) {
+        el.scrollIntoView({ block: 'center', inline: 'nearest' });
+        setPendingScroll('');
+        return;
+      }
+      // 目标可能是坏路径（永不出现），重试若干帧后放弃，避免一直空转
+      if (++tries < 10) raf = requestAnimationFrame(tryScroll);
+      else setPendingScroll('');
+    };
+    raf = requestAnimationFrame(tryScroll);
+    return () => cancelAnimationFrame(raf);
+  }, [pendingScroll]);
 
   function runSearch() {
     const q = searchQ.trim();
@@ -197,7 +316,8 @@ export function FileTree() {
         <div
           className={`tree-row ${isDir ? '' : 'file'} ${
             selectedFilePath === entry.path ? 'selected' : ''
-          }`}
+          } ${entry.path === jumpFocus ? 'jump-target' : ''}`}
+          data-tree-path={entry.path}
           onClick={() => (isDir ? toggleDir(entry) : onFileClick(entry))}
         >
           {!isDir && (
@@ -253,6 +373,30 @@ export function FileTree() {
             onChange={(e) => setTreeLocalDir(e.target.value)}
           />
         </label>
+      </div>
+      <div className="tree-jump-bar">
+        <div className="tree-jump-wrap">
+          <input
+            className="input tree-jump-input"
+            placeholder={t('file.jumpPlaceholder')}
+            title={t('file.jumpPlaceholder')}
+            value={jumpPath}
+            disabled={jumping}
+            onChange={(e) => setJumpPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !jumping) gotoPath();
+            }}
+          />
+          <button
+            className="btn btn-sm btn-primary tree-jump-btn"
+            onClick={gotoPath}
+            disabled={jumping}
+          >
+            {jumping ? '…' : t('file.jump')}
+          </button>
+        </div>
+        {jumping && <div className="tree-jump-hint">{t('file.jumping')}</div>}
+        {jumpError && <div className="tree-jump-err">⚠️ {jumpError}</div>}
       </div>
       <div className="tree-toolbar">
         <div className="tree-toolbar-row">
@@ -327,7 +471,7 @@ export function FileTree() {
         </div>
       )}
 
-      <div className="tree-container">
+      <div className="tree-container" ref={containerRef}>
         {!selectedRepo && (
           <div className="empty-hint">{t('file.noRepo')}</div>
         )}
@@ -355,6 +499,11 @@ export function FileTree() {
       </div>
     </div>
   );
+}
+
+/** 转义属性选择器里的引号/反斜杠，避免路径含特殊字符时 querySelector 抛错。 */
+function attrEscape(s: string): string {
+  return s.replace(/["\\]/g, '\\$&');
 }
 
 function fmtSize(n: number): string {

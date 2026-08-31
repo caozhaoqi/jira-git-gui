@@ -79,8 +79,21 @@ export function DiffPanel() {
   const compareRepoRef = useRef(compareRepo);
   compareRepoRef.current = compareRepo;
   const scanningRef = useRef(false);
-  const scanEta = useRef(new EtaTracker());
+  // 扫描是并发递归的，速率比串行下载更抖，用更保守的平滑系数
+  const scanEta = useRef(new EtaTracker({ alpha: 0.2, warmupMs: 2000 }));
   const scanEtaStarted = useRef(false);
+  /**
+   * 远端文件总量估计。
+   *
+   * 旧实现拿「目录进度比例」反推总量（totalEst = 已扫文件数 / frac），把
+   * **文件数**和**目录进度**两个单位混着除——文件分布一不均匀（一个大目录
+   * 装了全仓 90% 的文件）总量估值就会翻几倍，表现为「剩余时间越走越长」。
+   *
+   * 这里改用后端在 scan_stage 里给的 ``local_count``：本地与远端扫的是同一个
+   * 仓库的同一子目录（compare_dir 同时收窄两侧），文件数高度接近，且**与
+   * 进度里的 done（已扫文件数）同单位**。拿不到这个值就不显示 ETA。
+   */
+  const remoteFileTotalEst = useRef(0);
   const mergeEta = useRef(new EtaTracker());
   const mergeEtaStarted = useRef(false);
 
@@ -209,6 +222,10 @@ export function DiffPanel() {
     const offs = [
       sse.on('scan_stage', (d: any) => {
         if (!scanningRef.current) return;
+        // 远端扫描开始前记下本地文件数，作为远端文件总量的实测估计
+        if (d.stage === 'remote' && typeof d.local_count === 'number') {
+          remoteFileTotalEst.current = d.local_count;
+        }
         setProgress({ visible: true, mode: 'indeterminate', stage: d.message || t('diff.scanning'), detail: '' });
       }),
       sse.on('scan_progress', (d: any) => {
@@ -219,8 +236,12 @@ export function DiffPanel() {
           scanEta.current.reset(done);
           scanEtaStarted.current = true;
         }
-        const frac = (pct - 10) / 70;
-        const etaSec = scanEta.current.etaFromFraction(done, frac);
+        // 注意：pct 只用于进度条，不再拿来反推总量（那是旧版 ETA 失真的根因）。
+        // 总量用本地实测文件数；若已扫文件数反超估计值，说明估计已失真，
+        // 宁可不显示也不给个离谱数字。
+        const totalEst = remoteFileTotalEst.current;
+        const etaSec =
+          totalEst > done ? scanEta.current.etaFromTotal(done, totalEst) : null;
         const eta = etaSec != null ? formatEta(etaSec) : '';
         setProgress({
           visible: true,
@@ -278,6 +299,7 @@ export function DiffPanel() {
     setBusy(true);
     scanningRef.current = true;
     scanEtaStarted.current = false;
+    remoteFileTotalEst.current = 0;
     setErrors([]);
     setProgress({ visible: true, mode: 'indeterminate', stage: t('diff.preparing'), detail: '' });
     setEntries([]);

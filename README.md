@@ -17,6 +17,7 @@ Both load the same web frontend (built from `frontend/web-react/`) against the s
 - **High-performance engine**: incremental scanning (~2.7×), set-based diffing, parallel merging (~8×), O(1) file-tree indexing, and a global token-bucket rate limiter with a UI-adjustable rate.
 - **Smart diff**: auto-detects CRLF / LF line-ending and whitespace-only differences (classified as "line-ending diff" instead of "modified"); JSON / JSONC / XML family files are auto-formatted and expanded so single-line minified files become readable line by line.
 - **Resume-able downloads**: Cookie mode supports recursive whole-repo downloads (nested files & binaries included) with resume, cancellation, and bounded concurrency (default 4 threads).
+- **Git-style repo compare & merge**: pick a remote repo (the dropdown shows `name · ID` so same-named repos are distinguishable) and a compare directory, fast-scan by size (no content download), view git-log-style "recent updates", see per-file "merged ✓" badges, and merge single / batch with SSE progress. Large / binary files are merged via the plugin's raw-file REST endpoint, so a batch never fails on the viewer's size limit.
 
 ### K8s ops module (☸ K8s tab)
 
@@ -138,7 +139,7 @@ Dependency direction: `gui → workers → core`; `core` does not depend back on
 | --- | --- | --- |
 | Repository / Files | `RepoPanel` | Repo list / file tree / preview (first block, migrated earlier) |
 | Commits | `CommitsPanel` | Query commits by Issue / local repo, GitHub-style list + line-level diff |
-| Diff | `DiffPanel` | Local↔remote diff scan, GitHub-style diff, single / batch merge (with SSE progress) |
+| Diff | `DiffPanel` | Git-style repo compare/merge: pick compare-repo (dropdown shows `name · ID` for same-named repos) + compare-dir, fast size-only scan, git-log-style "recent updates", per-file "merged ✓" badges, single / batch merge (SSE progress) incl. large/binary files via raw-file REST fallback, resume manifest for re-run skip |
 | K8s Ops | `k8s/K8sPanel` | Snapshot / Pod YAML / **Describe** / Network / Events / Top / **Shell terminal** / Files / **full-screen log viewer** |
 | CF Logs | `CfPanel` | Cloud-function log query / sort / search / export / clipboard-to-file |
 
@@ -265,6 +266,35 @@ The diff engine (`core/differ.py`) addresses two common pain points: "same conte
 - Equality checks and merges always use the **original bytes** — the remote style is never "prettified" into the remote repo.
 - Parse failures return as-is, never raising. Supported: JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL.
 
+## Diff / Merge workflow (git-style)
+
+The **Diff** tab (`frontend/web-react/src/components/DiffPanel.tsx`) supports a "manage a repo like git" workflow: pick a remote repo and a directory, diff local↔remote, then pull the remote into your local checkout.
+
+### Compare-repo selector (shows repo ID)
+
+The compare-repo dropdown is populated from `GET /api/repos`. Each option renders `name · ID <repo_id>` so **same-named repos are distinguishable** (the environment has duplicate names). The selected value is the `repo_id`, so selection logic is unchanged. On select, the local directory is auto-filled from the `.env` `MERGE_REPO_*` mapping (see [Configuration](#configuration-env) and [Known Limitations](#known-limitations)).
+
+### Compare-dir + fast scan
+
+- **Compare directory**: type a path or open the tree popover (`GET /api/tree`, filtered to `type==='dir'`) to diff only a subdirectory instead of the whole repo.
+- **Fast scan** (on by default): `scan_remote(fast_hash=True)` records only file `size` and downloads **no content**. `compute_diff` falls back to a size comparison when both sides' hashes are empty, so the diff is produced with zero content fetches — much faster on huge repos.
+
+### Recent updates + merged badges
+
+- **Recent updates** (`GET /api/diff/commits?path=compare_dir`): a git-log-style list of recent commits touching the compare directory.
+- **Merged ✓ badge**: each diff entry shows a ✓ when its local file's md5 equals the recorded `remote_hash` (`GET /api/diff/merge-manifest`); the panel header shows a merged count.
+
+### Merge (single / batch) with SSE progress
+
+- `POST /api/diff/merge` (one file) and `POST /api/diff/merge-batch` (many, parallel) write remote bytes back to the local dir. Progress is pushed over SSE (`scan_stage` / `scan_progress` / `scan_done` / `merge_start` / `merge_progress` / `merge_done`).
+- **Large / binary files**: `get_file(path, allow_binary=True)` returns raw bytes; when the web viewer can't embed a large file, `core/client/files.py::_fetch_raw_file` falls back to the plugin's raw-file REST endpoint (`/rest/git/1.0/repositories/{repoId}/files/{ref}?path=` and `/rest/gitplugin/1.0/repository/{repoId}/files/{ref}?path=`), bypassing the viewer size limit. The fallback is **strictly guarded** — it accepts only raw bytes or a JSON `content`/`rawFile` field (base64 or text); HTML / error envelopes are rejected so an error page can never be written over a local file. Preview (`api_diff_file`) keeps `allow_binary=False`.
+
+### Resume manifest (re-run skips already-merged)
+
+- After a merge, a manifest is written to an **app-data sidecar** `get_data_root()/merge_state/<safe_local_dir>/manifest.json` (deliberately *not* inside `local_dir`, so it never shows up in `git status`).
+- On the next merge, entries whose local file md5 still equals the recorded `remote_hash` are skipped (not re-fetched, not re-written). A locally-edited file (md5 changed) is re-fetched and overwritten — merge re-syncs correctly.
+- `is_already_merged(local_dir, rel_path, manifest)` is the single source of truth for the skip decision in both merge paths.
+
 ## Performance
 
 Measured on repositories with tens of thousands of files:
@@ -319,3 +349,4 @@ Coverage: resume download, client optimizations (binary download / branch cache 
 - **Python version**: dev env 3.9 is compatibility-hardened; CI and official packaging recommend **Python ≥ 3.10** (3.11 verified).
 - **Linux runtime deps**: the desktop apps need system libs `libnss3` (Electron) / WebView dev libs (Tauri) etc.
 - **K8s shell session is single-connection TTY**: one Shell tab maps to one `kubectl exec -it` session; disconnecting ends it. For multiple concurrent views use the standalone log viewer window.
+- **`.env` `MERGE_REPO_*` mapping is keyed by repo *name***: both `/api/diff/repo-mappings` and the auto-fill-on-select logic look up local dirs by `display_name||name`. Same-named repos collide on that key and only one maps correctly. To auto-locate each same-named repo's local directory, re-key the mapping by `repo_id` (backend `load_merge_config` + `/api/diff/repo-mappings` must carry `repo_id`). The compare-repo dropdown already shows the ID for disambiguation, but auto-fill still needs the name→id switch.

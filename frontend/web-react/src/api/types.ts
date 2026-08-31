@@ -62,6 +62,25 @@ export interface TreeResp {
   error?: string;
 }
 
+/** 路径直达：一次请求拿回从根到目标的每一层。 */
+export interface TreeLevel {
+  path: string;
+  entries: TreeEntry[];
+}
+
+export interface TreeResolveResp {
+  /** 归一化后的目标路径 */
+  path: string;
+  /** dir=目录 / file=文件 / missing=不存在 / ''=请求级失败，无法判定 */
+  target?: { path: string; type: 'dir' | 'file' | 'missing' | '' };
+  /** 首个不存在的层级（远端对坏路径只回空树、不给 404，需要后端沿链校验） */
+  broken_at?: string | null;
+  /** 从根到目标的每一层，按层级顺序排列；levels[0].path === '' */
+  levels?: TreeLevel[];
+  error?: string | null;
+  elapsed_ms?: number;
+}
+
 export interface FileResp {
   content?: string;
   error?: string;

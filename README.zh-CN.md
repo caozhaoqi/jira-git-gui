@@ -17,6 +17,7 @@
 - **高性能引擎**：增量扫描（约 2.7×）、集合式差异对比、并行合并（约 8×）、O(1) 文件树索引、全局令牌桶限流（速率可在界面调节）。
 - **智能差异对比**：自动识别 CRLF / LF 行尾与纯空白差异（归类为"行尾差异"而非"已修改"）；JSON / JSONC / XML 家族文件自动格式化展开，单行压缩文件也能逐行可读对比。
 - **可断点续传下载**：Cookie 模式支持整仓递归下载（含嵌套文件与二进制），支持续传、取消与并发控制（默认 4 线程）。
+- **git 风格仓库对比合并**：选择远端仓库（下拉同时显示「仓库名 · ID」，同名仓库可区分）与对比目录，按大小快扫（不下载内容）、查看 git log 风格「最近更新」、每条差异带「已合并 ✓」徽标，单文件 / 批量合并带 SSE 进度；大文件 / 二进制走插件原始文件 REST 端点合并，不再因 viewer 大小限制整批失败。
 
 ### K8s 运维模块（☸ K8s 标签页）
 
@@ -214,6 +215,35 @@ cargo tauri dev                     # 实时开发（热重载），在 tauri/ �
 - **相等性判断与合并都用原始字节**：合并始终写入远端原始字节，绝不"顺手格式化"污染远端。
 - 解析失败一律原样返回，不抛异常。支持：JSON / JSONC / JSON5 / GeoJSON / tfstate / ipynb + XML / XHTML / SVG / WSDL / plist / RSS / Atom / XSL。
 
+## 差异对比 / 合并工作流（git 风格）
+
+**差异对比**标签页（`frontend/web-react/src/components/DiffPanel.tsx`）支持「像 git 一样管理一个仓库」：选远端仓库与目录，对比本地↔远端，再把远端拉回本地工作副本。
+
+### 仓库对比选择器（显示仓库 ID）
+
+对比仓库下拉来自 `GET /api/repos`，每个选项渲染「仓库名 · ID `<repo_id>`」，**同名仓库可区分**（本环境存在同名仓库）。选中值仍为 `repo_id`，选中逻辑不变。选中后本地目录按 `.env` `MERGE_REPO_*` 映射自动填充（见[配置文件](#配置文件-env)与[已知限制](#已知限制)）。
+
+### 对比目录 + 快扫
+
+- **对比目录**：手动输入路径，或打开文件树弹层（`GET /api/tree`，限 `type==='dir'`）只对比某一子目录而非整仓。
+- **快速扫描**（默认开）：`scan_remote(fast_hash=True)` 只记录文件 `size`、**不下载内容**。`compute_diff` 在两端 hash 皆空时退化为按 size 比较，零内容拉取完成差异判定——超大仓库显著更快。
+
+### 最近更新 + 已合并徽标
+
+- **最近更新**（`GET /api/diff/commits?path=compare_dir`）：git log 风格列出该目录近期提交。
+- **已合并 ✓ 徽标**：每条差异在本地文件 md5 == 记录 `remote_hash` 时显示 ✓（`GET /api/diff/merge-manifest`），面板顶部显示已合并计数。
+
+### 合并（单文件 / 批量）带 SSE 进度
+
+- `POST /api/diff/merge`（单文件）与 `POST /api/diff/merge-batch`（批量并行）把远端字节写回本地目录；进度经 SSE 推送（`scan_stage` / `scan_progress` / `scan_done` / `merge_start` / `merge_progress` / `merge_done`）。
+- **大文件 / 二进制**：`get_file(path, allow_binary=True)` 返回原始字节；当 web viewer 无法内嵌大文件时，`core/client/files.py::_fetch_raw_file` 回退到插件原始文件 REST 端点（`/rest/git/1.0/repositories/{repoId}/files/{ref}?path=` 与 `/rest/gitplugin/1.0/repository/{repoId}/files/{ref}?path=`）绕过 viewer 大小限制。**严格守门**：只接受原始字节或 JSON `content`/`rawFile` 字段（base64 或文本），HTML / 错误包一律拒绝，绝不把错误页写坏本地。预览接口 `api_diff_file` 保持 `allow_binary=False`。
+
+### 续传 manifest（重跑跳过已合并）
+
+- 合并后 manifest 写入**应用数据目录 sidecar** `get_data_root()/merge_state/<safe_local_dir>/manifest.json`（刻意不进 `local_dir`，不会出现在 `git status`）。
+- 下次合并时，本地文件 md5 仍等于记录 `remote_hash` 的条目被跳过（不重抓、不重写）；本地被改（md5 变化）的文件则重抓并覆盖——合并正确重新同步。
+- `is_already_merged(local_dir, rel_path, manifest)` 是两处合并路径跳过判定的唯一依据。
+
 ## 性能
 
 在数万文件规模仓库上实测：
@@ -270,3 +300,4 @@ QT_QPA_PLATFORM=offscreen ./venv/bin/python -m unittest discover -s tests -p "te
 - **Linux 运行依赖**：桌面版需要系统库 `libnss3`（Electron）/ WebView 开发库（Tauri）等（CI 中已安装）。
 - **K8s Shell 的 TTY 会话为单连接**：一个 Shell 标签页对应一条 `kubectl exec -it` 会话，断开即结束进程；
   多开请用「日志查看」的独立窗口模式。
+- **`.env` `MERGE_REPO_*` 映射按仓库「名」建立**：`/api/diff/repo-mappings` 与选中自动填本地目录都按 `display_name||name` 查表。同名仓库会撞 key，只能匹配到其中一个。若要让同名仓库各自自动定位本地目录，需把映射改为按 `repo_id` 索引（后端 `load_merge_config` + `/api/diff/repo-mappings` 都要带 `repo_id`）。对比仓库下拉已显示 ID 用于区分，但自动填充仍需从名改 ID。
