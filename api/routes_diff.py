@@ -210,7 +210,7 @@ async def api_diff_file(req: DiffFileReq):
                                  f"（请检查仓库/分支选择与 Cookie 是否有效）")
 
     diff_text = _differ.file_diff(local_path, remote_content)
-    normalized_same = _differ.is_whitespace_only_diff(local_path, remote_content or "")
+    normalized_same = _differ.is_whitespace_only_diff(local_path, local_content, remote_content)
     show_local = _differ.canonical_text(local_path, local_content) if local_content else ""
     show_remote = _differ.canonical_text(req.path, remote_content or "") if remote_content else ""
 

@@ -9,6 +9,7 @@
 因此可自由调用其它 Mixin 提供的 ``self.xxx`` 方法。
 """
 import base64
+import threading
 import time
 from typing import Optional
 
@@ -18,6 +19,12 @@ from core.constants import HTTP_TIMEOUT, PROXY_URL, DEFAULT_REQUEST_QPS
 from core.errors import UserError
 from core.models import ConnectConfig
 from core import throttle
+
+# httpx.Client 本身线程安全，但**惰性创建**不是：路径直达 / 差异扫描会一瞬间
+# 起多个线程同时进 _get_http_client()，无锁时每个线程都看到 None 而各建一个
+# 客户端，只留最后一个挂在 self 上，其余连接池泄漏（连接不关、fd 堆积）。
+# 这里用一把锁把「判空 + 创建 + 赋值」串行化。
+_http_client_lock = threading.Lock()
 
 
 def _should_backoff(r: "httpx.Response") -> bool:
@@ -117,14 +124,21 @@ class ConnectionMixin:
         raise last if last else httpx.TransportError("unknown httpx error")
 
     def _get_http_client(self) -> "httpx.Client":
-        """懒创建 / 复用 keep-alive 客户端（线程安全，可跨线程共享）。"""
-        if self._http_client is None:
-            self._http_client = self._make_client()
-        return self._http_client
+        """懒创建 / 复用 keep-alive 客户端（线程安全，可跨线程共享）。
+
+        双重判空 + 加锁：并发首次调用时只建一个客户端，避免连接池泄漏。
+        """
+        if self._http_client is not None:
+            return self._http_client
+        with _http_client_lock:
+            if self._http_client is None:
+                self._http_client = self._make_client()
+            return self._http_client
 
     def _drop_http_client(self) -> None:
         """丢弃当前连接池（传输层异常后调用，下次请求重建）。"""
-        c, self._http_client = self._http_client, None
+        with _http_client_lock:
+            c, self._http_client = self._http_client, None
         if c is not None:
             try:
                 c.close()

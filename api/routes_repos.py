@@ -8,6 +8,8 @@ import asyncio
 import os
 import re
 import fnmatch
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +31,73 @@ from api.schemas import ConnectReq, RepoSelectReq
 router = APIRouter()
 
 # 注意：下方用 @router.get/post/delete 等价于原 @app.get/post/delete
+
+
+# --------------------------------------------------------------------------- #
+#  路径直达（/api/tree/resolve）用的纯函数
+# --------------------------------------------------------------------------- #
+# 远端浏览每一层都要拉一次 GIJBrowseGit.jspa（实测单次可达 10s 量级）。
+# 逐层展开去到 N 层深处就是 N × 单次延迟；这里把「从根到目标」的所有层级
+# **并发**拉取，墙钟时间从 N×T 压到 ~1×T（外加令牌桶排队，默认 6 QPS）。
+_TREE_RESOLVE_MAX_DEPTH = 32      # 防误粘贴超长路径打爆 Jira
+_TREE_RESOLVE_MAX_WORKERS = 8
+
+
+def _split_tree_path(raw: str) -> list[str]:
+    """把用户粘贴的路径切成段。
+
+    拒绝 ``..``：本地目录模式下路径会拼到 local_dir 后面，放行 ``..`` 会越权读到
+    仓库外的文件。``.`` 与多余斜杠（``a//b``、首尾 ``/``）一律归一化掉，
+    这样从浏览器地址栏或 `git show` 输出里粘来的路径都能直接用。
+    """
+    segs: list[str] = []
+    for s in (raw or "").replace("\\", "/").split("/"):
+        if not s or s == ".":
+            continue
+        if s == "..":
+            raise ValueError("路径不允许包含 '..'")
+        segs.append(s)
+    return segs
+
+
+def _tree_path_prefixes(segs: list[str]) -> list[str]:
+    """生成从根到目标的每一层路径：``["", "a", "a/b", "a/b/c"]``。"""
+    out = [""]
+    cur = ""
+    for s in segs:
+        cur = f"{cur}/{s}" if cur else s
+        out.append(cur)
+    return out
+
+
+def _validate_tree_chain(segs: list[str], levels: dict) -> tuple[str, str]:
+    """沿链校验路径是否真实存在，返回 ``(target_type, broken_at)``。
+
+    远端浏览页对不存在的路径是**返回空树而不是 404**，光看响应分不清「空目录」
+    和「路径打错了」。这里用父层已拿到的条目逐级核对，把断点精确报给前端。
+    """
+    cur = ""
+    target_type = "dir" if not segs else "missing"
+    for seg in segs:
+        parent = levels.get(cur) or []
+        match = next((e for e in parent if e.name == seg), None)
+        cur = f"{cur}/{seg}" if cur else seg
+        if match is None:
+            return "missing", cur
+        target_type = match.type
+    return target_type, ""
+
+
+def _tree_entry_dict(e) -> dict:
+    """TreeEntry -> 前端契约的 dict（/api/tree 与 /api/tree/resolve 共用）。"""
+    return {
+        "name": e.name,
+        "path": e.path,
+        "type": e.type,
+        "size": e.size,
+        "has_children": e.has_children,
+        "mtime": e.mtime,
+    }
 
 
 @router.get("/api/status")
@@ -140,24 +209,17 @@ async def api_select_repo(req: RepoSelectReq):
 
 
 @router.get("/api/tree")
-async def api_tree(path: str = "", local_dir: str = ""):
-    """列出目录单层子项（懒加载）。支持 local_dir 本地目录模式。"""
+async def api_tree(path: str = "", local_dir: str = "", refresh: bool = False):
+    """列出目录单层子项（懒加载）。支持 local_dir 本地目录模式。
+
+    ``refresh=true`` 绕过远端目录缓存（默认 5 分钟 TTL）强制回源。
+    """
     if local_dir and Path(local_dir).is_dir():
         try:
             entries = await asyncio.to_thread(
                 client.list_level_local_dir, local_dir, path)
             return {
-                "entries": [
-                    {
-                        "name": e.name,
-                        "path": e.path,
-                        "type": e.type,
-                        "size": e.size,
-                        "has_children": e.has_children,
-                        "mtime": e.mtime,
-                    }
-                    for e in entries
-                ],
+                "entries": [_tree_entry_dict(e) for e in entries],
                 "local": True,
             }
         except Exception as ex:
@@ -169,24 +231,88 @@ async def api_tree(path: str = "", local_dir: str = ""):
         # 用 list_level_ex 取失败原因：Cookie 失效 / 分支解析不出来时老实现只返回
         # 空列表，前端显示「空」而没有任何提示，用户完全无从处理（「文件树无法预览」
         # 就是这么来的）。
+        # refresh=true 绕过目录缓存强制回源（默认命中 5 分钟 TTL 缓存）。
         entries, tree_err = await asyncio.to_thread(
-            client.list_level_ex, client.repo_id, client.branch, path)
+            client.list_level_ex, client.repo_id, client.branch, path, refresh)
         return {
             "error": tree_err or None,
-            "entries": [
-                {
-                    "name": e.name,
-                    "path": e.path,
-                    "type": e.type,
-                    "size": e.size,
-                    "has_children": e.has_children,
-                    "mtime": e.mtime,
-                }
-                for e in entries
-            ]
+            "entries": [_tree_entry_dict(e) for e in entries],
         }
     except Exception as ex:
         raise HTTPException(500, str(ex))
+
+
+@router.get("/api/tree/resolve")
+async def api_tree_resolve(path: str = "", local_dir: str = "",
+                           refresh: bool = False):
+    """粘贴完整路径直达：一次性拉回从根到目标的**每一层**条目。
+
+    远端浏览每层都要一次 GIJBrowseGit.jspa 请求（单次 10s 量级）。逐层点下去是
+    N × T；这里把 N 层**并发**拉取，墙钟时间压到 ~1 × T（外加令牌桶排队）。
+
+    返回各层条目（前端据此一次性铺开整条祖先链），并沿链校验路径是否真实存在：
+    远端对不存在的路径只回空树、不给 404，不校验的话用户粘错路径只会看到一片空白。
+    """
+    ld = (local_dir or "").strip()
+    started = time.time()
+
+    try:
+        segs = _split_tree_path(path)
+    except ValueError as ex:
+        return {"error": str(ex)}
+
+    if len(segs) > _TREE_RESOLVE_MAX_DEPTH:
+        return {
+            "error": f"路径层级过深（{len(segs)} 层），上限 {_TREE_RESOLVE_MAX_DEPTH} 层"
+        }
+
+    use_local = bool(ld) and Path(ld).is_dir()
+    if not use_local and not ld and not client.repo_id:
+        return {"error": "尚未指定仓库"}
+    if ld and not use_local:
+        return {"error": f"本地目录不存在：{ld}"}
+
+    prefixes = _tree_path_prefixes(segs)
+
+    def _fetch(p: str):
+        try:
+            if use_local:
+                return p, client.list_level_local_dir(ld, p), ""
+            entries, err = client.list_level_ex(
+                client.repo_id, client.branch, p, refresh=refresh)
+            return p, entries, err
+        except Exception as ex:  # 单层失败不应拖垮整条链
+            return p, [], str(ex)
+
+    levels: dict[str, list] = {}
+    error = ""
+    workers = max(1, min(len(prefixes), _TREE_RESOLVE_MAX_WORKERS))
+    # ex.map 按输入顺序产出结果，levels 的组装顺序稳定（前端按序铺开）
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for p, entries, err in ex.map(_fetch, prefixes):
+            levels[p] = entries or []
+            if err and not error:
+                error = err
+
+    # 请求级失败（Cookie 失效 / 浏览页不可用）时各层都是空的，
+    # 此时再做路径校验只会报一个误导性的「路径不存在」。
+    if error:
+        target_type, broken_at = "", ""
+    else:
+        target_type, broken_at = _validate_tree_chain(segs, levels)
+
+    target_path = "/".join(segs)
+    return {
+        "path": target_path,
+        "target": {"path": target_path, "type": target_type},
+        "broken_at": broken_at or None,
+        "levels": [
+            {"path": p, "entries": [_tree_entry_dict(e) for e in levels.get(p, [])]}
+            for p in prefixes
+        ],
+        "error": error or None,
+        "elapsed_ms": int((time.time() - started) * 1000),
+    }
 
 
 @router.get("/api/file")

@@ -85,3 +85,5 @@ frontend/web-legacy/
 .pytest_tmp/
 
 merge_state/
+
+todo.md

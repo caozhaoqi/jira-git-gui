@@ -16,6 +16,7 @@ from core.constants import REPOS_DIR
 from core.models import TreeEntry, Commit, CommitFile
 from core.errors import UserError
 from core.logger import get_logger
+from core import cache as tree_cache
 
 logger = get_logger("jira-git-gui")
 
@@ -72,16 +73,99 @@ _FILE_LINK_RE = re.compile(
     re.I | re.S)
 _DIR_RE = re.compile(r'''<a\b[^>]*href="([^"]*)"[^>]*>\s*([^<]*)</a>''', re.I)
 
+# Cookie 模式的 GIJBrowseGit 页面每个目录都要走一次远端渲染（实测单次可达 10s 量级）。
+# 目录内容短时间内通常不会变化，缓存 5 分钟可消除「来回切换目录 / 刷新页面 /
+# 重复跑差异扫描」造成的重复等待，但不会把缓存当作长期镜像；
+# 调用方传 refresh=True 或调 invalidate_remote_tree_cache() 可强制重新请求。
+_REMOTE_TREE_CACHE_TTL = 300
+
+
+def _tree_cache_namespace(repo_id: str) -> str:
+    return f"remote-tree-{repo_id}"
+
+
+def _tree_cache_key(branch: str, path: str) -> str:
+    return f"{branch or ''}|{path.lstrip('/') if path else ''}"
+
+
+def _tree_entries_from_cache(data) -> Optional[List[TreeEntry]]:
+    if not isinstance(data, list):
+        return None
+    try:
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                return None
+            result.append(TreeEntry(
+                name=str(item.get("name") or ""),
+                path=str(item.get("path") or ""),
+                type="dir" if item.get("type") == "dir" else "file",
+                size=item.get("size"),
+                has_children=bool(item.get("has_children")),
+                mtime=item.get("mtime"),
+            ))
+        return result
+    except (TypeError, ValueError):
+        return None
+
+
+def _tree_entries_for_cache(entries: List[TreeEntry]) -> list[dict]:
+    return [
+        {
+            "name": entry.name,
+            "path": entry.path,
+            "type": entry.type,
+            "size": entry.size,
+            "has_children": entry.has_children,
+            "mtime": entry.mtime,
+        }
+        for entry in entries
+    ]
+
+
+def invalidate_remote_tree_cache(repo_id: str = "") -> int:
+    """让远端目录缓存失效。
+
+    Args:
+        repo_id: 指定仓库则只清该仓库；留空则清所有仓库的远端目录缓存。
+
+    Returns:
+        清除的缓存条目数。
+    """
+    if not repo_id:
+        # 「所有仓库」= 逐个 remote-tree-* 命名空间清除（cache.invalidate 只支持单命名空间）
+        total = 0
+        for ns in _remote_tree_namespaces():
+            total += tree_cache.invalidate(ns)
+        return total
+    return tree_cache.invalidate(_tree_cache_namespace(str(repo_id)))
+
+
+def _remote_tree_namespaces() -> list[str]:
+    """列出所有远端目录缓存命名空间（用于无 repo_id 的整体失效）。"""
+    root = tree_cache.CACHE_DIR
+    if not root.exists():
+        return []
+    prefix = "remote-tree-"
+    return [d.name for d in root.iterdir()
+            if d.is_dir() and d.name.startswith(prefix)]
+
 
 class BrowseMixin:
     """文件浏览 / 分支解析 / 提交历史能力。"""
 
-    def list_level(self, repo_id: str, branch: str, path: str) -> List[TreeEntry]:
-        """返回某仓库某分支某路径下的条目列表（目录优先、再文件，均按名称排序）。"""
-        entries, _err = self.list_level_ex(repo_id, branch, path)
+    def list_level(self, repo_id: str, branch: str, path: str,
+                   refresh: bool = False) -> List[TreeEntry]:
+        """返回某仓库某分支某路径下的条目列表（目录优先、再文件，均按名称排序）。
+
+        Args:
+            refresh: True 时绕过目录缓存强制回源（远端浏览模式下生效）。
+        """
+        entries, _err = self.list_level_ex(repo_id, branch, path, refresh=refresh)
         return entries
 
-    def list_level_ex(self, repo_id: str, branch: str, path: str):
+    def list_level_ex(self, repo_id: str, branch: str, path: str,
+                      refresh: bool = False):
         """同 :meth:`list_level`，但额外返回失败原因 ``(entries, error)``。
 
         ⚠️ 文件树长期「空但零报错」：Cookie 失效 / 分支解析失败 / 浏览页 404 时，
@@ -96,12 +180,27 @@ class BrowseMixin:
         resolved, why = self._resolve_branch_ex(repo_id, branch)
         if not resolved:
             return [], why or "未能解析出分支，无法浏览"
-        entries, why = self._list_level_cookie_ex(repo_id, resolved, path)
+        entries, why = self._list_level_cookie_ex(
+            repo_id, resolved, path, refresh=refresh)
         if why:
             return [], why
         dirs = sorted([e for e in entries if e.type == "dir"], key=lambda x: x.name.lower())
         files = sorted([e for e in entries if e.type == "file"], key=lambda x: x.name.lower())
         return dirs + files, ""
+
+    def invalidate_tree_cache(self, repo_id: str = "") -> int:
+        """让远端目录缓存失效（下次 list_level 强制回源）。
+
+        Args:
+            repo_id: 指定仓库；留空则用当前选中仓库，仍为空则清所有仓库。
+
+        Returns:
+            清除的缓存条目数。
+        """
+        rid = repo_id or getattr(self, "repo_id", "") or ""
+        n = invalidate_remote_tree_cache(rid)
+        logger.info("[文件树] 已清除远端目录缓存（repo=%s，%d 条）", rid or "全部", n)
+        return n
 
     @staticmethod
     def _is_login_page(html_text: str) -> bool:
@@ -430,13 +529,20 @@ class BrowseMixin:
             logger.warning("[HEAD] 从仓库列表解析 HEAD 失败（repo=%s）：%s", repo_id, e)
         return ""
 
-    def _list_level_cookie(self, repo_id: str, branch: str, path: str) -> List[TreeEntry]:
+    def _list_level_cookie(self, repo_id: str, branch: str, path: str,
+                           refresh: bool = False) -> List[TreeEntry]:
         """Cookie 模式：解析浏览器文件树页面，返回某层级条目。"""
-        entries, _err = self._list_level_cookie_ex(repo_id, branch, path)
+        entries, _err = self._list_level_cookie_ex(
+            repo_id, branch, path, refresh=refresh)
         return entries
 
-    def _list_level_cookie_ex(self, repo_id: str, branch: str, path: str):
-        """同 :meth:`_list_level_cookie`，但额外返回失败原因 ``(entries, error)``。"""
+    def _list_level_cookie_ex(self, repo_id: str, branch: str, path: str,
+                              refresh: bool = False):
+        """同 :meth:`_list_level_cookie`，但额外返回失败原因 ``(entries, error)``。
+
+        Args:
+            refresh: True 时忽略缓存直接回源（并把新结果写回缓存）。
+        """
         if not self.config.cookie:
             logger.warning("[文件树] 未配置 Cookie，无法浏览远端（repo=%s path=%s）",
                            repo_id, path or "/")
@@ -448,6 +554,20 @@ class BrowseMixin:
             logger.warning("[文件树] 未能解析出分支，无法浏览（repo=%s path=%s）——%s",
                            repo_id, path or "/", why)
             return [], why or "未能解析出分支，无法浏览"
+        # 同一目录经常因重新展开、切换标签页、刷新页面或重复跑差异扫描而重复请求。
+        # 只缓存成功解析出的条目；登录页/404/结构变化等失败响应绝不落盘。
+        # 注意：空列表也是有效结果（真空目录），_tree_entries_from_cache 会返回 []
+        # 而不是 None，所以这里必须用 is not None 判定命中，不能用真值判断。
+        cache_ns = _tree_cache_namespace(str(repo_id))
+        cache_key = _tree_cache_key(branch, path)
+        if not refresh:
+            cached_entries = _tree_entries_from_cache(
+                tree_cache.get(cache_ns, cache_key, ttl=_REMOTE_TREE_CACHE_TTL))
+            if cached_entries is not None:
+                logger.info("[文件树] 命中远端目录缓存（%d 条，repo=%s branch=%s path=%s）",
+                            len(cached_entries), repo_id, branch, path or "/")
+                return cached_entries, ""
+
         # ⚠️ 正确路径是 GIJBrowseGit.jspa（Jira Git Integration 插件的浏览页）。
         # 旧的 GIJRepositoryBrowser.jspa 对**所有**仓库都返回 404（死链接），
         # 导致文件树永远为空——这正是「浏览器能看、工具看不到」的原因。
@@ -516,6 +636,12 @@ class BrowseMixin:
         else:
             logger.info("[文件树] 解析到 %d 条条目（repo=%s branch=%s path=%s）",
                         len(entries), repo_id, branch, path or "/")
+
+        # 只有走到这里才代表「页面正常、树解析成功」——登录页 / 404 / 结构变化
+        # 都在上方提前 return，不会被写进缓存。
+        if not tree_cache.set(cache_ns, cache_key, _tree_entries_for_cache(entries)):
+            logger.debug("[文件树] 远端目录缓存写入失败（repo=%s branch=%s path=%s）",
+                         repo_id, branch, path or "/")
         return entries, ""
 
     def _list_level_local(self, repo_id: str, branch: str, path: str) -> List[TreeEntry]:

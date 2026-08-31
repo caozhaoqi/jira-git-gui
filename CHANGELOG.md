@@ -1,6 +1,35 @@
 # CHANGELOG
 
 
+## v0.0.7
+
+- 文件树：远端目录层级缓存 + 「粘贴完整路径直达」
+  - **层级缓存（后端）**：`core/client/browse.py` 给 `list_level` / `list_level_ex` / `_list_level_cookie_ex` 链路加短 TTL 缓存（复用 `core/cache.py`，命名空间 `remote-tree-<repo_id>`，key `branch|path`，TTL 300s）。来回切目录、刷新页面、重复跑差异扫描都直接命中，少打 Jira。
+    - 补上原先**只加读没加写**的缺口：`_tree_entries_for_cache()` 定义了却从未调用，缓存永远不可能命中；现在在「页面 200 且树解析成功」的唯一出口写盘。
+    - 命中判定必须用 `is not None` 而非真值：空目录解析出 `[]` 也是有效结果，真值判断会把空目录当成未命中而反复回源。
+    - 失败响应（登录页 / 非 200 / 解析不出树）一律提前 return，**绝不落盘**，避免 Cookie 一失效就把空结果缓存成「目录是空的」。
+    - 新增 `refresh` 参数（`/api/tree?refresh=true`、`list_level(..., refresh=True)`）强制回源并回写；新增 `invalidate_remote_tree_cache(repo_id="")` 与 `client.invalidate_tree_cache()` 按仓库 / 全局失效。
+  - **路径直达（前后端）**：新增 `GET /api/tree/resolve?path=...&local_dir=...`，把「从根到目标」的 N 层**并发**拉取后一次性返回，墙钟时间从「点 N 层 × 单次延迟」压到「~1 × 单次延迟」（外加令牌桶排队，默认 6 QPS）。
+    - 返回 `levels`（各层条目，前端据此一次性铺开整条祖先链）、`target`（dir / file / missing）、`broken_at`、`elapsed_ms`。
+    - **路径存在性校验**：远端对不存在的路径只回空树、不给 404，光看响应分不清「空目录」和「粘错路径」；后端沿链逐级核对父层条目，把断点精确报给前端。
+    - 拒绝 `..`（本地目录模式下会拼到 `local_dir` 后面，放行会越权读到仓库外）；深度上限 32 层。
+    - 前端 `FileTree.tsx` 新增「直达路径」输入条（回车或按钮触发）：灌满 `dirCache`、展开整条祖先链、目标为文件时直接预览，并高亮 + 滚动到目标节点。滚动只触发一次（用独立的 `pendingScroll`，避免之后每次展开无关目录都被拽回直达目标）。
+  - 顺带修复：`core/client/connection.py` 的 `_get_http_client()` 惰性创建**无锁**——并发首启（直达 / 差异扫描一瞬间起多个线程）会各建一个 `httpx.Client`，只留最后一个挂在实例上，其余连接池泄漏。改为双重判空 + 加锁。
+  - 测试
+    - 新增 `tests/test_tree_level_cache.py`（8 例）：锁住缓存三不变量——① 同层第二次请求零远端请求；② 空目录也算命中；③ 失败响应绝不落盘（且恢复后能立刻拿到数据）。
+    - 新增 `tests/test_tree_resolve.py`（7 例）：锁住直达三不变量——① N 层并发而非串行（6 层 × 0.3s 串行需 1.8s，断言远低于此且 `max_concurrent >= 2`）；② 坏路径精确报出断点；③ 拒绝 `..`。
+  - 验证：前端 `npm run build`（含 `tsc --noEmit`）通过，dist 已刷新；全量 pytest **230 passed / 0 failed**；实起 `api.server` 冒烟 `/api/tree` 与 `/api/tree/resolve` 均正确应答。
+
+- 修复：进度「预计剩余」倒计时不准确（差异扫描为主，克隆 / 下载 / 合并一并受益）
+  - **根因一（扫描特有，结构性）**：旧实现 `DiffPanel.tsx` 用 `const frac = (pct - 10) / 70` 反推后端 `pct` 的魔数重映射，再拿「已扫**文件**数」除以「**目录**进度比例」反推总量（`totalEst = done / frac`）。两个单位混着除，只有「每个目录文件数均匀」时才成立。实测算例：根下 30 个目录、最后一个独占全仓 99% 文件时，目录进度 97% 处旧模型估总量 = 150（真实 24145，差两个数量级，界面谎报「几乎扫完」），扫完那个大目录后又一步暴涨 161 倍——这就是「剩余时间越走越长 / 来回跳」的来源。
+    - 修法：改用后端 `scan_stage`（stage=remote）里已有的 **`local_count`** 作为远端文件总量估计。本地与远端扫的是同一仓库的同一子目录（`compare_dir` 同时收窄两侧），文件数高度接近，且**与进度里的 `done`（已扫文件数）同单位**。拿不到该值、或已扫数反超估计值时返回 null——宁可不显示，也不给离谱数字。`pct` 只保留给进度条用。
+  - **根因二（三处共有）**：`rate = (done - d0) / elapsed` 是**任务开始至今的累计平均速率**，速率一变就严重滞后。实测「前 10s 扫 900 个、后 10s 只扫 50 个」时真值 10s，旧值给 1.05s（低估近 10 倍）。
+    - 修法：`utils/eta.ts` 改为 EMA 跟踪**近期**速率（默认 alpha 0.3，扫描用 0.2 更保守）。
+  - **平滑约束施加在速率上，不在 ETA 上**（关键设计决定，实现中踩过坑）：最初直接对 ETA 做百分比限幅，结果恒速前进时本该线性下降的 ETA 被误判成「跳变」拦住，越到后面越滞后（真值 41s 却显示 71s）。改为对**速率**限幅（`maxRateJump`，默认 1.6 倍/采样）后：恒速时 ETA 自然线性倒数（实测 231/141/41s 与真值完全一致），突变时又跳不动（停滞实测单步最大 1.42x）。
+  - 置信度门槛：样本数不足 / 预热期内 / 速率未建立时返回 null（界面不显示），避免开局给个离谱数字；时间倒流、进度回退的脏样本直接丢弃，不污染速率。另移除已无人调用的 `etaFromFraction`（它正是单位混用那个脚枪）。
+  - 测试：新增 `tests/test_eta.mjs`（25 项断言）。Node 22.18+ 默认支持 type stripping，可直接 `import '../frontend/web-react/src/utils/eta.ts'`，无需额外编译步骤。运行：`node tests/test_eta.mjs`。
+
+
 ## v0.0.6
 
 
@@ -29,7 +58,6 @@
 
 - 验证：前端 `npm run typecheck`(tsc --noEmit) 全过；`npm run build`(`vite build --base /web/`) 成功，dist 已刷新。全量 pytest（`--basetemp=.pytest_tmp`）207 passed / 0 failed（仅 fastapi on_event 弃用 warning）。
 
-- ⚠️ 已知遗留（未改）：`.env` `MERGE_REPO_*` 映射按仓库**名**建立，`/api/diff/repo-mappings` 与 `selectCompareRepo` 自动填本地目录都按 `display_name||name` 查表——同名仓库会撞 key，只能匹配到其中一个。若要让同名仓库各自自动定位本地目录，需把映射改为按 `repo_id` 索引（后端 `load_merge_config` + `/api/diff/repo-mappings` 都带 repo_id）。待用户决定。
 
 
 - K8s 文件下载：修复「10MB 只下载了几百 KB」，改为分片下载 + 断点续传 + 进度条
