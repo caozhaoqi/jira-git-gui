@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import '@xterm/xterm/css/xterm.css';
+// 类型导入（编译期擦除）：xterm 运行时改为 effect 内动态 import，拆成独立 chunk 按需加载
+import type { Terminal } from '@xterm/xterm';
+import type { FitAddon } from '@xterm/addon-fit';
 import { api } from '../../api/client';
 import type { K8sPodsResp } from '../../api/types';
 import { useK8s } from './context';
@@ -27,58 +27,77 @@ export function K8sShell() {
 
   useEffect(() => { cwdRef.current = cwd; }, [cwd]);
 
-  // 初期化 xterm
+  // 初期化 xterm（懒加载：进入 Shell 页才拉取 xterm 运行时，减小首屏主包）
   useEffect(() => {
     if (!termRef.current || termObj.current) return;
-    const term = new Terminal({
-      fontSize: 13,
-      cursorBlink: true,
-      // TTY 模式下远端 pty 输出的已经是 CRLF；convertEol 会把每个 \n 再转成 \r\n，
-      // 变成 \r\r\n —— vim / top 的全屏光标定位会整体错位。因此必须关闭，
-      // 本地提示文案统一手写 \r\n。
-      convertEol: false,
-      theme: { background: '#1e1e1e' },
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(termRef.current);
+    let disposed = false;
+    let term: Terminal | null = null;
+    let ro: ResizeObserver | null = null;
+    let onWindowResize: (() => void) | null = null;
 
-    const sendResize = () => {
-      const ws = wsRef.current;
-      // cols/rows 为 0 说明容器还没布局完，此时上报会把远端窗口压成 1x1
-      if (ws && ws.readyState === WebSocket.OPEN && term.cols > 0 && term.rows > 0) {
-        try {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-        } catch { /* noop */ }
-      }
-    };
-    const doFit = () => {
-      // 子标签隐藏（display:none）时容器尺寸为 0，xterm 无法正确测量，跳过；
-      // 切回该标签时 ResizeObserver / window resize 会触发真正的 fit。
-      if (!termRef.current || termRef.current.offsetParent === null) return;
-      try { fit.fit(); } catch { /* 容器尚未布局，忽略 */ }
-      sendResize();
-    };
+    (async () => {
+      const [{ Terminal: XTerm }, { FitAddon: XFitAddon }] = await Promise.all([
+        import('@xterm/xterm'),
+        import('@xterm/addon-fit'),
+      ]);
+      if (disposed || !termRef.current) return;
+      await import('@xterm/xterm/css/xterm.css');
+      if (disposed || !termRef.current) return;
 
-    // TTY 模式：xterm 直接接受键盘输入并转发给后端 pty（支持 vim / top 全屏交互）
-    term.onData((data) => {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        try { ws.send(JSON.stringify({ type: 'input', data })); } catch { /* noop */ }
-      }
-    });
+      const t = new XTerm({
+        fontSize: 13,
+        cursorBlink: true,
+        // TTY 模式下远端 pty 输出的已经是 CRLF；convertEol 会把每个 \n 再转成 \r\n，
+        // 变成 \r\r\n —— vim / top 的全屏光标定位会整体错位。因此必须关闭，
+        // 本地提示文案统一手写 \r\n。
+        convertEol: false,
+        theme: { background: '#1e1e1e' },
+      });
+      const f = new XFitAddon();
+      t.loadAddon(f);
+      t.open(termRef.current);
 
-    doFit();
-    // 面板折叠/展开、分栏拖动时 window.resize 不触发，必须监听容器本身
-    const ro = new ResizeObserver(() => doFit());
-    ro.observe(termRef.current);
-    window.addEventListener('resize', doFit);
-    termObj.current = { term, fit, sendResize };
+      const sendResize = () => {
+        const ws = wsRef.current;
+        // cols/rows 为 0 说明容器还没布局完，此时上报会把远端窗口压成 1x1
+        if (ws && ws.readyState === WebSocket.OPEN && t.cols > 0 && t.rows > 0) {
+          try {
+            ws.send(JSON.stringify({ type: 'resize', cols: t.cols, rows: t.rows }));
+          } catch { /* noop */ }
+        }
+      };
+      const doFit = () => {
+        // 子标签隐藏（display:none）时容器尺寸为 0，xterm 无法正确测量，跳过；
+        // 切回该标签时 ResizeObserver / window resize 会触发真正的 fit。
+        if (!termRef.current || termRef.current.offsetParent === null) return;
+        try { f.fit(); } catch { /* 容器尚未布局，忽略 */ }
+        sendResize();
+      };
+
+      // TTY 模式：xterm 直接接受键盘输入并转发给后端 pty（支持 vim / top 全屏交互）
+      t.onData((data) => {
+        const ws = wsRef.current;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(JSON.stringify({ type: 'input', data })); } catch { /* noop */ }
+        }
+      });
+
+      doFit();
+      // 面板折叠/展开、分栏拖动时 window.resize 不触发，必须监听容器本身
+      ro = new ResizeObserver(() => doFit());
+      ro.observe(termRef.current);
+      onWindowResize = doFit;
+      window.addEventListener('resize', doFit);
+      term = t;
+      termObj.current = { term: t, fit: f, sendResize };
+    })();
+
     return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', doFit);
+      disposed = true;
+      ro?.disconnect();
+      if (onWindowResize) window.removeEventListener('resize', onWindowResize);
       disconnect();
-      term.dispose();
+      term?.dispose();
       termObj.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

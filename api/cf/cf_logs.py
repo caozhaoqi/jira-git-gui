@@ -10,7 +10,7 @@ import httpx
 
 from api.common import logger, _PROJECT_ROOT, _HCM_WL, _cf_is_session_err, _cf_token_stale
 from api.cf.cf_tokens import (
-    _CF_TOKEN_CACHE, _cf_tokens_save,
+    _CF_TOKEN_CACHE, _cf_tokens_save, TOKEN_CACHE_LOCK,
     _HCM_MODEL_LIST_API, _HCM_HCMINNER_HEADER, _HCM_HCMINNER_VALUE,
     _cf_ssl_context,
 )
@@ -32,7 +32,8 @@ async def cf_query_logs(req) -> "dict":
     req_token = (req.token or "").strip()
     token = ""
     cookie_value = ""
-    cached = _CF_TOKEN_CACHE.get(req.server_url.rstrip("/"))
+    with TOKEN_CACHE_LOCK:
+        cached = _CF_TOKEN_CACHE.get(req.server_url.rstrip("/"))
     if isinstance(cached, dict):
         cached_token = (cached.get("token") or "").strip()
         cached_cookie = (cached.get("cookie") or "").strip()
@@ -299,7 +300,9 @@ def cf_save_clipboard(req) -> "dict":
 def cf_mask_tokens() -> "dict":
     """返回已缓存的 CF 账号 token 状态（token 仅掩码展示，绝不返回明文）。"""
     out = []
-    for su, v in _CF_TOKEN_CACHE.items():
+    with TOKEN_CACHE_LOCK:
+        _token_items = list(_CF_TOKEN_CACHE.items())
+    for su, v in _token_items:
         if not isinstance(v, dict):
             continue
         tok = v.get("token", "") or ""

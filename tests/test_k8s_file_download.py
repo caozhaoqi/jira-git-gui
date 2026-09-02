@@ -37,7 +37,9 @@ import api.k8s.routes_k8s_files as _rt  # noqa: E402
 
 
 # ---- 替身：把「容器内执行」落到本机 sh -c ------------------------------------ #
-def _local_exec(env, pod, container, namespace, args, timeout=30, input=None):
+# 注意：被测的 _exec 已是 async，替身也必须是 async，否则 `await _exec(...)` 会
+# 因替身返回普通 tuple 而报 "object tuple can't be used in 'await' expression"。
+async def _local_exec(env, pod, container, namespace, args, timeout=30, input=None):
     """在本机执行 args，模拟 kubectl exec。
 
     仅支持 `sh -c <script>` 形式（stat / download 两条链路都用它）。
@@ -66,9 +68,9 @@ def _local_exec(env, pod, container, namespace, args, timeout=30, input=None):
 _CALLS = []
 
 
-def _recording_exec(env, pod, container, namespace, args, timeout=30, input=None):
+async def _recording_exec(env, pod, container, namespace, args, timeout=30, input=None):
     _CALLS.append(list(args))
-    return _local_exec(env, pod, container, namespace, args, timeout=timeout, input=input)
+    return await _local_exec(env, pod, container, namespace, args, timeout=timeout, input=input)
 
 
 def install(monkeypatch, record=False):
@@ -225,7 +227,7 @@ def test_hex_fallback_is_normalized_to_base64(monkeypatch, tmp_path):
     """
     payload = bytes([0x00, 0x01, 0xFE, 0xFF, 0x41, 0x0A, 0x0D])
 
-    def _hex_only(env, pod, container, namespace, args, timeout=30, input=None):
+    async def _hex_only(env, pod, container, namespace, args, timeout=30, input=None):
         return "HEX\n" + payload.hex() + "\n", 0, ""
 
     monkeypatch.setattr(_rt, "_exec", _hex_only)
@@ -239,7 +241,7 @@ def test_hex_fallback_is_normalized_to_base64(monkeypatch, tmp_path):
 
 def test_unknown_encoding_marker_rejected(monkeypatch):
     """容器内脚本异常（首行不是 B64/HEX）时不能把垃圾当数据返回。"""
-    def _garbage(env, pod, container, namespace, args, timeout=30, input=None):
+    async def _garbage(env, pod, container, namespace, args, timeout=30, input=None):
         return "command not found: base64\n", 0, ""
 
     monkeypatch.setattr(_rt, "_exec", _garbage)

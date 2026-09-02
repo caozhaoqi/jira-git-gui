@@ -9,7 +9,6 @@ import os
 import re
 import fnmatch
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -274,25 +273,26 @@ async def api_tree_resolve(path: str = "", local_dir: str = "",
 
     prefixes = _tree_path_prefixes(segs)
 
-    def _fetch(p: str):
+    levels: dict[str, list] = {}
+    error = ""
+
+    async def _fetch_async(p):
         try:
             if use_local:
-                return p, client.list_level_local_dir(ld, p), ""
-            entries, err = client.list_level_ex(
-                client.repo_id, client.branch, p, refresh=refresh)
+                entries = await asyncio.to_thread(client.list_level_local_dir, ld, p)
+                return p, entries, ""
+            entries, err = await asyncio.to_thread(
+                client.list_level_ex, client.repo_id, client.branch, p, refresh=refresh)
             return p, entries, err
         except Exception as ex:  # 单层失败不应拖垮整条链
             return p, [], str(ex)
 
-    levels: dict[str, list] = {}
-    error = ""
-    workers = max(1, min(len(prefixes), _TREE_RESOLVE_MAX_WORKERS))
-    # ex.map 按输入顺序产出结果，levels 的组装顺序稳定（前端按序铺开）
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        for p, entries, err in ex.map(_fetch, prefixes):
-            levels[p] = entries or []
-            if err and not error:
-                error = err
+    # asyncio.gather 并发拉取各层，期间不阻塞事件循环（远端每层的 10s 级请求
+    # 不再卡住 SSE 心跳 / 其他请求）；结果顺序与 prefixes 一一对应。
+    for p, entries, err in await asyncio.gather(*[_fetch_async(p) for p in prefixes]):
+        levels[p] = entries or []
+        if err and not error:
+            error = err
 
     # 请求级失败（Cookie 失效 / 浏览页不可用）时各层都是空的，
     # 此时再做路径校验只会报一个误导性的「路径不存在」。
@@ -377,93 +377,98 @@ async def api_search(
     else:
         search_root = local_root
 
-    scope = (scope or "filename").lower()
-    results = []
+    # 整个遍历 + 正则扫描是 CPU/IO 密集，放进线程池避免阻塞事件循环
+    # （大仓库 os.walk + 逐行正则可能跑几百毫秒到数秒，期间会卡住 SSE/其他请求）。
+    def _run():
+        scope_ = (scope or "filename").lower()
+        results = []
 
-    # 跳过 .git 目录与常见大目录
-    SKIP_DIRS = {".git", "node_modules", "venv", "__pycache__", ".idea", ".vscode", "dist", "build"}
+        # 跳过 .git 目录与常见大目录
+        SKIP_DIRS = {".git", "node_modules", "venv", "__pycache__", ".idea", ".vscode", "dist", "build"}
 
-    def _walk_filtered(root: Path):
-        """生成（dirpath, dirnames, filenames），过滤掉 SKIP_DIRS。"""
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".git")]
-            yield Path(dirpath), filenames
+        def _walk_filtered(root: Path):
+            """生成（dirpath, dirnames, filenames），过滤掉 SKIP_DIRS。"""
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".git")]
+                yield Path(dirpath), filenames
 
-    if scope == "filename":
-        # 文件名匹配（fnmatch 支持通配符，纯文本也当作包含）
-        pat = q if any(c in q for c in "*?[") else f"*{q}*"
-        pat_re = re.compile(fnmatch.translate(pat), 0 if case_sensitive else re.IGNORECASE)
-        for dirpath, filenames in _walk_filtered(search_root):
-            try:
-                rel_dir = dirpath.relative_to(local_root)
-            except ValueError:
-                continue
-            for fn in filenames:
-                if not pat_re.match(fn):
-                    continue
-                rel = (rel_dir / fn).as_posix()
-                results.append({
-                    "path": rel,
-                    "type": "filename",
-                    "snippet": fn,
-                    "line": None,
-                })
-                if len(results) >= limit:
-                    return {"results": results, "total": len(results), "truncated": True}
-    else:
-        # 文件内容匹配：每行扫描，限定文本文件（按扩展名 + 启发式）
-        TEXT_EXTS = {
-            ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs",
-            ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg",
-            ".md", ".txt", ".rst", ".adoc",
-            ".html", ".htm", ".css", ".scss", ".less",
-            ".xml", ".csv", ".tsv", ".sql", ".sh", ".bash", ".zsh",
-            ".go", ".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp",
-            ".rb", ".php", ".pl", ".lua", ".r", ".dart", ".swift",
-        }
-        flags = 0 if case_sensitive else re.IGNORECASE
-        try:
-            pat_re = re.compile(q, flags)
-        except re.error:
-            return {"error": f"搜索模式语法错误：{q!r}"}
-
-        for dirpath, filenames in _walk_filtered(search_root):
-            try:
-                rel_dir = dirpath.relative_to(local_root)
-            except ValueError:
-                continue
-            for fn in filenames:
-                ext = os.path.splitext(fn)[1].lower()
-                if ext and ext not in TEXT_EXTS:
-                    continue
-                full = dirpath / fn
+        if scope_ == "filename":
+            # 文件名匹配（fnmatch 支持通配符，纯文本也当作包含）
+            pat = q if any(c in q for c in "*?[") else f"*{q}*"
+            pat_re = re.compile(fnmatch.translate(pat), 0 if case_sensitive else re.IGNORECASE)
+            for dirpath, filenames in _walk_filtered(search_root):
                 try:
-                    # 限 2MB，避免误打开大文件卡死
-                    if full.stat().st_size > 2 * 1024 * 1024:
-                        continue
-                    with open(full, "r", encoding="utf-8", errors="replace") as f:
-                        for line_no, line in enumerate(f, 1):
-                            m = pat_re.search(line)
-                            if not m:
-                                continue
-                            snippet = line.rstrip("\n")[:200]
-                            rel = (rel_dir / fn).as_posix()
-                            results.append({
-                                "path": rel,
-                                "type": "content",
-                                "line": line_no,
-                                "snippet": snippet,
-                            })
-                            if len(results) >= limit:
-                                return {
-                                    "results": results,
-                                    "total": len(results),
-                                    "truncated": True,
-                                }
-                except (OSError, UnicodeError):
+                    rel_dir = dirpath.relative_to(local_root)
+                except ValueError:
                     continue
+                for fn in filenames:
+                    if not pat_re.match(fn):
+                        continue
+                    rel = (rel_dir / fn).as_posix()
+                    results.append({
+                        "path": rel,
+                        "type": "filename",
+                        "snippet": fn,
+                        "line": None,
+                    })
+                    if len(results) >= limit:
+                        return {"results": results, "total": len(results), "truncated": True}
+        else:
+            # 文件内容匹配：每行扫描，限定文本文件（按扩展名 + 启发式）
+            TEXT_EXTS = {
+                ".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs",
+                ".json", ".yaml", ".yml", ".toml", ".ini", ".conf", ".cfg",
+                ".md", ".txt", ".rst", ".adoc",
+                ".html", ".htm", ".css", ".scss", ".less",
+                ".xml", ".csv", ".tsv", ".sql", ".sh", ".bash", ".zsh",
+                ".go", ".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp",
+                ".rb", ".php", ".pl", ".lua", ".r", ".dart", ".swift",
+            }
+            flags = 0 if case_sensitive else re.IGNORECASE
+            try:
+                pat_re = re.compile(q, flags)
+            except re.error:
+                return {"error": f"搜索模式语法错误：{q!r}"}
 
-    return {"results": results, "total": len(results), "truncated": False}
+            for dirpath, filenames in _walk_filtered(search_root):
+                try:
+                    rel_dir = dirpath.relative_to(local_root)
+                except ValueError:
+                    continue
+                for fn in filenames:
+                    ext = os.path.splitext(fn)[1].lower()
+                    if ext and ext not in TEXT_EXTS:
+                        continue
+                    full = dirpath / fn
+                    try:
+                        # 限 2MB，避免误打开大文件卡死
+                        if full.stat().st_size > 2 * 1024 * 1024:
+                            continue
+                        with open(full, "r", encoding="utf-8", errors="replace") as f:
+                            for line_no, line in enumerate(f, 1):
+                                m = pat_re.search(line)
+                                if not m:
+                                    continue
+                                snippet = line.rstrip("\n")[:200]
+                                rel = (rel_dir / fn).as_posix()
+                                results.append({
+                                    "path": rel,
+                                    "type": "content",
+                                    "line": line_no,
+                                    "snippet": snippet,
+                                })
+                                if len(results) >= limit:
+                                    return {
+                                        "results": results,
+                                        "total": len(results),
+                                        "truncated": True,
+                                    }
+                    except (OSError, UnicodeError):
+                        continue
+
+        return {"results": results, "total": len(results), "truncated": False}
+
+    return await asyncio.to_thread(_run)
 
 
 @router.get("/api/commits")

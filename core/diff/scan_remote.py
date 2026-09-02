@@ -114,10 +114,15 @@ def scan_remote_parallel(
         _scan_remote_dir(client, d, sub, fast_hash)
         return sub
 
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = {ex.submit(worker, d): d for d in dirs}
+    # 不用 `with`：取消时 `with` 的 __exit__ 会执行 shutdown(wait=True)，
+    # 阻塞等到所有远端请求跑完——点取消毫无作用。改为手动管理，取消即
+    # shutdown(wait=False, cancel_futures=True)，立即返回、不等待在途请求。
+    ex = ThreadPoolExecutor(max_workers=max_workers)
+    futs = {ex.submit(worker, d): d for d in dirs}
+    try:
         for fut in as_completed(futs):
             if should_cancel and should_cancel():
+                ex.shutdown(wait=False, cancel_futures=True)
                 break
             sub = fut.result()
             result.update(sub)
@@ -126,6 +131,9 @@ def scan_remote_parallel(
                 # 协议需与调用方一致：progress(scanned, pending, processed, dirs_seen)。
                 # 旧实现只传 (done, total) 两个参数，与 routes_diff.py 的四参回调不匹配。
                 on_progress(len(result), max(total_dirs - done, 0), done, total_dirs)
+    finally:
+        # 正常结束时同样不阻塞调用方；cancel_futures 取消尚未开始的future
+        ex.shutdown(wait=False, cancel_futures=True)
 
     return result
 

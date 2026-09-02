@@ -15,6 +15,7 @@ import ssl
 import time
 import secrets
 import base64
+import threading
 from pathlib import Path
 
 import httpx
@@ -41,6 +42,14 @@ _CF_CAPTCHA_CACHE: dict = {}
 _CF_CAPTCHA_TTL: dict = {}
 _CF_CAPTCHA_MAX = 200
 
+# 并发锁：cf_login / cf_refresh_token / cf_autologin_all 是 async 协程，会在 await 处
+# 交错；token 缓存在保存（json.dumps 迭代）与并发读写时可能触发
+# “dictionary changed size during iteration”。统一用 RLock 串行化——
+# RLock 可重入，避免“保存函数内部再次加锁”导致的同协程死锁；临界区均不含 await，
+# 不会阻塞事件循环。验证码缓存同理（清理/写入并行）。
+TOKEN_CACHE_LOCK = threading.RLock()
+CAPTCHA_CACHE_LOCK = threading.RLock()
+
 _CF_TOKENS_FILE = _PROJECT_ROOT / "config" / "cf_tokens.local.json"
 
 
@@ -59,7 +68,8 @@ def _cf_tokens_save() -> None:
     """原子写：先写临时文件再用 os.replace 覆盖，避免进程崩溃/并发时留下半截文件。"""
     try:
         _CF_TOKENS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps(_CF_TOKEN_CACHE, ensure_ascii=False, indent=2)
+        with TOKEN_CACHE_LOCK:
+            content = json.dumps(_CF_TOKEN_CACHE, ensure_ascii=False, indent=2)
         tmp = _CF_TOKENS_FILE.with_suffix(".local.json.tmp")
         tmp.write_text(content, encoding="utf-8")
         try:
@@ -134,16 +144,17 @@ def new_cf_client(req_proxy: str, existing_cookies=None):
 # --------------------------------------------------------------------------- #
 def cf_captcha_cleanup_expired() -> None:
     """清理过期的 captcha 缓存（3 分钟 TTL）。"""
-    now = time.time()
-    for cid in list(_CF_CAPTCHA_TTL.keys()):
-        if now - _CF_CAPTCHA_TTL[cid] > 180:
-            _CF_CAPTCHA_CACHE.pop(cid, None)
-            _CF_CAPTCHA_TTL.pop(cid, None)
-    if len(_CF_CAPTCHA_CACHE) > _CF_CAPTCHA_MAX:
-        oldest = sorted(_CF_CAPTCHA_TTL, key=_CF_CAPTCHA_TTL.get)
-        for cid in oldest[:100]:
-            _CF_CAPTCHA_CACHE.pop(cid, None)
-            _CF_CAPTCHA_TTL.pop(cid, None)
+    with CAPTCHA_CACHE_LOCK:
+        now = time.time()
+        for cid in list(_CF_CAPTCHA_TTL.keys()):
+            if now - _CF_CAPTCHA_TTL[cid] > 180:
+                _CF_CAPTCHA_CACHE.pop(cid, None)
+                _CF_CAPTCHA_TTL.pop(cid, None)
+        if len(_CF_CAPTCHA_CACHE) > _CF_CAPTCHA_MAX:
+            oldest = sorted(_CF_CAPTCHA_TTL, key=_CF_CAPTCHA_TTL.get)
+            for cid in oldest[:100]:
+                _CF_CAPTCHA_CACHE.pop(cid, None)
+                _CF_CAPTCHA_TTL.pop(cid, None)
 
 
 def cf_captcha_new(proxy: str = "") -> "dict":
@@ -160,12 +171,13 @@ async def cf_captcha_fetch(server_url: str, proxy: str = "") -> "dict":
     base = server_url.rstrip("/")
     url = f"{base}/img/imagevalidatecode"
 
-    cf_captcha_cleanup_expired()
-    if len(_CF_CAPTCHA_CACHE) > _CF_CAPTCHA_MAX:
-        oldest = sorted(_CF_CAPTCHA_TTL, key=_CF_CAPTCHA_TTL.get)
-        for cid in oldest[:100]:
-            _CF_CAPTCHA_CACHE.pop(cid, None)
-            _CF_CAPTCHA_TTL.pop(cid, None)
+    with CAPTCHA_CACHE_LOCK:
+        cf_captcha_cleanup_expired()
+        if len(_CF_CAPTCHA_CACHE) > _CF_CAPTCHA_MAX:
+            oldest = sorted(_CF_CAPTCHA_TTL, key=_CF_CAPTCHA_TTL.get)
+            for cid in oldest[:100]:
+                _CF_CAPTCHA_CACHE.pop(cid, None)
+                _CF_CAPTCHA_TTL.pop(cid, None)
 
     captcha_id = secrets.token_urlsafe(12)
     image_code_index = secrets.token_hex(4)
@@ -185,8 +197,9 @@ async def cf_captcha_fetch(server_url: str, proxy: str = "") -> "dict":
                 snippet = resp.content[:200].decode("utf-8", "ignore")
                 raise ValueError(f"服务器未返回有效图片验证码，响应前200字符: {snippet}")
             b64 = base64.b64encode(resp.content).decode("ascii")
-            _CF_CAPTCHA_CACHE[captcha_id] = {"jar": jar.jar, "index": image_code_index}
-            _CF_CAPTCHA_TTL[captcha_id] = time.time()
+            with CAPTCHA_CACHE_LOCK:
+                _CF_CAPTCHA_CACHE[captcha_id] = {"jar": jar.jar, "index": image_code_index}
+                _CF_CAPTCHA_TTL[captcha_id] = time.time()
             return {
                 "captcha_id": captcha_id,
                 "image_code_index": image_code_index,

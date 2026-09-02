@@ -23,17 +23,16 @@ _log = get_logger()
 # 缓存根目录：开发态为 <root>/cache；冻结态为 ~/.jira-git-gui/cache
 CACHE_DIR = get_data_root() / "cache"
 
-# 文件锁
-_locks: dict[str, threading.Lock] = {}
-_locks_guard = threading.Lock()
+# 文件锁：固定锁池（lock striping），避免「每个 key 一个 Lock」导致 _locks 字典
+# 无限增长（10 万文件仓库 = 10 万常驻 Lock，且永不释放）。按 (namespace, key)
+# 哈希分到有限个锁上，内存有界，同一 key 仍互斥。
+_LOCK_POOL_SIZE = 64
+_locks = [threading.Lock() for _ in range(_LOCK_POOL_SIZE)]
 
 
-def _get_lock(key: str) -> threading.Lock:
-    """获取指定 key 的文件锁。"""
-    with _locks_guard:
-        if key not in _locks:
-            _locks[key] = threading.Lock()
-        return _locks[key]
+def _get_lock(namespace: str, key: str) -> threading.Lock:
+    """获取指定 key 的文件锁（固定池内按哈希分桶）。"""
+    return _locks[hash((namespace, key)) % _LOCK_POOL_SIZE]
 
 
 def _cache_path(namespace: str, key: str) -> Path:
@@ -60,23 +59,32 @@ def get(namespace: str, key: str, ttl: int = 3600) -> Optional[Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             entry = json.load(f)
-
-        # 检查 TTL
-        if ttl > 0:
-            cached_at = entry.get("_cached_at", 0)
-            if time.time() - cached_at > ttl:
-                return None
-
-        return entry.get("data")
     except (json.JSONDecodeError, OSError) as e:
         _log.debug("缓存读取失败 %s/%s: %s", namespace, key, e)
         return None
 
+    # 检查 TTL：过期即删除文件，避免「只增不减」无限堆积
+    if ttl > 0:
+        cached_at = entry.get("_cached_at", 0)
+        if time.time() - cached_at > ttl:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+            return None
+
+    return entry.get("data")
+
 
 def set(namespace: str, key: str, data: Any) -> bool:
-    """写入缓存数据。"""
+    """写入缓存数据。
+
+    先写临时文件再 ``os.replace`` 原子改名：并发读永远看到「旧文件」或「完整新文件」，
+    绝不会读到写到一半的半截 JSON（旧实现 ``open('w')`` 先截断，崩溃/并发读到半截
+    会被静默当 miss 触发重复回源）。
+    """
     path = _cache_path(namespace, key)
-    lock = _get_lock(f"{namespace}/{key}")
+    lock = _get_lock(namespace, key)
 
     with lock:
         try:
@@ -85,8 +93,12 @@ def set(namespace: str, key: str, data: Any) -> bool:
                 "_cached_at": time.time(),
                 "data": data,
             }
-            with open(path, "w", encoding="utf-8") as f:
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(entry, f, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
             return True
         except (OSError, TypeError) as e:
             _log.debug("缓存写入失败 %s/%s: %s", namespace, key, e)
@@ -167,6 +179,33 @@ def clear_all() -> int:
     for f in CACHE_DIR.rglob("*.json"):
         try:
             f.unlink()
+            count += 1
+        except OSError:
+            continue
+    return count
+
+
+def evict_expired(ttl: int = 3600) -> int:
+    """清理过期的缓存文件（含写入中途残留的 .tmp），返回删除条数。
+
+    用于回收「TTL 过期但从未再被访问、因此没被 get() 顺手删掉」的历史堆积。
+    默认按全局 ttl 判断；调用方可按需传入更精确的值。
+    """
+    if not CACHE_DIR.exists():
+        return 0
+    now = time.time()
+    count = 0
+    for f in CACHE_DIR.rglob("*.json"):
+        try:
+            if ttl > 0 and now - f.stat().st_mtime > ttl:
+                f.unlink()
+                count += 1
+        except OSError:
+            continue
+    # 清掉写入中途残留的临时文件（进程崩溃留下）
+    for tmp in CACHE_DIR.rglob("*.tmp"):
+        try:
+            tmp.unlink()
             count += 1
         except OSError:
             continue

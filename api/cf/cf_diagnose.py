@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Optional
 
 from api.common import logger, _PROJECT_ROOT
-from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_token_stale
+from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_token_stale, TOKEN_CACHE_LOCK
 
 # --------------------------------------------------------------------------- #
 #  路径常量
@@ -273,7 +273,8 @@ def cf_token_health(server_url: str = "", token: str = "") -> "dict":
     """
     tok = (token or "").strip()
     if not tok and server_url:
-        cached = _CF_TOKEN_CACHE.get(server_url.rstrip("/"))
+        with TOKEN_CACHE_LOCK:
+            cached = _CF_TOKEN_CACHE.get(server_url.rstrip("/"))
         if isinstance(cached, dict):
             tok = (cached.get("token") or "").strip()
     res = {

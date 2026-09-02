@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from core import k8s_manager as _k8s_mgr
 from core.k8s import run_kubectl as _k8s_run_kubectl
+from core.k8s import run_kubectl_async as _k8s_run_kubectl_async
 
 logger = logging.getLogger("api.routes_k8s_files")
 router = APIRouter()
@@ -53,17 +54,18 @@ def _resolve(env, namespace):
     return kc, namespace
 
 
-def _exec(env, pod, container, namespace, args, timeout=30, input=None):
+async def _exec(env, pod, container, namespace, args, timeout=30, input=None):
     """在容器内执行命令，返回 (out, rc, err)。
 
     当 ``input`` 非 None（写文件/上传）时自动加 ``-i``，使 kubectl exec 真正消费 stdin。
+    异步：底层 subprocess.run 放进线程池，避免阻塞事件循环（kubectl 超时 30~60s）。
     """
     kc, ns = _resolve(env, namespace)
     cmd = (["exec"] + (["-i"] if input is not None else []) + [pod]
            + (["-c", container] if container else [])
            + (["-n", ns] if ns else []) + ["--"] + args)
     try:
-        return _k8s_run_kubectl(cmd, kc, timeout=timeout, input=input)
+        return await _k8s_run_kubectl_async(cmd, kc, timeout=timeout, input=input)
     except Exception as ex:
         return "", 1, getattr(ex, "message", None) or str(ex)
 
@@ -71,7 +73,7 @@ def _exec(env, pod, container, namespace, args, timeout=30, input=None):
 @router.post("/api/k8s/file/list")
 async def api_k8s_file_list(body: K8sFileReq):
     """列出容器内某路径下的文件（含目录标记）。"""
-    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+    out, rc, err = await _exec(body.env, body.pod, body.container, body.namespace,
                          ["ls", "-la", body.path])
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
@@ -97,7 +99,7 @@ async def api_k8s_file_list(body: K8sFileReq):
 @router.post("/api/k8s/file/read")
 async def api_k8s_file_read(body: K8sFileReq):
     """读取容器内文件内容（文本）。"""
-    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+    out, rc, err = await _exec(body.env, body.pod, body.container, body.namespace,
                          ["cat", body.path], timeout=30)
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
@@ -169,7 +171,7 @@ async def api_k8s_file_stat(body: K8sFileReq):
     """容器内文件大小与修改时间，供下载前算分片数与进度分母。"""
     if not (body.pod and body.path):
         return {"ok": False, "error": "pod / path 均为必填"}
-    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+    out, rc, err = await _exec(body.env, body.pod, body.container, body.namespace,
                          ["sh", "-c", _stat_script(body.path)], timeout=30)
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
@@ -207,7 +209,7 @@ async def api_k8s_file_download(body: K8sFileDownloadReq):
         length = DEFAULT_CHUNK
     length = min(length, MAX_CHUNK)
 
-    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+    out, rc, err = await _exec(body.env, body.pod, body.container, body.namespace,
                          ["sh", "-c", _chunk_script(body.path, offset, length)],
                          timeout=60)
     if rc != 0:
@@ -261,7 +263,7 @@ async def api_k8s_file_search(body: K8sFileReq):
         f"grep -rn {exclude_args} -- {shlex.quote(pattern)} "
         f"{shlex.quote(body.path)} 2>/dev/null | head -n 2000"
     )
-    out, rc, err = _exec(body.env, body.pod, body.container, body.namespace,
+    out, rc, err = await _exec(body.env, body.pod, body.container, body.namespace,
                          ["sh", "-c", shell_cmd], timeout=120)
     if rc == 124 or "timed out" in (err or ""):
         return {"ok": False, "error": "搜索超时：建议指定更具体的目录（避免从 / 全量递归）或缩短关键词后重试"}
@@ -293,7 +295,7 @@ async def api_k8s_file_write(body: dict):
         return {"ok": False, "error": "pod / path 均为必填"}
     if content is None:
         return {"ok": False, "error": "content 为必填"}
-    out, rc, err = _exec(env, pod, container, namespace,
+    out, rc, err = await _exec(env, pod, container, namespace,
                          ["sh", "-c", f"cat > {shlex.quote(path)}"],
                          timeout=60, input=content.encode("utf-8"))
     if rc != 0:
@@ -319,7 +321,7 @@ async def api_k8s_file_upload(body: dict):
         raw = base64.b64decode(content_b64)
     except Exception as ex:
         return {"ok": False, "error": f"content 不是合法 base64：{ex}"}
-    out, rc, err = _exec(env, pod, container, namespace,
+    out, rc, err = await _exec(env, pod, container, namespace,
                          ["sh", "-c", f"cat > {shlex.quote(path)}"],
                          timeout=60, input=raw)
     if rc != 0:
@@ -337,7 +339,7 @@ async def api_k8s_file_delete(body: dict):
     path = body.get("path", "")
     if not (pod and path):
         return {"ok": False, "error": "pod / path 均为必填"}
-    out, rc, err = _exec(env, pod, container, namespace, ["rm", "-f", path])
+    out, rc, err = await _exec(env, pod, container, namespace, ["rm", "-f", path])
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
     return {"ok": True}
@@ -353,7 +355,7 @@ async def api_k8s_file_mkdir(body: dict):
     path = body.get("path", "")
     if not (pod and path):
         return {"ok": False, "error": "pod / path 均为必填"}
-    out, rc, err = _exec(env, pod, container, namespace, ["mkdir", "-p", path])
+    out, rc, err = await _exec(env, pod, container, namespace, ["mkdir", "-p", path])
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
     return {"ok": True}

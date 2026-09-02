@@ -3,6 +3,8 @@
 
 POST /api/diagnose：接收错误文本 + K8s 环境信息，一次调用拿到联合诊断上下文。
 """
+import asyncio
+
 from fastapi import APIRouter, HTTPException
 
 from api.common import logger
@@ -51,7 +53,7 @@ async def api_unified_diagnose(req: UnifiedDiagnoseReq):
     让 AI 能同时看到两层证据，快速判断是代码问题还是环境问题。
     """
     try:
-        return unified_diagnose(req)
+        return await asyncio.to_thread(unified_diagnose, req)
     except (ValueError, RuntimeError) as e:
         raise _http_error(e)
 
@@ -63,7 +65,8 @@ async def api_k8s_diagnose(env: str = "", namespace: str = "", pod_filter: str =
     用于前端单独查看 K8s 侧诊断信息，或排查非 CF 相关的基础设施问题。
     """
     try:
-        return k8s_collect_diagnostics(
+        return await asyncio.to_thread(
+            k8s_collect_diagnostics,
             env=env, namespace=namespace,
             pod_filter=pod_filter, tail=tail,
         )

@@ -67,6 +67,16 @@ def run_kubectl(args, kubeconfig=None, timeout=60, input=None):
         return "", 127, "kubectl 不在 PATH 中（请先安装 kubectl 并加入 PATH）"
 
 
+async def run_kubectl_async(args, kubeconfig=None, timeout=60, input=None):
+    """异步版：把同步的 ``run_kubectl`` 放进线程池，避免阻塞事件循环。
+
+    HTTP 路由里直接调同步 ``run_kubectl``（subprocess.run 超时 30~60s）会卡住整个
+    asyncio 事件循环 —— SSE 心跳断流、所有并发请求一起停滞。统一走这里即可。
+    同步上下文（core 内的辅助函数）仍用 ``run_kubectl`` 即可。
+    """
+    return await asyncio.to_thread(run_kubectl, args, kubeconfig, timeout=timeout, input=input)
+
+
 async def stream_kubectl(args, kubeconfig=None):
     """异步流式执行 kubectl（用于 ``logs -f`` 等持续输出场景）。
 
