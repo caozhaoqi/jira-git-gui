@@ -109,6 +109,7 @@ from api.routes_cache import router as cache_router            # noqa: E402
 from api.routes_sync_history import router as sync_history_router  # noqa: E402
 from api.routes_events import router as events_router          # noqa: E402
 from api.cf.routes_cf import router as cf_router                  # noqa: E402
+from api.cfdebug.routes_cfdebug import router as cfdebug_router    # noqa: E402
 from api.hcm.routes_hcm import router as hcm_router                # noqa: E402
 from api.routes_settings import router as settings_router      # noqa: E402
 from api.k8s.routes_k8s import router as k8s_router                # noqa: E402
@@ -124,7 +125,7 @@ for _r in (
     repos_router, download_router, diff_router,
     cache_router, sync_history_router, events_router,
     # CF / HCM 平台
-    cf_router, hcm_router,
+    cf_router, cfdebug_router, hcm_router,
     # 设置（聚合汇总各域 router）
     settings_router,
     # 聚合域（自身再 include 子模块）：K8s / Clash

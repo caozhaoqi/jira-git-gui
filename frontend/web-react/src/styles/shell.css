@@ -305,6 +305,56 @@ button {
   border-radius: var(--radius-sm);
   padding: 10px 12px;
 }
+/* ─── 侧边栏折叠（rail 模式）─── */
+.sidebar.sidebar-collapsed {
+  width: 56px;
+  padding: 14px 6px;
+  gap: 2px;
+  transition: width 0.18s var(--ease-out);
+}
+.sidebar.sidebar-collapsed .tab {
+  justify-content: center;
+  padding: 9px 6px;
+  gap: 0;
+}
+.sidebar.sidebar-collapsed .tab-txt,
+.sidebar.sidebar-collapsed .sidebar-tip,
+.sidebar.sidebar-collapsed .sidebar-toggle-txt {
+  display: none;
+}
+.sidebar.sidebar-collapsed .tab.active::before {
+  left: -2px;
+  width: 3px;
+}
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.18s var(--ease-out);
+}
+.sidebar-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+.sidebar.sidebar-collapsed .sidebar-toggle {
+  justify-content: center;
+  padding: 7px 0;
+  margin-top: auto;
+}
+.sidebar-toggle-ico {
+  font-size: 11px;
+  line-height: 1;
+}
 
 .workspace {
   flex: 1;

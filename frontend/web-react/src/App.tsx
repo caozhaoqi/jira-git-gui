@@ -20,6 +20,7 @@ import { RepoPanel } from './components/RepoPanel';
 import { DiffPanel } from './components/DiffPanel';
 import { K8sPanel } from './components/k8s/K8sPanel';
 import { CfPanel } from './components/CfPanel';
+import { CfDebugPanel } from './components/CfDebugPanel';
 import { ClashPanel } from './components/ClashPanel';
 import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -42,6 +43,7 @@ const PANELS: { key: TabKey; el: ReactNode }[] = [
   { key: 'logs', el: <LogPanel /> },
   { key: 'k8s', el: <K8sPanel /> },
   { key: 'cf', el: <CfPanel /> },
+  { key: 'cfdebug', el: <CfDebugPanel /> },
   { key: 'clash', el: <ClashPanel /> },
   { key: 'hcm', el: <HcmObjectBrowser /> },
   { key: 'diagnose', el: <UnifiedDiagnosisPanel /> },

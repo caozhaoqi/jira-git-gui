@@ -1,6 +1,8 @@
 // 后端 API 数据模型（对应 FastAPI / Pydantic）。
 // Pilot 仅有仓库/文件树/预览，后续迁移 K8s / CF / Diff / Commits 时持续扩充。
 
+import type { SSECFDebugLog, SSECFDebugDone } from './cfdebug/types';
+
 export type ConnectMode = 'pat' | 'cookie';
 
 export interface StatusResp {
@@ -679,4 +681,7 @@ export type SSEEventMap = {
   merge_start: SSEMergeStart;
   merge_progress: SSEMergeProgress;
   merge_done: SSEMergeDone;
+  // 云函数调试控制台
+  cf_debug_log: SSECFDebugLog;
+  cf_debug_done: SSECFDebugDone;
 };

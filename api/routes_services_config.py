@@ -102,6 +102,17 @@ class JiraConfigReq(BaseModel):
     cookie: str = ""         # JSESSIONID=...; atlassian.xsrf.token=...
 
 
+class ImportAccountsReq(BaseModel):
+    """导入/同步云函数账号。accounts 为含密码的原始账号列表。"""
+    accounts: List[dict] = []
+    mode: str = "merge"      # merge 合并（按 server_url+name 去重，新增的追加）| replace 整体替换
+
+
+class CopyAccountReq(BaseModel):
+    """按序号复制一条账号（生成「副本」）。"""
+    index: int
+
+
 # --------------------------------------------------------------------------- #
 #  云函数 / HCM 服务账号
 # --------------------------------------------------------------------------- #
@@ -183,6 +194,77 @@ async def delete_cloud_function(index: int):
     clear_cf_accounts_cache()
     logger.info("[服务配置] 删除云函数账号 #%d (%s)", index, removed.get("name", ""))
     return {"ok": True, "removed": removed.get("name", "")}
+
+
+# --------------------------------------------------------------------------- #
+#  云函数账号同步（导入 / 导出 / 复制）—— 供「远程模式」在多服务器间同步配置
+# --------------------------------------------------------------------------- #
+def _normalize_accounts(data) -> List[dict]:
+    if isinstance(data, dict):
+        accs = data.get("accounts", [])
+    elif isinstance(data, list):
+        accs = data
+    else:
+        accs = []
+    return [a for a in accs if isinstance(a, dict)]
+
+
+@router.get("/api/services/cloud-functions/export")
+async def export_cloud_functions():
+    """导出全部云函数账号（含密码明文）为 JSON，供备份或同步到其他机器。
+
+    注意：含明文密码，仅限本地/受信任环境使用；下载后请妥善保管。
+    """
+    data = _read_json(_cf_path(), {"accounts": []})
+    accounts = _normalize_accounts(data)
+    return {"ok": True, "accounts": accounts, "count": len(accounts)}
+
+
+@router.post("/api/services/cloud-functions/import")
+async def import_cloud_functions(req: ImportAccountsReq):
+    """从上传的账号 JSON 同步配置。
+
+    - merge（默认）：按 server_url+name 去重，已存在的保留、新增的追加；
+    - replace：整体替换为上传列表。
+    """
+    incoming = [a for a in req.accounts if isinstance(a, dict)]
+    if not incoming:
+        return {"ok": False, "error": "未提供任何账号"}
+    data = _read_json(_cf_path(), {"accounts": []})
+    accounts = _normalize_accounts(data)
+
+    if req.mode == "replace":
+        accounts = [dict(a) for a in incoming]
+    else:  # merge
+        seen = {(a.get("server_url", "").strip(), a.get("name", "").strip()) for a in accounts}
+        for a in incoming:
+            key = (a.get("server_url", "").strip(), a.get("name", "").strip())
+            if key in seen:
+                continue
+            accounts.append(dict(a))
+            seen.add(key)
+
+    _write_json(_cf_path(), {"accounts": accounts})
+    clear_cf_accounts_cache()
+    logger.info("[服务配置] 导入云函数账号 mode=%s -> 共 %d 条", req.mode, len(accounts))
+    return {"ok": True, "count": len(accounts)}
+
+
+@router.post("/api/services/cloud-functions/copy")
+async def copy_cloud_function(req: CopyAccountReq):
+    """按序号复制一条账号，新账号名加「 副本」后缀，凭据原样复制。"""
+    data = _read_json(_cf_path(), {"accounts": []})
+    accounts = _normalize_accounts(data)
+    if req.index < 0 or req.index >= len(accounts):
+        return {"ok": False, "error": f"序号 {req.index} 不存在"}
+    src = accounts[req.index]
+    clone = dict(src)
+    clone["name"] = f"{src.get('name', '账号')} 副本"
+    accounts.append(clone)
+    _write_json(_cf_path(), {"accounts": accounts})
+    clear_cf_accounts_cache()
+    logger.info("[服务配置] 复制云函数账号 #%d -> %s", req.index, clone["name"])
+    return {"ok": True, "count": len(accounts), "new_index": len(accounts) - 1}
 
 
 # --------------------------------------------------------------------------- #
