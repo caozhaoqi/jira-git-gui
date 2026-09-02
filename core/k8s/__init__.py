@@ -100,7 +100,7 @@ k8s_snapshot_render(HTML 渲染)。本文件仅重导出，外部 `from core.k8s
 """
 
 from .kubectl import (
-    run_kubectl, stream_kubectl,
+    run_kubectl, run_kubectl_async, stream_kubectl,
 )
 
 from .snapshot_fetch import (
@@ -108,6 +108,7 @@ from .snapshot_fetch import (
     compute_age,
     classify,
     fetch_logs,
+    fetch_logs_async,
     run_snapshot,
 )
 
@@ -120,10 +121,12 @@ from .snapshot_render import (
 
 __all__ = [
     "run_kubectl",
+    "run_kubectl_async",
     "parse_pod",
     "compute_age",
     "classify",
     "fetch_logs",
+    "fetch_logs_async",
     "run_snapshot",
     "parse_pod",
     "compute_age",

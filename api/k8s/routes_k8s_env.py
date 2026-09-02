@@ -9,6 +9,7 @@
 ``add_or_update_env`` / ``set_current_env`` / ``import_kubeconfig`` / ``export_envs``；
 当前环境读取改用 ``get_env(None)``（返回 ``(name, dict)``）。
 """
+import asyncio
 import logging
 
 import json
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 
 from core import k8s_manager as _k8s_mgr
 from core.k8s import (
-    run_kubectl as _k8s_run_kubectl,
+    run_kubectl_async as _k8s_run_kubectl_async,
     list_envs as _k8s_list_envs,
     add_or_update_env as _k8s_add_or_update_env,
     set_current_env as _k8s_set_current_env,
@@ -128,7 +129,7 @@ async def api_k8s_pods(env: str = "", namespace: str = ""):
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
-    out, rc, err = _k8s_run_kubectl(
+    out, rc, err = await _k8s_run_kubectl_async(
         ["get", "pods"] + (["-n", namespace] if namespace else ["-A"]) + ["-o", "json"],
         kc, timeout=30,
     )
@@ -165,13 +166,15 @@ async def api_k8s_yaml(body: K8sYamlReq):
         if body.action == "apply":
             if not body.content or not body.content.strip():
                 return {"ok": False, "error": "YAML 内容为空，无法上传。"}
-            out, err = _k8s_mgr.apply_yaml_content(
+            out, err = await asyncio.to_thread(
+                _k8s_mgr.apply_yaml_content,
                 body.env, body.content, body.namespace or None)
             return {"ok": True, "stdout": out, "stderr": err}
         # 默认 action='get'
         if not body.kind or not body.name:
             return {"ok": False, "error": "kind 与 name 不能为空。"}
-        text = _k8s_mgr.get_resource_yaml(
+        text = await asyncio.to_thread(
+            _k8s_mgr.get_resource_yaml,
             body.env, body.kind, body.name, body.namespace or None, clean=body.clean)
         return {"ok": True, "yaml": text}
     except Exception as ex:
@@ -182,7 +185,8 @@ async def api_k8s_yaml(body: K8sYamlReq):
 async def api_k8s_network(body: K8sNetworkReq):
     """探测本机到指定环境的网络连通性（POST，与前端 apiPost 对齐）。"""
     try:
-        res = _k8s_mgr.detect_network(body.env, extra_hosts=body.extra_hosts or None)
+        res = await asyncio.to_thread(
+            _k8s_mgr.detect_network, body.env, extra_hosts=body.extra_hosts or None)
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
     return {"ok": True, **res}

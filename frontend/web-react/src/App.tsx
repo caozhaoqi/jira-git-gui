@@ -23,8 +23,6 @@ import { CfPanel } from './components/CfPanel';
 import { ClashPanel } from './components/ClashPanel';
 import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
 import { SettingsPanel } from './components/SettingsPanel';
-import { HcmModelDetail } from './components/hcm/HcmModelDetail';
-import { HcmCloudFuncErrorLocator } from './components/hcm/HcmCloudFuncErrorLocator';
 import { UnifiedDiagnosisPanel } from './components/UnifiedDiagnosisPanel';
 import { ToastStack } from './components/Toast';
 import { ProgressBar } from './components/ProgressBar';
@@ -75,53 +73,9 @@ export default function App() {
   const cloneEta = useRef(new EtaTracker());
   const cloneEtaStarted = useRef(false);
 
-  // 双击对象打开的新窗口带 ?hcm-model=<id>&hcm-detail=1：直接渲染独立模型详情页，
-  // 不加载主应用外壳（TopBar/Tabs），保持轻量独立窗口。
-  const isDetailWindow = typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('hcm-detail');
-  if (isDetailWindow) {
-    return (
-      <div className="app-shell app-shell--detail">
-        <main className="workspace">
-          <div className="workspace-body">
-            <HcmModelDetail />
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ?hcm-meta=<model>：与 ?hcm-detail 合并为同一个「对象详情 + 元数据文件」窗口。
-  // 该窗口内 HcmModelDetail 会读取 hcm-meta 作为模型并默认定位到「元数据文件」tab，
-  // 不再单独渲染 HcmMetaFileBrowser 独立窗口（两者合二为一）。
-  const isMetaWindow = typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('hcm-meta');
-  if (isMetaWindow) {
-    return (
-      <div className="app-shell app-shell--detail">
-        <main className="workspace">
-          <div className="workspace-body">
-            <HcmModelDetail />
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ?hcm-cf-err=1：云函数错误定位（独立轻窗口）。可带 ?hcm-loc=<文本> / ?hcm-loc-model / ?hcm-loc-id / ?hcm-loc-field 预填。
-  const isCfErrWindow = typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('hcm-cf-err');
-  if (isCfErrWindow) {
-    return (
-      <div className="app-shell app-shell--detail">
-        <main className="workspace">
-          <div className="workspace-body">
-            <HcmCloudFuncErrorLocator />
-          </div>
-        </main>
-      </div>
-    );
-  }
+  // 注：?hcm-detail / ?hcm-meta / ?hcm-cf-err 三种「独立轻窗口」已抽到 src/Root.tsx，
+  // 由 main.tsx 按 URL 选择渲染。这样主 App 不再用条件 return 提前退出而跳过后续
+  // Hook（否则 URL 查询串一旦变化、Hook 数量突变就会白屏）。本组件只渲染主窗口。
 
   // 双击对象打开的新窗口带 ?hcm-model=<id>，自动切到 HCM 面板以触发自动定位
   useEffect(() => {

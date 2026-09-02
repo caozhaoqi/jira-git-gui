@@ -76,19 +76,21 @@ async def api_cf_login(req: CfLoginReq):
         )
     except Exception as e:
         raise _http_error(e)
-    from api.cf.cf_core import _CF_TOKEN_CACHE, _cf_tokens_save
+    from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, TOKEN_CACHE_LOCK
     su = req.server_url.rstrip("/")
     if r.get("ok"):
-        _CF_TOKEN_CACHE[su] = {
-            "token": r["token"], "cookie": r.get("cookie", ""),
-            "name": req.mobile, "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
-            "need_captcha": False, "last_error": "",
-        }
-        _cf_tokens_save()
+        with TOKEN_CACHE_LOCK:
+            _CF_TOKEN_CACHE[su] = {
+                "token": r["token"], "cookie": r.get("cookie", ""),
+                "name": req.mobile, "ts": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+                "need_captcha": False, "last_error": "",
+            }
+            _cf_tokens_save()
         broadcast("cf_token_update", {"server_url": su, "name": req.mobile, "ok": True})
         return {"ok": True, "token": r["token"], "cookie": r.get("cookie", ""), "message": "登录成功"}
-    _CF_TOKEN_CACHE.setdefault(su, {"token": "", "name": req.mobile})
-    _CF_TOKEN_CACHE[su].update({"last_error": r.get("message", ""), "need_captcha": r.get("need_captcha", False)})
+    with TOKEN_CACHE_LOCK:
+        _CF_TOKEN_CACHE.setdefault(su, {"token": "", "name": req.mobile})
+        _CF_TOKEN_CACHE[su].update({"last_error": r.get("message", ""), "need_captcha": r.get("need_captcha", False)})
     return {"ok": False, "need_captcha": r.get("need_captcha", False), "message": r.get("message", "登录失败")}
 
 

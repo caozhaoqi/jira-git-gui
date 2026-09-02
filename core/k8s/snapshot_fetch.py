@@ -16,7 +16,7 @@ from pathlib import Path
 
 from core.errors import UserError
 
-from .kubectl import run_kubectl, _resolve_kubectl_binary, _current_context
+from .kubectl import run_kubectl, run_kubectl_async, _resolve_kubectl_binary, _current_context
 from .models import parse_pod, compute_age, classify
 from .snapshot_render import render_html
 
@@ -42,6 +42,31 @@ def fetch_logs(pod_name, container, kubeconfig, namespace, tail, previous, timeo
     if until:
         args += ["--until", str(until)]
     out, rc, err = run_kubectl(args, kubeconfig, timeout=timeout)
+    if rc == 0:
+        return out
+    return "# 无法获取日志 (rc=%d): %s" % (rc, err.strip()[:300])
+
+
+async def fetch_logs_async(pod_name, container, kubeconfig, namespace, tail, previous, timeout=30, timestamps=False, since=None, until=None):
+    """``fetch_logs`` 的异步版：底层 subprocess.run 放进线程池，避免阻塞事件循环。
+
+    供 HTTP 路由使用；``run_snapshot`` 等同步上下文仍用 ``fetch_logs``。
+    """
+    args = ["logs", pod_name]
+    if namespace:
+        args += ["-n", namespace]
+    if container:
+        args += ["--container", container]
+    args += ["--tail", str(tail)]
+    if previous:
+        args += ["--previous"]
+    if timestamps:
+        args += ["--timestamps"]
+    if since:
+        args += ["--since", str(since)]
+    if until:
+        args += ["--until", str(until)]
+    out, rc, err = await run_kubectl_async(args, kubeconfig, timeout=timeout)
     if rc == 0:
         return out
     return "# 无法获取日志 (rc=%d): %s" % (rc, err.strip()[:300])

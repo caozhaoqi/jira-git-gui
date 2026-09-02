@@ -9,7 +9,7 @@ import re
 from fastapi import APIRouter
 
 from core import k8s_manager as _k8s_mgr
-from core.k8s import run_kubectl as _k8s_run_kubectl
+from core.k8s import run_kubectl_async as _k8s_run_kubectl_async
 
 logger = logging.getLogger("api.routes_k8s_observe")
 router = APIRouter()
@@ -54,7 +54,7 @@ async def api_k8s_events(env: str = "", namespace: str = "", kind: str = "", nam
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
-    out, rc, err = _k8s_run_kubectl(
+    out, rc, err = await _k8s_run_kubectl_async(
         ["get", "events"] + (["-n", namespace] if namespace else ["-A"]) + ["-o", "json"],
         kc, timeout=30,
     )
@@ -69,7 +69,7 @@ async def api_k8s_describe(env: str = "", kind: str = "", name: str = "", namesp
     kc, ns = _k8s_mgr.resolve_env_kubeconfig(env)
     if ns and not namespace:
         namespace = ns
-    out, rc, err = _k8s_run_kubectl(
+    out, rc, err = await _k8s_run_kubectl_async(
         ["describe", kind, name] + (["-n", namespace] if namespace else []),
         kc, timeout=30,
     )
@@ -85,7 +85,7 @@ async def api_k8s_top(env: str = "", scope: str = "pods", namespace: str = ""):
     if ns and not namespace:
         namespace = ns
     args = ["top", scope] + (["-n", namespace] if namespace and scope == "pods" else [])
-    out, rc, err = _k8s_run_kubectl(args, kc, timeout=30)
+    out, rc, err = await _k8s_run_kubectl_async(args, kc, timeout=30)
     if rc != 0:
         return {"ok": False, "error": err.strip()[:300]}
     return {"ok": True, "text": out}

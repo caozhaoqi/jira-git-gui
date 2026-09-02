@@ -8,6 +8,7 @@
 import sys
 import threading
 import time
+import uuid
 import datetime as dt
 from pathlib import Path
 from typing import Any, Optional
@@ -63,7 +64,43 @@ broadcast = _broadcast
 capture_loop = _capture_loop
 
 # 当前下载任务取消标志与状态
-download_cancel = threading.Event()
+# ⚠️ 旧实现是模块级单例 threading.Event()，被 /api/download 与 /api/download/repo 共用：
+# 一次 cancel 会误杀另一个并发任务，且后启动的任务 .clear() 会清掉先任务的标志。
+# 现改为「每次请求注册一个专属 Event」，取消端点一次性 set 全部活动任务。
+_DOWNLOAD_CANCELS: "dict[str, threading.Event]" = {}
+_DOWNLOAD_CANCELS_LOCK = threading.Lock()
+
+
+def register_download_cancel() -> str:
+    """为一次新下载任务生成隔离的取消 Event，返回任务 id。"""
+    task_id = uuid.uuid4().hex
+    with _DOWNLOAD_CANCELS_LOCK:
+        _DOWNLOAD_CANCELS[task_id] = threading.Event()
+    return task_id
+
+
+def get_download_cancel(task_id: str) -> "threading.Event":
+    """取回某任务的取消 Event（注册后立即调用，必存在）。"""
+    with _DOWNLOAD_CANCELS_LOCK:
+        return _DOWNLOAD_CANCELS[task_id]
+
+
+def unregister_download_cancel(task_id: str) -> None:
+    """任务结束后从活动表移除（已 set 的 Event 由调用方持有的引用继续生效）。"""
+    with _DOWNLOAD_CANCELS_LOCK:
+        _DOWNLOAD_CANCELS.pop(task_id, None)
+
+
+def cancel_all_downloads() -> int:
+    """取消所有正在进行的下载任务，返回被取消的任务数。"""
+    with _DOWNLOAD_CANCELS_LOCK:
+        events = list(_DOWNLOAD_CANCELS.values())
+        _DOWNLOAD_CANCELS.clear()
+    for ev in events:
+        ev.set()
+    return len(events)
+
+
 task_status: dict[str, Any] = {"running": False, "type": None}
 
 # HCM 代理配置

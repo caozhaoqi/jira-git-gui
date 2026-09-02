@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.common import app, logger, broadcast, capture_loop, _PROJECT_ROOT
 from api.cf.cf_core import cf_autologin_all
+from core.errors import UserError
 
 # --------------------------------------------------------------------------- #
 #  全局异常处理：任何未捕获的 500 都把完整 traceback 写入日志，并向前端
@@ -31,6 +32,18 @@ async def _unhandled_exception_handler(request, exc):
         status_code=500,
         content={"detail": f"{type(exc).__name__}: {exc}", "traceback": tb_text[-2000:]},
     )
+
+
+@app.exception_handler(UserError)
+async def _user_error_handler(request, exc):
+    """用户可预期错误（缺配置 / 输入不合法 / 会话过期等）→ 400，而非 500。
+
+    覆盖 core/k8s 等通过 UserError 表达「用户操作层面问题」的全部接口
+    （env 未配置、kubectl 不可用、资源不存在等），避免这些情况被全局
+    Exception 兜底成 500。消息直接透传给前端展示。
+    """
+    logger.warning("用户可预期错误: %s %s -> %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 # --------------------------------------------------------------------------- #

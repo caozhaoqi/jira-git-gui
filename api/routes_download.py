@@ -13,7 +13,9 @@ from fastapi import APIRouter
 from api.eventbus import broadcast
 from api.common import (
     app, client, logger,
-    download_cancel, task_status,
+    task_status,
+    register_download_cancel, get_download_cancel, unregister_download_cancel,
+    cancel_all_downloads,
     log_callback, progress_callback, make_should_cancel,
 )
 from core.config import clear_session
@@ -69,10 +71,11 @@ async def api_download(req: DownloadReq):
     if not req.paths:
         raise HTTPException(400, "未勾选任何文件")
 
-    download_cancel.clear()
+    task_id = register_download_cancel()
+    cancel_ev = get_download_cancel(task_id)
     watchdog = NetworkWatchdog(threshold=5)
     client._watchdog = watchdog
-    should_cancel = make_should_cancel(download_cancel, watchdog, "下载")
+    should_cancel = make_should_cancel(cancel_ev, watchdog, "下载")
 
     def _do_download():
         task_status["running"] = True
@@ -100,6 +103,7 @@ async def api_download(req: DownloadReq):
             logger.error("下载异常", exc_info=True)
         finally:
             client._watchdog = None
+            unregister_download_cancel(task_id)
             task_status["running"] = False
             task_status["type"] = None
 
@@ -116,10 +120,11 @@ async def api_download_repo(req: DownloadRepoReq):
     if not repo_id:
         raise HTTPException(400, "请先指定仓库")
 
-    download_cancel.clear()
+    task_id = register_download_cancel()
+    cancel_ev = get_download_cancel(task_id)
     watchdog = NetworkWatchdog(threshold=5)
     client._watchdog = watchdog
-    should_cancel = make_should_cancel(download_cancel, watchdog, "整库下载")
+    should_cancel = make_should_cancel(cancel_ev, watchdog, "整库下载")
 
     def _do_download():
         task_status["running"] = True
@@ -148,6 +153,7 @@ async def api_download_repo(req: DownloadRepoReq):
             logger.error("整库下载异常", exc_info=True)
         finally:
             client._watchdog = None
+            unregister_download_cancel(task_id)
             task_status["running"] = False
             task_status["type"] = None
 
@@ -157,9 +163,9 @@ async def api_download_repo(req: DownloadRepoReq):
 
 @router.post("/api/download/cancel")
 async def api_cancel_download():
-    """取消当前下载。"""
-    download_cancel.set()
-    return {"ok": True}
+    """取消所有正在进行的下载任务（按任务隔离，避免误杀并发任务）。"""
+    cancelled = cancel_all_downloads()
+    return {"ok": True, "cancelled": cancelled}
 
 
 @router.post("/api/rate-limit")

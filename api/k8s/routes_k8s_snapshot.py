@@ -15,10 +15,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from core import k8s_manager as _k8s_mgr
-from core.k8s import run_kubectl as _k8s_run_kubectl
+from core.k8s import run_kubectl_async as _k8s_run_kubectl_async
 from core.k8s import (
     run_snapshot as _k8s_run_snapshot,
-    fetch_logs as _k8s_fetch_logs,
+    fetch_logs_async as _k8s_fetch_logs_async,
     stream_kubectl as _k8s_stream_kubectl,
 )
 from api.schemas import K8sSnapshotReq
@@ -35,6 +35,10 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
     if state.running:
         raise HTTPException(status_code=409,
                             detail="已有快照任务在运行中，请先取消或等待完成。")
+    # 必须在派发后台线程「之前」就置位：否则并发请求会穿过上面的 409 检查
+    # （state.running 直到子线程内才被置 True，存在竞态窗口）。
+    state.running = True
+    state.cancel.clear()
     opts = req.model_dump()
     # 若指定环境，解析其 kubeconfig / 命名空间（覆盖裸参数）
     if opts.get("env"):
@@ -44,11 +48,10 @@ async def api_k8s_snapshot(req: K8sSnapshotReq):
             if ns and not opts.get("namespace"):
                 opts["namespace"] = ns
         except Exception as ex:
+            state.running = False
             return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
 
     def _do() -> None:
-        state.running = True
-        state.cancel.clear()
         try:
             # 记录本次快照的 kubeconfig / namespace，供日志查看接口实时回退使用
             state.snap_meta["kubeconfig"] = opts.get("kubeconfig")
@@ -142,18 +145,18 @@ async def api_k8s_log(
         if _w:
             logger.warning(f"[K8s] {_w}")
 
-    def _aggregate_pod_log(pod):
+    async def _aggregate_pod_log(pod):
         """汇总单个 Pod（含多容器）日志，块头为 ===== pod: <name> =====。"""
         base = ["logs", pod] + ns_args + ["--tail", str(tail)] \
             + (["--previous"] if previous else []) \
             + (["--timestamps"] if timestamps else []) \
             + (["--since", str(since)] if since else []) \
             + (["--until", str(until)] if until else [])
-        out, rc, err = _k8s_run_kubectl(base, kc, timeout=30)
+        out, rc, err = await _k8s_run_kubectl_async(base, kc, timeout=30)
         if rc == 0 and out.strip():
             return "===== pod: %s =====\n%s" % (pod, out)
         if "container name must be specified" in err or "a container name must be specified" in err:
-            po, prc, perr = _k8s_run_kubectl(["get", "pod", pod, "-o", "json"] + ns_args, kc, timeout=30)
+            po, prc, perr = await _k8s_run_kubectl_async(["get", "pod", pod, "-o", "json"] + ns_args, kc, timeout=30)
             containers = []
             if prc == 0:
                 try:
@@ -163,7 +166,7 @@ async def api_k8s_log(
                     containers = []
             parts = []
             for c in containers:
-                log = _k8s_fetch_logs(c, c, kc, ns, tail, previous, timeout=30,
+                log = await _k8s_fetch_logs_async(c, c, kc, ns, tail, previous, timeout=30,
                                       timestamps=timestamps, since=since, until=until)
                 parts.append("===== container: %s =====\n%s" % (c, log))
             if parts:
@@ -209,7 +212,7 @@ async def api_k8s_log(
 
     # 2.5) 按 label 聚合多 Pod 日志（微服务排障刚需）
     if label:
-        po, prc, perr = _k8s_run_kubectl(
+        po, prc, perr = await _k8s_run_kubectl_async(
             ["get", "pods", "-l", label, "-o", "json"] + ns_args, kc, timeout=30
         )
         if prc != 0:
@@ -221,17 +224,17 @@ async def api_k8s_log(
             raise HTTPException(status_code=502, detail=f"解析 Pod 列表失败：{ex}")
         if not pod_names:
             return PlainTextResponse("# 未找到匹配 label=%s 的 Pod" % label)
-        blocks = [_aggregate_pod_log(pn) for pn in pod_names]
+        blocks = await asyncio.gather(*[_aggregate_pod_log(pn) for pn in pod_names])
         return PlainTextResponse("\n\n".join(blocks))
 
     # 3) 指定容器 → 直接实时抓取（单容器场景）
     if container:
-        log = _k8s_fetch_logs(name, container, kc, ns, tail, previous, timeout=30,
+        log = await _k8s_fetch_logs_async(name, container, kc, ns, tail, previous, timeout=30,
                               timestamps=timestamps, since=since, until=until)
         return PlainTextResponse(log)
 
     # 4) 未指定容器：先试单容器，再试多容器
-    out, rc, err = _k8s_run_kubectl(
+    out, rc, err = await _k8s_run_kubectl_async(
         ["logs", name] + ns_args + ["--tail", str(tail)]
         + (["--previous"] if previous else [])
         + (["--timestamps"] if timestamps else [])
@@ -244,7 +247,7 @@ async def api_k8s_log(
 
     # 4b) 多容器场景：列出容器分别抓取
     if "container name must be specified" in err or "a container name must be specified" in err:
-        po, prc, perr = _k8s_run_kubectl(
+        po, prc, perr = await _k8s_run_kubectl_async(
             ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
         )
         containers = []
@@ -256,7 +259,7 @@ async def api_k8s_log(
                 containers = []
         parts = []
         for c in containers:
-            log = _k8s_fetch_logs(name, c, kc, ns, tail, previous, timeout=30,
+            log = await _k8s_fetch_logs_async(name, c, kc, ns, tail, previous, timeout=30,
                                   timestamps=timestamps, since=since, until=until)
             parts.append("===== container: %s =====\n%s" % (c, log))
         if parts:
@@ -294,7 +297,7 @@ async def api_k8s_pod_containers(name: str = "", env: str = ""):
                 "error": "尚未连接集群（请先在当前环境运行一次快照或指定 env）。",
                 "containers": []}
     ns_args = ["-n", ns] if ns else []
-    out, rc, err = _k8s_run_kubectl(
+    out, rc, err = await _k8s_run_kubectl_async(
         ["get", "pod", name, "-o", "json"] + ns_args, kc, timeout=30
     )
     if rc != 0:

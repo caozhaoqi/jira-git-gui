@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import Root from './Root';
 import { LogViewer } from './components/LogViewer';
 import './styles/global.css';
 import './styles/panels.css';
@@ -12,7 +12,7 @@ import './styles/logviewer.css';
 // 从而保留「新窗口打开、可同时开多个 Pod」的使用方式。
 const view = new URLSearchParams(location.search).get('view');
 
-const Root = view === 'log' ? LogViewer : App;
+const Entry = view === 'log' ? LogViewer : Root;
 
 if (view === 'log') {
   document.title = '日志查看 · K8s';
@@ -20,6 +20,6 @@ if (view === 'log') {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Root />
+    <Entry />
   </React.StrictMode>
 );

@@ -16,6 +16,7 @@ from api.common import (
     _HCM_PROXY_TARGET, _HCM_PRESET_TOKEN,
     get_cf_accounts,
 )
+from core.errors import UserError
 
 
 
@@ -281,7 +282,7 @@ def hcm_save_data(req) -> "dict":
     """
     content = getattr(req, "content", None)
     if not content or not str(content).strip():
-        raise ValueError("无数据可保存")
+        raise UserError("无数据可保存")
     export_dir = _PROJECT_ROOT / "logs" / "hcm_data"
     export_dir.mkdir(parents=True, exist_ok=True)
     model = (getattr(req, "model", "") or "unknown").strip()

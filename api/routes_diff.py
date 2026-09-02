@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter
 from api.common import (
     app, client, logger, broadcast,
-    download_cancel, task_status,
+    task_status,
     make_should_cancel, DEFAULT_DOWNLOAD_WORKERS,
     NetworkWatchdog, commit_to_dict,
 )
@@ -76,7 +76,7 @@ async def api_diff_scan(req: DiffScanReq):
         try:
             client.set_repo(req.repo_id, req.repo_name, req.branch)
         except Exception as ex:
-            _log.warning("选定对比仓库失败：%s", ex)
+            logger.warning("选定对比仓库失败：%s", ex)
 
     if not client.repo_id:
         broadcast("scan_error", {"message": "请先选择远程仓库"})

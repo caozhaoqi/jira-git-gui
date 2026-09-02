@@ -9,24 +9,18 @@ type Handler<K extends keyof SSEEventMap> = (data: SSEEventMap[K]) => void;
 class SSEManager {
   private es: EventSource | null = null;
   private listeners = new Map<keyof SSEEventMap, Set<(data: any) => void>>();
+  /** 已经在底层 EventSource 上挂过监听的事件名，避免重复挂导致 handler 被调多次 */
+  private esBound = new Set<keyof SSEEventMap>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   connect() {
     if (this.es) return;
     const url = `${location.origin}/api/events`;
     this.es = new EventSource(url);
-    this.listeners.forEach((set, evt) => {
-      this.es!.addEventListener(evt, (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data);
-          set.forEach((h) => h(data));
-        } catch {
-          /* ignore malformed */
-        }
-      });
-    });
+    // 为每个已注册的事件名挂一个「只负责从 Set 分发」的监听（幂等）
+    this.listeners.forEach((_set, evt) => this.bindEs(evt));
     this.es.onerror = () => {
-      this.es = null;
+      this.closeEs();
       if (!this.reconnectTimer) {
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
@@ -36,6 +30,20 @@ class SSEManager {
     };
   }
 
+  /** 给某个事件名在底层 EventSource 上挂一个转发监听（同一事件名只挂一次） */
+  private bindEs(evt: keyof SSEEventMap) {
+    if (this.esBound.has(evt) || !this.es) return;
+    this.esBound.add(evt);
+    this.es.addEventListener(evt, (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        this.listeners.get(evt)?.forEach((h) => h(data));
+      } catch {
+        /* ignore malformed */
+      }
+    });
+  }
+
   on<K extends keyof SSEEventMap>(evt: K, handler: Handler<K>): () => void {
     let set = this.listeners.get(evt);
     if (!set) {
@@ -43,27 +51,23 @@ class SSEManager {
       this.listeners.set(evt, set);
     }
     set.add(handler as (data: any) => void);
-    // 若已连接，为这个事件补挂监听（之前 connect 时该事件可能未注册）
-    if (this.es) {
-      this.es.addEventListener(evt, (e: MessageEvent) => {
-        try {
-          const data = JSON.parse(e.data);
-          (handler as (data: any) => void)(data);
-        } catch {
-          /* ignore */
-        }
-      });
-    }
+    // 确保底层已为该事件名挂监听（幂等：已挂过则跳过，不会重复触发）
+    this.bindEs(evt);
     return () => {
       set!.delete(handler as (data: any) => void);
     };
   }
 
+  private closeEs() {
+    this.es?.close();
+    this.es = null;
+    this.esBound.clear();
+  }
+
   disconnect() {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
-    this.es?.close();
-    this.es = null;
+    this.closeEs();
   }
 }
 

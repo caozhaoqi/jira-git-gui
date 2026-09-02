@@ -8,7 +8,7 @@ import time
 import httpx
 
 from api.common import logger, get_cf_accounts
-from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, _cf_ssl_context
+from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, _cf_ssl_context, TOKEN_CACHE_LOCK
 
 
 async def cf_login_account(account: "dict", proxy: str = "") -> "dict":
@@ -97,24 +97,26 @@ async def cf_autologin_all(proxy: str = "") -> "list":
         entry = {"name": acc.get("name", su), "server_url": su,
                  "ok": r["ok"], "need_captcha": r["need_captcha"], "message": r["message"],
                  "ts": time.strftime("%Y-%m-%d %H:%M:%S")}
-        if r["ok"]:
-            _CF_TOKEN_CACHE[su] = {"token": r["token"], "cookie": r.get("cookie", ""),
-                                   "name": acc.get("name", su),
-                                   "ts": entry["ts"], "need_captcha": False, "last_error": ""}
-            logger.info(f"[CF][auto-login] 成功: {acc.get('name')} ({su}) token长度={len(r['token'])}")
-        else:
-            prev = _CF_TOKEN_CACHE.get(su)
-            if isinstance(prev, dict):
-                prev["last_error"] = r["message"]
-                prev["need_captcha"] = r["need_captcha"]
-                prev["ts"] = entry["ts"]
+        with TOKEN_CACHE_LOCK:
+            if r["ok"]:
+                _CF_TOKEN_CACHE[su] = {"token": r["token"], "cookie": r.get("cookie", ""),
+                                       "name": acc.get("name", su),
+                                       "ts": entry["ts"], "need_captcha": False, "last_error": ""}
+                logger.info(f"[CF][auto-login] 成功: {acc.get('name')} ({su}) token长度={len(r['token'])}")
             else:
-                _CF_TOKEN_CACHE[su] = {"token": "", "name": acc.get("name", su),
-                                       "ts": entry["ts"], "need_captcha": r["need_captcha"],
-                                       "last_error": r["message"]}
-            logger.warning(f"[CF][auto-login] 失败: {acc.get('name')} ({su}) -> {r['message']}")
+                prev = _CF_TOKEN_CACHE.get(su)
+                if isinstance(prev, dict):
+                    prev["last_error"] = r["message"]
+                    prev["need_captcha"] = r["need_captcha"]
+                    prev["ts"] = entry["ts"]
+                else:
+                    _CF_TOKEN_CACHE[su] = {"token": "", "name": acc.get("name", su),
+                                           "ts": entry["ts"], "need_captcha": r["need_captcha"],
+                                           "last_error": r["message"]}
+                logger.warning(f"[CF][auto-login] 失败: {acc.get('name')} ({su}) -> {r['message']}")
         results.append(entry)
-    _cf_tokens_save()
+    with TOKEN_CACHE_LOCK:
+        _cf_tokens_save()
     return results
 
 
@@ -137,18 +139,19 @@ async def cf_refresh_token(server_url: str, proxy: str = "") -> "dict | None":
         return None
     r = await cf_login_account(acc, proxy=proxy)
     su = (server_url or "").strip().rstrip("/")
-    if r.get("ok"):
-        entry = {"token": r["token"], "cookie": r.get("cookie", ""),
-                 "name": acc.get("name", su), "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
-                 "need_captcha": False, "last_error": ""}
-        _CF_TOKEN_CACHE[su] = entry
-        _cf_tokens_save()
-        logger.info(f"[CF][refresh] 成功刷新: {acc.get('name')} ({su})")
-        return entry
-    logger.warning(f"[CF][refresh] 失败: {acc.get('name')} ({server_url}) -> {r.get('message')}")
-    prev = _CF_TOKEN_CACHE.get(su)
-    if isinstance(prev, dict):
-        prev["last_error"] = r.get("message")
-        prev["need_captcha"] = r.get("need_captcha")
-        prev["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    with TOKEN_CACHE_LOCK:
+        if r.get("ok"):
+            entry = {"token": r["token"], "cookie": r.get("cookie", ""),
+                     "name": acc.get("name", su), "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
+                     "need_captcha": False, "last_error": ""}
+            _CF_TOKEN_CACHE[su] = entry
+            _cf_tokens_save()
+            logger.info(f"[CF][refresh] 成功刷新: {acc.get('name')} ({su})")
+            return entry
+        logger.warning(f"[CF][refresh] 失败: {acc.get('name')} ({server_url}) -> {r.get('message')}")
+        prev = _CF_TOKEN_CACHE.get(su)
+        if isinstance(prev, dict):
+            prev["last_error"] = r.get("message")
+            prev["need_captcha"] = r.get("need_captcha")
+            prev["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
     return None
