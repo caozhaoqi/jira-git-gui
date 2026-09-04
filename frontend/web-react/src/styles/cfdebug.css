@@ -826,9 +826,9 @@
   color: var(--primary);
 }
 
-/* ── 左栏（云函数列表 + 入参）整体收起为窄轨 ── */
+/* ── 左栏（云函数列表 + 入参）整体收起为窄轨；释放的空间让右侧调试信息栏自动变宽 ── */
 .cfdebug-body.left-collapsed {
-  grid-template-columns: 40px minmax(0, 1fr) 400px;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(440px, 1fr);
 }
 .cfdebug-body.left-collapsed.right-collapsed {
   grid-template-columns: 40px minmax(0, 1fr) 40px;

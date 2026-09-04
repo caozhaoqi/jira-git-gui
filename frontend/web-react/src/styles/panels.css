@@ -2163,6 +2163,24 @@
 .clash-card {
   padding: 16px 18px;
 }
+/* 卡片折叠头（仿 cfdebug 折叠头：▾/▸ + 标题，点击收起/展开） */
+.clash-collapser {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+.clash-collapser:hover .section-title {
+  color: var(--primary);
+}
+.clash-card.collapsed .panel-header {
+  margin-bottom: 0;
+}
 .clash-err {
   margin: 6px 0 0;
   padding: 8px 12px;

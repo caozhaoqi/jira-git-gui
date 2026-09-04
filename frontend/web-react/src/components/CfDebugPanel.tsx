@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { sse } from '../api/events';
@@ -85,6 +85,8 @@ export function CfDebugPanel() {
 
   const clientRef = useRef<DapClient | null>(null);
   const breakpointsRef = useRef<Set<number>>(new Set());
+  // 断点按函数 path 记忆，切换函数不丢失
+  const bpByPath = useRef<Map<string, Set<number>>>(new Map());
   const selectedRef = useRef<CfFunction | null>(null);
   const sessionIdRef = useRef('');
   const resultCollecting = useRef(false);
@@ -101,6 +103,12 @@ export function CfDebugPanel() {
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  // 最新 status，供 toggleBp 等回调在不重建函数引用的情况下读取
+  const statusRef = useRef<CfDebugStatus>('idle');
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // ── 日志写入（含 CLOUD_FUNCTION_RESULT 块捕获） ──
   const appendLog = (level: string, msg: string) => {
@@ -214,7 +222,8 @@ export function CfDebugPanel() {
   // ── 选择函数：加载源码 + 重置断点 + prefill 参数 ──
   const selectFunction = async (f: CfFunction) => {
     setSelected(f);
-    setBreakpoints(new Set());
+    // 恢复该函数记忆的断点（没有则空）
+    setBreakpoints(bpByPath.current.get(f.path) ?? new Set());
     setCurrentLine(null);
     // 预填参数骨架：每个 execute 参数作为一个 key
     try {
@@ -243,14 +252,22 @@ export function CfDebugPanel() {
     }
   };
 
-  const toggleBp = (ln: number) => {
+  const toggleBp = useCallback((ln: number) => {
     setBreakpoints((prev) => {
       const next = new Set(prev);
       if (next.has(ln)) next.delete(ln);
       else next.add(ln);
+      // 记忆到当前函数 path
+      const f = selectedRef.current;
+      if (f) bpByPath.current.set(f.path, next);
+      // 运行/暂停期间：实时下发到 debugpy（DAP 支持运行中改断点）
+      const st = statusRef.current;
+      if ((st === 'running' || st === 'paused') && f && clientRef.current) {
+        clientRef.current.setBreakpoints(f.path, Array.from(next)).catch(() => {});
+      }
       return next;
     });
-  };
+  }, []);
 
   // 一键定位到当前执行行（暂停时高亮的 current 行）
   const locateCurrentLine = () => {
@@ -302,6 +319,9 @@ export function CfDebugPanel() {
         setCurrentLine(fr[0].line);
         await loadFrameVariables(fr[0].id);
       }
+      // 命中断点自动展开右侧调试信息栏，并切到变量页（符合调试器直觉）
+      setRightOpen(true);
+      setRightTab('variables');
     } catch (e: any) {
       appendLog('error', `[dap] 取调用栈失败: ${e.message}`);
     }
@@ -565,7 +585,10 @@ export function CfDebugPanel() {
                   className="cfdebug-panel-toggle"
                   title={t('cfdebug.leftPanelCollapse')}
                   aria-label={t('cfdebug.leftPanelCollapse')}
-                  onClick={() => setLeftOpen(false)}
+                  onClick={() => {
+                    setLeftOpen(false);
+                    setRightOpen(true);
+                  }}
                 >
                   ⟨
                 </button>
@@ -684,6 +707,11 @@ export function CfDebugPanel() {
             <button className="btn btn-xs" disabled={status !== 'paused'} title={t('cfdebug.continue')} onClick={() => void step('continue')}>
               ▶ {t('cfdebug.continue')}
             </button>
+            {status === 'running' && (
+              <button className="btn btn-xs" title={t('cfdebug.pause')} onClick={() => void step('pause')}>
+                ⏸ {t('cfdebug.pause')}
+              </button>
+            )}
             <button className="btn btn-xs" disabled={status !== 'paused'} title={t('cfdebug.stepNext')} onClick={() => void step('next')}>
               ⤼ {t('cfdebug.stepNext')}
             </button>
@@ -708,23 +736,7 @@ export function CfDebugPanel() {
           </div>
           <div className="cfdebug-source" ref={sourceRef}>
             {source ? (
-              source.map((line, i) => {
-                const ln = i + 1;
-                const isBp = breakpoints.has(ln);
-                const isCur = currentLine === ln;
-                const codeHtml = line ? hljs.highlight(line, { language: 'python' }).value : ' ';
-                return (
-                  <div
-                    key={ln}
-                    className={`cfd-code-line${isCur ? ' current' : ''}${isBp ? ' has-bp' : ''}`}
-                    onClick={() => toggleBp(ln)}
-                  >
-                    <span className="cfd-gutter">{isBp ? '●' : ''}</span>
-                    <span className="cfd-ln">{ln}</span>
-                    <span className="cfd-code" dangerouslySetInnerHTML={{ __html: codeHtml }} />
-                  </div>
-                );
-              })
+              <SourceView source={source} breakpoints={breakpoints} currentLine={currentLine} onToggleBp={toggleBp} />
             ) : (
               <div className="empty-hint">{selected ? t('cfdebug.sourceLoading') : t('cfdebug.pickFirst')}</div>
             )}
@@ -853,6 +865,45 @@ export function CfDebugPanel() {
     </section>
   );
 }
+
+// 源码窗格：独立 memo 组件。高亮结果按 source 用 useMemo 缓存，
+// 仅当断点/当前行变化时才重渲染行样式，避免日志/变量刷新触发整份源码重高亮（性能痛点）。
+const SourceView = memo(function SourceView({
+  source,
+  breakpoints,
+  currentLine,
+  onToggleBp,
+}: {
+  source: string[];
+  breakpoints: Set<number>;
+  currentLine: number | null;
+  onToggleBp: (ln: number) => void;
+}) {
+  const html = useMemo(
+    () => source.map((line) => (line ? hljs.highlight(line, { language: 'python' }).value : ' ')),
+    [source],
+  );
+  return (
+    <>
+      {source.map((_line, i) => {
+        const ln = i + 1;
+        const isBp = breakpoints.has(ln);
+        const isCur = currentLine === ln;
+        return (
+          <div
+            key={ln}
+            className={`cfd-code-line${isCur ? ' current' : ''}${isBp ? ' has-bp' : ''}`}
+            onClick={() => onToggleBp(ln)}
+          >
+            <span className="cfd-gutter">{isBp ? '●' : ''}</span>
+            <span className="cfd-ln">{ln}</span>
+            <span className="cfd-code" dangerouslySetInnerHTML={{ __html: html[i] }} />
+          </div>
+        );
+      })}
+    </>
+  );
+});
 
 // ── 变量树节点（可递归展开） ──
 function VarNode({ node, client }: { node: DapVariable; client: DapClient | null }) {

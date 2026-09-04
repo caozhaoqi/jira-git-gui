@@ -171,3 +171,5 @@ async def ws_dap(session_id: str, websocket: WebSocket):
     logger.info("[cfdebug] DAP 桥接建立 session=%s dap=%s:%s",
                 session_id, info["dap_host"], info["dap_port"])
     await bridge_dap(websocket, info["dap_host"], info["dap_port"])
+    # 桥接结束（前端 WS 断开）。若会话仍在（说明不是走正常 stop），兜底终止子进程。
+    runner.orphan_guard(session_id)

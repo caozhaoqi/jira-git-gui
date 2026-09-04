@@ -104,7 +104,15 @@ export function ClashPanel() {
   const [fixMsg, setFixMsg] = useState('');
   const [patchingAll, setPatchingAll] = useState(false);
   const [patchLog, setPatchLog] = useState('');
-  const [genOpen, setGenOpen] = useState(false);
+  // 各卡片可折叠（仿 cfdebug 折叠头）；gen 默认收起，其余默认展开
+  const [cardOpen, setCardOpen] = useState<{ iface: boolean; ip: boolean; apply: boolean; gen: boolean }>({
+    iface: true,
+    ip: true,
+    apply: true,
+    gen: false,
+  });
+  const toggleCard = (k: 'iface' | 'ip' | 'apply' | 'gen') =>
+    setCardOpen((p) => ({ ...p, [k]: !p[k] }));
 
   const loadIfaces = useCallback(async () => {
     setLoadErr('');
@@ -213,7 +221,7 @@ export function ClashPanel() {
         return;
       }
       setGen(r);
-      setGenOpen(true);
+      setCardOpen((p) => ({ ...p, gen: true }));
     } catch (e: any) {
       setGenErr(e.message || t('clash.genFail'));
     }
@@ -333,13 +341,18 @@ export function ClashPanel() {
   return (
     <div className="clash-panel">
       {/* ===== 网络接口 ===== */}
-      <div className="card-soft clash-card">
+      <div className={`card-soft clash-card${cardOpen.iface ? '' : ' collapsed'}`}>
         <div className="panel-header">
-          <h2 className="section-title">{t('clash.ifaceTitle')}</h2>
+          <button type="button" className="clash-collapser" onClick={() => toggleCard('iface')}>
+            <span className="cfd-caret">{cardOpen.iface ? '▾' : '▸'}</span>
+            <span className="section-title">{t('clash.ifaceTitle')}</span>
+          </button>
           <button className="btn btn-sm btn-ghost" onClick={() => { loadIfaces(); loadProxy(); }}>
             🔄 {t('clash.redetect')}
           </button>
         </div>
+        {cardOpen.iface && (
+        <>
         {loadErr && <div className="clash-err">{loadErr}</div>}
         {ifaces.length === 0 && !loadErr && <div className="empty-hint">{t('clash.detecting')}</div>}
         <div className="clash-iface-list">
@@ -419,16 +432,22 @@ export function ClashPanel() {
             )}
           </div>
         )}
+        </>)}
       </div>
 
       {/* ===== 指定 IP 列表 ===== */}
-      <div className="card-soft clash-card">
+      <div className={`card-soft clash-card${cardOpen.ip ? '' : ' collapsed'}`}>
         <div className="panel-header">
-          <h2 className="section-title">{t('clash.ipTitle')}</h2>
+          <button type="button" className="clash-collapser" onClick={() => toggleCard('ip')}>
+            <span className="cfd-caret">{cardOpen.ip ? '▾' : '▸'}</span>
+            <span className="section-title">{t('clash.ipTitle')}</span>
+          </button>
           <button className="btn btn-sm btn-primary" onClick={checkAll} disabled={checking || !ips.length}>
             {checking ? t('clash.checking') : t('clash.checkConn')}
           </button>
         </div>
+        {cardOpen.ip && (
+        <>
         <div className="clash-ip-input">
           <input
             className="input"
@@ -467,12 +486,16 @@ export function ClashPanel() {
         <div className="clash-hint">
           💡 {t('clash.checkHint')}
         </div>
+        </>)}
       </div>
 
       {/* ===== 一键应用（自动执行） ===== */}
-      <div className="card-soft clash-card">
+      <div className={`card-soft clash-card${cardOpen.apply ? '' : ' collapsed'}`}>
         <div className="panel-header">
-          <h2 className="section-title">{t('clash.applyTitle')}</h2>
+          <button type="button" className="clash-collapser" onClick={() => toggleCard('apply')}>
+            <span className="cfd-caret">{cardOpen.apply ? '▾' : '▸'}</span>
+            <span className="section-title">{t('clash.applyTitle')}</span>
+          </button>
           <div className="clash-apply-btns">
             <button
               className="btn btn-primary"
@@ -492,6 +515,8 @@ export function ClashPanel() {
             </button>
           </div>
         </div>
+        {cardOpen.apply && (
+        <>
         <div className="clash-cfg-path">
           <label>
             {t('clash.cfgPathLabel')}
@@ -595,28 +620,24 @@ export function ClashPanel() {
         <div className="clash-hint">
           ⚠️ {t('clash.applyHint')}
         </div>
+        </>)}
       </div>
 
       {/* ===== 生成配置 ===== */}
-      <div className="card-soft clash-card">
+      <div className={`card-soft clash-card${cardOpen.gen ? '' : ' collapsed'}`}>
         <div className="panel-header">
-          <h2 className="section-title">{t('clash.genTitle')}</h2>
+          <button type="button" className="clash-collapser" onClick={() => toggleCard('gen')}>
+            <span className="cfd-caret">{cardOpen.gen ? '▾' : '▸'}</span>
+            <span className="section-title">{t('clash.genTitle')}</span>
+          </button>
           <div className="clash-apply-btns">
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => setGenOpen((v) => !v)}
-              title={genOpen ? t('k8s.snapshot.collapseCfg') : t('k8s.snapshot.expandCfg')}
-            >
-              {genOpen ? '▾ ' : '▸ '}
-              {genOpen ? t('k8s.snapshot.collapseCfg') : t('k8s.snapshot.expandCfg')}
-            </button>
             <button className="btn btn-primary" onClick={doGenerate}>
               ⚙ {t('clash.generate')}
             </button>
           </div>
         </div>
-        {genOpen && (
-          <>
+        {cardOpen.gen && (
+        <>
             {genErr && <div className="clash-err">{genErr}</div>}
             {!gen && <div className="empty-hint">{t('clash.genHint')}</div>}
             {gen && (

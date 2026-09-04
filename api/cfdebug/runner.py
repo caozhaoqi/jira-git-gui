@@ -264,7 +264,9 @@ def start_session(req: Dict[str, Any]) -> Dict[str, Any]:
             "session_id": session_id, "level": "info",
             "msg": f"[session] 云函数进程已退出 (returncode={rc})",
         })
-        broadcast("cf_debug_done", {"session_id": session_id, "returncode": rc})
+        # 若已被 stop/orphan_guard 处理（stopped=True），不再重复广播 done
+        if not info.get("stopped"):
+            broadcast("cf_debug_done", {"session_id": session_id, "returncode": rc})
         with _SESSIONS_LOCK:
             _SESSIONS.pop(session_id, None)
 
@@ -289,6 +291,7 @@ def stop_session(session_id: str) -> Dict[str, Any]:
         info = _SESSIONS.get(session_id)
     if not info:
         return {"ok": False, "error": "会话不存在或已结束"}
+    info["stopped"] = True
     proc = info.get("proc")
     if proc and proc.poll() is None:
         try:
@@ -304,6 +307,26 @@ def stop_session(session_id: str) -> Dict[str, Any]:
     with _SESSIONS_LOCK:
         _SESSIONS.pop(session_id, None)
     return {"ok": True}
+
+
+def orphan_guard(session_id: str) -> None:
+    """WS 桥接断开但会话仍在（前端未走正常 stop）→ 兜底终止子进程，避免孤儿进程。"""
+    with _SESSIONS_LOCK:
+        info = _SESSIONS.get(session_id)
+        if not info:
+            return
+        info["stopped"] = True
+    proc = info.get("proc")
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    with _SESSIONS_LOCK:
+        _SESSIONS.pop(session_id, None)
 
 
 def list_sessions() -> Dict[str, Any]:
