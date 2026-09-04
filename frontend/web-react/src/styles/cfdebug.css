@@ -364,6 +364,12 @@
 .cfd-code-line.has-bp .cfd-gutter {
   color: var(--danger);
 }
+.cfd-code-line.has-bp-cond .cfd-gutter {
+  color: var(--warning);
+}
+.cfd-code-line.has-bp-log .cfd-gutter {
+  color: var(--info);
+}
 .cfd-gutter {
   width: 18px;
   flex-shrink: 0;
@@ -544,11 +550,140 @@
 .cfdebug-bp-dot {
   color: var(--danger);
 }
-.cfdebug-bp-file {
-  font-weight: 600;
+.cfdebug-bp-dot.cond {
+  color: var(--warning);
 }
-.cfdebug-bp-line {
+.cfdebug-bp-dot.log {
+  color: var(--info);
+}
+.cfdebug-bp-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
   color: var(--muted);
+  text-transform: uppercase;
+}
+.cfdebug-bp-opt {
+  color: var(--muted);
+  font-size: 11px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-bp-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.cfd-bp-mini {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.cfd-bp-mini:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cfdebug-bp-editor {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.cfd-bp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cfd-bp-field .input {
+  font-family: var(--mono);
+}
+.cfdebug-bp-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 异常断点控制 */
+.cfdebug-exc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.cfd-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 监视表达式 */
+.cfdebug-watches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-watch-add {
+  display: flex;
+  gap: 6px;
+}
+.cfdebug-watch-add .input {
+  flex: 1;
+}
+.cfdebug-watch-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "expr del"
+    "val  val";
+  gap: 2px 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.cfdebug-watch-expr {
+  grid-area: expr;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+.cfdebug-watch-row .cfd-bp-mini {
+  grid-area: del;
+}
+.cfdebug-watch-val {
+  grid-area: val;
+  color: var(--muted);
+  font-size: 11px;
+  word-break: break-all;
+}
+.cfdebug-watch-val .cfd-eval-val {
+  color: var(--text);
+}
+.cfdebug-watch-val .cfd-eval-type {
+  margin-left: 6px;
 }
 
 /* 结果 */
@@ -904,3 +1039,175 @@
 .cfd-code .hljs-type,
 .cfd-code .hljs-class .hljs-title { color: #e5c07b; }
 .cfd-code .hljs-meta { color: #56b6c2; }
+
+/* ===== 右键求值（上下文菜单 + 结果弹窗） ===== */
+.cfd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+.cfd-ctx-menu {
+  position: fixed;
+  z-index: 901;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 4px;
+  font-size: 13px;
+}
+.cfd-ctx-expr {
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  word-break: break-all;
+}
+.cfd-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+}
+.cfd-ctx-item:hover {
+  background: var(--primary-050);
+}
+.cfd-eval-popup {
+  position: fixed;
+  z-index: 901;
+  min-width: 200px;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.cfd-eval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cfd-eval-expr {
+  flex: 1;
+  font-family: var(--mono);
+  color: var(--primary);
+  word-break: break-all;
+}
+.cfd-eval-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.cfd-eval-close:hover {
+  color: var(--text);
+}
+.cfd-eval-body {
+  margin-top: 6px;
+}
+.cfd-eval-val {
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cfd-eval-type {
+  margin-left: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.cfd-eval-error {
+  margin-top: 6px;
+  color: var(--danger);
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── 日志管理 tab（服务器 dynamic_log） ── */
+.cfdebug-dynlogs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  overflow: auto;
+}
+.cfdebug-dynlogs-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cfdebug-dynlogs-toolbar .input {
+  flex: 1 1 100px;
+  min-width: 80px;
+}
+.cfdebug-dynlogs-error {
+  color: var(--danger);
+  background: var(--surface-2);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cfdebug-dynlogs-head,
+.cfdebug-dynlogs-row {
+  display: grid;
+  grid-template-columns: 22px 110px 1fr 130px 24px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-dynlogs-head {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--text-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cfdebug-dynlogs-row {
+  border: 1px solid transparent;
+}
+.cfdebug-dynlogs-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.cfdebug-dynlogs-row .col-type {
+  color: var(--primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .col-content {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .col-time {
+  color: var(--text-2);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .cfd-bp-mini {
+  justify-self: end;
+}

@@ -23,11 +23,13 @@ WRITE_APIS = ("hcm.model.edit", "hcm.model.create", "hcm.model.delete",
 class RealCustomerUtil(object):
     """对接真实 HCM 网关的 CustomerUtil 实现（std 库实现，无第三方依赖）。"""
 
-    def __init__(self, base, token=None, dry_run=True, verbose=False):
+    def __init__(self, base, token=None, dry_run=True, verbose=False, company_id=1, employee_id=None):
         self.base = (base or "").rstrip("/")
         self.token = token
         self.dry_run = dry_run
         self.verbose = verbose
+        self.company_id = int(company_id or 1)
+        self.employee_id = employee_id
         self.writes = []   # [(api_name, param)] 写意图登记（dry_run 下）
 
     def _build_url(self, api_name, param):
@@ -71,3 +73,31 @@ class RealCustomerUtil(object):
         if isinstance(d, dict) and isinstance(d.get("result"), (dict, list)):
             return d["result"]
         return d
+
+    def get_current_context(self):
+        """复刻云函数沙箱中 CustomerUtil.get_current_context()：返回当前操作上下文。
+
+        生产语义：返回 ThreadContextUtil().getContext()，含 company / employee / user / token。
+        调试环境无真实登录会话，company.id 取配置的 company_id；employee.id / user.id 复用
+        占位 employee_id；token 取配置的 cookie token。调用方（sdsy_customer_sso 读 .company.id、
+        call_llm 读 .user.id、call_llm_service 读 .token）均不报错。
+        """
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            company=SimpleNamespace(id=self.company_id),
+            employee=SimpleNamespace(id=self.employee_id),
+            user=SimpleNamespace(id=self.employee_id),
+            token=getattr(self, "token", None),
+        )
+
+    def call_llm(self, name, params=None, alter_message=None, use_cache=False, is_reasoning=False):
+        """调试沙箱不支持真实 LLM 调用（需云端 LLMAgent 服务）。返回与云端一致的 dict 契约。"""
+        return {"success": False, "message": "调试沙箱不支持 call_llm（需真实 LLM 服务）"}
+
+    def call_llm_service(self, system_prompt, query, model_name=None, model_type=None, temperature=0.5):
+        return {"success": False, "message": "调试沙箱不支持 call_llm_service"}
+
+    def safeEval(self, script, param):
+        # 真实实现用 SafeEnv 执行脚本（不常用）；调试沙箱做 no-op，原样返回 param。
+        logging.info("[cfdebug] safeEval 在调试沙箱为 no-op（未执行脚本）")
+        return param

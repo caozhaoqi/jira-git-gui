@@ -81,13 +81,18 @@ def main():
     # 装配 CustomerUtil
     if args.cf_env == "mock":
         logging.info("[launcher] 使用离线 Mock 数据（不连任何环境）")
-        cu = MockCustomerUtil(debug_id=args.cf_debug_id or None)
+        cu = MockCustomerUtil(debug_id=args.cf_debug_id or None, company_id=int(args.cf_company_id or 1))
     else:
         server = args.cf_server
         if not server:
             raise SystemExit(f"环境 {args.cf_env} 需要提供 --cf-server(base url)")
         dry_run = args.cf_write_real != "1"
-        cu = RealCustomerUtil(base=server, token=args.cf_token or None, dry_run=dry_run)
+        cu = RealCustomerUtil(
+            base=server,
+            token=args.cf_token or None,
+            dry_run=dry_run,
+            company_id=int(args.cf_company_id or 1),
+        )
         logging.info("[launcher] 连接真实 HCM: %s (dry_run=%s)", server, dry_run)
 
     # 装配 DB（可选）

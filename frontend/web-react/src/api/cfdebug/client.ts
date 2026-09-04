@@ -11,6 +11,10 @@ import type {
   CfAccountList,
   CfSyncExport,
   CfSyncImportReq,
+  DynLogListResp,
+  DynLogDeleteResp,
+  DynLogRecord,
+  CfEnv,
 } from './types';
 
 export const cfdebug = {
@@ -76,5 +80,53 @@ export const cfdebug = {
       '/api/services/cloud-functions/copy',
       { index },
     );
+  },
+
+  /**
+   * 日志管理：列出服务器 dynamic_log 记录。
+   * - env=test/custom 时未传 server/token 则取后端环境配置
+   * - log_type: 按函数名过滤
+   * - search: 在 content 字段做包含匹配（前端关键字搜索）
+   */
+  listDynamicLogs(opts: {
+    env?: CfEnv;
+    server?: string;
+    token?: string;
+    company_id?: number;
+    log_type?: string;
+    search?: string;
+    page?: number;
+    page_size?: number;
+  } = {}): Promise<DynLogListResp> {
+    const q: string[] = [];
+    if (opts.env) q.push(`env=${encodeURIComponent(opts.env)}`);
+    if (opts.server) q.push(`server=${encodeURIComponent(opts.server)}`);
+    if (opts.token) q.push(`token=${encodeURIComponent(opts.token)}`);
+    if (opts.company_id) q.push(`company_id=${opts.company_id}`);
+    if (opts.log_type) q.push(`log_type=${encodeURIComponent(opts.log_type)}`);
+    if (opts.search) q.push(`search=${encodeURIComponent(opts.search)}`);
+    if (opts.page) q.push(`page=${opts.page}`);
+    if (opts.page_size) q.push(`page_size=${opts.page_size}`);
+    const qs = q.length ? `?${q.join('&')}` : '';
+    return apiGet<DynLogListResp>(`/api/cf-debug/dynamic-logs${qs}`);
+  },
+
+  /** 日志管理：批量删除 dynamic_log（按 id_）。 */
+  deleteDynamicLogs(opts: {
+    ids: Array<string | number>;
+    env?: CfEnv;
+    server?: string;
+    token?: string;
+    company_id?: number;
+  }): Promise<DynLogDeleteResp> {
+    return apiPost<DynLogDeleteResp>('/api/cf-debug/dynamic-logs/delete', opts);
+  },
+
+  /** 日志管理：解析当前选中行用到的字段（前端渲染辅助）。 */
+  formatDynLog(r: DynLogRecord): string {
+    const t = r.log_type || '?';
+    const c = r.content || '';
+    const ts = r.create_date || r.create_time || '';
+    return `${ts} [${t}] ${c}`.trim();
   },
 };

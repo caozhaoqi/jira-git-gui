@@ -141,8 +141,7 @@ export interface DapVariable {
 }
 
 export interface DapThread {
-  id: number;
-  name: string;
+  id: number;  name: string;
 }
 
 export interface DapStoppedBody {
@@ -157,6 +156,30 @@ export interface DapOutputBody {
   category?: string;
   output?: string;
   variablesReference?: number;
+}
+
+/** 断点选项（条件 / 日志 / 命中次数），对应 DAP setBreakpoints 的 Breakpoint 结构。 */
+export interface BpOptions {
+  enabled: boolean;
+  condition?: string;
+  hitCondition?: string;
+  logMessage?: string;
+}
+
+/** 发送给 DAP 的断点对象（仅 enabled 的会被下发）。 */
+export interface DapBreakpoint {
+  line: number;
+  condition?: string;
+  hitCondition?: string;
+  logMessage?: string;
+}
+
+/** 监视表达式（Watches）：持久化表达式 + 最近一次求值结果。 */
+export interface WatchItem {
+  expr: string;
+  result?: string;
+  type?: string;
+  error?: string;
 }
 
 /** 控制台日志（运行 / 错误 / debug）行。 */
@@ -187,4 +210,33 @@ export interface CfSyncExport {
   ok: boolean;
   accounts: Array<Record<string, unknown>>;
   count: number;
+}
+
+// ===== dynamic_log（日志管理 tab 用） =====
+/** dynamic_log 模型一行记录。后端原样转发 hcm.model.list 字段，含 id_/log_type/content/created_at/company_id 等。 */
+export interface DynLogRecord {
+  id_: string | number;
+  log_type?: string;
+  content?: string;
+  level?: string;
+  create_date?: string;
+  create_time?: string;
+  company_id?: number;
+  user_id?: number;
+  [k: string]: any;
+}
+
+export interface DynLogListResp {
+  ok: boolean;
+  records: DynLogRecord[];
+  count: number;
+  error?: string;
+}
+
+export interface DynLogDeleteResp {
+  ok: boolean;
+  deleted: number;
+  failed: Array<{ id: string | number; error: string }>;
+  total: number;
+  error?: string;
 }

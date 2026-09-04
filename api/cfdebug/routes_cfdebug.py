@@ -14,7 +14,7 @@
 
 SSE 事件：cf_debug_log（运行/错误/debug 日志，带 session_id）、cf_debug_done（会话结束）。
 """
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request, WebSocket
 from fastapi.responses import JSONResponse
@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from api.common import logger, broadcast
 from api.cfdebug import runner
 from api.cfdebug.dap_bridge import bridge_dap
+from api.cfdebug.real_client import RealCustomerUtil
 from core.config.cf import load_cf_accounts
 from api.cf.cf_login import cf_login_account
 
@@ -99,6 +100,25 @@ def _resolve_account(key: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _resolve_dynlog_creds(env: Optional[str], server: Optional[str], token: Optional[str]) -> Dict[str, str]:
+    """解析调用 dynamic_log 所需的 server/token。
+
+    优先级：显式 server/token → env=test/custom 配置。
+    """
+    env = (env or "").strip()
+    server = (server or "").strip()
+    token = (token or "").strip()
+    if env in ("test", "custom"):
+        cfg = runner.get_env()
+        if not server:
+            server = cfg["envs"].get(env, {}).get("server", "")
+        if not token:
+            token = cfg["envs"].get(env, {}).get("token", "")
+    if not server or not token:
+        raise ValueError("需在环境配置中设置 test/custom 的 server/token，或请求里显式传 server+token")
+    return {"server": server, "token": token, "env": env}
+
+
 @router.get("/api/cf-debug/accounts")
 def get_accounts():
     """列出 cf_accounts 服务账号（供远程模式选服务器；密码不返回）。"""
@@ -157,6 +177,88 @@ def post_stop(payload: Dict[str, Any]):
 @router.get("/api/cf-debug/sessions")
 def get_sessions():
     return runner.list_sessions()
+
+
+# ───────────────────────── dynamic_log 管理（删除 / 列出） ─────────────────────────
+
+class DynLogDeleteReq(BaseModel):
+    ids: List[Any]
+    env: Optional[str] = None
+    server: Optional[str] = None
+    token: Optional[str] = None
+    company_id: int = 1
+
+
+@router.get("/api/cf-debug/dynamic-logs")
+def list_dynamic_logs(
+    env: Optional[str] = None,
+    server: Optional[str] = None,
+    token: Optional[str] = None,
+    company_id: int = 1,
+    log_type: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+):
+    """列出服务器 dynamic_log 记录（调 hcm.model.list）。
+
+    - env=test/custom：未传 server/token 时取环境配置
+    - search: 在 content 字段做包含匹配（前端关键字搜索）
+    """
+    try:
+        creds = _resolve_dynlog_creds(env, server, token)
+    except ValueError as e:
+        return _err(400, str(e))
+    cu = RealCustomerUtil(creds["server"], creds["token"], dry_run=False,
+                          company_id=company_id)
+    param: Dict[str, Any] = {
+        "model": "dynamic_log",
+        "page": page,
+        "page_size": page_size,
+    }
+    if log_type:
+        param["log_type"] = log_type
+    if search:
+        param["search"] = search  # 部分后端接受 search 关键字
+    try:
+        result = cu.call_open_api("hcm.model.list", param)
+    except Exception as e:
+        logger.warning("[cfdebug] dynamic_log list 失败: %s", e)
+        return _err(500, str(e))
+    if not isinstance(result, dict):
+        return _err(500, "hcm.model.list 返回格式异常")
+    records = result.get("list") or result.get("records") or []
+    return {"ok": True, "records": records, "count": len(records)}
+
+
+@router.post("/api/cf-debug/dynamic-logs/delete")
+def delete_dynamic_logs(req: DynLogDeleteReq):
+    """批量删除 dynamic_log 记录（调 hcm.model.delete）。
+
+    - ids: 单值或数组，逐一删除
+    - 单条失败不阻塞其他条目，返回 deleted/failed 计数
+    """
+    ids = req.ids or []
+    if not ids:
+        return _err(400, "缺少 ids")
+    if not isinstance(ids, list):
+        ids = [ids]
+    try:
+        creds = _resolve_dynlog_creds(req.env, req.server, req.token)
+    except ValueError as e:
+        return _err(400, str(e))
+    cu = RealCustomerUtil(creds["server"], creds["token"], dry_run=False,
+                          company_id=req.company_id)
+    deleted = 0
+    failed: List[Dict[str, Any]] = []
+    for id_ in ids:
+        try:
+            cu.call_open_api("hcm.model.delete", {"model": "dynamic_log", "id_": id_})
+            deleted += 1
+        except Exception as e:
+            failed.append({"id": id_, "error": str(e)})
+            logger.warning("[cfdebug] dynamic_log delete %s 失败: %s", id_, e)
+    return {"ok": True, "deleted": deleted, "failed": failed, "total": len(ids)}
 
 
 @router.websocket("/api/cf-debug/ws/{session_id}")

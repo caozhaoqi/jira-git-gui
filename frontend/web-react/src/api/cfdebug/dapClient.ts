@@ -151,12 +151,28 @@ export class DapClient {
     return this.request('attach', { request: 'attach', connect: { host, port } });
   }
 
-  async setBreakpoints(file: string, lines: number[]): Promise<any> {
+  async setBreakpoints(file: string, breakpoints: { line: number; condition?: string; hitCondition?: string; logMessage?: string }[]): Promise<any> {
     return this.request('setBreakpoints', {
       source: { path: file },
-      breakpoints: lines.map((line) => ({ line })),
+      breakpoints: breakpoints.map((b) => {
+        const o: any = { line: b.line };
+        if (b.condition) o.condition = b.condition;
+        if (b.hitCondition) o.hitCondition = b.hitCondition;
+        if (b.logMessage) o.logMessage = b.logMessage;
+        return o;
+      }),
       sourceModified: false,
     });
+  }
+
+  /** 异常断点：filters 为 debugpy 支持的 ['raised'] / ['uncaught']（可组合）。 */
+  setExceptionBreakpoints(filters: string[]): Promise<any> {
+    return this.request('setExceptionBreakpoints', { filters });
+  }
+
+  /** 取最近一次异常详情（reason==='exception' 的 stopped 事件后调用）。 */
+  exceptionInfo(threadId: number): Promise<any> {
+    return this.request('exceptionInfo', { threadId });
   }
 
   async configurationDone(): Promise<any> {
@@ -197,6 +213,11 @@ export class DapClient {
   }
   pause(threadId: number): Promise<any> {
     return this.request('pause', { threadId });
+  }
+
+  /** 在当前帧作用域内求值表达式（参数 / 函数调用 / 任意 Python 表达式）。 */
+  evaluate(expression: string, frameId: number, context: string = 'repl'): Promise<any> {
+    return this.request('evaluate', { expression, frameId, context });
   }
 
   /** 断开并尝试关闭 WS（best effort）。 */

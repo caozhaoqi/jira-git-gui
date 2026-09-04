@@ -16,6 +16,7 @@
   - 每行必须带 id（云函数几乎都按 id 定位记录）。
 """
 import os
+import logging
 from types import SimpleNamespace
 
 
@@ -309,9 +310,12 @@ class MockCustomerUtil(object):
     DEBUG_ID 时收窄到单条，便于单步调试。
     """
 
-    def __init__(self, debug_id=None):
+    def __init__(self, debug_id=None, company_id=1, employee_id=101):
         self.writes = []
         self.debug_id = debug_id or DEBUG_ID
+        self.company_id = int(company_id or 1)
+        self.employee_id = employee_id
+        self.token = None
 
     def call_open_api(self, api_name, param=None):
         param = dict(param or {})
@@ -347,3 +351,31 @@ class MockCustomerUtil(object):
 
         # 其它接口（hcm.model.action.* 等）默认成功
         return {"success": True}
+
+    def get_current_context(self):
+        """复刻云函数沙箱中 CustomerUtil.get_current_context()：返回当前操作上下文。
+
+        生产语义：返回含 company / employee / user / token 的上下文对象。
+        离线 Mock：company.id 取配置的 company_id，employee.id / user.id 复用占位 employee_id，
+        token 取 self.token（默认 None）。调用方（sdsy_customer_sso 读 .company.id、call_llm 读
+        .user.id、call_llm_service 读 .token）均不报错，与真实结构对齐。
+        """
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            company=SimpleNamespace(id=self.company_id),
+            employee=SimpleNamespace(id=self.employee_id),
+            user=SimpleNamespace(id=self.employee_id),
+            token=self.token,
+        )
+
+    def call_llm(self, name, params=None, alter_message=None, use_cache=False, is_reasoning=False):
+        """调试沙箱不支持真实 LLM 调用（需云端 LLMAgent 服务）。返回与云端一致的 dict 契约。"""
+        return {"success": False, "message": "调试沙箱不支持 call_llm（需真实 LLM 服务）"}
+
+    def call_llm_service(self, system_prompt, query, model_name=None, model_type=None, temperature=0.5):
+        return {"success": False, "message": "调试沙箱不支持 call_llm_service"}
+
+    def safeEval(self, script, param):
+        # 真实实现用 SafeEnv 执行脚本（不常用）；调试沙箱做 no-op，原样返回 param。
+        logging.info("[cfdebug] safeEval 在调试沙箱为 no-op（未执行脚本）")
+        return param

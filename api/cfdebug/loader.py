@@ -207,21 +207,262 @@ def install_model_b_shims():
         svc.BasePrivateApiService = BasePrivateApiService
         sys.modules["service"] = svc
 
-    # common / common.utils
+    # common / common.utils —— 忠实复刻 store/downloads/895 customer_util.py 暴露的工具类
     if "common" not in sys.modules:
         sys.modules["common"] = types.ModuleType("common")
     if "common.utils" not in sys.modules:
         cu = types.ModuleType("common.utils")
 
-        class CustomerUtil(object):
-            def call_open_api(self, api_name, param=None):
-                return _RUNTIME["customer_util"].call_open_api(api_name, param)
+        # 底层真实/离线网关（由 launcher.configure(customer_util=...) 注入）
+        _cu = _RUNTIME.get("customer_util")
 
-        class errors(Exception):
-            pass
+        class CustomerUtil(object):
+            """复刻 common.utils.CustomerUtil：直接代理到调试网关（_RUNTIME['customer_util']）。"""
+            def call_open_api(self, api_name, param=None):
+                return _cu.call_open_api(api_name, param)
+
+            def get_current_context(self):
+                return _cu.get_current_context()
+
+            def call_llm(self, name, params=None, alter_message=None, use_cache=False, is_reasoning=False):
+                return _cu.call_llm(name, params, alter_message, use_cache, is_reasoning)
+
+            def call_llm_service(self, system_prompt, query, model_name=None, model_type=None, temperature=0.5):
+                return _cu.call_llm_service(system_prompt, query, model_name, model_type, temperature)
+
+            def safeEval(self, script, param):
+                return _cu.safeEval(script, param)
 
         cu.CustomerUtil = CustomerUtil()
-        cu.errors = errors
+
+        # 错误聚合（忠实于 common.utils.errors：提供常用异常类型，便于 from common.utils import errors 解析）
+        class _AppException(Exception):
+            def new(self, *a, **k):
+                return self
+        cu.errors = types.SimpleNamespace(
+            AppException=_AppException, DATA_RULE_ERROR=_AppException,
+            DATA_NOT_FOUND=_AppException, DATA_CONVERT_ERROR=_AppException,
+        )
+
+        # ── ModelUtil：忠实复刻，全部委托到 cu.CustomerUtil.call_open_api ──
+        def _divide_list(lst, group=300):
+            out = []
+            for i in range(0, len(lst), group):
+                out.append(lst[i:i + group])
+            return out
+
+        class ModelUtil(object):
+            @classmethod
+            def get(cls, model_, id_, **kwargs):
+                return cu.CustomerUtil.call_open_api("hcm.model.get", dict({"model": model_, "id_": id_}, **kwargs))
+
+            @classmethod
+            def list(cls, model, filter_dict, state=None, fields=None, fields_key=None, sorts=None,
+                     extra_property=None, query_str="", filter_str=None, page_index=None, page_size=None):
+                extra_ = dict(extra_property) if extra_property else {}
+                if "only_list" not in extra_:
+                    extra_["only_list"] = True
+                if state:
+                    extra_["state"] = state
+                if fields:
+                    extra_["fields"] = fields
+                if fields_key:
+                    extra_["fields"] = [{"key": fk, "field": fk.split(".")} for fk in fields_key]
+                if sorts:
+                    extra_["sorts"] = sorts
+                page_index = page_index if page_index else 1
+                page_size = page_size if page_size else 10000
+                result = cu.CustomerUtil.call_open_api("hcm.model.list", {
+                    "model": model, "page_size": page_size, "page_index": page_index,
+                    "query_str": query_str, "filter_str": filter_str,
+                    "filter_dict": filter_dict, "extra_property": extra_})
+                if extra_["only_list"]:
+                    result = result["list"]
+                return result
+
+            @classmethod
+            def list_ids(cls, model, filter_dict, state=None, fields=None, fields_key=None, sorts=None,
+                         extra_property=None, query_str="", filter_str=None, page_index=None, page_size=None):
+                extra_ = dict(extra_property) if extra_property else {}
+                if "only_list" not in extra_:
+                    extra_["only_list"] = True
+                if state:
+                    extra_["state"] = state
+                if fields:
+                    extra_["fields"] = fields
+                if fields_key:
+                    extra_["fields"] = [{"key": fk, "field": fk.split(".")} for fk in fields_key]
+                if sorts:
+                    extra_["sorts"] = sorts
+                extra_["only_id"] = True
+                page_index = page_index if page_index else 1
+                page_size = page_size if page_size else 1000000
+                result = cu.CustomerUtil.call_open_api("hcm.model.list", {
+                    "model": model, "page_size": page_size, "page_index": page_index,
+                    "query_str": query_str, "filter_str": filter_str,
+                    "filter_dict": filter_dict, "extra_property": extra_})["list"]
+                return [item.get("id") for item in result]
+
+            @classmethod
+            def count_value(cls, model, filter_dict, state=None, fields=None, sorts=None, extra_property=None,
+                            query_str="", filter_str=None):
+                extra_ = dict(extra_property) if extra_property else {}
+                extra_["only_list"] = True
+                if state:
+                    extra_["state"] = state
+                if fields:
+                    extra_["fields"] = fields
+                if sorts:
+                    extra_["sorts"] = sorts
+                param = {"model": model, "filter_dict": filter_dict, "count_by": "id",
+                         "query_str": query_str, "filter_str": filter_str, "extra_property": extra_}
+                return cu.CustomerUtil.call_open_api("hcm.model.count", param)["list"][0]["id"]
+
+            @classmethod
+            def count(cls, model, filter_dict, state=None, fields=None, sorts=None, extra_property=None,
+                      query_str="", filter_str=None, group_by=None, count_by=None, distinct_count_by=None,
+                      sum_by=None, avg_by=None, min_by=None, max_by=None, page_index=None, page_size=None):
+                extra_ = dict(extra_property) if extra_property else {}
+                if "only_list" not in extra_:
+                    extra_["only_list"] = True
+                if state:
+                    extra_["state"] = state
+                if fields:
+                    extra_["fields"] = fields
+                if sorts:
+                    extra_["sorts"] = sorts
+                page_index = page_index if page_index else 1
+                page_size = page_size if page_size else 10000
+                param = {"model": model, "filter_dict": filter_dict, "query_str": query_str,
+                         "filter_str": filter_str, "group_by": group_by, "count_by": count_by,
+                         "distinct_count_by": distinct_count_by, "page_index": page_index,
+                         "page_size": page_size, "sum_by": sum_by, "avg_by": avg_by,
+                         "min_by": min_by, "max_by": max_by, "extra_property": extra_}
+                result = cu.CustomerUtil.call_open_api("hcm.model.count", param)
+                if extra_["only_list"]:
+                    result = result["list"]
+                return result
+
+            @classmethod
+            def create(cls, model, info, role=None):
+                return cu.CustomerUtil.call_open_api("hcm.model.create", {"model": model, "info": info, "role": role})
+
+            @classmethod
+            def create_batch(cls, model, info_list, role=None):
+                if not info_list:
+                    return
+                result = []
+                for group in _divide_list(info_list, group=300):
+                    result += cu.CustomerUtil.call_open_api("hcm.model.create.batch",
+                        {"model": model, "info_list": group, "role": role})["result"]
+                return result
+
+            @classmethod
+            def edit(cls, model, id_, info, role=None):
+                return cu.CustomerUtil.call_open_api("hcm.model.edit", {"model": model, "id_": id_, "info": info, "role": role})
+
+            @classmethod
+            def edit_batch(cls, model, edit_list, role=None):
+                if not edit_list:
+                    return
+                result = []
+                for group in _divide_list(edit_list, group=300):
+                    result += cu.CustomerUtil.call_open_api("hcm.model.edit.batch",
+                        {"model": model, "info_list": group, "role": role})
+                return result
+
+            @classmethod
+            def edit_batch_simple(cls, model, edit_list, role=None):
+                logging.warning("[cfdebug] ModelUtil.edit_batch_simple 在调试沙箱不支持（需真实引擎 ModelFactory）。")
+                return None
+
+            @classmethod
+            def remove(cls, model, id_, role=None):
+                if not id_:
+                    return
+                return cu.CustomerUtil.call_open_api("hcm.model.remove", {"model": model, "id_": id_, "role": role})
+
+            @classmethod
+            def remove_batch(cls, model, ids, role=None):
+                if not ids:
+                    return
+                for group in _divide_list(ids, group=500):
+                    cu.CustomerUtil.call_open_api("hcm.model.remove.batch", {"model": model, "ids": group, "role": role})
+
+            @classmethod
+            def record(cls, category, content, type_=3, enabled=True):
+                if not enabled:
+                    return
+                logging.info("[cfdebug] ModelUtil.record: %s | %s", category, content)
+
+        cu.ModelUtil = ModelUtil
+
+        # ── DBUtil / SapUtil / DataUtil：忠实签名；连接/重依赖在调用时才需驱动，导入即可解析 ──
+        class DBUtil(object):
+            __db_factory__ = {"pymysql": "_mysql", "dm": "_dm", "psy": "_postgresql"}
+            def __init__(self, db_type=None, **kwargs):
+                logging.info("[cfdebug] DBUtil(%s) 在调试沙箱默认不建立真实连接。", db_type)
+                self.db_type = db_type
+                self.kwargs = kwargs
+            def __enter__(self):
+                raise NotImplementedError("调试沙箱未建立真实数据库连接：DBUtil 需要对应 DBAPI 驱动且需设置 CF_DB_URL。")
+            def __exit__(self, *a):
+                pass
+
+        class SapUtil(object):
+            @classmethod
+            def call(cls, api, param, sap_type="sap"):
+                logging.info("[cfdebug] SapUtil.call(%s) 在调试沙箱为 no-op。", sap_type)
+                return {"success": False, "message": "调试沙箱不支持 SapUtil"}
+            @classmethod
+            def get_connection(cls, sap_type="sap"):
+                return None
+            @classmethod
+            def get_setting(cls, sap_type="sap"):
+                return {"success": False, "message": "调试沙箱不支持 SapUtil"}
+
+        class DataUtil(object):
+            @classmethod
+            def convert_num_to_id(cls, model_name, num, default="None"):
+                logging.warning("[cfdebug] DataUtil.convert_num_to_id 在调试沙箱不支持（需 ModelFactory）。")
+                if default == "None":
+                    raise RuntimeError("调试沙箱不支持 DataUtil.convert_num_to_id")
+                return default
+
+        cu.DBUtil = DBUtil
+        cu.SapUtil = SapUtil
+        cu.DataUtil = DataUtil
+
+        # ── 线程缓存 / Redis：用进程内字典做可用兜底，保证调试期调用不报错 ──
+        _thread_cache = {}
+        class CustomerThreadCacheUtil(object):
+            @classmethod
+            def has_cache(cls, key):
+                return key in _thread_cache
+            @classmethod
+            def get_cache(cls, key, default=None, section=None):
+                return _thread_cache.get(key, default)
+            @classmethod
+            def set_cache(cls, key, value):
+                _thread_cache[key] = value
+            @classmethod
+            def clear_cache(cls):
+                _thread_cache.clear()
+        cu.CustomerThreadCacheUtil = CustomerThreadCacheUtil
+
+        _redis_cache = {}
+        class CustomerRedisUtil(object):
+            @classmethod
+            def get_key(cls, company_id, key):
+                return _redis_cache.get(f"{company_id}:{key}")
+            @classmethod
+            def set_key(cls, company_id, key, value, expire=100):
+                _redis_cache[f"{company_id}:{key}"] = value
+            @classmethod
+            def del_key(cls, company_id, key):
+                return _redis_cache.pop(f"{company_id}:{key}", None)
+        cu.CustomerRedisUtil = CustomerRedisUtil
+
         sys.modules["common.utils"] = cu
 
     # environment
