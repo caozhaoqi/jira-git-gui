@@ -7,6 +7,7 @@ const TABS: { key: TabKey; icon: string; labelKey: string }[] = [
   { key: 'diff', icon: '🔀', labelKey: 'tab.diff' },
   { key: 'logs', icon: '📋', labelKey: 'tab.logs' },
   { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
+  { key: 'kibana', icon: '📈', labelKey: 'tab.kibana' },
   { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
   { key: 'cfdebug', icon: '🐞', labelKey: 'tab.cfdebug' },
   { key: 'clash', icon: '🛰', labelKey: 'tab.clash' },

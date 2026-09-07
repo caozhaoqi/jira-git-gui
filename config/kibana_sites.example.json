@@ -1,0 +1,17 @@
+{
+  "sites": {
+    "example": {
+      "label": "示例站点",
+      "base_url": "http://<kibana-host>/kibana",
+      "username": "elastic",
+      "password": "",
+      "index_pattern": "logstash-*",
+      "time_field": "es_time",
+      "msg_field": "log",
+      "field_prefix": "kubernetes",
+      "verify_ssl": false,
+      "timeout": 30
+    }
+  },
+  "current": "example"
+}
