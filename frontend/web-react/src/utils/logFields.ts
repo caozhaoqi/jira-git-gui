@@ -18,6 +18,44 @@ export function modelTypeField(model: string): string {
   return MODEL_TYPE_FIELDS[key] || 'log_type';
 }
 
+// 记录模型 -> HCM common_model_list 界面默认展示字段（show_fields_key）。
+// 该页按模型展示，字段名随模型不同：dynamic_log 用 log_type/create_time，SyncOuterRecord 用 update_time/name。
+const MODEL_SHOW_FIELDS: Record<string, string[]> = {
+  dynamic_log: ['log_type', 'create_time', 'content'],
+  syncouterrecord: ['update_time', 'name', 'content'],
+};
+const DEFAULT_SHOW_FIELDS = ['update_time', 'name', 'content', 'log_type', 'create_time'];
+
+/**
+ * 构造 HCM「云函数日志 / 记录模型列表」界面 URL（hash 路由 #/common_model_list）。
+ *
+ * 旧实现直接拼 `/web/?model=...&log_type=...`，会落到 HCM 通用落地页而非日志列表界面；
+ * 正确入口是 `#/common_model_list` 并带 model / page_index / page_size / advance_filter_dict / show_fields_key。
+ *
+ * @param base     网关地址（如 https://e1jw8.hcmcloud.cn）
+ * @param model    记录模型（如 dynamic_log / SyncOuterRecord）
+ * @param typeValue 按「类型/描述」字段过滤的值（云函数名 / 描述），缺省不附带 advance_filter_dict
+ */
+export function buildHcmLogUrl(base: string, model: string, typeValue?: string): string {
+  const m = (model || 'dynamic_log').trim() || 'dynamic_log';
+  const p = new URLSearchParams();
+  p.set('model', m);
+  p.set('page_index', '1');
+  p.set('page_size', '20');
+  if (typeValue) {
+    const f: Record<string, string> = {};
+    f[modelTypeField(m)] = typeValue; // 类型字段随模型变化：dynamic_log→log_type，SyncOuterRecord→name
+    p.set('advance_filter_dict', JSON.stringify(f));
+  }
+  const show = MODEL_SHOW_FIELDS[m.toLowerCase()] || DEFAULT_SHOW_FIELDS;
+  p.set('show_fields_key', JSON.stringify(show));
+  const u = new URL(base);
+  u.pathname = '/';
+  u.search = '';
+  u.hash = `/common_model_list?${p.toString()}`;
+  return u.toString();
+}
+
 export interface LogRowLike {
   log_type?: string;
   logType?: string;

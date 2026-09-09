@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo, memo, type MouseEven
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
-import { logRowType, logRowTime, logRowContent, modelTypeField } from '../utils/logFields';
+import { logRowType, logRowTime, logRowContent, buildHcmLogUrl } from '../utils/logFields';
 import { sse } from '../api/events';
 import { cfdebug } from '../api/cfdebug/client';
 import { DapClient } from '../api/cfdebug/dapClient';
@@ -50,17 +50,14 @@ function bpListForDap(map: Map<number, BpOptions>): { line: number; condition?: 
 /**
  * 在「内置浏览器」（应用内嵌窗口）打开「该云函数」的服务器日志界面，可注入 HCM token cookie 自动登录；
  * Electron 下优先走 electronAPI.openBuiltinBrowser，不可用（非 Electron / 调用失败）时回退系统浏览器 / window.open。
- * HCM 日志页地址：{server}/web/?model={模型}&{类型字段}={函数名}
- * （类型字段随模型变化：dynamic_log 用 log_type，SyncOuterRecord 用 name，见 modelTypeField）
+ * HCM 日志界面是 hash 路由 #/common_model_list（带 model / 类型字段过滤 / 展示字段），不是 /web/ 落地页。
  */
 async function openFnLogPage(serverUrl: string, fnName: string, model = 'dynamic_log'): Promise<void> {
   try {
     const base = (serverUrl || '').trim();
     if (!base) return;
-    const url = new URL('/web/', base);
-    url.searchParams.set('model', model);
-    if (fnName) url.searchParams.set(modelTypeField(model), fnName);
-    const target = url.toString();
+    // 打开 HCM 云函数日志界面（#/common_model_list），按记录模型 + 类型字段过滤
+    const target = buildHcmLogUrl(base, model, fnName || undefined);
     // 注入与目标网关绑定的 token（同网关才生效）：后端按 server 现刷新（cf_accounts 该网关账密）
     // → 全局 hcmToken 兜底。CF 调试台的账号 token 在主进程侧，渲染层拿不到，故走后端刷新最可靠。
     const cookies = await hcmCookiesForTarget(target, { server: base });

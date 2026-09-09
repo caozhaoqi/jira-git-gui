@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
-import { logRowType, logRowTime } from '../utils/logFields';
+import { logRowType, logRowTime, buildHcmLogUrl } from '../utils/logFields';
 import type { CfAccount, CfLogsRow } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
@@ -58,10 +58,11 @@ function cfLogType(row: CfLogsRow, fallback: string): string {
 
 async function openCloudFunctionLogs(serverUrl: string, logType: string, recordModel = 'dynamic_log', token = ''): Promise<void> {
   try {
-    const url = new URL('/web/', serverUrl);
-    url.searchParams.set('model', recordModel || 'dynamic_log');
-    if (logType && logType !== '(未知)') url.searchParams.set('log_type', logType);
-    const target = url.toString();
+    const base = (serverUrl || '').trim();
+    if (!base) return;
+    // 打开 HCM 云函数日志界面（#/common_model_list），按记录模型 + 类型字段过滤
+    const target = buildHcmLogUrl(base, recordModel || 'dynamic_log',
+      (logType && logType !== '(未知)') ? logType : undefined);
     // 注入与目标网关绑定的 token（同网关才生效）：本账号 token → 后端现刷新 → 全局兜底
     const cookies = await hcmCookiesForTarget(target, { token, server: serverUrl });
     // 优先在内置浏览器打开（应用内嵌窗口，可注入 HCM token cookie 自动登录），失败再回退系统浏览器
