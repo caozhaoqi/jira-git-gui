@@ -1067,6 +1067,9 @@ export const ja: Dict = {
     recordModelHint: 'HCM 記録モデル名。リスト選択または自由入力。一覧・削除ともこのモデルを対象にする',
     logTypeFilter: '関数名で絞り込み',
     logTypeHint: 'log_type（クラウド関数のクラス/モジュール名）で絞り込み',
+    // 記録モデル切替で「種別/説明」フィールドが変化：dynamic_log は log_type、SyncOuterRecord は name
+    typeFilterOuter: '説明で絞り込み',
+    typeHintOuter: 'name（同期記録の説明）で絞り込み',
     logSearch: '内容を検索',
     refresh: '更新',
     loading: '読み込み中…',

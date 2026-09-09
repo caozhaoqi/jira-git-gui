@@ -661,11 +661,22 @@ export interface CfLogsRow {
   create_time?: string;
   createTime?: string;
   created_at?: string;
+  create_date?: string;
+  // SyncOuterRecord 用 update_time（同步时间）；dynamic_log 用 create_time
+  update_time?: string | number;
+  updateTime?: string;
+  updated_at?: string;
   content?: any;
   message?: any;
   data?: any;
+  // 类型 / 描述字段：dynamic_log=log_type，SyncOuterRecord=name
   log_type?: string;
   logType?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  desc?: string;
+  type?: string;
 }
 export interface CfLogsReq {
   server_url: string;

@@ -1067,6 +1067,9 @@ export const en: Dict = {
     recordModelHint: 'HCM record model name; pick from list or type freely. Listing & delete both target this model',
     logTypeFilter: 'Filter by function',
     logTypeHint: 'Filter by log_type (cloud function class / module name)',
+    // The "type/description" field name changes with the record model: dynamic_log uses log_type, SyncOuterRecord uses name
+    typeFilterOuter: 'Filter by description',
+    typeHintOuter: 'Filter by name (sync record description)',
     logSearch: 'Search content',
     refresh: 'Refresh',
     loading: 'Loading…',

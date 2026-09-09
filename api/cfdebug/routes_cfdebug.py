@@ -26,6 +26,7 @@ from api.cfdebug.dap_bridge import bridge_dap
 from api.cfdebug.real_client import RealCustomerUtil
 from core.config.cf import load_cf_accounts
 from api.cf.cf_login import cf_login_account
+from api.cf.cf_logs import _model_type_field
 
 router = APIRouter()
 
@@ -214,13 +215,16 @@ def list_dynamic_logs(
     cu = RealCustomerUtil(creds["server"], creds["token"], dry_run=False,
                           company_id=company_id)
     record_model = (model or "dynamic_log").strip() or "dynamic_log"
+    # 注意：HCM SDK 的 hcm.model.list 分页参数是 page_index（见 api/cfdebug/loader.py 的 list shim），
+    # 用 page 不会被识别，翻页会失效（永远返回第一页）。
     param: Dict[str, Any] = {
         "model": record_model,
-        "page": page,
+        "page_index": page,
         "page_size": page_size,
     }
     if log_type:
-        param["log_type"] = log_type
+        # 类型/描述字段随模型不同：dynamic_log 用 log_type，SyncOuterRecord 用 name（见 _model_type_field）。
+        param[_model_type_field(record_model)] = log_type
     if search:
         param["search"] = search  # 部分后端接受 search 关键字
     try:

@@ -3,7 +3,8 @@ import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
-import { openBuiltinBrowser, hcmBuiltinCookies } from '../utils/browser';
+import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
+import { logRowType, logRowTime } from '../utils/logFields';
 import type { CfAccount, CfLogsRow } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
@@ -33,8 +34,9 @@ interface CfLastResult {
   localPage: number;
 }
 
+/** 时间字段兜底统一走 utils/logFields（dynamic_log 的 create_* / SyncOuterRecord 的 update_*）。 */
 function cfTime(row: CfLogsRow): string {
-  return String(row.create_time || row.createTime || row.created_at || '');
+  return logRowTime(row);
 }
 function cfContent(row: CfLogsRow): string {
   const c = row.content ?? row.message ?? row.data;
@@ -46,18 +48,24 @@ function cfContentFull(row: CfLogsRow): string {
   if (c == null) return '';
   return typeof c === 'object' ? JSON.stringify(c, null, 2) : String(c);
 }
+/**
+ * 类型字段兜底统一走 utils/logFields：
+ * 记录自身字段（log_type / name / title …）→ 查询时填的 log_type 过滤值 → '(未知)'。
+ */
 function cfLogType(row: CfLogsRow, fallback: string): string {
-  return row.log_type || row.logType || fallback || '(未知)';
+  return logRowType(row, fallback);
 }
 
-async function openCloudFunctionLogs(serverUrl: string, logType: string, recordModel = 'dynamic_log'): Promise<void> {
+async function openCloudFunctionLogs(serverUrl: string, logType: string, recordModel = 'dynamic_log', token = ''): Promise<void> {
   try {
     const url = new URL('/web/', serverUrl);
     url.searchParams.set('model', recordModel || 'dynamic_log');
     if (logType && logType !== '(未知)') url.searchParams.set('log_type', logType);
     const target = url.toString();
+    // 注入与目标网关绑定的 token（同网关才生效）：本账号 token → 后端现刷新 → 全局兜底
+    const cookies = await hcmCookiesForTarget(target, { token, server: serverUrl });
     // 优先在内置浏览器打开（应用内嵌窗口，可注入 HCM token cookie 自动登录），失败再回退系统浏览器
-    if (await openBuiltinBrowser(target, hcmBuiltinCookies(target, useAppStore.getState().hcmToken))) return;
+    if (await openBuiltinBrowser(target, cookies)) return;
     const external = (window as any).electronAPI?.openExternal;
     if (typeof external === 'function') {
       await external(target);
@@ -722,7 +730,7 @@ export function CfPanel() {
           </button>
           <button
             className="btn btn-sm btn-primary"
-            onClick={() => void openCloudFunctionLogs(cfg.server_url.trim(), cfg.log_type.trim(), cfg.record_model.trim() || 'dynamic_log')}
+            onClick={() => void openCloudFunctionLogs(cfg.server_url.trim(), cfg.log_type.trim(), cfg.record_model.trim() || 'dynamic_log', cfg.token.trim())}
             disabled={!cfg.server_url.trim()}
             title={t('cf.openLog')}
           >

@@ -1,6 +1,7 @@
 // 云函数调试控制台：后端 HTTP 接口封装。
 // 直接复用项目统一的 apiGet / apiPost（同源、错误分类、JSON 解析一致）。
 import { apiGet, apiPost } from '../client';
+import { logRowType, logRowTime, logRowContent } from '../../utils/logFields';
 import type {
   CfFunctionList,
   CfSource,
@@ -126,11 +127,11 @@ export const cfdebug = {
     return apiPost<DynLogDeleteResp>('/api/cf-debug/dynamic-logs/delete', opts);
   },
 
-  /** 日志管理：解析当前选中行用到的字段（前端渲染辅助）。 */
+  /** 日志管理：解析当前选中行用到的字段（前端渲染辅助）。字段兜底同 utils/logFields。 */
   formatDynLog(r: DynLogRecord): string {
-    const t = r.log_type || '?';
-    const c = r.content || '';
-    const ts = r.create_date || r.create_time || '';
+    const t = logRowType(r, '?');
+    const c = logRowContent(r);
+    const ts = logRowTime(r);
     return `${ts} [${t}] ${c}`.trim();
   },
 };
