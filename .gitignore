@@ -64,6 +64,10 @@ config/hcm_whitelist.local.json
 clash_defaults.local.json
 config/clash_defaults.local.json
 
+# Kibana 站点：模板可提交；含明文密码的 .local 文件禁止入库
+kibana_sites.local.json
+config/kibana_sites.local.json
+
 frontend/web-react/node_modules/
 
 web/
@@ -87,3 +91,5 @@ frontend/web-legacy/
 merge_state/
 
 todo.md
+
+.tmp-pytest/

@@ -8,7 +8,7 @@
  *  4) 渲染进程 -> 主进程：通过 IPC "log:from-renderer" 让前端日志也落盘
  */
 const electron = require('electron');
-const { app, BrowserWindow, dialog, ipcMain, clipboard, Menu, shell } = electron;
+const { app, BrowserWindow, dialog, ipcMain, clipboard, Menu, shell, screen } = electron;
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -309,6 +309,65 @@ function registerIpcHandlers() {
     logFile: LOG_FILE,
     isDev,
   }));
+  ipcMain.handle('shell:open-external', async (_ev, rawUrl) => {
+    const url = String(rawUrl || '');
+    if (!/^https?:\/\//i.test(url)) return false;
+    await shell.openExternal(url);
+    return true;
+  });
+
+  // 内置浏览器：在应用内嵌窗口打开外部 HCM Cloud 网页（如 /web/?model=dynamic_log 的 role_error 页），
+  // 替代 shell.openExternal 跳系统浏览器。可选注入 cookie（如 HCM 的 token）实现自动登录。
+  ipcMain.handle('builtin-browser:open', async (_ev, payload) => {
+    const url = String((payload && payload.url) || '');
+    if (!/^https?:\/\//i.test(url)) return { ok: false, reason: 'invalid-url' };
+    let origin = '';
+    try { origin = new URL(url).origin; } catch { return { ok: false, reason: 'invalid-url' }; }
+
+    const win = new BrowserWindow({
+      width: 1280,
+      height: 860,
+      minWidth: 800,
+      minHeight: 560,
+      title: `内置浏览器 · ${origin}`,
+      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      modal: false,
+      show: true,
+      webPreferences: {
+        // 不注入 preload：内置浏览器加载第三方 HCM Cloud 网页，无需本地 API，也避免向第三方暴露
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+
+    // best-effort cookie 注入：HCM 网页会话 cookie 名为 token，注入后免登录。失败不阻断打开。
+    const cookies = Array.isArray(payload && payload.cookies) ? payload.cookies : [];
+    for (const c of cookies) {
+      if (!c || !c.name || !c.value) continue;
+      try {
+        await win.webContents.session.cookies.set({
+          url: c.url || origin,
+          name: c.name,
+          value: c.value,
+          httpOnly: true,
+          secure: origin.startsWith('https'),
+          sameSite: 'unspecified',
+        });
+      } catch (e) {
+        logErr(`内置浏览器 cookie 注入失败 ${c.name}: ${e && e.message ? e.message : e}`);
+      }
+    }
+
+    win.loadURL(url);
+    // 窗口内点击链接（target=_blank 等）也在本内置浏览器内打开，避免又跳回系统浏览器
+    win.webContents.on('new-window', (e, newUrl) => {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(newUrl)) win.loadURL(newUrl);
+    });
+    win.on('closed', () => { log('内置浏览器窗口已关闭。'); });
+    return { ok: true };
+  });
   // 剪贴板：用 Electron 原生 clipboard 模块（不受浏览器 clipboard-read 权限限制）
   ipcMain.handle('clipboard:read-text', () => clipboard.readText());
   ipcMain.handle('clipboard:write-text', (_ev, text) => {
@@ -431,10 +490,15 @@ function waitForBackend(maxRetries = 30) {
 }
 
 function createWindow() {
-  log(`创建 BrowserWindow 1280x800`);
+  // 按主屏工作区尺寸打开（自动排除 Dock/任务栏），避免 1280 硬编码在宽屏上
+  // 留下右侧桌面空白。保留 minWidth 防止窗口过小无法操作。
+  const { width: sw, height: sh } = screen.getPrimaryDisplay().workAreaSize;
+  const initW = Math.max(1280, sw);
+  const initH = Math.max(800,  sh);
+  log(`创建 BrowserWindow ${initW}x${initH}（主屏 workArea=${sw}x${sh}）`);
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: initW,
+    height: initH,
     minWidth: 900,
     minHeight: 600,
     title: 'Jira Git GUI',

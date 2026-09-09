@@ -6,6 +6,7 @@ import './styles/global.css';
 import './styles/panels.css';
 import './styles/shell.css';
 import './styles/logviewer.css';
+import './styles/cfdebug.css';
 
 // 视图路由：原生版把日志查看器做成独立 HTML（web/log_viewer.html）。
 // React 版统一在同一个 SPA 内，用 ?view=log 切换到全屏日志视图，

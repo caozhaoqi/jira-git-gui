@@ -1,6 +1,8 @@
 // 后端 API 数据模型（对应 FastAPI / Pydantic）。
 // Pilot 仅有仓库/文件树/预览，后续迁移 K8s / CF / Diff / Commits 时持续扩充。
 
+import type { SSECFDebugLog, SSECFDebugDone } from './cfdebug/types';
+
 export type ConnectMode = 'pat' | 'cookie';
 
 export interface StatusResp {
@@ -486,6 +488,141 @@ export interface K8sLogResp {
   error?: string;
 }
 
+// ===== Kibana 日志 =====
+export interface KibanaSite {
+  name: string;
+  label?: string;
+  base_url?: string;
+  username?: string;
+  index_pattern?: string;
+  time_field?: string;
+  msg_field?: string;
+  field_prefix?: string;
+  verify_ssl?: boolean;
+  timeout?: number;
+  is_current?: boolean;
+  has_password?: boolean;
+}
+export interface KibanaSitesResp {
+  ok?: boolean;
+  sites?: KibanaSite[];
+  current?: string | null;
+  error?: string;
+}
+export interface KibanaTestStep {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+export interface KibanaTestResp {
+  ok?: boolean;
+  error?: string;
+  steps?: KibanaTestStep[];
+  kibana_version?: string;
+  cluster?: { cluster_name?: string; status?: string; nodes?: number };
+  total?: number;
+}
+export interface KibanaBucket {
+  key: string;
+  count: number;
+}
+export interface KibanaFieldsResp {
+  ok?: boolean;
+  cached?: boolean;
+  error?: string;
+  namespaces?: KibanaBucket[];
+  containers?: KibanaBucket[];
+  pods?: KibanaBucket[];
+  apps?: KibanaBucket[];
+  hosts?: KibanaBucket[];
+}
+export interface KibanaPodRow {
+  pod: string;
+  count: number;
+  errors: number;
+  app?: string;
+  container?: string;
+  namespace?: string;
+  host?: string;
+  last_ms?: number | null;
+}
+export interface KibanaPodsResp {
+  ok?: boolean;
+  cached?: boolean;
+  error?: string;
+  pods?: KibanaPodRow[];
+  total?: number;
+}
+export interface KibanaLogRow {
+  id: string;
+  index?: string;
+  ts: string;
+  ts_ms?: number | null;
+  level?: string;
+  msg: string;
+  pod?: string;
+  container?: string;
+  namespace?: string;
+  host?: string;
+  app?: string;
+}
+export interface KibanaLogsReq {
+  site?: string;
+  start?: string;
+  end?: string;
+  namespace?: string;
+  container?: string;
+  pod?: string;
+  pods?: string[];
+  app?: string;
+  host?: string;
+  keyword?: string;
+  exclude_keyword?: string;
+  levels?: string[];
+  size?: number;
+  from_?: number;
+  order?: 'asc' | 'desc';
+}
+export interface KibanaLogsResp {
+  ok?: boolean;
+  error?: string;
+  rows?: KibanaLogRow[];
+  total?: { value: number; relation?: string };
+  took_ms?: number;
+}
+export interface KibanaContextResp {
+  ok?: boolean;
+  error?: string;
+  rows?: KibanaLogRow[];
+  anchor?: string;
+  anchor_index?: number;
+}
+export interface KibanaHistBucket {
+  ts: string;
+  ts_ms?: number | null;
+  count: number;
+  errors: number;
+}
+export interface KibanaHistogramResp {
+  ok?: boolean;
+  error?: string;
+  buckets?: KibanaHistBucket[];
+  interval?: string;
+  total?: number;
+}
+export interface KibanaExportResp {
+  ok?: boolean;
+  error?: string;
+  filename?: string;
+  content?: string;
+  count?: number;
+}
+export interface KibanaIndexPattern {
+  id: string;
+  title: string;
+  time_field?: string;
+}
+
 // ===== CF 云函数日志 =====
 export interface CfAccount {
   name: string;
@@ -534,6 +671,7 @@ export interface CfLogsReq {
   server_url: string;
   token: string;
   log_type?: string;
+  record_model?: string;
   page_index: number;
   page_size: number;
   proxy?: string;
@@ -549,6 +687,7 @@ export interface CfLogsResp {
 export interface CfExportReq {
   server_url: string;
   log_type?: string;
+  record_model?: string;
   auth_method?: string;
   page_index: number;
   page_size: number;
@@ -679,4 +818,7 @@ export type SSEEventMap = {
   merge_start: SSEMergeStart;
   merge_progress: SSEMergeProgress;
   merge_done: SSEMergeDone;
+  // 云函数调试控制台
+  cf_debug_log: SSECFDebugLog;
+  cf_debug_done: SSECFDebugDone;
 };

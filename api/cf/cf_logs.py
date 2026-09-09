@@ -24,7 +24,8 @@ _IS_MODEL_MISSING = lambda errcode, errmsg: (
 
 
 async def cf_query_logs(req) -> "dict":
-    """代理查询 CF 平台 dynamic_log 日志，返回 {result, error, is_session}。
+    """代理查询 CF 平台记录模型日志（默认 dynamic_log，可经 UI 配置如 SyncOuterRecord），
+    返回 {result, error, is_session}。
 
     认证方式依次尝试：Cookie → Bearer+hcminner → Header token。
     会话类失败自动触发重登刷新后重试一次。
@@ -79,11 +80,13 @@ async def cf_query_logs(req) -> "dict":
         req_page_size = 200
     url = f"{base}{_HCM_MODEL_LIST_API}"
     base_headers_json = {"Content-Type": "application/json"}
+    # 记录模型：UI 可配置（如 dynamic_log / SyncOuterRecord），默认 dynamic_log 保持向后兼容
+    record_model = (req.record_model or "dynamic_log").strip() or "dynamic_log"
     filter_dict = {}
     if req.log_type:
         filter_dict["log_type"] = req.log_type
     payload = {
-        "model": "dynamic_log",
+        "model": record_model,
         "page_index": req.page_index,
         "page_size": req_page_size,
         "filter_dict": filter_dict,
@@ -127,7 +130,7 @@ async def cf_query_logs(req) -> "dict":
                         errcode = eb.get("errcode")
                         errmsg = eb.get("errmsg") or eb.get("description") or eb.get("message") or resp.text[:400]
                         if _IS_MODEL_MISSING(errcode, errmsg):
-                            raise RuntimeError(f"[{att['name']}] {errmsg}（model「dynamic_log」在当前部署/租户不存在）")
+                            raise RuntimeError(f"[{att['name']}] {errmsg}（model「{record_model}」在当前部署/租户不存在）")
                         if resp.status_code == 405:
                             raise RuntimeError(f"[{att['name']}] HTTP 405 Method Not Allowed: {resp.text[:300]}")
                         if resp.status_code >= 500:
@@ -145,7 +148,7 @@ async def cf_query_logs(req) -> "dict":
                         msg = (data.get("errmsg") or data.get("description") or data.get("message") or data.get("msg") or
                                (isinstance(data.get("result"), dict) and data["result"].get("message")) or str(data)[:500])
                         if _IS_MODEL_MISSING(data.get("errcode"), msg):
-                            raise RuntimeError(f"[{att['name']}] {msg}（model「dynamic_log」在当前部署/租户不存在）")
+                            raise RuntimeError(f"[{att['name']}] {msg}（model「{record_model}」在当前部署/租户不存在）")
                         ec = data.get("errcode")
                         ec = ec if isinstance(ec, int) else 0
                         if _cf_is_session_err(ec if ec in (401, 403) else 0, ec, msg):
@@ -201,6 +204,7 @@ def cf_export_logs(req) -> "dict":
     export_dir = _PROJECT_ROOT / "logs" / "cf_logs"
     export_dir.mkdir(parents=True, exist_ok=True)
     safe_log_type = "".join(c if c.isalnum() or c in "-_" else "_" for c in (req.log_type or "unknown"))[:60]
+    record_model = (req.record_model or "dynamic_log").strip() or "dynamic_log"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     fname = f"cf_logs_{safe_log_type}_{ts}.json"
     fpath = export_dir / fname
@@ -209,7 +213,8 @@ def cf_export_logs(req) -> "dict":
     out = {
         "export_info": {
             "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "source": "CF 云函数日志 (dynamic_log)",
+            "source": f"CF 云函数日志 ({record_model})",
+            "record_model": record_model,
             "server_url": req.server_url,
             "log_type": req.log_type,
             "auth_method": req.auth_method,

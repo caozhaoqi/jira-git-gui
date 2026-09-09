@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
 import { hcmDirect } from '../../api/hcm/direct';
+import { useAppStore } from '../../store/useAppStore';
+import { openHcmWindow } from './hcmWindow';
 import {
   extractErrcode, lookupErrcode,
   extractInfraErrcode, lookupInfraErrcode,
@@ -9,7 +11,6 @@ import {
   HCM_TOKEN_TTL_HOURS, tokenAgeHours, isTokenLikelyExpired,
 } from '../../api/hcm/errDict';
 
-const LS_TOKEN = 'hcm.token';
 const LS_HISTORY = 'hcm.cfErrHistory';
 const LS_GW = 'hcm.cfErrGw';
 const HISTORY_MAX = 20;
@@ -326,7 +327,17 @@ export function HcmCloudFuncErrorLocator() {
   const { t } = useT();
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
 
-  const [token] = useState(() => localStorage.getItem(LS_TOKEN) || '');
+  // 全局 HCM token：来自 store（统一持久化到 hcm.token）。gwTokenOverride 为单网关覆盖，优先于它。
+  const token = useAppStore((s) => s.hcmToken);
+  const setHcmTokenStore = useAppStore((s) => s.setHcmToken);
+
+  // 跨窗口打开时 token 经 ?hcm-token 携带（规避新窗口初始 about:blank 写不入 localStorage），
+  // 落地到全局 store（统一持久化到 hcm.token），避免 configRequired。
+  useEffect(() => {
+    const tk = urlParams.get('hcm-token');
+    if (tk) setHcmTokenStore(tk.trim());
+  }, [urlParams, setHcmTokenStore]);
+
   const [text, setText] = useState(() => urlParams.get('hcm-loc') || '');
   const [manual, setManual] = useState({
     model: urlParams.get('hcm-loc-model') || '',
@@ -473,14 +484,29 @@ export function HcmCloudFuncErrorLocator() {
     fetch('/api/hcm/envs')
       .then((r) => r.json())
       .then((d) => {
-        if (Array.isArray(d?.envs)) setGateways(d.envs);
+        if (Array.isArray(d?.envs)) {
+          setGateways(d.envs);
+          // 跨窗口打开时若携带 ?hcm-target（即 token 按该网关签发），预选与之匹配的网关，
+          // 使落地 token 与所选网关一致，避免 token 跨网关不匹配报 17003。
+          const tgt = urlParams.get('hcm-target');
+          if (tgt) {
+            const norm = (s?: string) => (s || '').replace(/\/+$/, '');
+            const match = (d.envs as Gateway[]).find(
+              (g) => norm(g.server_url) === norm(tgt)
+            );
+            if (match && match.key !== gwKeyRef.current) {
+              setGwKey(match.key);
+              setGwAutoName(match.name ?? '');
+            }
+          }
+        }
         setBackendDown(false);
       })
       .catch(() => {
         // 连不上后端：置位后在顶部显示启动命令，而不是静默回退到默认网关
         setBackendDown(true);
       });
-  }, []);
+  }, [urlParams]);
 
   // 网关选择持久化：刷新后仍保留上次选的网关（与 HcmObjectBrowser 的 hcm.selectedEnv 一致）
   useEffect(() => {
@@ -587,8 +613,11 @@ export function HcmCloudFuncErrorLocator() {
     if (!parsed?.objectId) return;
     // 走 ?hcm-model=<对象ID> 分支：渲染 HCM 面板并触发对象浏览器自动定位到该对象。
     // 不能带 &hcm-detail=1 —— 那会渲染 HcmModelDetail 且把对象ID当模型名，打不开正确页。
+    // 跨窗口打开：经 openHcmWindow 自动从 store 注入 hcm-token，并显式带上网关 target，
+    // 使新窗口（HcmModelDetail）能直接带 token + 同源网关拉数据，不再 configRequired。
     const u = `/web/?hcm-model=${encodeURIComponent(parsed.objectId)}`;
-    window.open(u, '_blank', 'width=1280,height=860');
+    const target = urlParams.get('hcm-target') || gwUrl || '';
+    openHcmWindow(u, '_blank', 'width=1280,height=860', { 'hcm-target': target });
   };
 
   const queryCurrent = async () => {
@@ -956,7 +985,7 @@ export function HcmCloudFuncErrorLocator() {
       }
       if (d.token) {
         setGwTokenOverride(d.token);          // 立即生效（effectiveToken 优先取它）
-        localStorage.setItem(LS_TOKEN, d.token); // 并持久化，供其它面板复用
+        setHcmTokenStore(d.token);            // 写回 store（统一持久化到 hcm.token，其它面板即时同步）
       }
       setReloginMsg(t('hcm.cfErrReloginOk'));
       setErrKind('');

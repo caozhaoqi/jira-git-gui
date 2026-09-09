@@ -1,0 +1,14 @@
+{
+  "functions_root": "/Users/caozhaoqi/Downloads/other/hcm-cloud-vue/hcm-core/cloud_functions",
+  "current_env": "test",
+  "envs": {
+    "test": {
+      "server": "",
+      "token": ""
+    },
+    "custom": {
+      "server": "",
+      "token": ""
+    }
+  }
+}

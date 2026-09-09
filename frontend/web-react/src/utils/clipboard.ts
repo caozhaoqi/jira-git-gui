@@ -6,6 +6,10 @@ interface ElectronAPI {
   isElectron?: boolean;
   readClipboardText?: () => Promise<string>;
   writeClipboardText?: (text: string) => Promise<void>;
+  openBuiltinBrowser?: (
+    url: string,
+    cookies?: Array<{ name: string; value: string; url?: string }>
+  ) => Promise<{ ok: boolean; reason?: string }>;
 }
 
 declare global {
