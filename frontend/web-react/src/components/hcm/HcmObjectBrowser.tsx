@@ -8,8 +8,11 @@ import {
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { apiPost } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
+import { useAppStore } from '../../store/useAppStore';
+import { useHcmToken } from '../../hooks/useHcmToken';
+import { isTokenLikelyExpired } from '../../api/hcm/errDict';
+import { openHcmWindow } from './hcmWindow';
 
-const LS_TOKEN = 'hcm.token';
 const LS_ENV = 'hcm.selectedEnv';
 
 type RightTab = 'fields' | 'json' | 'data';
@@ -38,7 +41,9 @@ function hcmHighlightLine(text: string, q: string): ReactNode {
 
 export function HcmObjectBrowser() {
   const { t } = useT();
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
+  // HCM token：全局唯一来源（store 统一持久化到 hcm.token，刷新后自动回填）
+  const token = useAppStore((s) => s.hcmToken);
+  const setToken = useAppStore((s) => s.setHcmToken);
   const [showToken, setShowToken] = useState(false);
 
   // 可选服务器环境（后端从配置汇总，脱敏）与「使用配置 Token」开关
@@ -51,10 +56,10 @@ export function HcmObjectBrowser() {
   const currentEnv = useMemo(() => envs.find((ev) => ev.key === selectedEnv), [envs, selectedEnv]);
   const targetUrl = currentEnv?.server_url || '';
 
-  // token / 环境选择持久化
-  useEffect(() => {
-    if (token.trim()) localStorage.setItem(LS_TOKEN, token.trim());
-  }, [token]);
+  // HCM token 自动重登：已知网关 targetUrl 时，请求前若 token 过期则静默刷新
+  const { refresh: refreshHcmToken } = useHcmToken(targetUrl);
+
+  // 环境选择持久化（token 由 store 负责）
   useEffect(() => {
     localStorage.setItem(LS_ENV, selectedEnv);
   }, [selectedEnv]);
@@ -65,6 +70,17 @@ export function HcmObjectBrowser() {
       setUsePresetToken(false);
     }
   }, [currentEnv, usePresetToken]);
+
+  // 取「最新可用 token」：若已过期且知道网关，先自动重登再返回；失败抛错交给上层提示。
+  const ensureFreshToken = useCallback(async (): Promise<string> => {
+    let tk = useAppStore.getState().hcmToken;
+    if (!usePresetToken && isTokenLikelyExpired(tk) && targetUrl) {
+      const r = await refreshHcmToken(targetUrl);
+      if (r.ok && r.token) tk = r.token;
+      else throw new HcmApiError(r.error || 'Token 已过期，自动重登失败，请重新登录', 401);
+    }
+    return tk;
+  }, [refreshHcmToken, targetUrl, usePresetToken]);
 
   const loadEnvs = useCallback(async () => {
     try {
@@ -139,11 +155,18 @@ export function HcmObjectBrowser() {
     loadEnvs();
   }, [loadEnvs]);
 
+  // 若以 ?hcm-token 形式深链打开（如从其它窗口回跳），落地 token 到 store，避免重新要求填 token。
+  useEffect(() => {
+    const tk = new URLSearchParams(window.location.search).get('hcm-token');
+    if (tk) setToken(tk.trim());
+  }, [setToken]);
+
   // 直连模式：前端仍把加密参数交给同源后端 /api/hcm/direct，由后端直连 HCM 网关并解密返回明文。
   // 原因：浏览器对 HCM 网关的真实 POST 响应不带 CORS 头（网关仅在 OPTIONS 预检返回 CORS），
   // 纯浏览器直连会被 CORS 拦截；后端（服务端）发起请求不受 CORS 限制，因此「页面直连」=
   // 前端只负责加密/调同源端点，实际出口由后端直连网关完成。
   const directCall = useCallback(async (apiName: string, params: Record<string, any>, model = '') => {
+    const tk = await ensureFreshToken();
     const res = await fetch('/api/hcm/direct', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -151,7 +174,7 @@ export function HcmObjectBrowser() {
         api_name: apiName,
         params,
         model,
-        token: usePresetToken ? '' : token.trim(),
+        token: usePresetToken ? '' : tk.trim(),
         target: targetUrl,
       }),
     });
@@ -162,7 +185,7 @@ export function HcmObjectBrowser() {
       throw new HcmApiError(detail || `HTTP ${res.status}`, res.status);
     }
     return data?.data;
-  }, [token, usePresetToken, targetUrl]);
+  }, [ensureFreshToken, usePresetToken, targetUrl]);
 
   // 直连原始响应：返回 {data, meta}，meta 含 srv_begin/srv_end/duration_ms/profile_index/log_index
   const directCallRaw = useCallback(
@@ -172,6 +195,7 @@ export function HcmObjectBrowser() {
       model = '',
       opts: { sqlDebug?: boolean; profileDebug?: boolean } = {}
     ): Promise<{ data: any; meta: Record<string, any> }> => {
+      const tk = await ensureFreshToken();
       const res = await fetch('/api/hcm/direct', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -179,7 +203,7 @@ export function HcmObjectBrowser() {
           api_name: apiName,
           params,
           model,
-          token: usePresetToken ? '' : token.trim(),
+          token: usePresetToken ? '' : tk.trim(),
           target: targetUrl,
           sql_debug: opts.sqlDebug,
           profile_debug: opts.profileDebug,
@@ -193,7 +217,7 @@ export function HcmObjectBrowser() {
       }
       return { data: data?.data, meta: data?.meta || {} };
     },
-    [token, usePresetToken, targetUrl]
+    [ensureFreshToken, usePresetToken, targetUrl]
   );
 
 const loadList = useCallback(async () => {
@@ -400,21 +424,19 @@ const loadList = useCallback(async () => {
 
   // 双击对象：在新窗口打开「对象详情 + 元数据文件」合并窗口（同一模型只有一个窗口）。
   // 合并窗口由 HcmModelDetail 渲染，包含 字段 / list / info / view / JSON元数据 / 元数据文件 多个 tab。
+  // 双击对象：在新窗口打开「对象详情 + 元数据文件」合并窗口（同一模型只有一个窗口）。
+  // 合并窗口由 HcmModelDetail 渲染，包含 字段 / list / info / view / JSON元数据 / 元数据文件 多个 tab。
   const openDetailWindow = useCallback(
     (obj: HcmObjectItem) => {
       const url = `/web/?hcm-model=${encodeURIComponent(obj.id)}&hcm-detail=1`;
-      const w = window.open(url, `hcm-detail-${obj.id}`, 'width=1280,height=860,menubar=no,toolbar=no,location=no');
-      if (w) {
-        // 把当前 token 传给新窗口，让它自己能拉数据（所有连接均走直连，无需传模式）
-        try {
-          w.localStorage.setItem(LS_TOKEN, token.trim());
-        } catch {
-          /* 跨窗口 localStorage 可能受限，新窗口会自行提示填 token */
-        }
-        w.focus();
-      }
+      // 通过 URL 携带 token + 网关 target：规避跨窗口 localStorage 不可靠（新窗口初始为 about:blank，
+      // 直接写 w.localStorage 会抛 SecurityError 被吞掉 → 详情页读不到 token 报 configRequired）。
+      // openHcmWindow 自动从 store 注入 hcm-token，这里只显式带上网关 target。
+      openHcmWindow(url, `hcm-detail-${obj.id}`, 'width=1280,height=860,menubar=no,toolbar=no,location=no', {
+        'hcm-target': targetUrl,
+      });
     },
-    [token]
+    [targetUrl]
   );
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -556,7 +578,9 @@ const loadList = useCallback(async () => {
         <button
           className="btn btn-sm"
           onClick={() =>
-            window.open('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900')
+            openHcmWindow('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900', {
+              'hcm-target': targetUrl,
+            })
           }
           title={t('hcm.cfErrLauncherHint')}
         >

@@ -23,6 +23,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('app:get-info');
   },
 
+  openExternal(url) {
+    return ipcRenderer.invoke('shell:open-external', String(url || ''));
+  },
+
+  /** 在内置浏览器窗口（应用内嵌 Chromium）打开外部 HCM Cloud 网页，可选注入 cookie 自动登录。 */
+  openBuiltinBrowser(url, cookies) {
+    return ipcRenderer.invoke('builtin-browser:open', {
+      url: String(url || ''),
+      cookies: Array.isArray(cookies) ? cookies : [],
+    });
+  },
+
   /** 读取系统剪贴板纯文本（Electron 原生模块，绕过浏览器权限） */
   readClipboardText() {
     return ipcRenderer.invoke('clipboard:read-text');

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo, memo, type MouseEvent as ReactMouseEvent } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
+import { openBuiltinBrowser, hcmBuiltinCookies } from '../utils/browser';
 import { sse } from '../api/events';
 import { cfdebug } from '../api/cfdebug/client';
 import { DapClient } from '../api/cfdebug/dapClient';
@@ -43,6 +44,33 @@ function bpListForDap(map: Map<number, BpOptions>): { line: number; condition?: 
     out.push(bp);
   }
   return out;
+}
+
+/**
+ * 在「内置浏览器」（应用内嵌窗口）打开「该云函数」的服务器日志界面，可注入 HCM token cookie 自动登录；
+ * Electron 下优先走 electronAPI.openBuiltinBrowser，不可用（非 Electron / 调用失败）时回退系统浏览器 / window.open。
+ * HCM 日志页地址：{server}/web/?model=dynamic_log&log_type={函数名}
+ */
+async function openFnLogPage(serverUrl: string, fnName: string): Promise<void> {
+  try {
+    const base = (serverUrl || '').trim();
+    if (!base) return;
+    const url = new URL('/web/', base);
+    url.searchParams.set('model', 'dynamic_log');
+    if (fnName) url.searchParams.set('log_type', fnName);
+    const target = url.toString();
+    // 优先内置浏览器（应用内嵌窗口，注入 HCM token cookie 自动登录），失败再回退
+    if (await openBuiltinBrowser(target, hcmBuiltinCookies(target, useAppStore.getState().hcmToken))) return;
+    const external = (window as any).electronAPI?.openExternal;
+    if (typeof external === 'function') {
+      await external(target);
+    } else {
+      window.open(target, '_blank', 'noopener,noreferrer');
+    }
+  } catch {
+    // 非法 URL（例如只配了账号名没配网关地址）时静默忽略
+    return;
+  }
 }
 
 // 从源码中提取 kwargs.get("X") / kwargs.get('X') 的键名。
@@ -181,6 +209,7 @@ export function CfDebugPanel() {
   const [dynLogsError, setDynLogsError] = useState<string | null>(null);
   const [dynLogsSearch, setDynLogsSearch] = useState('');
   const [dynLogsType, setDynLogsType] = useState('');
+  const [dynLogsModel, setDynLogsModel] = useState('dynamic_log');
   const [dynLogsSelected, setDynLogsSelected] = useState<Set<string | number>>(new Set());
   const [dynLogsDeleting, setDynLogsDeleting] = useState(false);
 
@@ -483,10 +512,13 @@ export function CfDebugPanel() {
         env: envConfig?.current_env,
         log_type: dynLogsType.trim() || undefined,
         search: dynLogsSearch.trim() || undefined,
+        model: dynLogsModel.trim() || 'dynamic_log',
         page_size: 100,
       });
       if (r.ok) {
         setDynLogs(r.records || []);
+        // 同步返回的实际生效模型（后端默认/兜底），避免展示与请求不一致
+        if (r.model) setDynLogsModel(r.model);
         // 清理已不存在的勾选
         const ids = new Set((r.records || []).map((x) => x.id_));
         setDynLogsSelected((prev) => new Set(Array.from(prev).filter((id) => ids.has(id))));
@@ -498,7 +530,7 @@ export function CfDebugPanel() {
     } finally {
       setDynLogsLoading(false);
     }
-  }, [envConfig?.current_env, dynLogsType, dynLogsSearch, t]);
+  }, [envConfig?.current_env, dynLogsType, dynLogsModel, dynLogsSearch, t]);
 
   const toggleDynLogSelected = useCallback((id: string | number) => {
     setDynLogsSelected((prev) => {
@@ -522,7 +554,11 @@ export function CfDebugPanel() {
     setDynLogsDeleting(true);
     setDynLogsError(null);
     try {
-      const r = await cfdebug.deleteDynamicLogs({ ids, env: envConfig?.current_env });
+      const r = await cfdebug.deleteDynamicLogs({
+        ids,
+        env: envConfig?.current_env,
+        model: dynLogsModel.trim() || 'dynamic_log',
+      });
       if (!r.ok) {
         setDynLogsError(r.error || t('cfdebug.logDeleteFail'));
       } else if (r.failed?.length) {
@@ -820,6 +856,13 @@ export function CfDebugPanel() {
       f.path.toLowerCase().includes(search.toLowerCase()),
   );
 
+  // 当前选中账号的网关地址：selectedAccount 存的是「server_url || name」，
+  // 这里还原成真正的 server_url，供「浏览器打开日志」拼 URL 用。
+  const curServerUrl = useMemo(() => {
+    const acc = accounts.find((a) => (a.server_url || a.name) === selectedAccount);
+    return (acc?.server_url || selectedAccount || '').trim();
+  }, [accounts, selectedAccount]);
+
   const statusLabel: Record<CfDebugStatus, string> = {
     idle: t('cfdebug.status.idle'),
     connecting: t('cfdebug.status.connecting'),
@@ -962,7 +1005,21 @@ export function CfDebugPanel() {
                   onClick={() => void selectFunction(f)}
                   title={f.path}
                 >
-                  <div className="cfdebug-fn-name">{f.name}</div>
+                  <div className="cfdebug-fn-name">
+                    <span className="cfdebug-fn-name-txt">{f.name}</span>
+                    <button
+                      type="button"
+                      className="cfdebug-fn-openlog"
+                      title={t('cfdebug.openFnLogHint', { name: f.name })}
+                      aria-label={t('cfdebug.openFnLog')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openFnLogPage(curServerUrl, f.name);
+                      }}
+                    >
+                      ↗
+                    </button>
+                  </div>
                   <div className="cfdebug-fn-meta">
                     <span className={`cfd-model m${f.model}`}>模型{f.model}</span>
                     {f.params.length > 0 && (
@@ -1273,6 +1330,22 @@ export function CfDebugPanel() {
             {rightTab === 'logs' && (
               <div className="cfdebug-dynlogs">
                 <div className="cfdebug-dynlogs-toolbar">
+                  <input
+                    className="input input-sm cfdebug-dynlogs-model"
+                    list="cfd-record-models"
+                    placeholder={t('cfdebug.recordModel')}
+                    value={dynLogsModel}
+                    onChange={(e) => setDynLogsModel(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void fetchDynLogs(); }}
+                    title={t('cfdebug.recordModelHint')}
+                  />
+                  <datalist id="cfd-record-models">
+                    <option value="dynamic_log" />
+                    <option value="SyncOuterRecord" />
+                    <option value="async_task_log" />
+                    <option value="operation_log" />
+                    <option value="api_log" />
+                  </datalist>
                   <input
                     className="input input-sm"
                     placeholder={t('cfdebug.logTypeFilter')}

@@ -91,3 +91,5 @@ frontend/web-legacy/
 merge_state/
 
 todo.md
+
+.tmp-pytest/

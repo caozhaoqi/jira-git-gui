@@ -187,6 +187,7 @@ class DynLogDeleteReq(BaseModel):
     server: Optional[str] = None
     token: Optional[str] = None
     company_id: int = 1
+    model: Optional[str] = None  # HCM 记录模型，默认 dynamic_log（UI 可配置）
 
 
 @router.get("/api/cf-debug/dynamic-logs")
@@ -197,10 +198,11 @@ def list_dynamic_logs(
     company_id: int = 1,
     log_type: Optional[str] = None,
     search: Optional[str] = None,
+    model: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
 ):
-    """列出服务器 dynamic_log 记录（调 hcm.model.list）。
+    """列出服务器记录模型日志（调 hcm.model.list，默认 dynamic_log，可经 UI 配置如 SyncOuterRecord）。
 
     - env=test/custom：未传 server/token 时取环境配置
     - search: 在 content 字段做包含匹配（前端关键字搜索）
@@ -211,8 +213,9 @@ def list_dynamic_logs(
         return _err(400, str(e))
     cu = RealCustomerUtil(creds["server"], creds["token"], dry_run=False,
                           company_id=company_id)
+    record_model = (model or "dynamic_log").strip() or "dynamic_log"
     param: Dict[str, Any] = {
-        "model": "dynamic_log",
+        "model": record_model,
         "page": page,
         "page_size": page_size,
     }
@@ -223,17 +226,17 @@ def list_dynamic_logs(
     try:
         result = cu.call_open_api("hcm.model.list", param)
     except Exception as e:
-        logger.warning("[cfdebug] dynamic_log list 失败: %s", e)
+        logger.warning("[cfdebug] %s list 失败: %s", record_model, e)
         return _err(500, str(e))
     if not isinstance(result, dict):
         return _err(500, "hcm.model.list 返回格式异常")
     records = result.get("list") or result.get("records") or []
-    return {"ok": True, "records": records, "count": len(records)}
+    return {"ok": True, "records": records, "count": len(records), "model": record_model}
 
 
 @router.post("/api/cf-debug/dynamic-logs/delete")
 def delete_dynamic_logs(req: DynLogDeleteReq):
-    """批量删除 dynamic_log 记录（调 hcm.model.delete）。
+    """批量删除记录模型日志（调 hcm.model.delete，默认 dynamic_log）。
 
     - ids: 单值或数组，逐一删除
     - 单条失败不阻塞其他条目，返回 deleted/failed 计数
@@ -249,15 +252,16 @@ def delete_dynamic_logs(req: DynLogDeleteReq):
         return _err(400, str(e))
     cu = RealCustomerUtil(creds["server"], creds["token"], dry_run=False,
                           company_id=req.company_id)
+    record_model = (req.model or "dynamic_log").strip() or "dynamic_log"
     deleted = 0
     failed: List[Dict[str, Any]] = []
     for id_ in ids:
         try:
-            cu.call_open_api("hcm.model.delete", {"model": "dynamic_log", "id_": id_})
+            cu.call_open_api("hcm.model.delete", {"model": record_model, "id_": id_})
             deleted += 1
         except Exception as e:
             failed.append({"id": id_, "error": str(e)})
-            logger.warning("[cfdebug] dynamic_log delete %s 失败: %s", id_, e)
+            logger.warning("[cfdebug] %s delete %s 失败: %s", record_model, id_, e)
     return {"ok": True, "deleted": deleted, "failed": failed, "total": len(ids)}
 
 

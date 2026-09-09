@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
+import { useAppStore } from '../../store/useAppStore';
 
-const LS_TOKEN = 'hcm.token';
 const DIRECT_ENDPOINT = '/api/hcm/direct';
 // 元数据文件列表一次性拉取上限；超限时给出提示，可缩小 biz_type 范围。
 const LIST_PAGE_SIZE = 500;
@@ -70,7 +70,9 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
   const urlParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const initModel = urlParams.get('hcm-meta') || urlParams.get('hcm-model') || '';
 
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
+  // HCM token：全局唯一来源（store 统一持久化到 hcm.token，刷新后自动回填）
+  const token = useAppStore((s) => s.hcmToken);
+  const setToken = useAppStore((s) => s.setHcmToken);
   const [model, setModel] = useState(initModel);
   const [bizType, setBizType] = useState(''); // '' = 全部
   const [srcType, setSrcType] = useState(''); // '' / SYSTEM / PROGRAM / MANUAL
@@ -96,10 +98,6 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
   const [runMeta, setRunMeta] = useState<Record<string, any>>({});
   const [runCount, setRunCount] = useState(0);
   const [qRun, setQRun] = useState('');
-
-  useEffect(() => {
-    if (token.trim()) localStorage.setItem(LS_TOKEN, token.trim());
-  }, [token]);
 
   // directCall：返回网关 result（data 字段）
   const directCall = useCallback(

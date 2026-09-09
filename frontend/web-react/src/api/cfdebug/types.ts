@@ -230,6 +230,7 @@ export interface DynLogListResp {
   ok: boolean;
   records: DynLogRecord[];
   count: number;
+  model?: string; // 后端实际生效的记录模型（默认 dynamic_log）
   error?: string;
 }
 

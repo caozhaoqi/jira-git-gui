@@ -145,6 +145,41 @@
   font-size: 13px;
   color: var(--text);
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cfdebug-fn-name-txt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 「在浏览器打开该云函数日志」：常驻可见（比 CfPanel 里那个 muted 灰更容易发现），
+   hover/聚焦时变主色并加淡底，避免误以为只是装饰。 */
+.cfdebug-fn-openlog {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.75;
+  transition: all 0.16s var(--ease-out);
+}
+.cfdebug-fn:hover .cfdebug-fn-openlog {
+  opacity: 1;
+}
+.cfdebug-fn-openlog:hover,
+.cfdebug-fn-openlog:focus-visible {
+  border-color: var(--primary);
+  background: var(--primary-050);
+  color: var(--primary);
+  opacity: 1;
 }
 .cfdebug-fn-meta {
   display: flex;
@@ -1150,6 +1185,14 @@
 .cfdebug-dynlogs-toolbar .input {
   flex: 1 1 100px;
   min-width: 80px;
+}
+/* 记录模型选择框：稍宽 + 主色左边框，与 log_type 过滤器区分 */
+.cfdebug-dynlogs-toolbar .cfdebug-dynlogs-model {
+  flex: 1 1 160px;
+  border-left: 2px solid var(--primary, #1677ff);
+}
+.cfdebug-dynlogs-toolbar .cfdebug-dynlogs-model::placeholder {
+  color: var(--text-dim, #8a8f99);
 }
 .cfdebug-dynlogs-error {
   color: var(--danger);

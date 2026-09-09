@@ -186,6 +186,7 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
   const [sites, setSites] = useState<KibanaSite[]>([]);
   const [current, setCurrent] = useState<string | null>(null);
   const [editing, setEditing] = useState<KibanaSite | null>(null);
+  const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<Record<string, any>>({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
@@ -204,12 +205,27 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
 
   const startEdit = (s?: KibanaSite) => {
     setTestResult(null);
-    setEditing(s || null);
-    setForm(s ? { ...s } : {
-      name: '', label: '', base_url: '', username: 'elastic', password: '',
-      index_pattern: 'logstash-*', time_field: 'es_time', msg_field: 'log',
-      field_prefix: 'kubernetes', verify_ssl: false, timeout: 30,
-    });
+    if (s) {
+      // 编辑已有站点：editing 持有该站点，表单据此渲染
+      setAdding(false);
+      setEditing(s);
+      setForm({ ...s });
+    } else {
+      // 新增：editing 保持 null，用 adding 标记打开空白表单
+      setAdding(true);
+      setEditing(null);
+      setForm({
+        name: '', label: '', base_url: '', username: 'elastic', password: '',
+        index_pattern: 'logstash-*', time_field: 'es_time', msg_field: 'log',
+        field_prefix: 'kubernetes', verify_ssl: false, timeout: 30,
+      });
+    }
+  };
+
+  const closeForm = () => {
+    setAdding(false);
+    setEditing(null);
+    setTestResult(null);
   };
 
   const save = async () => {
@@ -269,120 +285,175 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
     <div className="modal-mask" onClick={onClose}>
       <div className="modal kb-site-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <span>{t('kibana.manageSites')}</span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <span className="kb-modal-title-icon" aria-hidden>🛰️</span>
+          <span className="kb-modal-title-text">
+            <strong>{t('kibana.manageSites')}</strong>
+            <small>{sites.length} · {current ? sites.find((x) => x.name === current)?.label || current : t('kibana.noSite')}</small>
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
 
         <div className="modal-body kb-site-body">
           <div className="kb-site-list">
             <div className="kb-site-list-head">
-              <span>{t('kibana.site.list')}</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => startEdit()}>
+              <span className="kb-site-list-title">{t('kibana.site.list')}</span>
+              <button className="btn" onClick={() => startEdit()} title={t('kibana.site.add')}>
                 + {t('kibana.site.add')}
               </button>
             </div>
-            {sites.length === 0 && (
-              <div className="empty-hint">{t('kibana.site.none')}</div>
-            )}
-            {sites.map((s) => (
-              <div key={s.name}
-                   className={`kb-site-item${s.name === current ? ' current' : ''}`}>
-                <div className="kb-site-main" onClick={() => switchTo(s.name)}>
-                  <div className="kb-site-title">
-                    {s.label || s.name}
-                    {s.name === current && <span className="kb-cur-tag">●</span>}
+            <div className="kb-site-list-scroll">
+              {sites.length === 0 && (
+                <div className="kb-site-empty">
+                  <div className="kb-site-empty-icon">📡</div>
+                  <div className="kb-site-empty-hint">{t('kibana.site.none')}</div>
+                </div>
+              )}
+              {sites.map((s) => (
+                <div key={s.name}
+                     className={`kb-site-item${s.name === current ? ' current' : ''}`}>
+                  <div className="kb-site-main" onClick={() => switchTo(s.name)}>
+                    <div className="kb-site-title">
+                      <span className="kb-site-title-name">{s.label || s.name}</span>
+                      {s.name === current && <span className="kb-cur-tag">{t('kibana.site.current')}</span>}
+                    </div>
+                    <div className="kb-site-sub">{s.base_url}</div>
+                    <div className="kb-site-sub">
+                      {s.username || '—'} · {s.index_pattern} · {s.time_field}
+                    </div>
                   </div>
-                  <div className="kb-site-sub">{s.base_url}</div>
-                  <div className="kb-site-sub">
-                    {s.username || '—'} · {s.index_pattern} · {s.time_field}
+                  <div className="kb-site-ops">
+                    <button className="kb-site-op-btn"
+                            onClick={() => startEdit(s)} title={t('common.edit')} aria-label={t('common.edit')}>✎</button>
+                    <button className="kb-site-op-btn danger"
+                            onClick={() => remove(s.name)} title={t('common.delete')} aria-label={t('common.delete')}>🗑</button>
                   </div>
                 </div>
-                <div className="kb-site-ops">
-                  <button className="btn btn-ghost btn-sm"
-                          onClick={() => startEdit(s)}>{t('common.edit')}</button>
-                  <button className="btn btn-ghost btn-sm"
-                          onClick={() => remove(s.name)}>{t('common.delete')}</button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          {editing !== null && (
+          {(editing !== null || adding) && (
             <div className="kb-site-form">
-              <div className="k8s-form-grid">
-                <label>{t('kibana.site.name')}
-                  <input className="input input-sm" value={form.name || ''}
-                         disabled={!!sites.find((x) => x.name === form.name)}
-                         onChange={(e) => set('name', e.target.value)} /></label>
-                <label>{t('kibana.site.label')}
-                  <input className="input input-sm" value={form.label || ''}
-                         onChange={(e) => set('label', e.target.value)} /></label>
-                <label className="kb-span2">{t('kibana.site.baseUrl')}
-                  <input className="input input-sm" value={form.base_url || ''}
-                         placeholder="http://host/kibana"
-                         onChange={(e) => set('base_url', e.target.value)} /></label>
-                <label>{t('kibana.site.username')}
-                  <input className="input input-sm" value={form.username || ''}
-                         onChange={(e) => set('username', e.target.value)} /></label>
-                <label>{t('kibana.site.password')}
-                  <input className="input input-sm" type="password"
-                         value={form.password || ''}
-                         placeholder={editing ? t('kibana.site.keepPassword') : ''}
-                         onChange={(e) => set('password', e.target.value)} /></label>
-                <label>{t('kibana.site.indexPattern')}
-                  <input className="input input-sm" value={form.index_pattern || ''}
-                         onChange={(e) => set('index_pattern', e.target.value)} /></label>
-                <label>{t('kibana.site.timeField')}
-                  <input className="input input-sm" value={form.time_field || ''}
-                         onChange={(e) => set('time_field', e.target.value)} /></label>
-                <label>{t('kibana.site.msgField')}
-                  <input className="input input-sm" value={form.msg_field || ''}
-                         onChange={(e) => set('msg_field', e.target.value)} /></label>
-                <label>{t('kibana.site.fieldPrefix')}
-                  <input className="input input-sm" value={form.field_prefix || ''}
-                         onChange={(e) => set('field_prefix', e.target.value)} /></label>
-                <label>{t('kibana.site.timeout')}
-                  <input className="input input-sm" type="number"
-                         value={form.timeout ?? 30}
-                         onChange={(e) => set('timeout', Number(e.target.value))} /></label>
-                <label className="chk">
-                  <input type="checkbox" checked={!!form.verify_ssl}
-                         onChange={(e) => set('verify_ssl', e.target.checked)} />
-                  {t('kibana.site.verifySsl')}
-                </label>
+              <div className="kb-site-form-scroll">
+                <div className="kb-site-section">
+                  <h4 className="kb-site-section-title">{t('kibana.site.sectionBasic')}</h4>
+                  <div className="kb-site-form-grid">
+                    <label className="kb-required">
+                      {t('kibana.site.name')}
+                      <input className="input input-sm" value={form.name || ''}
+                             disabled={!!sites.find((x) => x.name === form.name)}
+                             onChange={(e) => set('name', e.target.value)} />
+                      <span className="kb-help">{t('kibana.site.nameHint')}</span>
+                    </label>
+                    <label>
+                      {t('kibana.site.label')}
+                      <input className="input input-sm" value={form.label || ''}
+                             onChange={(e) => set('label', e.target.value)} />
+                      <span className="kb-help">{t('kibana.site.labelHint')}</span>
+                    </label>
+                    <label className="kb-span2 kb-required">
+                      {t('kibana.site.baseUrl')}
+                      <input className="input input-sm" value={form.base_url || ''}
+                             placeholder="http://host:5601/kibana"
+                             onChange={(e) => set('base_url', e.target.value)} />
+                      <span className="kb-help">{t('kibana.site.baseUrlHint')}</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="kb-site-section">
+                  <h4 className="kb-site-section-title">{t('kibana.site.sectionAuth')}</h4>
+                  <div className="kb-site-form-grid">
+                    <label>
+                      {t('kibana.site.username')}
+                      <input className="input input-sm" value={form.username || ''}
+                             onChange={(e) => set('username', e.target.value)} />
+                    </label>
+                    <label>
+                      {t('kibana.site.password')}
+                      <input className="input input-sm" type="password"
+                             value={form.password || ''}
+                             placeholder={editing ? t('kibana.site.keepPassword') : ''}
+                             onChange={(e) => set('password', e.target.value)} />
+                      <span className="kb-help">{t('kibana.site.passwordHint')}</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="kb-site-section">
+                  <h4 className="kb-site-section-title">{t('kibana.site.sectionQuery')}</h4>
+                  <div className="kb-site-form-grid">
+                    <label>
+                      {t('kibana.site.indexPattern')}
+                      <input className="input input-sm" value={form.index_pattern || ''}
+                             onChange={(e) => set('index_pattern', e.target.value)} />
+                    </label>
+                    <label>
+                      {t('kibana.site.timeField')}
+                      <input className="input input-sm" value={form.time_field || ''}
+                             onChange={(e) => set('time_field', e.target.value)} />
+                    </label>
+                    <label>
+                      {t('kibana.site.msgField')}
+                      <input className="input input-sm" value={form.msg_field || ''}
+                             onChange={(e) => set('msg_field', e.target.value)} />
+                    </label>
+                    <label>
+                      {t('kibana.site.fieldPrefix')}
+                      <input className="input input-sm" value={form.field_prefix || ''}
+                             onChange={(e) => set('field_prefix', e.target.value)} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="kb-site-section">
+                  <h4 className="kb-site-section-title">{t('kibana.site.sectionAdvanced')}</h4>
+                  <div className="kb-site-form-grid">
+                    <label>
+                      {t('kibana.site.timeout')}
+                      <input className="input input-sm" type="number"
+                             min={1} max={300}
+                             value={form.timeout ?? 30}
+                             onChange={(e) => set('timeout', Number(e.target.value))} />
+                    </label>
+                    <label className="kb-chk">
+                      <input type="checkbox" checked={!!form.verify_ssl}
+                             onChange={(e) => set('verify_ssl', e.target.checked)} />
+                      {t('kibana.site.verifySsl')}
+                    </label>
+                  </div>
+                </div>
+
+                {testResult && (
+                  <div className={`kb-test-result${testResult.ok ? ' ok' : ' bad'}`}>
+                    <div className="kb-test-result-head">
+                      <span>{testResult.ok ? '✓' : '✕'}</span>
+                      <span>{testResult.ok ? t('kibana.site.testOk', { n: testResult.total ?? 0 }) : t('kibana.site.testFail')}</span>
+                    </div>
+                    {!testResult.ok && testResult.error && (
+                      <div className="kb-test-err">{testResult.error}</div>
+                    )}
+                    {(testResult.steps || []).map((s: any) => (
+                      <div key={s.name} className="kb-test-step">
+                        <span className={s.ok ? 'dot ok' : 'dot bad'} />
+                        {s.detail}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="kb-modal-actions">
-                <button className="btn btn-ghost btn-sm" onClick={test}
-                        disabled={testing}>
+              <div className="kb-site-form-foot">
+                <button className="btn btn-ghost" onClick={test} disabled={testing}>
                   {testing ? t('common.testing') : t('kibana.site.test')}
                 </button>
                 <div className="spacer" />
-                <button className="btn btn-ghost btn-sm"
-                        onClick={() => setEditing(null)}>{t('common.cancel')}</button>
-                <button className="btn btn-primary btn-sm" onClick={save}>
+                <button className="btn btn-ghost"
+                        onClick={closeForm}>{t('common.cancel')}</button>
+                <button className="btn btn-primary" onClick={save}>
                   {t('common.save')}
                 </button>
               </div>
-
-              {testResult && (
-                <div className={`kb-test-result${testResult.ok ? ' ok' : ' bad'}`}>
-                  {!testResult.ok && (
-                    <div className="kb-test-err">{testResult.error}</div>
-                  )}
-                  {(testResult.steps || []).map((s: any) => (
-                    <div key={s.name} className="kb-test-step">
-                      <span className={s.ok ? 'dot ok' : 'dot bad'} />
-                      {s.detail}
-                    </div>
-                  ))}
-                  {testResult.ok && (
-                    <div className="kb-test-step">
-                      {t('kibana.site.testOk', { n: testResult.total ?? 0 })}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
         </div>

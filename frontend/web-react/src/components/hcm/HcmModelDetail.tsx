@@ -4,8 +4,8 @@ import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
 import type { HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { HcmMetaFileBrowser } from './HcmMetaFileBrowser';
-
-const LS_TOKEN = 'hcm.token';
+import { useAppStore } from '../../store/useAppStore';
+import { openHcmWindow } from './hcmWindow';
 
 // 所有连接统一走后端直连 /api/hcm/direct（相对路径），由后端直连 HCM 网关并解密返回明文。
 const DIRECT_ENDPOINT = '/api/hcm/direct';
@@ -71,6 +71,10 @@ export function HcmModelDetail() {
     [urlParams]
   );
 
+  // 跨窗口打开时携带的网关 target（来自 ?hcm-target）。空 → 后端用默认 proxy_target。
+  // 必须与 token 同源（token 不可跨网关复用），故一并透传给后端 directCall。
+  const targetFromUrl = useMemo(() => urlParams.get('hcm-target') || '', [urlParams]);
+
   // 初始 tab：?hcm-tab 可指定（如 files）；仅有 ?hcm-meta 时默认定位到「元数据文件」；否则默认字段表。
   const initialTab = useMemo<DetailTab>(() => {
     const req = urlParams.get('hcm-tab');
@@ -79,7 +83,16 @@ export function HcmModelDetail() {
     return 'fields';
   }, [urlParams]);
 
-  const [token, setToken] = useState(() => localStorage.getItem(LS_TOKEN) || '');
+  // HCM token：全局唯一来源（store 统一持久化到 hcm.token，刷新后自动回填）
+  const token = useAppStore((s) => s.hcmToken);
+  const setToken = useAppStore((s) => s.setHcmToken);
+
+  // 跨窗口打开时 token 经 ?hcm-token 携带（规避新窗口初始 about:blank 写不入 localStorage），
+  // 落地到 store，后续 directCall 即可正常带 token 请求网关。
+  useEffect(() => {
+    const tk = urlParams.get('hcm-token');
+    if (tk) setToken(tk.trim());
+  }, [urlParams, setToken]);
   const [tab, setTab] = useState<DetailTab>(initialTab);
   const [meta, setMeta] = useState<HcmModelMeta | null>(null);
   const [loading, setLoading] = useState(false);
@@ -92,17 +105,19 @@ export function HcmModelDetail() {
   const [qView, setQView] = useState('');
   const [qMeta, setQMeta] = useState('');
 
-  // token 自动持久化：每次变更（非空）写入 localStorage，避免漏存。
-  useEffect(() => {
-    if (token.trim()) localStorage.setItem(LS_TOKEN, token.trim());
-  }, [token]);
-
   // 统一走后端直连：POST /api/hcm/direct，后端直连 HCM 网关并解密返回明文。
   const directCall = useCallback(async (apiName: string, params: Record<string, any>, model = '') => {
     const res = await fetch(DIRECT_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_name: apiName, params, model, token: token.trim() }),
+      body: JSON.stringify({
+        api_name: apiName,
+        params,
+        model,
+        token: token.trim(),
+        // 跨窗口打开时透传网关 target；空则后端用默认 proxy_target（与单窗口场景一致）。
+        target: targetFromUrl,
+      }),
     });
     const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
     if (!res.ok) {
@@ -111,7 +126,7 @@ export function HcmModelDetail() {
       throw new HcmApiError(detail || `HTTP ${res.status}`, res.status);
     }
     return data?.data;
-  }, [token]);
+  }, [token, targetFromUrl]);
 
   const load = useCallback(async () => {
     if (!modelId) {
@@ -262,10 +277,11 @@ export function HcmModelDetail() {
         <button
           className="btn btn-sm"
           onClick={() =>
-            window.open(
+            openHcmWindow(
               `/web/?hcm-cf-err=1&hcm-loc-model=${encodeURIComponent(modelId)}`,
               '_blank',
-              'width=1100,height=820'
+              'width=1100,height=820',
+              { 'hcm-target': targetFromUrl }
             )
           }
           title={t('hcm.cfErrLauncherHint')}

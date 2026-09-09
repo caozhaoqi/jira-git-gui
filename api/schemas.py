@@ -166,6 +166,7 @@ class CfLogReq(BaseModel):
     server_url: str = ""
     token: str = ""
     log_type: str = ""
+    record_model: str = "dynamic_log"  # HCM 记录模型名，如 dynamic_log / SyncOuterRecord，可经 UI 配置
     page_index: int = 1
     page_size: int = 200
     proxy: str = ""  # 代理地址，如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891
@@ -174,6 +175,7 @@ class CfLogReq(BaseModel):
 class CfLogExportReq(BaseModel):
     server_url: str = ""
     log_type: str = ""
+    record_model: str = "dynamic_log"  # 与查询一致的记录模型名，用于导出文件溯源标签
     auth_method: str = ""  # 实际生效的认证方式
     page_index: int = 1
     page_size: int = 200

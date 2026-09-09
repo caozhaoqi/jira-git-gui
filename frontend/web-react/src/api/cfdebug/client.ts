@@ -83,10 +83,11 @@ export const cfdebug = {
   },
 
   /**
-   * 日志管理：列出服务器 dynamic_log 记录。
+   * 日志管理：列出服务器记录模型日志（默认 dynamic_log，可配置如 SyncOuterRecord）。
    * - env=test/custom 时未传 server/token 则取后端环境配置
    * - log_type: 按函数名过滤
    * - search: 在 content 字段做包含匹配（前端关键字搜索）
+   * - model: HCM 记录模型名，默认 dynamic_log
    */
   listDynamicLogs(opts: {
     env?: CfEnv;
@@ -95,6 +96,7 @@ export const cfdebug = {
     company_id?: number;
     log_type?: string;
     search?: string;
+    model?: string;
     page?: number;
     page_size?: number;
   } = {}): Promise<DynLogListResp> {
@@ -105,19 +107,21 @@ export const cfdebug = {
     if (opts.company_id) q.push(`company_id=${opts.company_id}`);
     if (opts.log_type) q.push(`log_type=${encodeURIComponent(opts.log_type)}`);
     if (opts.search) q.push(`search=${encodeURIComponent(opts.search)}`);
+    if (opts.model) q.push(`model=${encodeURIComponent(opts.model)}`);
     if (opts.page) q.push(`page=${opts.page}`);
     if (opts.page_size) q.push(`page_size=${opts.page_size}`);
     const qs = q.length ? `?${q.join('&')}` : '';
     return apiGet<DynLogListResp>(`/api/cf-debug/dynamic-logs${qs}`);
   },
 
-  /** 日志管理：批量删除 dynamic_log（按 id_）。 */
+  /** 日志管理：批量删除记录模型日志（按 id_，模型与列表一致）。 */
   deleteDynamicLogs(opts: {
     ids: Array<string | number>;
     env?: CfEnv;
     server?: string;
     token?: string;
     company_id?: number;
+    model?: string;
   }): Promise<DynLogDeleteResp> {
     return apiPost<DynLogDeleteResp>('/api/cf-debug/dynamic-logs/delete', opts);
   },

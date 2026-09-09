@@ -671,6 +671,7 @@ export interface CfLogsReq {
   server_url: string;
   token: string;
   log_type?: string;
+  record_model?: string;
   page_index: number;
   page_size: number;
   proxy?: string;
@@ -686,6 +687,7 @@ export interface CfLogsResp {
 export interface CfExportReq {
   server_url: string;
   log_type?: string;
+  record_model?: string;
   auth_method?: string;
   page_index: number;
   page_size: number;

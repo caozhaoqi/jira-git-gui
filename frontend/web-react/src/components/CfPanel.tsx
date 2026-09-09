@@ -3,6 +3,7 @@ import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
+import { openBuiltinBrowser, hcmBuiltinCookies } from '../utils/browser';
 import type { CfAccount, CfLogsRow } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
@@ -14,6 +15,7 @@ interface CfCfg {
   token: string;
   proxy: string;
   log_type: string;
+  record_model: string;
   page_size: number;
   page_index: number;
 }
@@ -21,6 +23,7 @@ interface CfCfg {
 interface CfLastResult {
   server_url: string;
   log_type: string;
+  record_model: string;
   auth_method: string;
   page_index: number;
   page_size: number;
@@ -45,6 +48,25 @@ function cfContentFull(row: CfLogsRow): string {
 }
 function cfLogType(row: CfLogsRow, fallback: string): string {
   return row.log_type || row.logType || fallback || '(未知)';
+}
+
+async function openCloudFunctionLogs(serverUrl: string, logType: string, recordModel = 'dynamic_log'): Promise<void> {
+  try {
+    const url = new URL('/web/', serverUrl);
+    url.searchParams.set('model', recordModel || 'dynamic_log');
+    if (logType && logType !== '(未知)') url.searchParams.set('log_type', logType);
+    const target = url.toString();
+    // 优先在内置浏览器打开（应用内嵌窗口，可注入 HCM token cookie 自动登录），失败再回退系统浏览器
+    if (await openBuiltinBrowser(target, hcmBuiltinCookies(target, useAppStore.getState().hcmToken))) return;
+    const external = (window as any).electronAPI?.openExternal;
+    if (typeof external === 'function') {
+      await external(target);
+    } else {
+      window.open(target, '_blank', 'noopener,noreferrer');
+    }
+  } catch {
+    return;
+  }
 }
 
 // —— 全局搜索高亮：定位匹配区间 + 渲染 <mark> ——
@@ -99,6 +121,7 @@ export function CfPanel() {
     token: '',
     proxy: '',
     log_type: '',
+    record_model: 'dynamic_log',
     page_size: 200,
     page_index: 1,
   });
@@ -342,6 +365,7 @@ export function CfPanel() {
           server_url: base.server_url,
           token,
           log_type: base.log_type,
+          record_model: base.record_model,
           page_index: nextPage,
           page_size: fetchSize,
           proxy,
@@ -363,6 +387,7 @@ export function CfPanel() {
     const serverUrl = cfg.server_url.trim();
     const token = cfg.token.trim();
     const logType = cfg.log_type.trim();
+    const recordModel = cfg.record_model.trim() || 'dynamic_log';
     const pageSize = cfg.page_size || 200;
     const pageIndex = cfg.page_index || 1;
     const proxy = cfg.proxy.trim();
@@ -378,6 +403,7 @@ export function CfPanel() {
         server_url: serverUrl,
         token,
         log_type: logType,
+        record_model: recordModel,
         page_index: pageIndex,
         page_size: pageSize,
         proxy,
@@ -391,6 +417,7 @@ export function CfPanel() {
       const base: CfLastResult = {
         server_url: serverUrl,
         log_type: logType,
+        record_model: recordModel,
         auth_method: res.method || '',
         page_index: pageIndex,
         page_size: pageSize,
@@ -457,6 +484,7 @@ export function CfPanel() {
       const res = await apiPost<{ path?: string; count?: number }>('/api/cf/logs/export', {
         server_url: r.server_url,
         log_type: r.log_type,
+        record_model: r.record_model,
         auth_method: r.auth_method,
         page_index: r.page_index,
         page_size: r.page_size,
@@ -692,6 +720,14 @@ export function CfPanel() {
           >
             {t('cf.config')} {cfgOpen ? '▾' : '▸'}
           </button>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => void openCloudFunctionLogs(cfg.server_url.trim(), cfg.log_type.trim(), cfg.record_model.trim() || 'dynamic_log')}
+            disabled={!cfg.server_url.trim()}
+            title={t('cf.openLog')}
+          >
+            ↗ {t('cf.openLogShort')}
+          </button>
         </div>
 
         {cfgOpen && (
@@ -869,6 +905,25 @@ export function CfPanel() {
               onBlur={() => saveCfg()}
               onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
             />
+          </div>
+          <div className="cf-cfg-field cf-cfg-field--main">
+            <label>{t('cf.recordModel')}</label>
+            <input
+              className="input"
+              list="cf-record-models"
+              placeholder="dynamic_log"
+              value={cfg.record_model}
+              onChange={(e) => setCfg({ ...cfg, record_model: e.target.value })}
+              onBlur={() => saveCfg()}
+              onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
+            />
+            <datalist id="cf-record-models">
+              <option value="dynamic_log" />
+              <option value="SyncOuterRecord" />
+              <option value="async_task_log" />
+              <option value="operation_log" />
+              <option value="api_log" />
+            </datalist>
           </div>
           <div className="cf-cfg-field cf-cfg-field--w100">
             <label>{t('cf.pageSize')}</label>
@@ -1066,6 +1121,8 @@ export function CfPanel() {
                           ? String(row._id)
                           : ''
                       }
+                      serverUrl={result.server_url}
+                      openLogLabel={t('cf.openLog')}
                       expanded={expanded === globalIdx}
                       onToggle={() => setExpanded(expanded === globalIdx ? null : globalIdx)}
                     />
@@ -1111,6 +1168,8 @@ function FragmentRow(props: {
   rowOrdStart: number;
   activeMatch: number;
   rowId: string;
+  serverUrl: string;
+  openLogLabel: string;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -1128,6 +1187,8 @@ function FragmentRow(props: {
     rowOrdStart,
     activeMatch,
     rowId,
+    serverUrl,
+    openLogLabel,
     expanded,
     onToggle,
   } = props;
@@ -1137,6 +1198,18 @@ function FragmentRow(props: {
         <td>{idx}</td>
         <td className="cf-log-type" title={type}>
           {highlightNodes(type, mType, rowOrdStart + mContent.length + mTime.length, activeMatch)}
+          <button
+            type="button"
+            className="cf-open-log"
+            title={openLogLabel}
+            aria-label={openLogLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              void openCloudFunctionLogs(serverUrl, type);
+            }}
+          >
+            ↗
+          </button>
         </td>
         <td className="cf-log-time">
           {highlightNodes(time, mTime, rowOrdStart + mContent.length, activeMatch)}
