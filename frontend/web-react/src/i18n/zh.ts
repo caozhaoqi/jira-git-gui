@@ -1070,6 +1070,9 @@ export const zh: Dict = {
     recordModelHint: 'HCM 记录模型名；可下拉选择或手动输入，列表与删除均按该模型',
     logTypeFilter: '按函数名过滤',
     logTypeHint: '按 log_type（云函数类名 / 模块名）过滤',
+    // 记录模型切换后，「类型/描述」字段名随之变化：dynamic_log 用 log_type，SyncOuterRecord 用 name
+    typeFilterOuter: '按描述过滤',
+    typeHintOuter: '按 name（同步记录描述）过滤',
     logSearch: '搜索内容',
     refresh: '刷新',
     loading: '加载中…',

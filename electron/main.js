@@ -343,30 +343,54 @@ function registerIpcHandlers() {
 
     // best-effort cookie 注入：HCM 网页会话 cookie 名为 token，注入后免登录。失败不阻断打开。
     const cookies = Array.isArray(payload && payload.cookies) ? payload.cookies : [];
-    for (const c of cookies) {
-      if (!c || !c.name || !c.value) continue;
-      try {
-        await win.webContents.session.cookies.set({
-          url: c.url || origin,
-          name: c.name,
-          value: c.value,
-          httpOnly: true,
-          secure: origin.startsWith('https'),
-          sameSite: 'unspecified',
-        });
-      } catch (e) {
-        logErr(`内置浏览器 cookie 注入失败 ${c.name}: ${e && e.message ? e.message : e}`);
+    const cookieSession = win.webContents.session.cookies;
+    const injectedHosts = new Set();
+    const applyCookies = async () => {
+      for (const c of cookies) {
+        if (!c || !c.name || !c.value) continue;
+        const cUrl = c.url || origin;
+        try {
+          await cookieSession.set({
+            url: cUrl,
+            name: c.name,
+            value: c.value,
+            path: '/',
+            expirationDate: Math.floor(Date.now() / 1000) + 12 * 3600, // 12h 持久，避免会话 cookie 被清除
+            httpOnly: true,
+            secure: cUrl.startsWith('https'),
+            sameSite: 'unspecified',
+          });
+          const h = (() => { try { return new URL(cUrl).host; } catch { return ''; } })();
+          if (h) injectedHosts.add(h);
+          log(`内置浏览器已注入 cookie ${c.name} @ ${cUrl}`);
+        } catch (e) {
+          logErr(`内置浏览器 cookie 注入失败 ${c.name}: ${e && e.message ? e.message : e}`);
+        }
       }
+    };
+    if (cookies.length === 0) {
+      log('内置浏览器：无可注入 cookie（token 为空，页面需手动登录）');
     }
+    await applyCookies();
+    const allowedHost = (() => { try { return new URL(origin).host; } catch { return ''; } })();
 
     win.loadURL(url);
+    // 主框架导航（含同 host 跳转 / 刷新）后，若仍在允许的 host 上则重放 cookie，
+    // 抵御首帧竞态或跳转把会话 cookie 弄丢的场景；绝不对其它 host 注入。
+    win.webContents.on('did-navigate', (_e, navUrl) => {
+      let host = '';
+      try { host = new URL(navUrl).host; } catch { return; }
+      if (host && host === allowedHost && cookies.length > 0 && injectedHosts.has(host)) {
+        void applyCookies();
+      }
+    });
     // 窗口内点击链接（target=_blank 等）也在本内置浏览器内打开，避免又跳回系统浏览器
     win.webContents.on('new-window', (e, newUrl) => {
       e.preventDefault();
       if (/^https?:\/\//i.test(newUrl)) win.loadURL(newUrl);
     });
     win.on('closed', () => { log('内置浏览器窗口已关闭。'); });
-    return { ok: true };
+    return { ok: true, injected: cookies.length };
   });
   // 剪贴板：用 Electron 原生 clipboard 模块（不受浏览器 clipboard-read 权限限制）
   ipcMain.handle('clipboard:read-text', () => clipboard.readText());

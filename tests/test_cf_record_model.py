@@ -63,6 +63,35 @@ def _assert_ok(res):
     assert res.get("method") in ("cookie", "bearer_hcminner", "header_token")
 
 
+def test_type_field_mapping_per_model():
+    """不同记录模型的「类型/描述」字段名不同（SyncOuterRecord 没有 log_type，用 name）。"""
+    assert cf_logs_mod._model_type_field("dynamic_log") == "log_type"
+    assert cf_logs_mod._model_type_field("SyncOuterRecord") == "name"
+    assert cf_logs_mod._model_type_field("syncouterrecord") == "name"   # 大小写不敏感
+    assert cf_logs_mod._model_type_field("") == "log_type"              # 兜底
+    assert cf_logs_mod._model_type_field("unknown_model") == "log_type"
+
+
+def test_filter_uses_model_specific_type_field(monkeypatch):
+    """SyncOuterRecord 用 log_type 过滤会查不到，必须落到 name 字段。"""
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    res = asyncio.run(cf_logs_mod.cf_query_logs(
+        _make_req(record_model="SyncOuterRecord", log_type="员工同步")
+    ))
+    _assert_ok(res)
+    assert _FakeClient.captured["json"]["model"] == "SyncOuterRecord"
+    assert _FakeClient.captured["json"]["filter_dict"] == {"name": "员工同步"}
+
+
+def test_filter_dynamic_log_uses_log_type(monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    res = asyncio.run(cf_logs_mod.cf_query_logs(
+        _make_req(record_model="dynamic_log", log_type="salary_x")
+    ))
+    _assert_ok(res)
+    assert _FakeClient.captured["json"]["filter_dict"] == {"log_type": "salary_x"}
+
+
 def test_record_model_default_dynamic_log(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
     res = asyncio.run(cf_logs_mod.cf_query_logs(_make_req(record_model="")))

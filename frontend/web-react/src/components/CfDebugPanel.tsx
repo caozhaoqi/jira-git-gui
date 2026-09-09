@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo, memo, type MouseEvent as ReactMouseEvent } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
-import { openBuiltinBrowser, hcmBuiltinCookies } from '../utils/browser';
+import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
+import { logRowType, logRowTime, logRowContent, buildHcmLogUrl } from '../utils/logFields';
 import { sse } from '../api/events';
 import { cfdebug } from '../api/cfdebug/client';
 import { DapClient } from '../api/cfdebug/dapClient';
@@ -49,18 +50,19 @@ function bpListForDap(map: Map<number, BpOptions>): { line: number; condition?: 
 /**
  * 在「内置浏览器」（应用内嵌窗口）打开「该云函数」的服务器日志界面，可注入 HCM token cookie 自动登录；
  * Electron 下优先走 electronAPI.openBuiltinBrowser，不可用（非 Electron / 调用失败）时回退系统浏览器 / window.open。
- * HCM 日志页地址：{server}/web/?model=dynamic_log&log_type={函数名}
+ * HCM 日志界面是 hash 路由 #/common_model_list（带 model / 类型字段过滤 / 展示字段），不是 /web/ 落地页。
  */
-async function openFnLogPage(serverUrl: string, fnName: string): Promise<void> {
+async function openFnLogPage(serverUrl: string, fnName: string, model = 'dynamic_log'): Promise<void> {
   try {
     const base = (serverUrl || '').trim();
     if (!base) return;
-    const url = new URL('/web/', base);
-    url.searchParams.set('model', 'dynamic_log');
-    if (fnName) url.searchParams.set('log_type', fnName);
-    const target = url.toString();
+    // 打开 HCM 云函数日志界面（#/common_model_list），按记录模型 + 类型字段过滤
+    const target = buildHcmLogUrl(base, model, fnName || undefined);
+    // 注入与目标网关绑定的 token（同网关才生效）：后端按 server 现刷新（cf_accounts 该网关账密）
+    // → 全局 hcmToken 兜底。CF 调试台的账号 token 在主进程侧，渲染层拿不到，故走后端刷新最可靠。
+    const cookies = await hcmCookiesForTarget(target, { server: base });
     // 优先内置浏览器（应用内嵌窗口，注入 HCM token cookie 自动登录），失败再回退
-    if (await openBuiltinBrowser(target, hcmBuiltinCookies(target, useAppStore.getState().hcmToken))) return;
+    if (await openBuiltinBrowser(target, cookies)) return;
     const external = (window as any).electronAPI?.openExternal;
     if (typeof external === 'function') {
       await external(target);
@@ -1014,7 +1016,7 @@ export function CfDebugPanel() {
                       aria-label={t('cfdebug.openFnLog')}
                       onClick={(e) => {
                         e.stopPropagation();
-                        void openFnLogPage(curServerUrl, f.name);
+                        void openFnLogPage(curServerUrl, f.name, dynLogsModel.trim() || 'dynamic_log');
                       }}
                     >
                       ↗
@@ -1348,11 +1350,11 @@ export function CfDebugPanel() {
                   </datalist>
                   <input
                     className="input input-sm"
-                    placeholder={t('cfdebug.logTypeFilter')}
+                    placeholder={dynLogsModel.trim().toLowerCase() === 'syncouterrecord' ? t('cfdebug.typeFilterOuter') : t('cfdebug.logTypeFilter')}
                     value={dynLogsType}
                     onChange={(e) => setDynLogsType(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') void fetchDynLogs(); }}
-                    title={t('cfdebug.logTypeHint')}
+                    title={dynLogsModel.trim().toLowerCase() === 'syncouterrecord' ? t('cfdebug.typeHintOuter') : t('cfdebug.logTypeHint')}
                   />
                   <input
                     className="input input-sm"
@@ -1397,9 +1399,9 @@ export function CfDebugPanel() {
                         checked={dynLogsSelected.has(r.id_)}
                         onChange={() => toggleDynLogSelected(r.id_)}
                       />
-                      <span className="col-type" title={r.log_type}>{r.log_type || '?'}</span>
-                      <span className="col-content" title={r.content}>{r.content || ''}</span>
-                      <span className="col-time">{r.create_date || r.create_time || ''}</span>
+                      <span className="col-type" title={logRowType(r, '')}>{logRowType(r, '')}</span>
+                      <span className="col-content" title={logRowContent(r)}>{logRowContent(r)}</span>
+                      <span className="col-time">{logRowTime(r)}</span>
                       <button
                         className="cfd-bp-mini"
                         onClick={() => void deleteDynLogs([r.id_])}

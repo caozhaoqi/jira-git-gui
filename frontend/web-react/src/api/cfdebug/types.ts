@@ -213,14 +213,27 @@ export interface CfSyncExport {
 }
 
 // ===== dynamic_log（日志管理 tab 用） =====
-/** dynamic_log 模型一行记录。后端原样转发 hcm.model.list 字段，含 id_/log_type/content/created_at/company_id 等。 */
+/**
+ * 记录模型一行记录。后端原样转发 hcm.model.list 字段。
+ * 注意模型间字段命名不同：dynamic_log 用 log_type + create_*；
+ * SyncOuterRecord 没有 log_type，用 name（描述）+ update_time（同步时间）。
+ */
 export interface DynLogRecord {
   id_: string | number;
   log_type?: string;
-  content?: string;
+  logType?: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  desc?: string;
+  type?: string;
+  content?: string | Record<string, any>;
   level?: string;
   create_date?: string;
   create_time?: string;
+  created_at?: string;
+  update_time?: string | number;
+  updated_at?: string;
   company_id?: number;
   user_id?: number;
   [k: string]: any;

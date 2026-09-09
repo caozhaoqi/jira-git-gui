@@ -22,6 +22,22 @@ _IS_MODEL_MISSING = lambda errcode, errmsg: (
     errcode == 80001 or (isinstance(errmsg, str) and "Unknown Model Name" in errmsg)
 )
 
+# 记录模型 -> 「类型 / 描述」字段名。
+# 不同模型的字段命名不同：dynamic_log 用 log_type，而 SyncOuterRecord 根本没有 log_type，
+# 它承载「描述」语义的是 name（见 SyncOuterRecord.meta.list.json 的 fields/filters）。
+# 过滤字典必须按模型选字段，否则拿 log_type 去过滤 SyncOuterRecord 会过滤不到 / 报字段不存在。
+_MODEL_TYPE_FIELDS = {
+    "dynamic_log": "log_type",
+    "syncouterrecord": "name",
+}
+# 展示侧的兜底顺序（前端同一套逻辑）：越靠前越优先
+_MODEL_TYPE_FALLBACKS = ("log_type", "logType", "name", "title", "description", "desc", "type")
+
+
+def _model_type_field(record_model: str) -> str:
+    """返回该记录模型用于「类型 / 描述」过滤的字段名（未知模型默认 log_type）。"""
+    return _MODEL_TYPE_FIELDS.get((record_model or "").strip().lower(), "log_type")
+
 
 async def cf_query_logs(req) -> "dict":
     """代理查询 CF 平台记录模型日志（默认 dynamic_log，可经 UI 配置如 SyncOuterRecord），
@@ -84,7 +100,7 @@ async def cf_query_logs(req) -> "dict":
     record_model = (req.record_model or "dynamic_log").strip() or "dynamic_log"
     filter_dict = {}
     if req.log_type:
-        filter_dict["log_type"] = req.log_type
+        filter_dict[_model_type_field(record_model)] = req.log_type
     payload = {
         "model": record_model,
         "page_index": req.page_index,
@@ -259,8 +275,9 @@ def _summarize_parsed(rows: "list") -> "dict":
         if pc.get("is_error"):
             errors.append({
                 "id": r.get("id"),
-                "create_time": r.get("create_time"),
-                "log_type": r.get("log_type"),
+                "create_time": r.get("create_time") or r.get("update_time"),
+                # SyncOuterRecord 无 log_type，用 name（描述）兜底
+                "log_type": r.get("log_type") or r.get("name"),
                 "stage": pc.get("stage"),
                 "dept_id": pc.get("dept_id"),
                 "object_id": pc.get("object_id"),
