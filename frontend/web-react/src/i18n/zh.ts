@@ -402,6 +402,7 @@ export const zh: Dict = {
       top: '📊 资源 Top',
       shell: '💻 Shell',
       files: '📁 文件',
+      syslog: '📋 系统日志',
     },
     snapshot: {
       title: 'K8s 快照',
@@ -662,6 +663,10 @@ export const zh: Dict = {
       dlNoPod: '请先选择 Pod',
       dlBinaryHint: '这是二进制文件，不支持在线预览；可点击列表行尾的 ⬇ 直接下载（分片 + 断点续传）。',
     },
+    syslog: {
+      site: '日志服务器',
+      pickSite: '请先在上方选择一台日志服务器（Kibana 站点），再查看系统日志汇总的 K8s 日志',
+    },
     env: {
       title: 'K8s 环境管理',
       empty: '暂无环境',
@@ -756,6 +761,16 @@ export const zh: Dict = {
     colContent: '内容',
     prevPage: '上一页',
     nextPage: '下一页',
+    timeRange: '时间范围',
+    timeAll: '不限',
+    time1h: '最近 1 小时',
+    time6h: '最近 6 小时',
+    time24h: '最近 1 天',
+    time7d: '最近 7 天',
+    timeCustom: '自定义',
+    timeFrom: '开始时间',
+    timeTo: '结束时间',
+    timeHint: '按时间收窄查询结果；选「最近 X」自动填起止，手动改动起止即切为自定义；「导出」会带着当前时间段。',
   },
   clash: {
     title: 'Clash 分流',
@@ -1127,6 +1142,7 @@ export const zh: Dict = {
     siteLabel: '站点',
     noSite: '（无站点）',
     manageSites: '管理站点',
+    reloadSites: '刷新站点列表',
     loadSitesFail: '加载 Kibana 站点失败：',
     autoRefresh: '自动刷新',
     off: '关闭',

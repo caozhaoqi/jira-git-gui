@@ -400,6 +400,7 @@ export const en: Dict = {
       top: '📊 Resource Top',
       shell: '💻 Shell',
       files: '📁 Files',
+      syslog: '📋 System Logs',
     },
     snapshot: {
       title: 'K8s Snapshot',
@@ -661,6 +662,10 @@ export const en: Dict = {
       dlBinaryHint:
         'This is a binary file, online preview not supported; click the ⬇ at the end of the row to download it (chunked + resumable).',
     },
+    syslog: {
+      site: 'Log server',
+      pickSite: 'Select a log server (Kibana site) above to view K8s logs aggregated from system logs',
+    },
     env: {
       title: 'K8s Environment Management',
       empty: 'No environments',
@@ -755,6 +760,16 @@ export const en: Dict = {
     colContent: 'Content',
     prevPage: 'Previous',
     nextPage: 'Next',
+    timeRange: 'Time range',
+    timeAll: 'All',
+    time1h: 'Last 1 hour',
+    time6h: 'Last 6 hours',
+    time24h: 'Last 1 day',
+    time7d: 'Last 7 days',
+    timeCustom: 'Custom',
+    timeFrom: 'Start time',
+    timeTo: 'End time',
+    timeHint: 'Narrow results by time; picking a preset fills start/end, editing them switches to Custom. "Export" includes the current time range.',
   },
   clash: {
     title: 'Clash Routing',
@@ -1124,6 +1139,7 @@ export const en: Dict = {
     siteLabel: 'Site',
     noSite: '(no site)',
     manageSites: 'Manage Sites',
+    reloadSites: 'Reload sites',
     loadSitesFail: 'Failed to load Kibana sites: ',
     autoRefresh: 'Auto refresh',
     off: 'Off',

@@ -158,9 +158,57 @@ def _resolve_sites() -> tuple:
     return {"sites": {}, "current": None}, "missing"
 
 
-def load_sites() -> dict:
-    """读取站点配置 ``{sites:{name:{...}}, current:name}``。"""
-    return _resolve_sites()[0]
+def _server_sites(base_site: dict) -> dict:
+    """把配置里的服务器（cf_accounts / hcm_whitelist）派生为 Kibana 站点。
+
+    - 站点名统一前缀 ``srv::``（如 ``srv::cf:http://10.1.38.184``），避免与手配站点重名；
+    - ``base_url`` = ``<server_url>/kibana``（见 ``core.kibana.servers.derive_kibana_url``）；
+    - 账号 / 索引模式 / 字段等从 ``base_site``（通常是当前站点）继承，作为保守默认值。
+    """
+    try:
+        from core.kibana.servers import list_servers, derive_kibana_url
+    except Exception:  # noqa: BLE001
+        return {}
+    tmpl = dict(SITE_DEFAULTS)
+    tmpl.update(base_site or {})
+    out: dict = {}
+    for s in list_servers():
+        url = derive_kibana_url(s.get("server_url", ""))
+        if not url:
+            continue
+        item = dict(tmpl)
+        item["label"] = s.get("name") or s.get("key") or url
+        item["base_url"] = url
+        item["derived"] = True
+        item["server_url"] = s.get("server_url", "")
+        out["srv::" + s.get("key", url)] = item
+    return out
+
+
+def _merge_server_sites(norm: dict) -> dict:
+    """把服务器派生站点并入已配置站点（不覆盖同名 / 同地址的已配置站点）。"""
+    sites = dict((norm or {}).get("sites") or {})
+    cur = (norm or {}).get("current")
+    base = sites.get(cur) or (next(iter(sites.values())) if sites else {})
+    existing = {(s.get("base_url") or "").rstrip("/") for s in sites.values()}
+    for name, item in _server_sites(base).items():
+        if name in sites:
+            continue
+        if (item.get("base_url") or "").rstrip("/") in existing:
+            continue  # 已有同地址站点（如 73.2.3.27）→ 保留手配的，跳过派生
+        sites[name] = item
+    return {"sites": sites, "current": cur}
+
+
+def load_sites(include_servers: bool = False) -> dict:
+    """读取站点配置 ``{sites:{name:{...}}, current:name}``。
+
+    ``include_servers=True`` 时额外并入由配置服务器派生的站点（``srv::`` 前缀）。
+    """
+    data = _resolve_sites()[0]
+    if include_servers:
+        data = _merge_server_sites(data)
+    return data
 
 
 def sites_source() -> str:
@@ -183,9 +231,12 @@ def save_sites(data: dict) -> None:
             pass
 
 
-def list_sites() -> list:
-    """返回站点列表（**剥离密码**），键与前端 KibanaSite 一致。"""
-    data = load_sites()
+def list_sites(include_servers: bool = False) -> list:
+    """返回站点列表（**剥离密码**），键与前端 KibanaSite 一致。
+
+    ``include_servers=True`` 时把配置服务器派生的站点一并列出。
+    """
+    data = load_sites(include_servers)
     cur = data.get("current")
     out = []
     for name, s in data["sites"].items():
@@ -198,11 +249,17 @@ def list_sites() -> list:
 
 
 def get_site(name: str = None) -> tuple:
-    """解析站点名 -> ``(name, site_dict)``。name 为 None 取 current。"""
+    """解析站点名 -> ``(name, site_dict)``。name 为 None 取 current。
+
+    支持 ``srv::`` 前缀的「服务器派生站点」：无需先手配即可按服务器查日志。
+    """
     data = load_sites()
     if name is None:
         name = data.get("current")
     site = data["sites"].get(name)
+    if site is None and isinstance(name, str) and name.startswith("srv::"):
+        base = data["sites"].get(data.get("current")) or {}
+        site = _server_sites(base).get(name)
     if site is None:
         raise UserError("未找到 Kibana 站点 '%s'，请先在「站点管理」中配置。" % name)
     if not (site.get("base_url") or "").strip():

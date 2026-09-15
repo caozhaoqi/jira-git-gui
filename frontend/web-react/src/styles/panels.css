@@ -1695,6 +1695,31 @@
   align-items: flex-end;
   flex-wrap: wrap;
 }
+/* 时间范围过滤行：与查询行分隔，预设下拉 + 起止输入 + 复制路径按钮 + 说明 */
+.cf-time-row {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+.cf-cfg-field--w120 {
+  flex: 0 0 132px;
+  min-width: 132px;
+}
+.cf-cfg-field--time {
+  flex: 1 1 190px;
+  min-width: 168px;
+}
+.cf-cfg-field--time .input {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.cf-time-hint {
+  flex: 1 1 240px;
+  align-self: center;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .cf-query-status {
   margin-top: 10px;
   font-size: 12.5px;

@@ -221,8 +221,18 @@ def cf_export_logs(req) -> "dict":
     export_dir.mkdir(parents=True, exist_ok=True)
     safe_log_type = "".join(c if c.isalnum() or c in "-_" else "_" for c in (req.log_type or "unknown"))[:60]
     record_model = (req.record_model or "dynamic_log").strip() or "dynamic_log"
+    time_start = (getattr(req, "time_start", "") or "").strip()
+    time_end = (getattr(req, "time_end", "") or "").strip()
+    # 时间范围写进文件名：把起止里的数字抽出来（如 2026-09-15T10:00 → 202609151000），
+    # 便于在 logs/cf_logs/ 里按时间段辨认文件。
+    range_tag = ""
+    if time_start or time_end:
+        def _digits(s: str) -> str:
+            d = "".join(c for c in (s or "") if c.isdigit())
+            return d[:14] or "x"
+        range_tag = f"_{_digits(time_start)}_{_digits(time_end)}"
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"cf_logs_{safe_log_type}_{ts}.json"
+    fname = f"cf_logs_{safe_log_type}{range_tag}_{ts}.json"
     fpath = export_dir / fname
 
     rows = cf_parse_log_rows(req.rows)  # 结构化解析，保留原字段
@@ -239,7 +249,11 @@ def cf_export_logs(req) -> "dict":
             "total": req.total,
             "returned_count": len(req.rows),
             "keyword": req.keyword or "",
-            "filtered_by_client": bool(req.filtered or req.keyword),
+            "time_start": time_start,
+            "time_end": time_end,
+            # 供 AI 一眼看懂这是哪个时间段：有起止则 "t1 ~ t2"，否则 "不限"
+            "time_range": (f"{time_start} ~ {time_end}".strip(" ~") if (time_start or time_end) else "不限"),
+            "filtered_by_client": bool(req.filtered or req.keyword or time_start or time_end),
             "parsed": True,  # 标记本文件已做结构化解析
         },
         "error_summary": _summarize_parsed(rows),

@@ -184,6 +184,8 @@ class CfLogExportReq(BaseModel):
     raw: object = None  # 原始响应（可选）
     keyword: str = ""  # 客户端过滤关键字（导出时带入，便于追溯这是过滤后的日志）
     filtered: bool = False  # 标记 rows 是否已是客户端过滤后的结果
+    time_start: str = ""  # 时间过滤起始（本地时间字符串或 ISO），空=不限；写入导出元数据供 AI 追溯
+    time_end: str = ""    # 时间过滤结束，空=不限
 
 
 class CfLoginReq(BaseModel):
