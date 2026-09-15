@@ -13,8 +13,9 @@ import { K8sShell } from './K8sShell';
 import { K8sFiles } from './K8sFiles';
 import { K8sEnvModal } from './K8sEnvModal';
 import { K8sDescribeModal, type DescribeSeed } from './K8sDescribeModal';
+import { K8sSysLog } from './K8sSysLog';
 
-type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files';
+type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files' | 'syslog';
 
 const SUBTABS: { key: SubTab; labelKey: string }[] = [
   { key: 'snapshot', labelKey: 'k8s.subtabs.snapshot' },
@@ -24,6 +25,7 @@ const SUBTABS: { key: SubTab; labelKey: string }[] = [
   { key: 'top', labelKey: 'k8s.subtabs.top' },
   { key: 'shell', labelKey: 'k8s.subtabs.shell' },
   { key: 'files', labelKey: 'k8s.subtabs.files' },
+  { key: 'syslog', labelKey: 'k8s.subtabs.syslog' },
 ];
 
 function envTagClass(name: string): string {
@@ -139,6 +141,9 @@ export function K8sPanel() {
           <div className="k8s-subtab-pane" style={{ display: sub === 'top' ? 'flex' : 'none' }}><K8sTop /></div>
           <div className="k8s-subtab-pane" style={{ display: sub === 'shell' ? 'flex' : 'none' }}><K8sShell /></div>
           <div className="k8s-subtab-pane" style={{ display: sub === 'files' ? 'flex' : 'none' }}><K8sFiles /></div>
+          <div className="k8s-subtab-pane" style={{ display: sub === 'syslog' ? 'flex' : 'none' }}>
+            <K8sSysLog />
+          </div>
         </div>
 
         {envModalOpen && <K8sEnvModal onClose={() => setEnvModalOpen(false)} />}

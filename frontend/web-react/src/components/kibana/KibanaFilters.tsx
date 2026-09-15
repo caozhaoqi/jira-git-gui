@@ -462,17 +462,21 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function useKibanaSites() {
+export function useKibanaSites(includeServers = false) {
   const [sites, setSites] = useState<KibanaSite[]>([]);
   const [current, setCurrent] = useState('');
   const reload = useCallback(async () => {
     try {
-      const d = await apiGet<KibanaSitesResp>('/api/kibana/sites');
+      // includeServers=true：额外并入由 cf_accounts / hcm_whitelist 派生的「服务器站点」
+      const d = await apiGet<KibanaSitesResp>(
+        `/api/kibana/sites${includeServers ? '?servers=1' : ''}`
+      );
       const list = d.sites || [];
       setSites(list);
-      setCurrent(d.current || (list[0]?.name ?? ''));
+      // 不覆盖用户当前选择（reload 时保留已选站点）
+      setCurrent((prev) => prev || d.current || (list[0]?.name ?? ''));
     } catch { /* 静默：面板里有各自的错误提示 */ }
-  }, []);
+  }, [includeServers]);
   useEffect(() => { reload(); }, [reload]);
   return { sites, current, setCurrent, reload };
 }

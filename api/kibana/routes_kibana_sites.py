@@ -53,10 +53,14 @@ def _err(ex: BaseException) -> str:
 
 
 @router.get("/api/kibana/sites")
-async def api_kibana_sites():
-    """列出所有 Kibana 站点（不含密码）与当前站点。"""
+async def api_kibana_sites(servers: int = 0):
+    """列出所有 Kibana 站点（不含密码）与当前站点。
+
+    ``?servers=1`` 时额外并入由配置服务器（cf_accounts / hcm_whitelist）派生的站点
+    （name 前缀 ``srv::``），供 K8s「系统日志汇总」tab 按服务器选择日志源。
+    """
     try:
-        sites = await asyncio.to_thread(_list_sites)
+        sites = await asyncio.to_thread(_list_sites, bool(servers))
     except Exception as ex:  # noqa: BLE001
         return {"ok": False, "error": _err(ex), "sites": [], "current": None}
     cur = next((s["name"] for s in sites if s.get("is_current")),

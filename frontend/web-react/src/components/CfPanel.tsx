@@ -9,6 +9,9 @@ import type { CfAccount, CfLogsRow } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
 
+/** 时间范围预设：'all' = 不过滤，其余为相对当前时间，'custom' = 手动起止。 */
+type TimePreset = 'all' | '1h' | '6h' | '24h' | '7d' | 'custom';
+
 interface CfCfg {
   server_url: string;
   username: string;
@@ -19,6 +22,9 @@ interface CfCfg {
   record_model: string;
   page_size: number;
   page_index: number;
+  time_preset: TimePreset;
+  time_start: string; // datetime-local 值（本地时间，形如 2026-09-15T18:00）
+  time_end: string;
 }
 
 interface CfLastResult {
@@ -32,6 +38,64 @@ interface CfLastResult {
   rows: CfLogsRow[];
   raw: any;
   localPage: number;
+}
+
+// 时间范围预设（下拉）。labelKey 指向 i18n 文案。
+const TIME_PRESETS: { key: TimePreset; labelKey: string }[] = [
+  { key: 'all', labelKey: 'cf.timeAll' },
+  { key: '1h', labelKey: 'cf.time1h' },
+  { key: '6h', labelKey: 'cf.time6h' },
+  { key: '24h', labelKey: 'cf.time24h' },
+  { key: '7d', labelKey: 'cf.time7d' },
+  { key: 'custom', labelKey: 'cf.timeCustom' },
+];
+
+const HOUR_MS = 3600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/** 把日志时间字符串解析为毫秒时间戳；无法解析返回 NaN。兼容 "2026-09-15 10:00:00"、ISO、unix 秒/毫秒。 */
+function parseLogTime(s: string): number {
+  const raw = (s || '').trim();
+  if (!raw) return NaN;
+  if (/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    if (n >= 1e12) return n; // 毫秒
+    if (n >= 1e9) return n * 1000; // 秒
+    return NaN;
+  }
+  let t = new Date(raw.replace(' ', 'T')).getTime();
+  if (isNaN(t)) t = new Date(raw).getTime();
+  return t;
+}
+
+/** 相对预设 → [startMs, endMs]；'all'/'custom' 返回 null。 */
+function presetWindowMs(preset: TimePreset): [number, number] | null {
+  const now = Date.now();
+  switch (preset) {
+    case '1h': return [now - HOUR_MS, now];
+    case '6h': return [now - 6 * HOUR_MS, now];
+    case '24h': return [now - DAY_MS, now];
+    case '7d': return [now - 7 * DAY_MS, now];
+    default: return null;
+  }
+}
+
+/** 当前生效的时间窗口 [startMs, endMs]；preset='all' 返回 null（不过滤）。 */
+function effectiveWindowMs(preset: TimePreset, startS: string, endS: string): [number, number] | null {
+  if (preset === 'all') return null;
+  if (preset === 'custom') {
+    const s = startS ? new Date(startS).getTime() : NaN;
+    const e = endS ? new Date(endS).getTime() : NaN;
+    return [isNaN(s) ? -Infinity : s, isNaN(e) ? Infinity : e];
+  }
+  return presetWindowMs(preset);
+}
+
+/** 毫秒时间戳 → datetime-local 值（本地时区）。 */
+function toLocalInput(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 /** 时间字段兜底统一走 utils/logFields（dynamic_log 的 create_* / SyncOuterRecord 的 update_*）。 */
@@ -133,6 +197,9 @@ export function CfPanel() {
     record_model: 'dynamic_log',
     page_size: 200,
     page_index: 1,
+    time_preset: 'all',
+    time_start: '',
+    time_end: '',
   });
   const [captcha, setCaptcha] = useState<{ captcha_id: string; image_code_index: string; image: string }>({
     captcha_id: '',
@@ -172,7 +239,18 @@ export function CfPanel() {
   const loadCfg = useCallback(() => {
     try {
       const raw = localStorage.getItem(CF_CFG_KEY);
-      if (raw) setCfg((c) => ({ ...c, ...JSON.parse(raw) }));
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<CfCfg>;
+      setCfg((c) => {
+        const next = { ...c, ...parsed };
+        // 相对预设（最近 X）每次重算起止时间，避免沿用上次持久化的过期绝对时间
+        const p = next.time_preset;
+        if (p && p !== 'all' && p !== 'custom') {
+          const w = presetWindowMs(p);
+          if (w) { next.time_start = toLocalInput(w[0]); next.time_end = toLocalInput(w[1]); }
+        }
+        return next;
+      });
     } catch {
       /* ignore */
     }
@@ -359,7 +437,9 @@ export function CfPanel() {
     }
   };
 
-  const ensureAllLogs = useCallback(async (base: CfLastResult) => {
+  // windowStartMs：时间过滤生效时的窗口起始（ms）。页 1 最新，一旦翻到比窗口更旧的页即可停，
+  // 避免为「最近 1 小时」这类过滤把历史全量都拉下来。
+  const ensureAllLogs = useCallback(async (base: CfLastResult, windowStartMs = -Infinity) => {
     const total = base.total || 0;
     if (total === 0 || base.rows.length >= total) return;
     const token = cfgRef.current.token;
@@ -385,12 +465,43 @@ export function CfPanel() {
         if (!pageRows.length) break;
         base.rows = base.rows.concat(pageRows);
         setResult({ ...base });
+        // 时间过滤生效时：本页最后（最旧）一行若已早于窗口起始，后续页只会更旧 → 停。
+        if (isFinite(windowStartMs)) {
+          const oldest = parseLogTime(cfTime(base.rows[base.rows.length - 1]));
+          if (!isNaN(oldest) && oldest < windowStartMs) break;
+        }
         nextPage += 1;
       }
     } catch (e: any) {
       setStatus({ text: `加载全部日志失败：${e.message}（已对当前已加载 ${base.rows.length} 条排序）`, cls: 'error' });
     }
   }, []);
+
+  // —— 时间范围过滤：预设下拉 / 手动起止（手动改动即切到「自定义」）——
+  const onPresetChange = (p: TimePreset) => {
+    let start = cfg.time_start;
+    let end = cfg.time_end;
+    if (p !== 'all' && p !== 'custom') {
+      const w = presetWindowMs(p);
+      if (w) { start = toLocalInput(w[0]); end = toLocalInput(w[1]); }
+    } else if (p === 'custom' && !start && !end) {
+      const w = presetWindowMs('1h');
+      if (w) { start = toLocalInput(w[0]); end = toLocalInput(w[1]); }
+    }
+    const patch = { time_preset: p, time_start: start, time_end: end };
+    setCfg((c) => ({ ...c, ...patch }));
+    saveCfg(patch);
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
+  const onTimeInput = (which: 'start' | 'end', v: string) => {
+    const patch = which === 'start'
+      ? { time_start: v, time_preset: 'custom' as TimePreset }
+      : { time_end: v, time_preset: 'custom' as TimePreset };
+    setCfg((c) => ({ ...c, ...patch }));
+    saveCfg(patch);
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
 
   const queryLogs = async () => {
     const serverUrl = cfg.server_url.trim();
@@ -439,8 +550,9 @@ export function CfPanel() {
       setExpanded(null);
       setSearch('');
       setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
+      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
       try {
-        await ensureAllLogs(base);
+        await ensureAllLogs(base, win ? win[0] : -Infinity);
       } catch {
         /* 拉取失败时降级：对已加载的数据排序并提示 */
       }
@@ -463,14 +575,16 @@ export function CfPanel() {
     }
   };
 
+  // 导出「当前过滤视图」（时间窗口 + 关键词），导出后自动把文件路径复制到剪贴板（可粘贴给 AI）。
   const exportLogs = async () => {
     const r = resultRef.current;
     if (!r || !r.rows || !r.rows.length) {
       setStatus({ text: t('cf.exportNeedData'), cls: 'error' });
       return;
     }
-    // 导出「当前过滤视图」的结果（而非未过滤的全量），与界面所见一致：
-    // 先按当前排序方向排好所有已加载行，再按搜索关键字过滤。
+    const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
+    // 导出「当前过滤视图」的结果（排序 + 时间窗口 + 搜索关键字），与界面所见一致：
+    // 先按当前排序方向排好所有已加载行，再依次按时间窗口、搜索关键字过滤。
     const allRows = r.rows.slice();
     allRows.sort((a, b) => {
       const ta = cfTime(a), tb = cfTime(b);
@@ -479,15 +593,25 @@ export function CfPanel() {
     });
     const q = search.trim();
     let rowsToExport = allRows;
-    if (q) {
+    if (win || q) {
       const needle = caseSensitive ? q : q.toLowerCase();
       rowsToExport = allRows.filter((row) => {
-        const content = caseSensitive ? cfContent(row) : cfContent(row).toLowerCase();
-        const time = caseSensitive ? cfTime(row) : cfTime(row).toLowerCase();
-        const type = caseSensitive ? cfLogType(row, r.log_type) : cfLogType(row, r.log_type).toLowerCase();
-        return content.includes(needle) || time.includes(needle) || type.includes(needle);
+        if (win) {
+          const tv = parseLogTime(cfTime(row));
+          if (isNaN(tv) || tv < win[0] || tv > win[1]) return false;
+        }
+        if (q) {
+          const content = caseSensitive ? cfContent(row) : cfContent(row).toLowerCase();
+          const time = caseSensitive ? cfTime(row) : cfTime(row).toLowerCase();
+          const type = caseSensitive ? cfLogType(row, r.log_type) : cfLogType(row, r.log_type).toLowerCase();
+          if (!(content.includes(needle) || time.includes(needle) || type.includes(needle))) return false;
+        }
+        return true;
       });
     }
+    // 把生效的时间窗口（本地时间字符串）带给后端，写进导出文件元数据并按它命名文件。
+    const timeStart = win && isFinite(win[0]) ? toLocalInput(win[0]) : '';
+    const timeEnd = win && isFinite(win[1]) ? toLocalInput(win[1]) : '';
     setBusy('export', true);
     try {
       const res = await apiPost<{ path?: string; count?: number }>('/api/cf/logs/export', {
@@ -501,7 +625,9 @@ export function CfPanel() {
         rows: rowsToExport,
         raw: r.raw,
         keyword: q,
-        filtered: !!q,
+        filtered: !!q || !!win,
+        time_start: timeStart,
+        time_end: timeEnd,
       });
       if (res.path) {
         let copied = false;
@@ -572,7 +698,8 @@ export function CfPanel() {
     setSortDir(next);
     setBusy('sort', true);
     try {
-      if (resultRef.current) await ensureAllLogs(resultRef.current);
+      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
+      if (resultRef.current) await ensureAllLogs(resultRef.current, win ? win[0] : -Infinity);
     } finally {
       setBusy('sort', false);
     }
@@ -591,9 +718,17 @@ export function CfPanel() {
     });
     const q = search.trim();
     const needle = caseSensitive ? q : q.toLowerCase();
+    // 时间窗口过滤（先于关键词过滤）：把结果收窄到「最近 X」或自定义起止。
+    const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
     let filtered = all;
+    if (win) {
+      filtered = filtered.filter((r) => {
+        const tv = parseLogTime(cfTime(r));
+        return !isNaN(tv) && tv >= win[0] && tv <= win[1];
+      });
+    }
     if (q && filterOn) {
-      filtered = all.filter((r) => {
+      filtered = filtered.filter((r) => {
         const content = caseSensitive ? cfContent(r) : cfContent(r).toLowerCase();
         const time = caseSensitive ? cfTime(r) : cfTime(r).toLowerCase();
         const type = caseSensitive ? cfLogType(r, result.log_type) : cfLogType(r, result.log_type).toLowerCase();
@@ -623,7 +758,7 @@ export function CfPanel() {
       display = filtered.slice((localPage - 1) * pageSize, localPage * pageSize);
     }
     return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows };
-  }, [result, sortDir, search, caseSensitive, filterOn]);
+  }, [result, sortDir, search, caseSensitive, filterOn, cfg.time_preset, cfg.time_start, cfg.time_end]);
 
   const goLocalPage = (p: number) => {
     if (result) setResult({ ...result, localPage: p });
@@ -979,6 +1114,43 @@ export function CfPanel() {
             📋 {t('cf.clipboardToFile')}
           </button>
         </div>
+
+        {/* ===== 时间范围过滤：预设「最近 1 小时 / 1 天…」+ 手动起止（改动起止即切自定义）。
+               过滤实时作用于结果；上方的「导出」按钮会导出当前时间段的日志并复制文件路径给 AI ===== */}
+        <div className="cf-query-row cf-time-row">
+          <div className="cf-cfg-field cf-cfg-field--w120">
+            <label>{t('cf.timeRange')}</label>
+            <select
+              className="sel"
+              value={cfg.time_preset}
+              onChange={(e) => onPresetChange(e.target.value as TimePreset)}
+            >
+              {TIME_PRESETS.map((p) => (
+                <option key={p.key} value={p.key}>{t(p.labelKey)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="cf-cfg-field cf-cfg-field--time">
+            <label>{t('cf.timeFrom')}</label>
+            <input
+              className="input input-sm"
+              type="datetime-local"
+              value={cfg.time_start}
+              onChange={(e) => onTimeInput('start', e.target.value)}
+            />
+          </div>
+          <div className="cf-cfg-field cf-cfg-field--time">
+            <label>{t('cf.timeTo')}</label>
+            <input
+              className="input input-sm"
+              type="datetime-local"
+              value={cfg.time_end}
+              onChange={(e) => onTimeInput('end', e.target.value)}
+            />
+          </div>
+          <span className="cf-time-hint">{t('cf.timeHint')}</span>
+        </div>
+
         {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
       </div>
 

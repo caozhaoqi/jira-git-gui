@@ -661,6 +661,10 @@ export const ja: Dict = {
       dlBinaryHint:
         'バイナリファイルのためプレビューは非対応です。行末の ⬇ から直接ダウンロードしてください（分割 + レジューム）。',
     },
+    syslog: {
+      site: 'ログサーバー',
+      pickSite: '上でログサーバー（Kibana サイト）を選択すると、システムログから集約された K8s ログが表示されます',
+    },
     env: {
       title: 'K8s 環境管理',
       empty: '環境なし',
@@ -755,6 +759,16 @@ export const ja: Dict = {
     colContent: '内容',
     prevPage: '前へ',
     nextPage: '次へ',
+    timeRange: '期間',
+    timeAll: '指定なし',
+    time1h: '直近 1 時間',
+    time6h: '直近 6 時間',
+    time24h: '直近 1 日',
+    time7d: '直近 7 日',
+    timeCustom: 'カスタム',
+    timeFrom: '開始時刻',
+    timeTo: '終了時刻',
+    timeHint: '期間で結果を絞り込みます。「直近 X」を選ぶと開始/終了を自動入力し、手で変更するとカスタムに切り替わります。「出力」には現在の期間が含まれます。',
   },
   clash: {
     title: 'Clash ルーティング',
@@ -1124,6 +1138,7 @@ export const ja: Dict = {
     siteLabel: 'サイト',
     noSite: '（サイトなし）',
     manageSites: 'サイト管理',
+    reloadSites: 'サイト一覧を更新',
     loadSitesFail: 'Kibana サイト読込失敗：',
     autoRefresh: '自動更新',
     off: 'オフ',
