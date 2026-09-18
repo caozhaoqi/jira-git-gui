@@ -188,6 +188,18 @@ class CfLogExportReq(BaseModel):
     time_end: str = ""    # 时间过滤结束，空=不限
 
 
+class CfLogStreamReq(BaseModel):
+    """云函数日志实时刷新流控制（start / stop / status）。"""
+    action: str = "start"  # start | stop | status
+    server_url: str = ""
+    token: str = ""
+    proxy: str = ""
+    log_type: str = ""
+    record_model: str = "dynamic_log"
+    page_size: int = 100   # 每次轮询拉取的第一页条数（10~500）
+    interval: int = 5      # 轮询间隔（秒，3~120）
+
+
 class CfLoginReq(BaseModel):
     server_url: str = ""
     mobile: str = ""

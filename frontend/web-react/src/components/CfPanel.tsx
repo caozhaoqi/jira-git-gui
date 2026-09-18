@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { apiGet, apiPost } from '../api/client';
+import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl } from '../utils/logFields';
-import type { CfAccount, CfLogsRow } from '../api/types';
+import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
 
@@ -120,6 +121,16 @@ function cfLogType(row: CfLogsRow, fallback: string): string {
   return logRowType(row, fallback);
 }
 
+/** 实时刷新的行去重 key：id 优先，缺 id 用「时间+内容」哈希兜底（与后端 _row_key 同口径）。 */
+function cfRowKey(row: CfLogsRow): string {
+  const rid = row.id ?? row._id;
+  if (rid != null) return 'id:' + String(rid);
+  const basis = JSON.stringify([row.create_time, row.update_time, row.content, row.log_type, row.name]);
+  let h = 0;
+  for (let i = 0; i < basis.length; i++) h = (h * 31 + basis.charCodeAt(i)) | 0;
+  return 'h:' + String(h);
+}
+
 async function openCloudFunctionLogs(serverUrl: string, logType: string, recordModel = 'dynamic_log', token = ''): Promise<void> {
   try {
     const base = (serverUrl || '').trim();
@@ -219,11 +230,16 @@ export function CfPanel() {
   const [cfgOpen, setCfgOpen] = useState(false);
   const [tokenMap, setTokenMap] = useState<Record<string, any>>({});
   const [autoLogin, setAutoLogin] = useState<{ running: boolean; msg: string }>({ running: false, msg: '' });
+  const [streaming, setStreaming] = useState(false);        // 实时刷新是否开启
+  const [streamInterval, setStreamInterval] = useState(5);  // 轮询间隔（秒）
+  const [lastTick, setLastTick] = useState('');             // 最近一次轮询时刻（心跳可见化）
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
   const resultRef = useRef(result);
   resultRef.current = result;
+  const streamingRef = useRef(false);
+  streamingRef.current = streaming;
 
   const setBusy = (k: string, v: boolean) =>
     setLoading((m) => ({ ...m, [k]: v }));
@@ -296,8 +312,44 @@ export function CfPanel() {
     })();
   }, [loadAccounts, loadCfg, loadTokens]);
 
+  // 实时刷新：订阅后端 SSE 推送（cf_log_update），把新增日志合并进当前结果。
+  // 合并策略：行 key 去重 → 新行前插 → 上限 5000 条；时间过滤视图由 view memo 自动生效。
+  useEffect(() => {
+    const off = sse.on('cf_log_update', (d: SSECFLogUpdate) => {
+      if (d.stopped) {
+        setStreaming(false);
+        setStatus({ text: d.error ? `实时刷新已停止：${d.error}` : '实时刷新已停止', cls: d.error ? 'error' : '' });
+        return;
+      }
+      if (!streamingRef.current) return;
+      if (d.ts) setLastTick(d.ts); // 每次轮询都更新心跳（无论有无新日志）
+      const r = resultRef.current;
+      if (!r) return;
+      const incoming = Array.isArray(d.rows) ? d.rows : [];
+      if (!incoming.length) {
+        if (d.error) setStatus({ text: `实时刷新拉取失败：${d.error}（将继续重试）`, cls: 'warning' });
+        return;
+      }
+      const seen = new Set(r.rows.map(cfRowKey));
+      const fresh = incoming.filter((row) => !seen.has(cfRowKey(row)));
+      if (!fresh.length) return; // 无新日志，不打扰
+      setResult({
+        ...r,
+        rows: [...fresh, ...r.rows].slice(0, 5000),
+        total: d.total ?? r.total,
+        localPage: 1,
+      });
+      const latest = d.latest_time || cfTime(fresh[0]);
+      setStatus({ text: `实时刷新：新增 ${fresh.length} 条（最新 ${latest}）`, cls: 'success' });
+    });
+    return () => off();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const switchEnv = (key: string) => {
     setEnv(key);
+    // 切环境时停掉实时刷新：流绑定的是旧 server_url，继续跑只会拉旧环境日志
+    if (streamingRef.current) void stopStream();
     // 清空上一个环境的登录态残留（token/验证码），避免用旧环境的 token 去查询新环境
     const clearLoginState = () => {
       setImageCode('');
@@ -572,6 +624,57 @@ export function CfPanel() {
       setResult(null);
     } finally {
       setBusy('query', false);
+    }
+  };
+
+  // —— 实时刷新：后端按间隔轮询最新页，新日志经 SSE（cf_log_update）推送合并 ——
+  const stopStream = useCallback(async () => {
+    try {
+      await apiPost('/api/cf/logs/stream', { action: 'stop' });
+    } catch {
+      /* ignore */
+    }
+    setStreaming(false);
+  }, []);
+
+  const toggleStream = async () => {
+    if (streamingRef.current) {
+      setBusy('stream', true);
+      await stopStream();
+      setStatus({ text: '已停止实时刷新', cls: '' });
+      setBusy('stream', false);
+      return;
+    }
+    const serverUrl = cfg.server_url.trim();
+    if (!serverUrl) {
+      setStatus({ text: t('cf.serverUrlFirst'), cls: 'error' });
+      return;
+    }
+    const cached = tokenMap[serverUrl];
+    if (!cfg.token.trim() && !(cached && cached.has_token)) {
+      setStatus({ text: t('cf.tokenFirst'), cls: 'error' });
+      return;
+    }
+    setBusy('stream', true);
+    try {
+      // 先查一次基线：流首轮只做静默种子，之后只推送新增日志
+      await queryLogs();
+      await apiPost('/api/cf/logs/stream', {
+        action: 'start',
+        server_url: serverUrl,
+        token: cfg.token.trim(),
+        proxy: cfg.proxy.trim(),
+        log_type: cfg.log_type.trim(),
+        record_model: cfg.record_model.trim() || 'dynamic_log',
+        page_size: Math.min(cfg.page_size || 100, 300),
+        interval: streamInterval,
+      });
+      setStreaming(true);
+      setStatus({ text: `实时刷新已开启（每 ${streamInterval} 秒检查新日志）`, cls: 'success' });
+    } catch (e: any) {
+      setStatus({ text: `开启实时刷新失败：${e?.message || e}`, cls: 'error' });
+    } finally {
+      setBusy('stream', false);
     }
   };
 
@@ -1113,6 +1216,32 @@ export function CfPanel() {
           >
             📋 {t('cf.clipboardToFile')}
           </button>
+          {/* 实时刷新：后端轮询最新页 + SSE 推送，开启后新日志自动进列表 */}
+          <select
+            className="sel cf-live-interval"
+            value={streamInterval}
+            onChange={(e) => setStreamInterval(parseInt(e.target.value) || 5)}
+            title={t('cf.liveHint')}
+          >
+            <option value={5}>5s</option>
+            <option value={10}>10s</option>
+            <option value={30}>30s</option>
+            <option value={60}>60s</option>
+          </select>
+          <button
+            className={'btn cf-query-btn' + (streaming ? ' btn-live-on' : ' btn-ghost')}
+            onClick={toggleStream}
+            disabled={loading.stream}
+            title={t('cf.liveHint')}
+          >
+            {streaming ? `⏹ ${t('cf.liveStop')}` : `▶ ${t('cf.liveRefresh')}`}
+          </button>
+          {/* 心跳：每次轮询（即使无新日志）都会推送 ts，显示出来证明链路活着 */}
+          {streaming && (
+            <span className="cf-live-heartbeat" title={t('cf.liveHint')}>
+              <i className="cf-live-dot" /> {t('cf.liveLastCheck')} {lastTick || '…'}
+            </span>
+          )}
         </div>
 
         {/* ===== 时间范围过滤：预设「最近 1 小时 / 1 天…」+ 手动起止（改动起止即切自定义）。

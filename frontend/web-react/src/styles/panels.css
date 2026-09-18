@@ -1720,6 +1720,38 @@
   line-height: 1.5;
   color: var(--muted);
 }
+/* 实时刷新：间隔下拉与开关按钮（开启时绿色描边提示） */
+.cf-live-interval {
+  align-self: flex-end;
+  flex: 0 0 76px;
+  min-width: 76px;
+}
+.btn-live-on {
+  color: var(--success);
+  border-color: var(--success);
+}
+/* 实时刷新心跳指示：证明 SSE 轮询活着（即使无新日志也每轮推送 ts） */
+.cf-live-heartbeat {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--success);
+  white-space: nowrap;
+  padding-bottom: 3px;
+}
+.cf-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: cf-live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes cf-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
 .cf-query-status {
   margin-top: 10px;
   font-size: 12.5px;

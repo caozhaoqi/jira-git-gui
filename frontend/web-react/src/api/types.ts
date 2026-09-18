@@ -810,6 +810,22 @@ export interface SSEMergeDone {
   fail_count?: number;
 }
 
+// 云函数日志实时刷新（后端轮询 HCM 第一页 → SSE 推送新增行）
+export interface SSECFLogUpdate {
+  ok?: boolean;
+  server_url?: string;
+  log_type?: string;
+  record_model?: string;
+  rows: CfLogsRow[];       // 仅新增的行（首轮种子 / 无新日志时为空数组）
+  new_count?: number;
+  total?: number;
+  latest_time?: string;    // 本批最新一条的时间
+  ts?: string;             // 后端轮询时刻
+  seeded?: boolean;        // 首轮种子（仅记录基线，不作为新日志展示）
+  stopped?: boolean;       // 流已停止（正常停止或异常停流）
+  error?: string;          // 拉取失败原因（流继续重试；stopped 时为停止原因）
+}
+
 export type SSEEventMap = {
   log: SSELog;
   progress: SSEProgress;
@@ -832,4 +848,6 @@ export type SSEEventMap = {
   // 云函数调试控制台
   cf_debug_log: SSECFDebugLog;
   cf_debug_done: SSECFDebugDone;
+  // 云函数日志实时刷新
+  cf_log_update: SSECFLogUpdate;
 };
