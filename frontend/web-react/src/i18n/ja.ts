@@ -747,6 +747,7 @@ export const ja: Dict = {
     liveRefresh: 'リアルタイム更新',
     liveStop: '停止',
     liveHint: '選択した間隔で最新ページをポーリングし、新しいログを自動でリストに反映します（SSE 通知、手動クエリ不要）',
+    liveLastCheck: '最終チェック',
     searchPlaceholder: 'ログ内容・時間・種類を検索…（リアルタイム絞込）',
     caseSensitive: '大文字小文字を区別',
     filterToggle: '絞込',

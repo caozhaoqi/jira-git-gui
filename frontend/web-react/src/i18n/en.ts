@@ -748,6 +748,7 @@ export const en: Dict = {
     liveRefresh: 'Live refresh',
     liveStop: 'Stop',
     liveHint: 'Polls the newest page at the chosen interval and pushes new logs into the list automatically (SSE push, no manual query needed)',
+    liveLastCheck: 'Last check',
     searchPlaceholder: 'Search log content, time, type… (live filter)',
     caseSensitive: 'Case sensitive',
     filterToggle: 'Filter',

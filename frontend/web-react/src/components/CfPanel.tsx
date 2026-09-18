@@ -232,6 +232,7 @@ export function CfPanel() {
   const [autoLogin, setAutoLogin] = useState<{ running: boolean; msg: string }>({ running: false, msg: '' });
   const [streaming, setStreaming] = useState(false);        // 实时刷新是否开启
   const [streamInterval, setStreamInterval] = useState(5);  // 轮询间隔（秒）
+  const [lastTick, setLastTick] = useState('');             // 最近一次轮询时刻（心跳可见化）
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -321,6 +322,7 @@ export function CfPanel() {
         return;
       }
       if (!streamingRef.current) return;
+      if (d.ts) setLastTick(d.ts); // 每次轮询都更新心跳（无论有无新日志）
       const r = resultRef.current;
       if (!r) return;
       const incoming = Array.isArray(d.rows) ? d.rows : [];
@@ -1234,6 +1236,12 @@ export function CfPanel() {
           >
             {streaming ? `⏹ ${t('cf.liveStop')}` : `▶ ${t('cf.liveRefresh')}`}
           </button>
+          {/* 心跳：每次轮询（即使无新日志）都会推送 ts，显示出来证明链路活着 */}
+          {streaming && (
+            <span className="cf-live-heartbeat" title={t('cf.liveHint')}>
+              <i className="cf-live-dot" /> {t('cf.liveLastCheck')} {lastTick || '…'}
+            </span>
+          )}
         </div>
 
         {/* ===== 时间范围过滤：预设「最近 1 小时 / 1 天…」+ 手动起止（改动起止即切自定义）。

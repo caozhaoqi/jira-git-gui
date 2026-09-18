@@ -749,6 +749,7 @@ export const zh: Dict = {
     liveRefresh: '实时刷新',
     liveStop: '停止刷新',
     liveHint: '开启后按所选间隔轮询最新一页，新日志自动推送到列表（SSE 推送，无需手动查询）',
+    liveLastCheck: '上次检查',
     searchPlaceholder: '搜索日志内容、时间、类型…（实时过滤）',
     caseSensitive: '大小写敏感',
     filterToggle: '过滤',
