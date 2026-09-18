@@ -46,8 +46,14 @@ from .exec_pty import (  # noqa: E402,F401
 
 
 def resolve_env_kubeconfig(env_name):
-    """返回 (kubeconfig_path, namespace) 供快照/日志使用。"""
+    """返回 (kubeconfig_path, namespace) 供快照/日志使用。
+
+    SSH 环境（配置了 ssh_host）返回 ``ssh://<env_name>`` 标记，
+    ``run_kubectl`` / ``stream_kubectl`` 识别后委托远程执行。
+    """
     _, env = get_env(env_name)
+    if env.get("ssh_host"):
+        return "ssh://%s" % env_name, env.get("namespace") or None
     return env.get("kubeconfig") or None, env.get("namespace") or None
 
 

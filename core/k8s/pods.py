@@ -14,9 +14,9 @@ from .env import get_env
 from .kubectl import run_kubectl
 
 
-def _env_kubectl_prefix(env):
+def _env_kubectl_prefix(env, ssh=False):
     args = []
-    if env.get("kubeconfig"):
+    if env.get("kubeconfig") and not ssh:
         args += ["--kubeconfig", env["kubeconfig"]]
     if env.get("context"):
         args += ["--context", env["context"]]
@@ -24,11 +24,16 @@ def _env_kubectl_prefix(env):
 
 
 def run_kubectl_env(env_name, args, timeout=60):
-    """以指定环境身份执行 kubectl。返回 (stdout, rc, stderr)。"""
+    """以指定环境身份执行 kubectl。返回 (stdout, rc, stderr)。
+
+    SSH 环境（配置了 ssh_host）经 ``ssh://<env_name>`` 标记委托远程执行，
+    远端 kubectl 使用远端自身 kubeconfig（本机 kubeconfig 路径被忽略）。
+    """
     _, env = get_env(env_name)
-    # 合并 kubectl 前缀参数和子命令参数，传给 run_kubectl
-    full_args = _env_kubectl_prefix(env) + list(args)
-    return run_kubectl(full_args, kubeconfig=None, timeout=timeout)
+    ssh = bool(env.get("ssh_host"))
+    marker = ("ssh://%s" % env_name) if ssh else None
+    full_args = _env_kubectl_prefix(env, ssh=ssh) + list(args)
+    return run_kubectl(full_args, kubeconfig=marker, timeout=timeout)
 
 
 # ---- re-export 子模块实现（保持 import 路径兼容） ----

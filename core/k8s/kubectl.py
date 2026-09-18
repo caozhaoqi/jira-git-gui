@@ -44,10 +44,24 @@ def _kubectl_env():
 def run_kubectl(args, kubeconfig=None, timeout=60, input=None):
     """执行 kubectl。
 
+    ``kubeconfig`` 为 ``ssh://<env_name>`` 标记时委托 SSH 远程执行
+    （见 core/k8s/ssh_exec.py，远端使用远端自身 kubeconfig）。
+
     ``input`` 为非 None 时作为 stdin 传入（用于 ``kubectl exec -i ... cat > file``
     等写场景）。由于 stdin 可能是字节流（如二进制上传），此时走字节模式并在返回前
     将 stdout/stderr 解码为字符串，避免 ``text=True`` 与 bytes 输入冲突。
     """
+    from .ssh_exec import is_ssh_target, marker_env_name, run_kubectl_ssh
+    if is_ssh_target(kubeconfig):
+        return run_kubectl_ssh(marker_env_name(kubeconfig), args,
+                               timeout=timeout, input=input)
+    # fail-fast：既没指定环境/kubeconfig，本机也没有默认 ~/.kube/config 时，
+    # kubectl 会去连 http://localhost:8080 并挂满整个 timeout（表现为
+    # "kubectl timed out"）——直接给出可行动的提示，不再干等。
+    if not kubeconfig and not os.environ.get("KUBECONFIG") \
+            and not Path.home().joinpath(".kube", "config").is_file():
+        return "", 1, ("未找到任何 kubeconfig：请先在 K8s 面板选择环境"
+                       "（SSH 远程环境无需本机 kubeconfig），或在环境管理中配置。")
     cmd = [_resolve_kubectl_binary()]
     if kubeconfig:
         cmd += ["--kubeconfig", kubeconfig]
@@ -74,15 +88,23 @@ async def run_kubectl_async(args, kubeconfig=None, timeout=60, input=None):
     asyncio 事件循环 —— SSE 心跳断流、所有并发请求一起停滞。统一走这里即可。
     同步上下文（core 内的辅助函数）仍用 ``run_kubectl`` 即可。
     """
+    from .ssh_exec import is_ssh_target, marker_env_name, run_kubectl_ssh_async
+    if is_ssh_target(kubeconfig):
+        return await run_kubectl_ssh_async(marker_env_name(kubeconfig), args,
+                                           timeout=timeout, input=input)
     return await asyncio.to_thread(run_kubectl, args, kubeconfig, timeout=timeout, input=input)
 
 
 async def stream_kubectl(args, kubeconfig=None):
     """异步流式执行 kubectl（用于 ``logs -f`` 等持续输出场景）。
 
-    返回 ``asyncio.subprocess.Process``，调用方负责读取 ``proc.stdout``
+    返回 ``asyncio.subprocess.Process``（SSH 环境时返回 ``SshKubectlStream``
+    适配器，接口兼容），调用方负责读取 ``proc.stdout``
     并在不再需要时 ``proc.kill()`` 回收子进程，避免泄漏。
     """
+    from .ssh_exec import is_ssh_target, marker_env_name, SshKubectlStream
+    if is_ssh_target(kubeconfig):
+        return await SshKubectlStream(marker_env_name(kubeconfig), args).start()
     cmd = [_resolve_kubectl_binary()]
     if kubeconfig:
         cmd += ["--kubeconfig", kubeconfig]

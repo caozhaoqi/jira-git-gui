@@ -261,6 +261,10 @@ export interface K8sEnv {
   context?: string;
   namespace?: string;
   intranet_hosts?: string[];
+  ssh_host?: string;
+  ssh_port?: string;
+  ssh_user?: string;
+  ssh_password?: string;
 }
 export interface K8sEnvsResp {
   environments?: K8sEnv[];
@@ -274,6 +278,10 @@ export interface K8sEnvSaveReq {
   context?: string;
   namespace?: string;
   intranet_hosts?: string[];
+  ssh_host?: string;
+  ssh_port?: string;
+  ssh_user?: string;
+  ssh_password?: string;
 }
 export interface K8sSnapshotReq {
   namespace?: string;

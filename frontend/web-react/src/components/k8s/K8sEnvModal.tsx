@@ -10,9 +10,16 @@ interface EnvForm {
   context: string;
   namespace: string;
   intranet: string;
+  ssh_host: string;
+  ssh_port: string;
+  ssh_user: string;
+  ssh_password: string;
 }
 
-const EMPTY: EnvForm = { name: '', label: '', kubeconfig: '', context: '', namespace: 'default', intranet: '' };
+const EMPTY: EnvForm = {
+  name: '', label: '', kubeconfig: '', context: '', namespace: 'default', intranet: '',
+  ssh_host: '', ssh_port: '22', ssh_user: '', ssh_password: '',
+};
 
 export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const { t } = useT();
@@ -41,6 +48,10 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       context: e.context || '',
       namespace: e.namespace || 'default',
       intranet: (e.intranet_hosts || []).join('\n'),
+      ssh_host: e.ssh_host || '',
+      ssh_port: e.ssh_port || '22',
+      ssh_user: e.ssh_user || '',
+      ssh_password: e.ssh_password || '',
     });
     setMsg('');
   };
@@ -54,6 +65,10 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       context: form.context.trim(),
       namespace: form.namespace.trim() || 'default',
       intranet_hosts: form.intranet.split('\n').map((s) => s.trim()).filter(Boolean),
+      ssh_host: form.ssh_host.trim(),
+      ssh_port: form.ssh_port.trim() || '22',
+      ssh_user: form.ssh_user.trim(),
+      ssh_password: form.ssh_password,
     };
     try {
       await apiPost('/api/k8s/env', body);
@@ -101,7 +116,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
               <div key={e.name} className="k8s-env-item" onClick={() => fill(e)}>
                 <span className="nm">{e.label || e.name}</span>
                 <span className="nm">({e.name})</span>
-                <span className="kc">{e.kubeconfig || t('k8s.env.noKubeconfigShort')}</span>
+                <span className="kc">{e.ssh_host ? `SSH ${e.ssh_user || 'root'}@${e.ssh_host}${e.ssh_port && e.ssh_port !== '22' ? ':' + e.ssh_port : ''}` : (e.kubeconfig || t('k8s.env.noKubeconfigShort'))}</span>
                 {e.is_current && <span className="cur">{t('k8s.env.current')}</span>}
               </div>
             ))}
@@ -113,6 +128,11 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
             <div className="form-row"><label>{t('k8s.env.context')}</label><input className="input" value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} /></div>
             <div className="form-row"><label>{t('k8s.env.namespace')}</label><input className="input" value={form.namespace} onChange={(e) => setForm({ ...form, namespace: e.target.value })} /></div>
             <div className="form-row"><label>{t('k8s.env.intranet')}</label><textarea className="input" rows={3} value={form.intranet} onChange={(e) => setForm({ ...form, intranet: e.target.value })} /></div>
+            {/* SSH 远程环境：填了 Host 即经账密 SSH 登录远端，在远端执行 kubectl（用远端自身 kubeconfig） */}
+            <div className="form-row"><label>{t('k8s.env.sshHost')}</label><input className="input" placeholder={t('k8s.env.sshHint')} value={form.ssh_host} onChange={(e) => setForm({ ...form, ssh_host: e.target.value })} /></div>
+            <div className="form-row"><label>{t('k8s.env.sshPort')}</label><input className="input" value={form.ssh_port} onChange={(e) => setForm({ ...form, ssh_port: e.target.value })} /></div>
+            <div className="form-row"><label>{t('k8s.env.sshUser')}</label><input className="input" autoComplete="off" value={form.ssh_user} onChange={(e) => setForm({ ...form, ssh_user: e.target.value })} /></div>
+            <div className="form-row"><label>{t('k8s.env.sshPassword')}</label><input className="input" type="password" autoComplete="new-password" value={form.ssh_password} onChange={(e) => setForm({ ...form, ssh_password: e.target.value })} /></div>
           </div>
         </div>
         <div className="modal-footer">
