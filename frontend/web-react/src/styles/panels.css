@@ -1720,6 +1720,16 @@
   line-height: 1.5;
   color: var(--muted);
 }
+/* 实时刷新：间隔下拉与开关按钮（开启时绿色描边提示） */
+.cf-live-interval {
+  align-self: flex-end;
+  flex: 0 0 76px;
+  min-width: 76px;
+}
+.btn-live-on {
+  color: var(--success);
+  border-color: var(--success);
+}
 .cf-query-status {
   margin-top: 10px;
   font-size: 12.5px;

@@ -54,6 +54,11 @@ from api.cf.cf_diagnose import (
     cf_parse_log_rows,
     cf_apply_feedback_learnings,
 )
+from api.cf.cf_stream import (
+    start_stream as cf_log_stream_start,
+    stop_stream as cf_log_stream_stop,
+    stream_status as cf_log_stream_status,
+)
 
 __all__ = [
     # tokens
@@ -71,4 +76,6 @@ __all__ = [
     "cf_parse_error", "cf_token_health", "cf_diagnose_context",
     "cf_save_case", "cf_save_feedback", "cf_feedback_metrics", "cf_list_cases", "cf_rebuild_source_index",
     "parse_cf_log_content", "cf_parse_log_rows", "cf_apply_feedback_learnings",
+    # stream（实时刷新）
+    "cf_log_stream_start", "cf_log_stream_stop", "cf_log_stream_status",
 ]

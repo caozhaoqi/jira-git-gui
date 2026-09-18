@@ -15,10 +15,11 @@ from api.cf.cf_core import (
     cf_mask_tokens, cf_diagnose_context, cf_save_case, cf_save_feedback,
     cf_feedback_metrics, cf_list_cases, cf_rebuild_source_index, cf_parse_log_rows,
     cf_apply_feedback_learnings,
+    cf_log_stream_start, cf_log_stream_stop, cf_log_stream_status,
 )
 from api.schemas import (
     CfLogReq, CfLogExportReq, CfLoginReq, CfCaptchaReq, CfAutoLoginReq, ClipboardSaveReq,
-    CfDiagnoseReq, CfCaseSaveReq, CfCaseFeedbackReq, CfFeedbackLearnReq,
+    CfDiagnoseReq, CfCaseSaveReq, CfCaseFeedbackReq, CfFeedbackLearnReq, CfLogStreamReq,
 )
 
 router = APIRouter()
@@ -152,6 +153,31 @@ async def api_cf_export(req: CfLogExportReq):
     try:
         return cf_export_logs(req)
     except (ValueError, RuntimeError) as e:
+        raise _http_error(e)
+
+
+@router.post("/api/cf/logs/stream")
+async def api_cf_log_stream(req: CfLogStreamReq):
+    """云函数日志实时刷新流控制（start / stop / status）。
+
+    start：后端起后台任务按 interval 秒轮询 HCM 第一页（最新），新日志经 SSE
+    ``cf_log_update`` 事件推送到 ``/api/events``（前端复用既有通道，等价 WebSocket 推送）。
+    """
+    try:
+        if req.action == "stop":
+            return await cf_log_stream_stop()
+        if req.action == "status":
+            return cf_log_stream_status()
+        return await cf_log_stream_start(
+            server_url=req.server_url,
+            token=req.token,
+            proxy=req.proxy,
+            log_type=req.log_type,
+            record_model=req.record_model,
+            page_size=req.page_size,
+            interval=req.interval,
+        )
+    except (ValueError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
 
 
