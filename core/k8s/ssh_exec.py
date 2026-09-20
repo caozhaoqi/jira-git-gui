@@ -213,6 +213,185 @@ class SshKubectlStream:
         return 0
 
 
+# ===================================================================== 交互终端
+def build_ssh_pty_command(env_name, pod, container, namespace,
+                          cwd=None, cols=80, rows=24, shell=""):
+    """构造远端交互终端命令：``kubectl exec -it ... -- sh -c <启动脚本>``。
+
+    启动脚本复用本地 PTY 的 ``build_pty_script``（TERM / stty / READY 标记 /
+    exec 交互 shell），因此 WS 路由的 ``_pty_await_ready`` 协议完全一致。
+    """
+    from .exec_pty import build_pty_script  # 延迟导入断环（exec_pty -> exec_cmd -> ssh_exec）
+    # 不带 "kubectl" 前缀：_remote_kubectl_command 统一添加，避免出现 kubectl kubectl
+    args = ["exec", "-it", pod]
+    ns = namespace or None
+    if ns:
+        args += ["-n", ns]
+    if container:
+        args += ["-c", container]
+    args += ["--", "sh", "-c", build_pty_script(cwd, cols, rows, shell)]
+    return _remote_kubectl_command(args)
+
+
+class SshPtySession:
+    """SSH 远程环境的交互式终端会话（对齐 ``PtySession`` 的接口契约）。
+
+    实现：paramiko ``invoke_shell()`` 在远端分配真 PTY，随后投递
+    ``kubectl exec -it`` 命令 —— 远端 sshd TTY → kubectl 感知 tty → 容器内
+    分配 TTY，因此 vim / top 等全屏程序可正常渲染。窗口大小经
+    ``chan.resize_pty`` 同步。
+
+    接口（与 exec_pty.PtySession 一致，WS 路由无需感知差异）：
+      ``start()`` / ``write(data)`` / ``resize(cols, rows)`` /
+      ``read(timeout)``（bytes | b"" 超时 | None=EOF）/ ``close()`` / ``alive``
+    """
+
+    _READ_SIZE = 65536
+    _QUEUE_MAX = 4096
+    _SHELL_SETTLE = 0.3   # invoke_shell 后等远端 shell 就绪再投命令（秒）
+
+    def __init__(self, env_name, remote_command, cols=80, rows=24, loop=None):
+        self._env_name = env_name
+        self._command = remote_command
+        self.cols = max(1, int(cols or 80))
+        self.rows = max(1, int(rows or 24))
+        self._loop = loop
+        self._queue = None
+        self._chan = None
+        self._thread = None
+        self._closed = True
+        self._eof = False
+        self.exit_code = None
+
+    @property
+    def alive(self):
+        return self._chan is not None and not self._closed
+
+    def start(self):
+        """建立远端 PTY 并投递 kubectl exec 命令。连接失败会抛异常（调用方兜底）。"""
+        if self._chan is not None:
+            return self
+        if self._loop is None:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                try:
+                    self._loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    self._loop = None
+        self._queue = asyncio.Queue()
+        try:
+            cli = _get_client(self._env_name)
+            self._chan = cli.invoke_shell(
+                term="xterm-256color", width=self.cols, height=self.rows)
+        except UserError:
+            raise
+        except Exception as ex:
+            _drop_client(self._env_name)
+            raise UserError("SSH 终端连接失败：%s" % ex)
+        self._closed = False
+        self._eof = False
+        time.sleep(self._SHELL_SETTLE)   # 等远端 shell 打印完 banner
+        self._chan.send(self._command + "\n")
+        self._thread = threading.Thread(target=self._read_loop,
+                                        name="k8s-ssh-pty-reader", daemon=True)
+        self._thread.start()
+        return self
+
+    def write(self, data):
+        if self._chan is None or self._closed:
+            return False
+        if isinstance(data, str):
+            data = data.encode("utf-8", "replace")
+        try:
+            self._chan.send(data)
+            return True
+        except Exception:
+            self._closed = True
+            return False
+
+    def resize(self, cols, rows):
+        if self._chan is None or self._closed:
+            return False
+        self.cols = max(1, int(cols or self.cols))
+        self.rows = max(1, int(rows or self.rows))
+        try:
+            self._chan.resize_pty(width=self.cols, height=self.rows)
+            return True
+        except Exception:
+            return False
+
+    async def read(self, timeout=None):
+        if self._queue is None:
+            return None
+        if self._eof:
+            return None
+        try:
+            item = await asyncio.wait_for(self._queue.get(), timeout)
+        except asyncio.TimeoutError:
+            return b""
+        except asyncio.CancelledError:
+            return None
+        if item is None:
+            self._eof = True
+            return None
+        return item
+
+    def close(self):
+        if self._closed and self._chan is None:
+            return
+        self._closed = True
+        chan, thread = self._chan, self._thread
+        self._chan = self._thread = None
+        if chan is not None:
+            try:
+                chan.close()
+            except Exception:
+                pass
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+        if self._queue is not None:
+            try:
+                self._queue.put_nowait(None)
+            except Exception:
+                pass
+
+    def _read_loop(self):
+        chan = self._chan
+        if chan is None:
+            return
+        while not self._closed:
+            try:
+                if chan.recv_ready():
+                    self._enqueue(chan.recv(self._READ_SIZE))
+                    continue
+                if chan.closed or chan.exit_status_ready():
+                    # 排空残余后退出
+                    if chan.recv_ready():
+                        continue
+                    break
+                time.sleep(0.05)
+            except Exception:
+                break
+        self._enqueue(None)
+
+    def _enqueue(self, item):
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            return
+        try:
+            if item is not None and self._queue.qsize() >= self._QUEUE_MAX:
+                try:
+                    self._queue.get_nowait()
+                except Exception:
+                    pass
+            loop.call_soon_threadsafe(self._queue.put_nowait, item)
+        except RuntimeError:
+            pass
+        except Exception:
+            pass
+
+
 __all__ = [
     "SSH_MARKER_PREFIX",
     "is_ssh_target",
@@ -220,4 +399,6 @@ __all__ = [
     "run_kubectl_ssh",
     "run_kubectl_ssh_async",
     "SshKubectlStream",
+    "build_ssh_pty_command",
+    "SshPtySession",
 ]

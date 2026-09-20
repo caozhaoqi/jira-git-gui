@@ -11,6 +11,7 @@ import subprocess as _subprocess
 from core.errors import UserError
 from .env import get_env
 from .pods import _env_kubectl_prefix
+from .ssh_exec import is_ssh_target, marker_env_name, run_kubectl_ssh
 
 
 def _exec_base_args(env_name, pod, container, namespace):
@@ -19,8 +20,19 @@ def _exec_base_args(env_name, pod, container, namespace):
     返回 ``(args, ns)``，其中 ``args`` 形如
     ``['kubectl', '--kubeconfig', <kc>, 'exec', <pod>, ('-n', <ns>)?, ('-c', <c>)?]``，
     调用方需自行补上 ``-- sh -c <script>``。env 不存在时抛 ``UserError``。
+
+    SSH 环境：``--kubeconfig`` 为 ``ssh://<env_name>`` 标记（``_run_kubectl_bytes``
+    识别后改走 paramiko 远程执行，kubectl 本体不会看到该标记）。
     """
     _, env = get_env(env_name)
+    if env.get("ssh_host"):
+        args = ["kubectl", "--kubeconfig", "ssh://%s" % env_name, "exec", pod]
+        ns = namespace or env.get("namespace")
+        if ns:
+            args += ["-n", ns]
+        if container:
+            args += ["-c", container]
+        return args, ns
     args = ["kubectl"] + _env_kubectl_prefix(env) + ["exec", pod]
     ns = namespace or env.get("namespace")
     if ns:
@@ -55,9 +67,31 @@ def _kubectl_subprocess_env(sub_env=None):
     return env
 
 
+def _split_ssh_marker(args):
+    """若 argv 带 ``--kubeconfig ssh://<env>`` 标记，拆出环境名并剥掉该参数。
+
+    返回 ``(env_name_or_None, clean_args)``。标记由 ``_exec_base_args`` 注入，
+    在此拦截改走 SSH 远程执行，kubectl 本体不会看到非法路径。
+    """
+    args = list(args)
+    if "--kubeconfig" in args:
+        i = args.index("--kubeconfig")
+        if i + 1 < len(args) and is_ssh_target(args[i + 1]):
+            return marker_env_name(args[i + 1]), args[:i] + args[i + 2:]
+    return None, args
+
+
 def _run_kubectl_bytes(argv, timeout=60, sub_env=None):
-    """以字节模式执行 kubectl（用于二进制安全的 exec / 文件读写）。"""
-    args = list(argv)
+    """以字节模式执行 kubectl（用于二进制安全的 exec / 文件读写）。
+
+    ``--kubeconfig ssh://<env>`` 标记时改走 paramiko 远程执行（输出转 bytes，
+    与本地 subprocess 返回形态一致）。
+    """
+    ssh_env, args = _split_ssh_marker(argv)
+    if ssh_env is not None:
+        out, rc, err = run_kubectl_ssh(ssh_env, args[1:] if args and args[0] == "kubectl" else args,
+                                       timeout=timeout)
+        return (out.encode("utf-8", "replace"), rc, err.encode("utf-8", "replace"))
     resolved = _resolve_kubectl_binary()
     if not args or args[0] != resolved:
         if args and args[0] == "kubectl":
