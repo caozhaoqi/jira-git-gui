@@ -79,7 +79,9 @@ def save_envs(data):
 def list_envs():
     """返回每个环境的完整信息 dict 列表，键与前端 K8sEnv 一致。
 
-    字段：name / label / is_current / kubeconfig / context / namespace / intranet_hosts
+    字段：name / label / is_current / kubeconfig / context / namespace /
+    intranet_hosts / ssh_host / ssh_port / ssh_user / ssh_password
+    （ssh_* 非空表示 SSH 远程环境：经账密登录远端执行 kubectl）
     """
     data = load_envs()
     cur = data.get("current")
@@ -92,6 +94,10 @@ def list_envs():
             "context": e.get("context", ""),
             "namespace": e.get("namespace", ""),
             "intranet_hosts": e.get("intranet_hosts", []),
+            "ssh_host": e.get("ssh_host", ""),
+            "ssh_port": e.get("ssh_port", ""),
+            "ssh_user": e.get("ssh_user", ""),
+            "ssh_password": e.get("ssh_password", ""),
         }
         for n, e in data["environments"].items()
     ]
@@ -109,7 +115,9 @@ def get_env(name=None):
 
 
 def add_or_update_env(name, label=None, kubeconfig=None, context=None,
-                      namespace=None, intranet_hosts=None):
+                      namespace=None, intranet_hosts=None,
+                      ssh_host=None, ssh_port=None, ssh_user=None,
+                      ssh_password=None):
     data = load_envs()
     env = data["environments"].get(name, {})
     env["label"] = label if label not in (None, "") else (env.get("label") or name)
@@ -121,6 +129,15 @@ def add_or_update_env(name, label=None, kubeconfig=None, context=None,
         env["namespace"] = namespace
     if intranet_hosts is not None:
         env["intranet_hosts"] = intranet_hosts
+    # SSH 远程环境（账密登录远端执行 kubectl）；传空串即清除该字段
+    if ssh_host is not None:
+        env["ssh_host"] = str(ssh_host).strip()
+    if ssh_port is not None:
+        env["ssh_port"] = str(ssh_port).strip()
+    if ssh_user is not None:
+        env["ssh_user"] = str(ssh_user).strip()
+    if ssh_password is not None:
+        env["ssh_password"] = ssh_password
     data["environments"][name] = env
     save_envs(data)
     return data

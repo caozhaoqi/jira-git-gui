@@ -44,6 +44,12 @@ from core.k8s.exec import (
     kubectl_available,
     spawn_kubectl_pty,
 )
+from core.k8s.ssh_exec import (
+    SshPtySession as _SshPtySession,
+    build_ssh_pty_command as _build_ssh_pty_command,
+    is_ssh_target as _is_ssh_target,
+    marker_env_name as _marker_env_name,
+)
 
 logger = logging.getLogger("api.routes_k8s_exec")
 router = APIRouter()
@@ -392,8 +398,21 @@ async def _ws_k8s_exec_line(websocket: WebSocket, env: str, namespace: str,
 # --------------------------------------------------------------------------- #
 async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
                            pod: str, container: str, env_vars: dict):
-    """WebSocket 终端：优先真 PTY（支持 vim/top），不可用时降级行缓冲。"""
+    """WebSocket 终端：优先真 PTY（支持 vim/top），不可用时降级行缓冲。
+
+    SSH 远程环境（env 配置了 ssh_host）：经 paramiko ``invoke_shell`` 在远端
+    分配真 PTY 后投递 ``kubectl exec -it``（``SshPtySession``），协议与本地
+    PTY 完全一致；失败降级行缓冲（一次性 exec 也已 SSH 感知）。
+    """
     await websocket.accept()
+
+    # SSH 环境：本地 kubectl 无 kubeconfig，必然失败 —— 直接走 SSH PTY 分支
+    kc, ns_default = _k8s_mgr.resolve_env_kubeconfig(env)
+    if _is_ssh_target(kc):
+        await _ws_k8s_exec_ssh(
+            websocket, _marker_env_name(kc), env, namespace or ns_default or "",
+            pod, container, env_vars)
+        return
 
     sess = None
     reason = ""
@@ -432,6 +451,50 @@ async def _ws_k8s_exec_tty(websocket: WebSocket, env: str, namespace: str,
             pass
         sess = None
         reason = reason or "终端会话未就绪，已降级为行缓冲模式。"
+
+    await _ws_k8s_exec_line(websocket, env, namespace, pod, container, notice=reason)
+
+
+# --------------------------------------------------------------------------- #
+# SSH 远程环境：真 PTY（paramiko invoke_shell）→ 降级行缓冲（exec 已 SSH 感知）
+# --------------------------------------------------------------------------- #
+async def _ws_k8s_exec_ssh(websocket: WebSocket, env_name: str, env: str,
+                           namespace: str, pod: str, container: str,
+                           env_vars: dict):
+    """SSH 环境终端：远端 PTY + kubectl exec -it，失败降级行缓冲。"""
+    cols, rows = _initial_size(websocket)
+    sess = None
+    reason = ""
+    if _pty_wanted(websocket):
+        try:
+            cmd = _build_ssh_pty_command(
+                env_name, pod, container or None, namespace or None,
+                cwd="/", cols=cols, rows=rows)
+            sess = _SshPtySession(env_name, cmd, cols=cols, rows=rows,
+                                  loop=asyncio.get_running_loop()).start()
+        except Exception as ex:
+            sess = None
+            reason = "SSH 终端启动失败（%s），已降级为行缓冲模式。" % (
+                getattr(ex, "message", None) or ex)
+    else:
+        reason = "客户端指定 tty=0，使用行缓冲模式。"
+
+    if sess is not None:
+        try:
+            ok, cwd, pending, reason = await _pty_await_ready(sess)
+        except Exception as ex:
+            ok, cwd, pending, reason = False, "/", "", "建立终端会话异常：%s" % ex
+            logger.warning("SSH PTY 会话就绪等待异常 pod=%s: %s", pod, ex)
+        if ok:
+            await websocket.send_json({"type": "ready", "tty": True, "cwd": cwd})
+            await _pty_pump(websocket, sess, pending)
+            return
+        try:
+            await asyncio.get_running_loop().run_in_executor(None, sess.close)
+        except Exception:
+            pass
+        sess = None
+        reason = reason or "SSH 终端会话未就绪，已降级为行缓冲模式。"
 
     await _ws_k8s_exec_line(websocket, env, namespace, pod, container, notice=reason)
 

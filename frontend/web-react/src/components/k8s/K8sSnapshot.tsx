@@ -100,6 +100,12 @@ export function K8sSnapshot() {
 
   const run = useCallback(async () => {
     if (runningRef.current) return;
+    // 守卫：没选环境也没填 kubeconfig 时，后端本地 kubectl 会连 localhost 挂满超时
+    if (!target.env && !kubeconfig.trim()) {
+      addToast(t('k8s.snapshot.needEnv'), 'error');
+      appendLog(t('k8s.snapshot.needEnv'));
+      return;
+    }
     setRunning(true);
     runningRef.current = true;
     logsRef.current = [];

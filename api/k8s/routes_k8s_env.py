@@ -37,6 +37,14 @@ class K8sEnvSave(BaseModel):
     name: str
     kubeconfig: str
     namespace: str = ""
+    context: str = ""
+    label: str = ""
+    intranet_hosts: list = []
+    # SSH 远程环境：填了 ssh_host 即经账密登录远端执行 kubectl（远端用自身 kubeconfig）
+    ssh_host: str = ""
+    ssh_port: str = ""
+    ssh_user: str = ""
+    ssh_password: str = ""
 
 
 class K8sYamlReq(BaseModel):
@@ -71,7 +79,14 @@ async def api_k8s_env_save(body: K8sEnvSave):
     """保存（新增 / 覆盖）一个 K8s 环境配置。"""
     try:
         _k8s_add_or_update_env(body.name, kubeconfig=body.kubeconfig,
-                               namespace=body.namespace or None)
+                               namespace=body.namespace or None,
+                               context=body.context or None,
+                               label=body.label or None,
+                               intranet_hosts=body.intranet_hosts or None,
+                               ssh_host=body.ssh_host,
+                               ssh_port=body.ssh_port,
+                               ssh_user=body.ssh_user,
+                               ssh_password=body.ssh_password)
     except Exception as ex:
         return {"ok": False, "error": getattr(ex, "message", None) or str(ex)}
     return {"ok": True}
