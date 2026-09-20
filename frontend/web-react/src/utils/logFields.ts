@@ -103,3 +103,40 @@ export function logRowContent(row: LogRowLike | null | undefined): string {
   if (c == null) return '';
   return typeof c === 'object' ? JSON.stringify(c) : String(c);
 }
+
+/**
+ * 行自身的「类型 / 描述」原始值：按记录模型选字段（dynamic_log→log_type，
+ * SyncOuterRecord→name），该字段缺失时再走 logRowType 的通用兜底链。
+ * 用于「日志类型」过滤的客户端校验（拿不到类型时返回 '(未知)'）。
+ */
+export function logRowTypeValue(
+  row: LogRowLike | null | undefined,
+  model = 'dynamic_log',
+): string {
+  if (!row) return '';
+  const field = modelTypeField(model);
+  const v = (row as Record<string, unknown>)[field];
+  if (v != null && v !== '') return String(v);
+  return logRowType(row, '');
+}
+
+/**
+ * 行是否命中「日志类型」过滤（与服务端 hcm.model.list 的 filter_dict 同口径）。
+ *
+ * 未设过滤 → 全部保留；设了 → 对行的类型字段做大小写无关的**包含**匹配，
+ * 且**取不到类型字段时不武断丢弃**（宁可多留，也不隐藏服务端已返回的行）。
+ *
+ * 用途：实时刷新（SSE）推来的行也要走这里 —— 后端流的过滤条件是「开启时快照」，
+ * 持有旧/空条件时会推来其它类型的日志，靠本函数保证显示层只保留当前类型。
+ */
+export function logRowMatchesType(
+  row: LogRowLike | null | undefined,
+  logType: string,
+  model = 'dynamic_log',
+): boolean {
+  const needle = (logType || '').trim().toLowerCase();
+  if (!needle) return true;
+  const t = logRowTypeValue(row, model);
+  if (!t || t === '(未知)') return true;
+  return t.toLowerCase().includes(needle);
+}

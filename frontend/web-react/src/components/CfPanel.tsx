@@ -5,7 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { readClipboardText, writeClipboardText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
-import { logRowType, logRowTime, buildHcmLogUrl } from '../utils/logFields';
+import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
 import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
@@ -233,6 +233,7 @@ export function CfPanel() {
   const [streaming, setStreaming] = useState(false);        // 实时刷新是否开启
   const [streamInterval, setStreamInterval] = useState(5);  // 轮询间隔（秒）
   const [lastTick, setLastTick] = useState('');             // 最近一次轮询时刻（心跳可见化）
+  const [needBaseline, setNeedBaseline] = useState(false);   // 恢复了后台流但缺基线：等 cfg 就绪补查一次
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -240,6 +241,8 @@ export function CfPanel() {
   resultRef.current = result;
   const streamingRef = useRef(false);
   streamingRef.current = streaming;
+  // 当前后端流生效的过滤条件快照；查询条件变化时据此判断是否需要重启流（见 syncStreamFilter）。
+  const streamParamsRef = useRef<{ server_url: string; log_type: string; record_model: string; page_size: number } | null>(null);
 
   const setBusy = (k: string, v: boolean) =>
     setLoading((m) => ({ ...m, [k]: v }));
@@ -304,13 +307,42 @@ export function CfPanel() {
     }
   }, []);
 
+  // 页面刷新后：后端流是「服务端常驻单例」，但前端 streamParamsRef 是内存态会丢。
+  // 挂载时向后端询问流状态并回填，否则刷新后前端既不知道流还在跑，过滤快照也对不上。
+  const restoreStreamState = useCallback(async (): Promise<boolean> => {
+    try {
+      const d = await apiPost<{
+        streaming?: boolean; server_url?: string; log_type?: string;
+        record_model?: string; page_size?: number; interval?: number;
+      }>('/api/cf/logs/stream', { action: 'status' });
+      if (!d || !d.streaming) return false;
+      if (d.interval) setStreamInterval(d.interval);
+      streamParamsRef.current = {
+        server_url: (d.server_url || '').trim(),
+        log_type: (d.log_type || '').trim(),
+        record_model: (d.record_model || 'dynamic_log').trim() || 'dynamic_log',
+        page_size: d.page_size || 100,
+      };
+      setStreaming(true);
+      setStatus({ text: `已恢复实时刷新状态（后台流仍在运行：log_type=${d.log_type || '全部'}）`, cls: 'success' });
+      return true;
+    } catch {
+      /* 询问失败就当没开流 */
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       await loadAccounts();
       loadCfg();
       await loadTokens();
+      const restored = await restoreStreamState();
+      // 恢复了后台流但当前没有基线结果：标记一下，等 cfg（loadCfg 已 setCfg）就绪后补查一次，
+      // 否则实时刷新推来的新行会因 result 为空被丢弃，看起来「开着但没动静」。
+      if (restored && !resultRef.current) setNeedBaseline(true);
     })();
-  }, [loadAccounts, loadCfg, loadTokens]);
+  }, [loadAccounts, loadCfg, loadTokens, restoreStreamState]);
 
   // 实时刷新：订阅后端 SSE 推送（cf_log_update），把新增日志合并进当前结果。
   // 合并策略：行 key 去重 → 新行前插 → 上限 5000 条；时间过滤视图由 view memo 自动生效。
@@ -318,6 +350,7 @@ export function CfPanel() {
     const off = sse.on('cf_log_update', (d: SSECFLogUpdate) => {
       if (d.stopped) {
         setStreaming(false);
+        streamParamsRef.current = null;
         setStatus({ text: d.error ? `实时刷新已停止：${d.error}` : '实时刷新已停止', cls: d.error ? 'error' : '' });
         return;
       }
@@ -330,8 +363,11 @@ export function CfPanel() {
         if (d.error) setStatus({ text: `实时刷新拉取失败：${d.error}（将继续重试）`, cls: 'warning' });
         return;
       }
+      // 类型过滤兜底：后端流可能持「开启时的旧/空条件」，此处按当前 result 的类型过滤再合并，
+      // 否则旧的实时刷新会把其它类型的日志混进来，让日志类型过滤看起来失效。
+      const matched = incoming.filter((row) => logRowMatchesType(row, r.log_type, r.record_model));
       const seen = new Set(r.rows.map(cfRowKey));
-      const fresh = incoming.filter((row) => !seen.has(cfRowKey(row)));
+      const fresh = matched.filter((row) => !seen.has(cfRowKey(row)));
       if (!fresh.length) return; // 无新日志，不打扰
       setResult({
         ...r,
@@ -555,6 +591,30 @@ export function CfPanel() {
     if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
   };
 
+  // 实时刷新中：查询过滤条件（server_url / log_type / record_model）变了就按新条件重启后端流。
+  // 否则流会继续按「开启时快照」的条件轮询，新设的类型过滤就被它推来的旧行盖掉。
+  const syncStreamFilter = async (serverUrl: string, logType: string, recordModel: string, pageSize: number) => {
+    if (!streamingRef.current) return;
+    const prev = streamParamsRef.current;
+    if (prev && prev.server_url === serverUrl && prev.log_type === logType && prev.record_model === recordModel) return;
+    try {
+      await apiPost('/api/cf/logs/stream', {
+        action: 'start',
+        server_url: serverUrl,
+        token: cfgRef.current.token.trim(),
+        proxy: cfgRef.current.proxy.trim(),
+        log_type: logType,
+        record_model: recordModel,
+        page_size: Math.min(pageSize || 100, 300),
+        interval: streamInterval,
+      });
+      streamParamsRef.current = { server_url: serverUrl, log_type: logType, record_model: recordModel, page_size: pageSize };
+      setStatus({ text: `实时刷新已按新的类型过滤重启（log_type=${logType || '全部'}）`, cls: 'success' });
+    } catch {
+      /* 重启失败不阻塞查询；下次查询再试 */
+    }
+  };
+
   const queryLogs = async () => {
     const serverUrl = cfg.server_url.trim();
     const token = cfg.token.trim();
@@ -608,6 +668,8 @@ export function CfPanel() {
       } catch {
         /* 拉取失败时降级：对已加载的数据排序并提示 */
       }
+      // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
+      await syncStreamFilter(serverUrl, logType, recordModel, pageSize);
     } catch (ex: any) {
       const msg = ex?.message || String(ex);
       // P2-⑧：手填 Token 失败时给出明确引导。识别会话失效 / 格式异常类错误，
@@ -627,6 +689,16 @@ export function CfPanel() {
     }
   };
 
+  // 一次性补基线：等 loadCfg 恢复出的 server_url 到位后再查（挂载 effect 里 cfg 还是旧值，直接查会拿到空 server_url）。
+  // 面板在 App 中「访问过即常驻挂载」，故此 effect 每次程序运行至多触发一次。
+  useEffect(() => {
+    if (!needBaseline) return;
+    if (!cfg.server_url.trim()) return; // 等 cfg 就绪
+    setNeedBaseline(false);
+    if (!resultRef.current) void queryLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needBaseline, cfg.server_url]);
+
   // —— 实时刷新：后端按间隔轮询最新页，新日志经 SSE（cf_log_update）推送合并 ——
   const stopStream = useCallback(async () => {
     try {
@@ -634,6 +706,7 @@ export function CfPanel() {
     } catch {
       /* ignore */
     }
+    streamParamsRef.current = null;
     setStreaming(false);
   }, []);
 
@@ -669,6 +742,13 @@ export function CfPanel() {
         page_size: Math.min(cfg.page_size || 100, 300),
         interval: streamInterval,
       });
+      // 记录本轮流生效的过滤条件，供 syncStreamFilter 比对（条件变了才重启）
+      streamParamsRef.current = {
+        server_url: serverUrl,
+        log_type: cfg.log_type.trim(),
+        record_model: cfg.record_model.trim() || 'dynamic_log',
+        page_size: Math.min(cfg.page_size || 100, 300),
+      };
       setStreaming(true);
       setStatus({ text: `实时刷新已开启（每 ${streamInterval} 秒检查新日志）`, cls: 'success' });
     } catch (e: any) {
@@ -695,10 +775,12 @@ export function CfPanel() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     const q = search.trim();
+    const lt = (r.log_type || '').trim();
     let rowsToExport = allRows;
-    if (win || q) {
+    if (win || q || lt) {
       const needle = caseSensitive ? q : q.toLowerCase();
       rowsToExport = allRows.filter((row) => {
+        if (lt && !logRowMatchesType(row, lt, r.record_model)) return false;
         if (win) {
           const tv = parseLogTime(cfTime(row));
           if (isNaN(tv) || tv < win[0] || tv > win[1]) return false;
@@ -829,6 +911,12 @@ export function CfPanel() {
         const tv = parseLogTime(cfTime(r));
         return !isNaN(tv) && tv >= win[0] && tv <= win[1];
       });
+    }
+    // 日志类型过滤（与服务端 filter_dict 同口径）：即使 result 里混入了实时刷新推来的旧条件行，
+    // 显示层也只保留当前 log_type 的行，避免「自动刷新让类型过滤失效」。
+    const lt = (result.log_type || '').trim();
+    if (lt) {
+      filtered = filtered.filter((r) => logRowMatchesType(r, lt, result.record_model));
     }
     if (q && filterOn) {
       filtered = filtered.filter((r) => {
