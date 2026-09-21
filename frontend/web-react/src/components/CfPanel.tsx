@@ -660,7 +660,8 @@ export function CfPanel() {
       };
       setResult(base);
       setExpanded(null);
-      setSearch('');
+      // 注意：不要在此清空 search（实时过滤输入框）。
+      // 用户刚输入的过滤条件应在新查询结果上继续生效，否则表现为「点查询后过滤内容被清空」。
       setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
       const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
       try {
