@@ -1,12 +1,12 @@
 {
   "name": "jira-git-gui",
-  "version": "2.0.0",
-  "description": "Jira Git 通用拉取工具 - Electron 版",
+  "version": "0.7.0",
+  "description": "Jira Git GUI",
   "main": "main.js",
-  "homepage": "https://github.com/caozhaoqi/jira-git-gui",
+  "homepage": "https://caozhaoqi.github.io",
   "author": {
     "name": "caozhaoqi",
-    "email": "1150118968@qq.com"
+    "email": "zhaoqi.cao@icloud.com"
   },
   "repository": {
     "type": "git",
@@ -58,7 +58,7 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Development",
-      "maintainer": "caozhaoqi <1150118968@qq.com>"
+      "maintainer": "caozhaoqi <zhaoqi.cao@icloud.com>"
     }
   }
 }

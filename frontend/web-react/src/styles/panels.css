@@ -1384,12 +1384,74 @@
   font-family: var(--mono);
   font-size: 11px;
 }
-.commit-file { color: var(--text-dim); }
+.commit-file { color: var(--text-dim); cursor: pointer; transition: background .12s, color .12s; padding: 1px 4px; border-radius: 4px; }
+.commit-file:hover { background: var(--accent-soft, rgba(80,120,255,.12)); color: var(--accent, #6c8cd5); }
+.commit-file:focus-visible { outline: 2px solid var(--accent, #6c8cd5); outline-offset: 1px; }
 .commit-file.ct-M { color: #d29922; }
 .commit-file.ct-A { color: #2e9e5b; }
 .commit-file.ct-D { color: #e05252; }
 .commit-file.ct-R { color: #6c8cd5; }
 .commit-file-more { color: var(--text-dim); }
+
+/* F2：历史版本左右对比的表头 */
+.diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border, #2a2f3a); background: var(--panel-2, #1a1e26); }
+
+/* ===== F4：合并冲突 3-way 决策面板 ===== */
+.conflict-modal { width: min(960px, 94vw); }
+.conflict-hint { font-size: 12px; color: var(--text-dim); padding: 2px 0 8px; line-height: 1.6; }
+.conflict-list { display: flex; flex-direction: column; gap: 14px; }
+.conflict-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  padding: 10px 12px;
+  background: var(--surface-2, var(--bg-elevated));
+}
+.conflict-path {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.conflict-choices { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.conflict-choices .rd {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; color: var(--text); cursor: pointer;
+}
+.conflict-3way { display: flex; flex-direction: column; gap: 6px; }
+.conflict-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cpane {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.cpane-h {
+  font-size: 11px; color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--bg-head, var(--surface-2));
+  border-bottom: 1px solid var(--border);
+}
+.cpane-pre {
+  margin: 0; padding: 8px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  max-height: 200px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all;
+  color: var(--text);
+}
+.conflict-merged {
+  width: 100%; min-height: 170px;
+  padding: 8px 10px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-input, var(--bg-panel));
+  color: var(--text);
+  resize: vertical;
+}
+.conflict-merged:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring); }
 
 /* K8s 快照日志区 */
 .k8s-log-wrap {

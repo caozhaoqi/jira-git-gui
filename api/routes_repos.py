@@ -16,7 +16,7 @@ from fastapi import HTTPException
 
 from fastapi import APIRouter
 from api.common import (
-    app, client, logger,
+    app, client, logger, broadcast,
     _session, _env_loaded, _env_path,
     commit_to_dict,
 )
@@ -197,8 +197,21 @@ async def api_discover_repos(refresh: bool = False):
 
 @router.post("/api/repo/select")
 async def api_select_repo(req: RepoSelectReq):
-    """选择当前仓库。"""
+    """选择当前仓库，并主动探测远端会话健康（Cookie 失效则推 SSE 告警）。"""
     client.set_repo(req.repo_id, req.repo_name, req.branch)
+    # 主动探测 Cookie 健康：打掉「文件树空 / 预览失败 / diff 全错」的根因之一。
+    # 仅当远端浏览确不可用（登录页=auth、非 200=unreachable）时广播，
+    # 避免对「正常空仓库 / PAT 本地模式」误报。
+    try:
+        status, detail = await asyncio.to_thread(client.check_cookie_health)
+        if status in ("auth", "unreachable"):
+            broadcast("cookie_expired", {
+                "status": status,
+                "detail": detail,
+                "repo_id": client.repo_id or req.repo_id,
+            })
+    except Exception as e:
+        logger.warning("Cookie 健康探测失败（repo=%s）：%s", req.repo_id, e)
     return {
         "ok": True,
         "repo_id": client.repo_id,
@@ -233,6 +246,17 @@ async def api_tree(path: str = "", local_dir: str = "", refresh: bool = False):
         # refresh=true 绕过目录缓存强制回源（默认命中 5 分钟 TTL 缓存）。
         entries, tree_err = await asyncio.to_thread(
             client.list_level_ex, client.repo_id, client.branch, path, refresh)
+        # 浏览失败且原因为 Cookie 失效 / 会话过期：实时推 SSE 告警（用户在已选仓库期间
+        # Cookie 过期也会立刻看到红色横幅，不必等到下次切仓库才探测）。
+        if tree_err and ("登录页" in tree_err or "Cookie" in tree_err):
+            try:
+                broadcast("cookie_expired", {
+                    "status": "auth",
+                    "detail": tree_err,
+                    "repo_id": client.repo_id,
+                })
+            except Exception:
+                pass
         return {
             "error": tree_err or None,
             "entries": [_tree_entry_dict(e) for e in entries],

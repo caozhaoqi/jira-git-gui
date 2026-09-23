@@ -3,6 +3,7 @@ import { sse } from './api/events';
 import { apiGet } from './api/client';
 import { useAppStore, type TabKey } from './store/useAppStore';
 import { EtaTracker, formatEta } from './utils/eta';
+import { useT } from './i18n';
 import type {
   StatusResp,
   ReposResp,
@@ -11,6 +12,7 @@ import type {
   SSECloneDone,
   SSEDownloadDone,
   SSENetworkWarning,
+  SSECookieExpired,
 } from './api/types';
 import { normalizeStatus } from './api/types';
 import { TopBar } from './components/TopBar';
@@ -60,8 +62,11 @@ export default function App() {
   const addToast = useAppStore((s) => s.addToast);
   const setNetworkWarning = useAppStore((s) => s.setNetworkWarning);
   const networkWarning = useAppStore((s) => s.networkWarning);
+  const cookieExpired = useAppStore((s) => s.cookieExpired);
+  const setCookieExpired = useAppStore((s) => s.setCookieExpired);
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
+  const { t } = useT();
   const [connectOpen, setConnectOpen] = useState(false);
   // 访问过的标签页集合：首次切到某标签页就加入并永久保持挂载（仅隐藏），
   // 因此来回切换不会重置该面板内容。清空只发生在整个 App 卸载（程序关闭）。
@@ -153,6 +158,12 @@ export default function App() {
         addToast(msg, 'warn');
         setNetworkWarning(msg);
       }),
+      sse.on('cookie_expired', (d: SSECookieExpired) => {
+        // F3：远端会话失效（Cookie 过期 / 浏览页不可用）。横幅常驻直到用户处理，
+        // 不自动消失；后端可能重复广播，setCookieExpired 幂等覆盖即可。
+        setCookieExpired(d);
+        pushLog(`远端会话告警：${d.detail || d.status}`, 'error');
+      }),
     ];
     return () => offs.forEach((off) => off());
   }, [setStatus, setRepos, pushLog, setProgress, addToast, setNetworkWarning]);
@@ -167,6 +178,34 @@ export default function App() {
           {networkWarning && (
             <div className="network-warning" onClick={() => setNetworkWarning(null)}>
               ⚠ {networkWarning}
+            </div>
+          )}
+          {cookieExpired && (
+            <div className="cookie-expired-banner" role="alert">
+              <div className="cookie-expired-text">
+                <strong>⚠ {t('cookie.expiredTitle')}</strong>
+                <span>{cookieExpired.detail || t('cookie.expiredDetail')}</span>
+              </div>
+              <div className="cookie-expired-actions">
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => { setConnectOpen(true); setCookieExpired(null); }}
+                >
+                  {t('cookie.reLogin')}
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => { setTab('repo'); setCookieExpired(null); }}
+                >
+                  {t('cookie.cloneLocal')}
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setCookieExpired(null)}
+                >
+                  {t('cookie.dismiss')}
+                </button>
+              </div>
             </div>
           )}
           <div className="workspace-body">

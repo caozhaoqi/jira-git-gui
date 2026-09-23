@@ -220,6 +220,16 @@ export interface DiffMergeResp {
   error?: string;
   skipped?: boolean;
   reason?: string;
+  path?: string;
+  // F4：冲突（本地与远端相对上次同步都改过）→ 不覆盖，返回 3-way 材料
+  conflict?: boolean;
+  kind?: string;
+  base?: string | null;
+  ours?: string;
+  theirs?: string;
+  is_binary?: boolean;
+  remote_hash?: string;
+  local_hash?: string;
 }
 export interface DiffMergeBatchReq {
   local_dir: string;
@@ -234,9 +244,39 @@ export interface DiffMergeBatchItem {
   status?: string;
 }
 export interface DiffMergeBatchResp {
-  results?: { path: string; ok: boolean; error?: string; skipped?: boolean }[];
+  results?: {
+    path: string; ok: boolean; error?: string; skipped?: boolean;
+    // F4：冲突项
+    conflict?: boolean; kind?: string; base?: string | null;
+    ours?: string; theirs?: string; is_binary?: boolean;
+    remote_hash?: string; local_hash?: string;
+  }[];
   error?: string;
   skipped?: number;
+  conflicts?: number;
+}
+/** F4：单条冲突的 3-way 材料（前端构造冲突列表用） */
+export interface DiffConflict {
+  path: string;
+  kind?: string;
+  base?: string | null;
+  ours: string;
+  theirs?: string;
+  is_binary?: boolean;
+  remote_hash?: string;
+  local_hash?: string;
+}
+/** F4：冲突决策请求（ours/theirs/merged） */
+export interface MergeResolveReq {
+  local_dir: string;
+  path: string;
+  compare_dir?: string;
+  resolution: string;     // ours | theirs | merged
+  merged_content?: string;
+  theirs_content?: string;
+}
+export interface MergeResolveResp {
+  results?: { path: string; ok: boolean; resolution?: string; error?: string }[];
 }
 /** 已合并记录（merge_manifest）：path -> {ok, remote_hash} */
 export interface MergeManifestResp {
@@ -818,6 +858,14 @@ export interface SSEMergeDone {
   fail_count?: number;
 }
 
+// Cookie / 远端会话健康告警（F3：主动探测失效，避免「树空/预览失败」无从查因）
+export interface SSECookieExpired {
+  /** ok | empty | auth | unreachable | no_repo */
+  status: string;
+  detail?: string;
+  repo_id?: string;
+}
+
 // 云函数日志实时刷新（后端轮询 HCM 第一页 → SSE 推送新增行）
 export interface SSECFLogUpdate {
   ok?: boolean;
@@ -853,6 +901,8 @@ export type SSEEventMap = {
   merge_start: SSEMergeStart;
   merge_progress: SSEMergeProgress;
   merge_done: SSEMergeDone;
+  // Cookie / 远端会话健康告警（F3）
+  cookie_expired: SSECookieExpired;
   // 云函数调试控制台
   cf_debug_log: SSECFDebugLog;
   cf_debug_done: SSECFDebugDone;
