@@ -241,7 +241,6 @@ function buildAppMenu() {
         { label: '关于 Jira Git GUI', role: 'about' },
         { type: 'separator' },
         { label: '首选项…', accelerator: 'CmdOrCtrl+,', click: openPreferences },
-        // { label: 'HCM 元数据…', accelerator: 'CmdOrCtrl+Shift+M', click: openHcmMeta },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -255,9 +254,9 @@ function buildAppMenu() {
   // 设置（非 macOS 下作为顶层菜单承载首选项 / HCM 元数据）
   const prefItem = { label: '首选项…', click: openPreferences };
   if (!isMac) prefItem.accelerator = 'Ctrl+,';
-  const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
-  if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
-  template.push({ label: '设置', submenu: [prefItem, hcmItem] });
+  // const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
+  // if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
+  template.push({ label: '设置', submenu: [prefItem] });
 
   // 编辑（标准角色，保证复制 / 粘贴等可用）
   template.push({

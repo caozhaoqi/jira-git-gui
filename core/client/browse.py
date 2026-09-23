@@ -188,6 +188,38 @@ class BrowseMixin:
         files = sorted([e for e in entries if e.type == "file"], key=lambda x: x.name.lower())
         return dirs + files, ""
 
+    def check_cookie_health(self, repo_id: str = "", branch: str = "") -> "tuple[str, str]":
+        """主动探测远端会话是否仍有效（用于 ``cookie_expired`` SSE 告警）。
+
+        复用 :meth:`list_level_ex` 对根目录的解析——其内部已能识别「登录页
+        （Cookie 失效）/ 非 200（浏览页不可用）/ 分支解析失败」，且走与文件树相同的
+        解析路径，判定口径与用户实际浏览一致。
+
+        Returns:
+            ``(status, detail)``，status ∈ {ok, empty, auth, unreachable, no_repo}：
+            - ok          根目录能正常列出条目（含 PAT/本地克隆模式，本就无 Cookie 可过期）
+            - empty       请求成功但根目录为空（可能是空仓库，低优先级提示）
+            - auth        Jira 回了登录页：Cookie 已失效，需重新粘贴
+            - unreachable 浏览页非 200 / 网络不可达
+            - no_repo     未选定仓库（无法探测）
+        """
+        rid = repo_id or getattr(self, "repo_id", "") or ""
+        if not rid:
+            return "no_repo", "未选定仓库"
+        br = branch or getattr(self, "branch", "") or ""
+        try:
+            entries, err = self.list_level_ex(rid, br, "")
+        except Exception as e:  # 探测本身异常（超时/连接错误）按不可达处理
+            return "unreachable", f"探测异常：{e}"
+        if err:
+            # 登录页是最常见真因；其余归为不可达（非 200 / 分支解析失败）。
+            if "登录页" in err or "Cookie" in err:
+                return "auth", err
+            return "unreachable", err
+        if entries:
+            return "ok", f"远端会话正常（根目录 {len(entries)} 条）"
+        return "empty", "根目录为空（可能是空仓库，或浏览页未返回数据）"
+
     def invalidate_tree_cache(self, repo_id: str = "") -> int:
         """让远端目录缓存失效（下次 list_level 强制回源）。
 

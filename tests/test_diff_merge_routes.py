@@ -232,3 +232,97 @@ def test_merge_batch_resume_refetches_when_local_changed(monkeypatch, tmp_path):
     assert (local / "a.txt").read_text() == "remote a.txt\n"
     manifest = _mm.load_manifest(str(local))
     assert manifest["a.txt"]["ok"] is True
+
+
+# ---- 5. F4：冲突感知（本地与远端相对上次同步都改过 → 不盲覆盖）--------------- #
+_CONFLICT_LOCAL = "LOCAL-EDIT\n"
+_CONFLICT_REMOTE = "REMOTE-EDIT\n"
+_CONFLICT_BASE = "BASE\n"
+
+
+def _seed_synced_and_diverged(monkeypatch, tmp_path, rel="keep.txt"):
+    """构造「已同步过一次，之后本地又改过」的状态（本地内容与快照不一致）。
+
+    远端内容由调用方经 _install_spy 指定。
+    """
+    import core.diff.merge_manifest as _mm
+
+    monkeypatch.setattr(_mm, "get_data_root", lambda: tmp_path / "appdata")
+    local = tmp_path / "local"
+    local.mkdir()
+    h = _mm.content_hash(_CONFLICT_BASE)
+    _mm.save_manifest(str(local), {rel: {"ok": True, "remote_hash": h, "local_hash": h}})
+    _mm.save_base(str(local), h, _CONFLICT_BASE)
+    (local / rel).write_text(_CONFLICT_LOCAL, encoding="utf-8")
+    return local, rel
+
+
+def test_merge_returns_conflict_without_overwriting_local(monkeypatch, tmp_path):
+    """周边都改了 → 返回 base/ours/theirs，且绝不覆盖本地文件。"""
+    _install_spy(monkeypatch, returns=_CONFLICT_REMOTE)
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+
+    res = asyncio.run(_rd.api_diff_merge(
+        _rd.MergeReq(local_dir=str(local), path=rel, use_cache=False)))
+
+    assert res.get("conflict") is True, res
+    assert res["ours"] == _CONFLICT_LOCAL, res
+    assert res["theirs"] == _CONFLICT_REMOTE, res
+    assert res["base"] == _CONFLICT_BASE, res
+    assert (local / rel).read_text() == _CONFLICT_LOCAL, "冲突时不得改写本地文件"
+
+
+def test_merge_batch_reports_conflicts_separately(monkeypatch, tmp_path):
+    """批量合并遇冲突：结果标记 conflict、计入 conflicts，且不写本地、不计入 fails。"""
+    _install_spy(monkeypatch, returns=_CONFLICT_REMOTE)
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+
+    res = asyncio.run(_rd.api_diff_merge_batch(
+        [_rd.MergeReq(local_dir=str(local), path=rel, use_cache=False)]))
+
+    assert res.get("conflicts") == 1, res
+    row = res["results"][0]
+    assert row.get("conflict") is True, row
+    assert row["ours"] == _CONFLICT_LOCAL, row
+    assert (local / rel).read_text() == _CONFLICT_LOCAL, "冲突时不得改写本地文件"
+
+
+def test_resolve_ours_keeps_local(monkeypatch, tmp_path):
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+    res = asyncio.run(_rd.api_diff_merge_resolve([
+        _rd.MergeResolveReq(local_dir=str(local), path=rel, resolution="ours")]))
+    assert res["results"][0]["ok"] is True, res
+    assert (local / rel).read_text() == _CONFLICT_LOCAL
+
+
+def test_resolve_theirs_writes_remote_but_rejects_empty(monkeypatch, tmp_path):
+    """theirs 正常写入；但空内容必须拒绝（否则会把本地截断为 0 字节）。"""
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+
+    res = asyncio.run(_rd.api_diff_merge_resolve([
+        _rd.MergeResolveReq(local_dir=str(local), path=rel,
+                            resolution="theirs", theirs_content="")]))
+    assert res["results"][0]["ok"] is False, res
+    assert (local / rel).read_text() == _CONFLICT_LOCAL, "空 theirs 不得清空本地"
+
+    res = asyncio.run(_rd.api_diff_merge_resolve([
+        _rd.MergeResolveReq(local_dir=str(local), path=rel,
+                            resolution="theirs", theirs_content=_CONFLICT_REMOTE)]))
+    assert res["results"][0]["ok"] is True, res
+    assert (local / rel).read_text() == _CONFLICT_REMOTE
+
+
+def test_resolve_merged_writes_manual_content(monkeypatch, tmp_path):
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+    res = asyncio.run(_rd.api_diff_merge_resolve([
+        _rd.MergeResolveReq(local_dir=str(local), path=rel,
+                            resolution="merged", merged_content="MERGED\n")]))
+    assert res["results"][0]["ok"] is True, res
+    assert (local / rel).read_text() == "MERGED\n"
+
+
+def test_resolve_unknown_resolution_rejected(monkeypatch, tmp_path):
+    local, rel = _seed_synced_and_diverged(monkeypatch, tmp_path)
+    res = asyncio.run(_rd.api_diff_merge_resolve([
+        _rd.MergeResolveReq(local_dir=str(local), path=rel, resolution="bogus")]))
+    assert res["results"][0]["ok"] is False, res

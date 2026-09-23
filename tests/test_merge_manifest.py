@@ -83,3 +83,83 @@ def test_is_already_merged_false_cases(tmp_path):
     (local / "a.txt").unlink()
     assert _mm.is_already_merged(str(local), "a.txt",
                                  {"a.txt": {"ok": True, "remote_hash": h}}) is False
+
+
+# ===== F4：冲突感知 3-way（base 缓存 + detect_conflict）===== #
+BASE = "base\n"
+
+
+def _seed_synced(tmp_path, rel="a.txt", base=BASE):
+    """构造「已同步过一次」的状态：manifest 有 local/remote 双 hash + base 缓存。
+
+    返回 (local_dir路径, rel, base_hash)。
+    """
+    _mm.get_data_root = lambda: tmp_path / "appdata"  # type: ignore[assignment]
+    local = tmp_path / "repo"
+    local.mkdir(exist_ok=True)
+    h = _mm.content_hash(base)
+    _mm.save_manifest(str(local), {rel: {"ok": True, "remote_hash": h, "local_hash": h}})
+    _mm.save_base(str(local), h, base)
+    return local, rel, h
+
+
+def test_base_cache_roundtrip(tmp_path):
+    local, _rel, h = _seed_synced(tmp_path)
+    assert _mm.load_base(str(local), h) == BASE
+    # 未缓存 / 空 hash → None
+    assert _mm.load_base(str(local), "no-such-hash") is None
+    assert _mm.load_base(str(local), "") is None
+    # 二进制（bytes）不缓存（无法参与 3-way 文本合并）
+    _mm.save_base(str(local), "binhash", b"\x00\x01")
+    assert _mm.load_base(str(local), "binhash") is None
+
+
+def test_detect_conflict_cases(tmp_path):
+    local, rel, _h = _seed_synced(tmp_path)
+    ldir = str(local)
+
+    # A. 本地未改 + 远端改 → 无冲突（可安全自动合并）
+    (local / rel).write_text(BASE, encoding="utf-8")
+    assert _mm.detect_conflict(ldir, rel, "base\nremote-add\n")["conflict"] is False
+
+    # B. 本地改 + 远端未改 → 无冲突（沿用既有「远端为准」语义）
+    (local / rel).write_text("base\nlocal-add\n", encoding="utf-8")
+    assert _mm.detect_conflict(ldir, rel, BASE)["conflict"] is False
+
+    # C. 双方都改 → 冲突，且带回 base/ours/theirs 供 3-way
+    info = _mm.detect_conflict(ldir, rel, "base\nremote-add\n")
+    assert info["conflict"] is True
+    assert info["kind"] == "both"
+    assert info["base"] == BASE
+    assert info["ours"] == "base\nlocal-add\n"
+    assert info["theirs"] == "base\nremote-add\n"
+    assert info["is_binary"] is False
+
+
+def test_detect_conflict_no_snapshot_and_legacy(tmp_path):
+    """无快照（首次合并）不冲突；F4 之前的旧 manifest（无 local_hash）也不误报。"""
+    _mm.get_data_root = lambda: tmp_path / "appdata"  # type: ignore[assignment]
+    local = tmp_path / "repo"
+    local.mkdir()
+    target = local / "a.txt"
+    target.write_text("x\n", encoding="utf-8")
+
+    # 无快照 → 不冲突
+    assert _mm.detect_conflict(str(local), "a.txt", "y\n")["conflict"] is False
+
+    # 旧 manifest（只有 remote_hash，没有 local_hash）：即便远端改了也不误报
+    _mm.save_manifest(str(local), {"a.txt": {"ok": True,
+                                            "remote_hash": _mm.content_hash("y\n")}})
+    target.write_text("local-edit\n", encoding="utf-8")
+    assert _mm.detect_conflict(str(local), "a.txt", "z\n")["conflict"] is False
+
+
+def test_detect_conflict_binary_remote(tmp_path):
+    """远端为二进制时无法 3-way：标记 is_binary 且 theirs 置空（由调用方降级处理）。"""
+    _mm.get_data_root = lambda: tmp_path / "appdata"  # type: ignore[assignment]
+    local = tmp_path / "repo"
+    local.mkdir()
+    (local / "a.bin").write_text("x\n", encoding="utf-8")
+    info = _mm.detect_conflict(str(local), "a.bin", b"\x00\x01\x02")
+    assert info["is_binary"] is True
+    assert info["theirs"] is None

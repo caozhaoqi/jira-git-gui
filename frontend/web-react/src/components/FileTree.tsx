@@ -37,6 +37,8 @@ export function FileTree() {
   const setSelectedFile = useAppStore((s) => s.setSelectedFile);
   const checkedPaths = useAppStore((s) => s.checkedPaths);
   const toggleCheckedPath = useAppStore((s) => s.toggleCheckedPath);
+  // F1：最近一次差异扫描的状态叠加层（path -> DiffStatus），用于在文件树上显示差异色点。
+  const diffOverlay = useAppStore((s) => s.diffOverlay);
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const treeLocalDir = useAppStore((s) => s.treeLocalDir);
@@ -332,6 +334,13 @@ export function FileTree() {
           <span className="tree-toggle">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
           <span className="tree-icon">{isDir ? '📁' : '📄'}</span>
           <span className="tree-name">{entry.name}</span>
+          {/* F1：差异状态色点（来自最近一次扫描的 diffOverlay）。same 不显示以免刷屏。 */}
+          {diffOverlay[entry.path] && diffOverlay[entry.path] !== 'same' && (
+            <span
+              className={`tree-diff-dot tree-diff-${diffOverlay[entry.path]}`}
+              title={diffOverlay[entry.path]}
+            />
+          )}
           {/* 仅在有数据时才渲染 size / mtime 列；否则那两列会固定占 60+120=180px，
               把 flex:1 的 name 挤成 "trans..." 截断。 */}
           {entry.size != null && (

@@ -422,6 +422,53 @@ button {
   cursor: pointer;
 }
 
+/* F3：远端会话失效横幅（Cookie 过期 / 浏览页不可用） */
+.cookie-expired-banner {
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cookie-expired-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cookie-expired-text strong {
+  font-weight: 600;
+}
+.cookie-expired-text span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cookie-expired-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* F1：文件树差异状态色点 */
+.tree-diff-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.tree-diff-modified { background: #e0a458; }
+.tree-diff-whitespace_only { background: #9aa0a6; }
+.tree-diff-local_only { background: #4a90d9; }
+.tree-diff-remote_only { background: #b06fd6; }
+.tree-diff-same { background: #4caf78; }
+
 .status-dot {
   width: 8px;
   height: 8px;

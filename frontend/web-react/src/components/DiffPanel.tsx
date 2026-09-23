@@ -13,6 +13,11 @@ import type {
   DiffFileResp,
   DiffMergeResp,
   DiffMergeBatchResp,
+  DiffConflict,
+  MergeResolveReq,
+  MergeResolveResp,
+  FileResp,
+  FileAtCommitResp,
   Repo,
   ReposResp,
   TreeEntry,
@@ -40,6 +45,9 @@ const DIFF_LABELS: Record<DiffStatus, string> = {
 export function DiffPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  // F1：把差异扫描结果叠加到文件树（setDiffOverlay）。F13：合并勾选项用 checkedPaths。
+  const setDiffOverlay = useAppStore((s) => s.setDiffOverlay);
+  const checkedPaths = useAppStore((s) => s.checkedPaths);
   const setProgress = useAppStore((s) => s.setProgress);
   const progress = useAppStore((s) => s.progress);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
@@ -64,6 +72,22 @@ export function DiffPanel() {
   const [fileTitle, setFileTitle] = useState('');
   const [fileHtml, setFileHtml] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
+  // F2：历史版本预览（commit 里某文件的历史内容 + 与本地对比）
+  const [history, setHistory] = useState<{
+    commitId: string;
+    commitMsg: string;
+    path: string;
+    changeType: string;
+    content: string;
+    localContent: string;
+    err?: string;
+  } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // F4：合并冲突（3-way）材料 + 决策态
+  const [conflicts, setConflicts] = useState<DiffConflict[]>([]);
+  const [conflictResolutions, setConflictResolutions] = useState<Record<string, string>>({});
+  const [conflictMerged, setConflictMerged] = useState<Record<string, string>>({});
+  const [resolving, setResolving] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // 最近更新记录（git log 风格）与已合并记录
@@ -302,12 +326,13 @@ export function DiffPanel() {
     remoteFileTotalEst.current = 0;
     setErrors([]);
     setProgress({ visible: true, mode: 'indeterminate', stage: t('diff.preparing'), detail: '' });
-    setEntries([]);
-    setSummary(null);
-    setSelectedPath('');
-    setFileHtml('');
-    setFileTitle('');
-    setCommits([]);
+      setEntries([]);
+      setSummary(null);
+      setDiffOverlay({}); // F1：扫描开始先清掉上一轮的树差异色点
+      setSelectedPath('');
+      setFileHtml('');
+      setFileTitle('');
+      setCommits([]);
     pushLog(t('diff.scanStart'));
     try {
       const r = repos.find((x) => x.repo_id === compareRepo);
@@ -328,6 +353,12 @@ export function DiffPanel() {
       setSummary(s);
       setEntries(res.entries || []);
       setMergedCount(res.merged_count || 0);
+      // F1：把差异状态叠加到文件树（path -> status），same 不进叠加层以免刷屏。
+      const overlay: Record<string, DiffStatus> = {};
+      for (const e of res.entries || []) {
+        if (e.status !== 'same') overlay[e.path] = e.status;
+      }
+      setDiffOverlay(overlay);
       setProgress({ visible: false });
       pushLog(`${t('diff.scanComplete')}：${s.total ?? 0} · ${t('diff.merge')} ${s.modified ?? 0} · ${t('diff.local')} ${s.local_only ?? 0} · ${t('diff.remote')} ${s.remote_only ?? 0}${wsBadge}`);
       // 顺带拉取最近更新记录与已合并记录
@@ -373,6 +404,130 @@ export function DiffPanel() {
     }
   }, [entries, t]);
 
+  // F2：查看某次提交里某文件的历史版本，并与本地当前内容左右对比。
+  const openHistoryFile = useCallback(async (
+    commitId: string, commitMsg: string, path: string, changeType: string,
+  ) => {
+    setHistoryLoading(true);
+    setHistory({ commitId, commitMsg, path, changeType, content: '', localContent: '' });
+    try {
+      const hist = await apiGet<FileAtCommitResp>(
+        `/api/file-at-commit?${new URLSearchParams({ commit_id: commitId, path }).toString()}`,
+      );
+      if (hist.error) {
+        setHistory({ commitId, commitMsg, path, changeType, content: '', localContent: '', err: hist.error });
+        return;
+      }
+      // 本地当前内容（仅当设置了本地目录；缺失不影响历史预览，用于左右对比）。
+      let localContent = '';
+      const localDir = localDirRef.current;
+      if (localDir) {
+        try {
+          const loc = await apiGet<FileResp>(
+            `/api/file?${new URLSearchParams({ path, local_dir: localDir }).toString()}`,
+          );
+          if (!loc.error && typeof loc.content === 'string') localContent = loc.content;
+        } catch {
+          /* 本地文件缺失属正常（如该文件后来被删除） */
+        }
+      }
+      setHistory({
+        commitId, commitMsg, path, changeType,
+        content: hist.content || '', localContent, err: undefined,
+      });
+    } catch (ex: any) {
+      setHistory({ commitId, commitMsg, path, changeType, content: '', localContent: '', err: ex.message });
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const backToDiff = useCallback(() => {
+    setHistory(null);
+  }, []);
+
+  // diffOverlay 的 setter 只接受值（非 updater），故按需整体重写。
+  const dropOverlay = useCallback((paths: string[]) => {
+    const st = useAppStore.getState();
+    const next: Record<string, DiffStatus> = { ...st.diffOverlay };
+    for (const p of paths) delete next[p];
+    st.setDiffOverlay(next);
+  }, []);
+
+  // F4：简易 3-way 合并（行级）。base 缺失时直接以 theirs 兜底；
+  // 仅一侧相对 base 改动 → 取那侧；两侧都改 → 冲突标记块，供用户在文本框内手工解决。
+  const threeWayMerge = useCallback((base: string | null | undefined, ours: string, theirs: string): string => {
+    if (base == null) return theirs;
+    if (ours === theirs) return ours;
+    if (ours === base) return theirs;       // 仅远端改
+    if (theirs === base) return ours;       // 仅本地改
+    const b = base.split('\n'); const o = ours.split('\n'); const t = theirs.split('\n');
+    const max = Math.max(b.length, o.length, t.length);
+    const out: string[] = [];
+    for (let i = 0; i < max; i++) {
+      const bl = b[i] ?? '', ol = o[i] ?? '', tl = t[i] ?? '';
+      if (ol === tl) { out.push(ol); }
+      else if (ol === bl) { out.push(tl); }
+      else if (tl === bl) { out.push(ol); }
+      else { out.push('<<<<<<< LOCAL', ol, '=======', tl, '>>>>>>> REMOTE'); }
+    }
+    return out.join('\n');
+  }, []);
+
+  // F4：把后端返回的冲突材料收集进 conflicts 状态并打开冲突面板。
+  const openConflicts = useCallback((list: DiffConflict[]) => {
+    setConflicts(list);
+    const initRes: Record<string, string> = {};
+    const initMerged: Record<string, string> = {};
+    for (const c of list) {
+      // 二进制冲突无法经 JSON 传字节，仅支持「保留本地」
+      initRes[c.path] = c.is_binary ? 'ours' : 'merged';
+      initMerged[c.path] = threeWayMerge(c.base, c.ours, c.theirs ?? '');
+    }
+    setConflictResolutions(initRes);
+    setConflictMerged(initMerged);
+  }, [threeWayMerge]);
+
+  // F4：提交冲突决策（ours/theirs/merged）到后端，成功后刷新扫描。
+  const resolveConflicts = useCallback(async () => {
+    if (!conflicts.length) return;
+    setResolving(true);
+    try {
+      const reqs: MergeResolveReq[] = conflicts.map((c) => ({
+        local_dir: localDirRef.current,
+        path: c.path,
+        compare_dir: compareDirRef.current.trim(),
+        resolution: conflictResolutions[c.path] || 'merged',
+        merged_content: conflictMerged[c.path] ?? '',
+        theirs_content: c.theirs ?? '',
+      }));
+      const res = await apiPost<MergeResolveResp>('/api/diff/merge-resolve', reqs);
+      const okCount = (res.results || []).filter((r) => r.ok).length;
+      const failCount = (res.results || []).length - okCount;
+      if (failCount) {
+        const firstErr = (res.results || []).find((r) => !r.ok)?.error || '';
+        pushLog(t('diff.conflictResolveFail', { msg: firstErr }), 'error');
+        addToast(t('diff.conflictResolveFail', { msg: firstErr }), 'error');
+      } else {
+        pushLog(t('diff.conflictResolved', { n: okCount }));
+        addToast(t('diff.conflictResolved', { n: okCount }), 'success');
+      }
+      const resolved = conflicts.map((c) => c.path);
+      const resolvedSet = new Set(resolved);
+      setEntries((es) => es.filter((e) => !resolvedSet.has(e.path)));
+      dropOverlay(resolved);
+      setConflicts([]);
+      setConflictResolutions({});
+      setConflictMerged({});
+      loadManifest();
+    } catch (ex: any) {
+      pushLog(t('diff.conflictResolveFail', { msg: ex.message }), 'error');
+      addToast(ex.message, 'error');
+    } finally {
+      setResolving(false);
+    }
+  }, [conflicts, conflictResolutions, conflictMerged, pushLog, addToast, t, loadManifest, dropOverlay]);
+
   const mergeOne = useCallback(async () => {
     if (!selectedPath) return;
     try {
@@ -381,6 +536,15 @@ export function DiffPanel() {
         path: selectedPath,
         compare_dir: compareDirRef.current.trim(),
       });
+      // F4：单文件合并冲突 → 打开 3-way 决策面板
+      if (res.conflict) {
+        openConflicts([{
+          path: res.path || selectedPath, kind: res.kind, base: res.base ?? null,
+          ours: res.ours || '', theirs: res.theirs, is_binary: res.is_binary,
+          remote_hash: res.remote_hash, local_hash: res.local_hash,
+        }]);
+        return;
+      }
       if (res.ok) {
         if (res.skipped) {
           pushLog(t('diff.mergeSkipped', { path: selectedPath }), 'info');
@@ -390,6 +554,7 @@ export function DiffPanel() {
           addToast(t('diff.mergeOk', { path: selectedPath }), 'success');
         }
         setEntries((es) => es.filter((e) => e.path !== selectedPath));
+        dropOverlay([selectedPath]);
         setFileHtml(`<div class="empty-hint">${t('diff.diffDone')}</div>`);
         setFileTitle(t('diff.merged'));
         setSelectedPath('');
@@ -402,7 +567,63 @@ export function DiffPanel() {
       pushLog(t('diff.mergeFailed', { path: ex.message }), 'error');
       addToast(ex.message, 'error');
     }
-  }, [selectedPath, pushLog, addToast, t, loadManifest]);
+  }, [selectedPath, pushLog, addToast, t, loadManifest, openConflicts, dropOverlay]);
+
+  // 批量合并核心（F13 mergeSelected 与 mergeAll 共用）。
+  const runMerge = useCallback(async (targets: DiffEntry[], statusFilter: string = '') => {
+    if (!targets.length) {
+      const msg = statusFilter === 'remote_only' ? t('diff.noMergeCloudTarget') : t('diff.noMergeTarget');
+      pushLog(msg, 'warning');
+      addToast(msg, 'warn');
+      return;
+    }
+    setBusy(true);
+    mergeEtaStarted.current = false;
+    const modeHint = statusFilter ? `（${t('diff.mergeRemoteOnly')}）` : '';
+    pushLog(t('diff.batchMergeStart', { n: targets.length }) + modeHint);
+    try {
+      const query = statusFilter ? `?status_filter=${statusFilter}` : '';
+      const reqs = targets.map((e) => ({
+        local_dir: localDirRef.current,
+        path: e.path,
+        compare_dir: compareDirRef.current.trim(),
+        status: e.status,
+      }));
+      const res = await apiPost<DiffMergeBatchResp>(`/api/diff/merge-batch${query}`, reqs);
+      const all = res.results || [];
+      const okPaths = new Set(all.filter((r) => r.ok).map((r) => r.path));
+      const okCount = okPaths.size;
+      // F4：冲突项不算失败，单独收集走 3-way 决策
+      const conflictList = all
+        .filter((r) => r.conflict)
+        .map((r) => ({
+          path: r.path, kind: r.kind, base: r.base ?? null, ours: r.ours || '',
+          theirs: r.theirs, is_binary: r.is_binary,
+          remote_hash: r.remote_hash, local_hash: r.local_hash,
+        }));
+      const failCount = all.filter((r) => !r.ok && !r.conflict).length;
+      pushLog(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
+      addToast(t('diff.batchMergeDone', { ok: okCount, fail: failCount }), (failCount || conflictList.length) ? 'warn' : 'success');
+      setEntries((es) => es.filter((e) => !okPaths.has(e.path)));  // 冲突项保留，待决策
+      // F13：合并完成后清掉被合并文件的勾选，避免重复操作。
+      if (statusFilter === '') {
+        useAppStore.getState().clearCheckedPaths();
+      }
+      setFileTitle(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
+      setFileHtml('');
+      loadManifest();
+      if (conflictList.length) {
+        addToast(t('diff.conflictsFound', { n: conflictList.length }), 'warn');
+        openConflicts(conflictList);
+      }
+    } catch (ex: any) {
+      pushLog(t('diff.mergeFailed', { path: ex.message }), 'error');
+      addToast(ex.message, 'error');
+    } finally {
+      setBusy(false);
+      setProgress({ visible: false });
+    }
+  }, [pushLog, addToast, setProgress, t, loadManifest, openConflicts]);
 
   const mergeAll = useCallback(async () => {
     let targets: DiffEntry[];
@@ -414,42 +635,47 @@ export function DiffPanel() {
         return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
       });
     }
-    if (!targets.length) {
-      const msg = mergeRemoteOnly ? t('diff.noMergeCloudTarget') : t('diff.noMergeTarget');
-      pushLog(msg, 'warning');
-      addToast(msg, 'warn');
+    await runMerge(targets, mergeRemoteOnly ? 'remote_only' : '');
+  }, [entries, mergeRemoteOnly, ignoreLineEndings, runMerge]);
+
+  // F13：仅合并文件树里勾选的文件（checkedPaths 与当前差异条目交集）。
+  const mergeSelected = useCallback(async () => {
+    const targets = checkedPaths
+      .map((p) => entries.find((e) => e.path === p))
+      .filter((e): e is DiffEntry => !!e);
+    await runMerge(targets, '');
+  }, [checkedPaths, entries, runMerge]);
+
+  // F6：把当前扫描结果导出为 Markdown 报告（纯前端，无需后端）。
+  const exportReport = useCallback(() => {
+    if (!summary && entries.length === 0) {
+      addToast(t('diff.noDiffFiles'), 'warn');
       return;
     }
-    setBusy(true);
-    mergeEtaStarted.current = false;
-    const modeHint = mergeRemoteOnly ? `（${t('diff.mergeRemoteOnly')}）` : '';
-    pushLog(t('diff.batchMergeStart', { n: targets.length }) + modeHint);
-    try {
-      const query = mergeRemoteOnly ? '?status_filter=remote_only' : '';
-      const reqs = targets.map((e) => ({
-        local_dir: localDirRef.current,
-        path: e.path,
-        compare_dir: compareDirRef.current.trim(),
-        status: e.status,
-      }));
-      const res = await apiPost<DiffMergeBatchResp>(`/api/diff/merge-batch${query}`, reqs);
-      const okPaths = new Set((res.results || []).filter((r) => r.ok).map((r) => r.path));
-      const okCount = okPaths.size;
-      const failCount = (res.results || []).length - okCount;
-      pushLog(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
-      addToast(t('diff.batchMergeDone', { ok: okCount, fail: failCount }), failCount ? 'warn' : 'success');
-      setEntries((es) => es.filter((e) => !okPaths.has(e.path)));
-      setFileTitle(t('diff.batchMergeDone', { ok: okCount, fail: failCount }) + modeHint);
-      setFileHtml('');
-      loadManifest();
-    } catch (ex: any) {
-      pushLog(t('diff.mergeFailed', { path: ex.message }), 'error');
-      addToast(ex.message, 'error');
-    } finally {
-      setBusy(false);
-      setProgress({ visible: false });
+    const s = summary || {};
+    const lines: string[] = [];
+    lines.push(`# ${t('diff.title')} — ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push(`- ${t('diff.localDir')}: \`${localDir}\``);
+    lines.push(`- compare_dir: \`${compareDir || '/'}\``);
+    lines.push(`- total: ${s.total ?? 0} · modified: ${s.modified ?? 0} · local_only: ${s.local_only ?? 0} · remote_only: ${s.remote_only ?? 0} · same: ${s.same ?? 0} · whitespace_only: ${s.whitespace_only ?? 0}`);
+    lines.push(`- merged_count: ${mergedCount}`);
+    lines.push('');
+    lines.push('## Entries');
+    for (const e of entries) {
+      lines.push(`- [${e.status}] ${e.path}${e.merged ? ' (merged)' : ''}`);
     }
-  }, [entries, mergeRemoteOnly, ignoreLineEndings, pushLog, addToast, setProgress, t, loadManifest]);
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `diff-report-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    pushLog(`${t('diff.exportReport')} ✓`);
+  }, [summary, entries, mergedCount, localDir, compareDir, t, pushLog, addToast]);
 
   return (
     <div className="diff-panel tab-inner wide">
@@ -610,17 +836,53 @@ export function DiffPanel() {
 
         <div className="diff-content-pane">
           <div className="diff-file-head">
-            <span className="diff-file-title">{fileTitle}</span>
-            {selectedPath && (
-              <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>{t('diff.mergeOne')}</button>
-            )}
-            {entries.length > 0 && (
-              <button className="btn btn-sm btn-primary" onClick={mergeAll} disabled={busy}>
-                {t('diff.mergeAll')}
-              </button>
+            <span className="diff-file-title">
+              {history
+                ? `${t('diff.historyVersion')} · ${history.path}`
+                : fileTitle}
+            </span>
+            {/* F2：历史版本预览模式下用「返回差异」替代合并系列按钮 */}
+            {history ? (
+              <button className="btn btn-sm btn-ghost" onClick={backToDiff}>{t('diff.backToDiff')}</button>
+            ) : (
+              <>
+                {selectedPath && (
+                  <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>{t('diff.mergeOne')}</button>
+                )}
+                {entries.length > 0 && (
+                  <button className="btn btn-sm btn-primary" onClick={mergeAll} disabled={busy}>
+                    {t('diff.mergeAll')}
+                  </button>
+                )}
+                {/* F13：仅合并文件树里勾选的文件 */}
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={mergeSelected}
+                  disabled={busy || checkedPaths.length === 0}
+                  title={checkedPaths.length ? '' : t('diff.noMergeTarget')}
+                >
+                  {t('diff.mergeSelected')}{checkedPaths.length ? ` (${checkedPaths.length})` : ''}
+                </button>
+                {/* F6：导出差异/合并报告为 Markdown */}
+                <button className="btn btn-sm btn-ghost" onClick={exportReport} disabled={busy}>
+                  {t('diff.exportReport')}
+                </button>
+              </>
             )}
           </div>
-          {fileHtml ? <div className="diff-content" dangerouslySetInnerHTML={{ __html: fileHtml }} /> : <div className="empty-hint">{t('diff.selectFileDiff')}</div>}
+          {historyLoading ? (
+            <div className="empty-hint">{t('diff.loadingDiff')}</div>
+          ) : history ? (
+            history.err ? (
+              <div className="empty-hint">{esc(history.err)}</div>
+            ) : (
+              <div className="diff-content" dangerouslySetInnerHTML={{ __html: renderHistoryCompare(history.localContent, history.content, t) }} />
+            )
+          ) : fileHtml ? (
+            <div className="diff-content" dangerouslySetInnerHTML={{ __html: fileHtml }} />
+          ) : (
+            <div className="empty-hint">{t('diff.selectFileDiff')}</div>
+          )}
         </div>
       </div>
 
@@ -645,7 +907,20 @@ export function DiffPanel() {
                 {c.files && c.files.length > 0 && (
                   <div className="commit-files">
                     {c.files.slice(0, 12).map((f, i) => (
-                      <span key={i} className={`commit-file ct-${f.change_type || ''}`}>
+                      <span
+                        key={i}
+                        className={`commit-file ct-${f.change_type || ''}`}
+                        role="button"
+                        tabIndex={0}
+                        title={t('diff.viewHistoryVersion')}
+                        onClick={() => openHistoryFile(c.commit_id, c.message, f.path, f.change_type || '')}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            openHistoryFile(c.commit_id, c.message, f.path, f.change_type || '');
+                          }
+                        }}
+                      >
                         {(f.change_type || '?')} {f.path}
                       </span>
                     ))}
@@ -657,6 +932,64 @@ export function DiffPanel() {
           </div>
         )}
       </div>
+
+      {/* F4：合并冲突 3-way 决策面板 */}
+      {conflicts.length > 0 && (
+        <div className="modal-mask" onClick={() => setConflicts([])}>
+          <div className="modal conflict-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{t('diff.conflictTitle')}（{conflicts.length}）</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setConflicts([])}>{t('common.close')}</button>
+            </div>
+            <div className="modal-body">
+            <div className="conflict-hint">{t('diff.conflictHint')}</div>
+            <div className="conflict-list">
+              {conflicts.map((c) => {
+                const res = conflictResolutions[c.path] || (c.is_binary ? 'theirs' : 'merged');
+                return (
+                  <div key={c.path} className="conflict-item">
+                    <div className="conflict-path">{c.path}</div>
+                    <div className="conflict-choices">
+                      <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'ours'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'ours' }))} /> {t('diff.keepLocal')}</label>
+                      {!c.is_binary && (
+                        <>
+                          <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'theirs'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'theirs' }))} /> {t('diff.useRemote')}</label>
+                          <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'merged'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'merged' }))} /> {t('diff.manualMerge')}</label>
+                        </>
+                      )}
+                    </div>
+                    {!c.is_binary && res === 'merged' && (
+                      <div className="conflict-3way">
+                        <div className="conflict-panes">
+                          <div className="cpane"><div className="cpane-h">{t('diff.conflictBase')}</div><pre className="cpane-pre">{esc(c.base ?? '')}</pre></div>
+                          <div className="cpane"><div className="cpane-h">{t('diff.conflictOurs')}</div><pre className="cpane-pre">{esc(c.ours)}</pre></div>
+                          <div className="cpane"><div className="cpane-h">{t('diff.conflictTheirs')}</div><pre className="cpane-pre">{esc(c.theirs ?? '')}</pre></div>
+                        </div>
+                        <div className="cpane-h">{t('diff.manualMerge')}</div>
+                        <textarea
+                          className="conflict-merged"
+                          value={conflictMerged[c.path] ?? ''}
+                          onChange={(e) => setConflictMerged((p) => ({ ...p, [c.path]: e.target.value }))}
+                          spellCheck={false}
+                        />
+                      </div>
+                    )}
+                    {c.is_binary && (
+                      <div className="conflict-hint">{t('diff.conflictBinary')}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={resolveConflicts} disabled={resolving}>
+                {resolving ? t('common.loading') : t('diff.resolveConflicts')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -748,4 +1081,31 @@ function renderSideBySide(local: string, remote: string): string {
 
 function renderPlain(content: string, side: 'local' | 'remote'): string {
   return `<pre class="diff-plain diff-plain-${side}">${esc(content)}</pre>`;
+}
+
+// F2：历史版本（commit 中的内容）与本地当前内容左右对比。
+function renderHistoryCompare(local: string, remote: string, t: (k: string, v?: Record<string, string | number>) => string): string {
+  const localLines = local.split('\n');
+  const remoteLines = remote.split('\n');
+  const maxLines = Math.max(localLines.length, remoteLines.length);
+  const rows: string[] = [];
+  for (let i = 0; i < maxLines; i++) {
+    const l = localLines[i] ?? '';
+    const r = remoteLines[i] ?? '';
+    const same = l === r;
+    rows.push(
+      `<tr class="diff-row ${same ? 'diff-ctx' : 'diff-changed'}">` +
+      `<td class="diff-ln">${i + 1}</td>` +
+      `<td class="diff-code">${esc(l)}</td>` +
+      `<td class="diff-ln">${i + 1}</td>` +
+      `<td class="diff-code">${esc(r)}</td>` +
+      `</tr>`
+    );
+  }
+  const head =
+    `<thead><tr class="diff-col-head">` +
+    `<th></th><th>${esc(t('diff.localNow'))}</th>` +
+    `<th></th><th>${esc(t('diff.historyNow'))}</th>` +
+    `</tr></thead>`;
+  return `<div class="diff-sidebyside"><table class="diff-table diff-sidebyside-table">${head}<tbody>${rows.join('')}</tbody></table></div>`;
 }

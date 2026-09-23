@@ -23,6 +23,7 @@ from api.common import (
 from core import differ as _differ
 from core import cache as _cache
 from core.config import load_merge_config
+from core.diff.merge_manifest import detect_conflict, save_base  # F4 冲突感知 3-way
 
 router = APIRouter()
 
@@ -51,6 +52,16 @@ class MergeReq(BaseModel):
     compare_dir: str = ""    # 远端/本地范围前缀（与扫描时一致）
     use_cache: bool = True
     status: str = ""  # 对应 DiffStatus，供批量合并时按状态过滤
+
+
+class MergeResolveReq(BaseModel):
+    """F4 冲突决策：ours=保留本地 / theirs=用远端 / merged=采用手动合并结果。"""
+    local_dir: str
+    path: str
+    compare_dir: str = ""
+    resolution: str = ""          # ours | theirs | merged
+    merged_content: str = ""      # resolution=merged 时的最终内容
+    theirs_content: str = ""      # resolution=theirs 时的远端内容（前端从冲突结果带入，免二次抓取）
 
 
 @router.post("/api/diff/scan")
@@ -245,6 +256,17 @@ async def api_diff_merge(req: MergeReq):
         raise HTTPException(502, f"远端内容获取失败：{remote_full}"
                                  f"（已中止合并，本地文件未被修改）")
 
+    # F4：合并前冲突检测。本地与远端相对上次同步快照都改过 → 真冲突，
+    # 不直接覆盖，返回 base/ours/theirs 交由前端 3-way 决策。
+    info = detect_conflict(local_base, req.path, remote_content)
+    if info["conflict"]:
+        return {
+            "conflict": True, "path": req.path, "kind": info["kind"],
+            "base": info["base"], "ours": info["ours"], "theirs": info["theirs"],
+            "is_binary": info["is_binary"],
+            "remote_hash": info["remote_hash"], "local_hash": info["local_hash"],
+        }
+
     # manifest 跳过：仅当本地仍与已合并记录一致时才跳过（不覆盖本地）。
     # 若本地被改动（local hash != remote_hash），即便远端没变也要重新抓取并覆盖，
     # 把本地拉回远端状态 —— 这正是「断点续传只跳过仍一致文件」的语义。
@@ -255,8 +277,10 @@ async def api_diff_merge(req: MergeReq):
     ok = _differ.merge_to_local(local_base, req.path, remote_content)
     if not ok:
         raise HTTPException(500, f"写入本地失败：{req.path}（可能权限不足）")
-    # 落盘合并记录，供下次扫描/合并识别「已同步」
-    manifest[req.path] = {"ok": True, "remote_hash": _differ.content_hash(remote_content)}
+    # 落盘合并记录 + base 缓存（供日后 3-way）；同步后本地==远端，local_hash==remote_hash
+    remote_hash = info["remote_hash"] or _differ.content_hash(remote_content)
+    save_base(local_base, remote_hash, remote_content)
+    manifest[req.path] = {"ok": True, "remote_hash": remote_hash, "local_hash": remote_hash}
     _differ.save_manifest(local_base, manifest)
     return {"ok": ok, "path": req.path}
 
@@ -354,6 +378,25 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                     # 若退化成 "" 写入，open(target,"w") 会把本地文件截断成 0 字节。
                     err = f"远端内容获取失败：{req.path}（已跳过写入）"
                 if err is None:
+                    # F4：冲突检测（本地与远端相对快照都改过）→ 不覆盖，留给前端 3-way。
+                    info = detect_conflict(local_base, req.path, content)
+                    if info["conflict"]:
+                        results[idx] = {
+                            "path": req.path, "ok": False, "conflict": True,
+                            "kind": info["kind"], "base": info["base"], "ours": info["ours"],
+                            "theirs": info["theirs"], "is_binary": info["is_binary"],
+                            "remote_hash": info["remote_hash"], "local_hash": info["local_hash"],
+                            "error": "冲突：本地与远端都改过",
+                        }
+                        async with counter_lock:
+                            done_counter += 1
+                            cur = done_counter
+                        broadcast("merge_progress", {
+                            "done": cur, "total": orig_total,
+                            "pct": (cur * 100 // orig_total) if orig_total > 0 else 100,
+                            "path": req.path, "ok": False, "conflict": True,
+                        })
+                        continue  # 不写本地、不改 manifest（快照保留以便复检）
                     try:
                         # 合并记录跳过：仅当本地仍与已合并记录一致时才跳过（不覆盖本地）；
                         # 本地被改动则重新抓取并覆盖，把本地拉回远端状态。
@@ -364,12 +407,14 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                     except Exception as ex:
                         ok = False
                         err = str(ex)
-                # 落盘 manifest：成功记录远端内容 hash，失败标记 ok=False（下次重试）
+                # 落盘 manifest：成功记录远端内容 hash + 同步后本地 hash（==远端），
+                # 并缓存 base 供日后 3-way；失败标记 ok=False（下次重试）。
                 if ok:
+                    remote_hash = _differ.content_hash(content)
                     manifest[req.path] = {
-                        "ok": True,
-                        "remote_hash": _differ.content_hash(content),
+                        "ok": True, "remote_hash": remote_hash, "local_hash": remote_hash,
                     }
+                    save_base(local_base, remote_hash, content)
                 else:
                     manifest[req.path] = {"ok": False, "remote_hash": ""}
                 if not ok and err is None:
@@ -410,12 +455,90 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
         results.append({"path": p, "ok": True, "error": None, "skipped": True})
 
     ok_count = sum(1 for r in results if r and r["ok"])
-    fail_count = len(results) - ok_count
+    conflicts_count = sum(1 for r in results if r and r.get("conflict"))
+    # 冲突项 ok=False 但属「已知需决策」，不计入失败列表
     fails = [{"path": r["path"], "error": r["error"]}
-             for r in results if r and not r["ok"]][:50]
+             for r in results if r and not r["ok"] and not r.get("conflict")][:50]
+    fail_count = len(fails)
     _differ.save_manifest(local_base, manifest)
-    broadcast("merge_done", {"ok_count": ok_count, "fail_count": fail_count, "fails": fails, "skipped": skipped_count})
-    return {"results": results, "skipped": skipped_count}
+    broadcast("merge_done", {"ok_count": ok_count, "fail_count": fail_count,
+                             "conflicts": conflicts_count, "fails": fails, "skipped": skipped_count})
+    return {"results": results, "skipped": skipped_count, "conflicts": conflicts_count}
+
+
+@router.post("/api/diff/merge-resolve")
+async def api_diff_merge_resolve(reqs: list[MergeResolveReq]):
+    """F4 冲突决策落盘（支持批量）。
+
+    - ours  ：保留本地，不写文件；把快照 local_hash 更新为当前本地 hash，避免下次再误报。
+    - theirs：用前端带入的 theirs_content 覆盖本地（免二次远端抓取）。
+    - merged：把 merged_content 写入本地。
+    任一决策都更新 manifest（记录同步状态），使后续扫描/合并不再把该文件判为冲突。
+    """
+    if not reqs:
+        return {"results": []}
+    cd = (reqs[0].compare_dir or "").strip().strip("/")
+    local_dir = reqs[0].local_dir
+    local_base = os.path.join(local_dir, cd) if cd else local_dir
+    manifest = _differ.load_manifest(local_base)
+    results: list[dict] = []
+
+    for r in reqs:
+        res = (r.resolution or "").strip()
+        rec = manifest.get(r.path) or {}
+        err = None
+        if res == "ours":
+            # 保留本地：快照 local_hash 设为当前本地内容 hash
+            target = os.path.join(local_base, r.path)
+            cur_local = ""
+            if os.path.isfile(target):
+                try:
+                    cur_local = Path(target).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    cur_local = ""
+            manifest[r.path] = {
+                "ok": True,
+                "remote_hash": rec.get("remote_hash", ""),
+                "local_hash": _differ.content_hash(cur_local),
+            }
+            ok = True
+        elif res == "theirs":
+            content = r.theirs_content
+            if content is None or content == "":
+                # 防御：空串写入会截断本地文件 → 拒绝
+                ok = False
+                err = "theirs 内容为空，已拒绝写入（避免清空本地文件）"
+            else:
+                ok = _differ.merge_to_local(local_base, r.path, content)
+                if ok:
+                    rh = _differ.content_hash(content)
+                    manifest[r.path] = {"ok": True, "remote_hash": rh, "local_hash": rh}
+                    save_base(local_base, rh, content)
+        elif res == "merged":
+            content = r.merged_content
+            if content is None:
+                ok = False
+                err = "merged 内容为空"
+            else:
+                ok = _differ.merge_to_local(local_base, r.path, content)
+                if ok:
+                    rh = rec.get("remote_hash", "")
+                    manifest[r.path] = {
+                        "ok": True, "remote_hash": rh,
+                        "local_hash": _differ.content_hash(content),
+                    }
+        else:
+            ok = False
+            err = f"未知 resolution：{res}"
+
+        if ok:
+            _differ.save_manifest(local_base, manifest)
+            pushLog = None  # 后端静默，前端负责提示
+        results.append({"path": r.path, "ok": ok, "resolution": res, "error": err})
+
+    broadcast("merge_resolved", {"count": len(results),
+                                 "ok": sum(1 for x in results if x["ok"])})
+    return {"results": results}
 
 
 @router.post("/api/diff/invalidate")
