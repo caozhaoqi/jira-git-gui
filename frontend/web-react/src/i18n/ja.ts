@@ -48,6 +48,7 @@ export const ja: Dict = {
     hcm: 'HCM オブジェクト',
     diagnose: '統合診断',
     settings: 'システム設定',
+    system: 'システム',
   },
   hcm: {
     configRequired: 'トークンを入力してください',
@@ -405,6 +406,9 @@ export const ja: Dict = {
     wholeRepo: '全体（ルート）',
     noSubDirs: 'このローカルディレクトリにサブディレクトリはありません',
     fastScan: '高速スキャン（サイズのみ・内容未取得）',
+    sectionConfig: '設定',
+    sectionSummary: '差分サマリー',
+    wholeFileDiff: 'ファイル全体の差分',
     recentUpdates: '最近の更新',
     refresh: '更新',
     mergedBadge: 'マージ済み {{n}}',

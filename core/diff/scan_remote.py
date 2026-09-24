@@ -3,6 +3,9 @@
 import concurrent.futures
 import hashlib
 import os
+import queue
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
@@ -76,11 +79,28 @@ def scan_remote_parallel(
     should_cancel=None,
     fast_hash: bool = False,
 ) -> dict[str, dict]:
-    """并行递归扫描远端仓库（带进度回调）。
+    """并行**递归**扫描远端仓库（每层都并发，带细粒度进度回调）。
+
+    与旧实现的关键区别：
+    - 旧实现只对**第一层子目录**开线程池，每个 worker 内部 ``_scan_remote_dir``
+      是**串行递归**；一旦只剩 core/、apps/ 等巨型一级目录，实际并发度塌缩到 1~2，
+      进度条也只按「一级目录完成数」推进，看起来像卡死。
+    - 新实现把**每一个目录**都作为工作项放进共享队列，线程池 worker 取出目录、
+      列其内容、把子目录重新入队、收集文件——即**每一层都是并发的**。QPS 由
+      ``core.client.connection`` 的全局令牌桶兜底（差异扫描期间被临时抬到 20，
+      见 api/routes_diff.py），此处无需再限流。``max_workers`` 调大能更快，
+      但需留意服务端是否 429。
+
+    进度回调 ``on_progress(scanned, pending, processed, dirs_seen)`` 语义改为细粒度：
+    - scanned   = 已收集的文件数（len(result)）
+    - pending   = 已发现但尚未列完的目录数（dirs_seen - processed）
+    - processed = 已列完的目录数
+    - dirs_seen = 累计发现的目录总数（随扫描推进持续增长）
+    因此 ``ratio = processed / dirs_seen`` 会从 0 平滑爬到 1，进度条不再冻结。
 
     Args:
         client: 已配置的 JiraGitClient
-        max_workers: 并发线程数（默认 8）
+        max_workers: 并发线程数（默认 8）；受全局 QPS 约束
         path: 起始路径（默认根）
         on_progress: 进度回调 progress(scanned, pending, processed, dirs_seen)
         should_cancel: 取消回调，返回 True 时尽快停止
@@ -89,52 +109,126 @@ def scan_remote_parallel(
     Returns:
         {relative_path: {size, hash, is_dir}}
     """
-    # 先拿根层，再并行展开各子目录
-    entries = client.list_level(client.repo_id, client.branch, path)
-    result = {}
-    dirs = []
-    files = []
-    for e in entries:
-        if e.type == "dir":
-            dirs.append(e.path)
-        else:
-            files.append(e)
+    result: dict = {}
+    state_lock = threading.Lock()
+    # discovered: 累计发现的目录数（含待处理）；done: 已列完的目录数；
+    # inflight: 正在列的目录数；files: 已收集文件数。done 永远 <= discovered，
+    # 当队列空且 inflight==0 时 done==discovered，扫描结束。
+    state = {"discovered": 0, "done": 0, "inflight": 0, "files": 0}
+    last_emit = [0.0]
+    dir_q: "queue.Queue[str]" = queue.Queue()
 
-    # 先处理根层文件
-    for e in files:
-        _collect_file(client, e, result, fast_hash)
+    def _emit(force: bool = False):
+        if not on_progress:
+            return
+        now = time.monotonic()
+        if not force and (now - last_emit[0]) < 0.2:
+            return  # SSE 进度广播限频 ~5 次/秒，避免前端抖动
+        with state_lock:
+            done = state["done"]
+            disc = max(state["discovered"], 1)
+            files = state["files"]
+            pend = max(disc - done, 0)
+            last_emit[0] = now
+        # 锁外回调，避免 on_progress 内部可能的其它锁形成死锁
+        on_progress(files, pend, done, disc)
 
-    total_dirs = len(dirs)
-    done = 0
+    def _collect_file(e):
+        # 与模块级 _collect_file 逻辑一致，但写入受 state_lock 保护（并发安全）
+        rel = e.path
+        if fast_hash:
+            with state_lock:
+                result[rel] = {"size": e.size, "hash": "", "is_dir": False}
+                state["files"] += 1
+            return
+        try:
+            content, err = client.get_file(rel)  # 返回 (content, error)，必须解包
+            if err or content is None:
+                _log.warning("远端文件读取失败：%s（%s）", rel, err or "内容为空")
+                with state_lock:
+                    result[rel] = {"size": e.size, "hash": "", "is_dir": False}
+                    state["files"] += 1
+                return
+            body = content.encode("utf-8") if isinstance(content, str) else content
+            h = hashlib.md5(body).hexdigest()
+            with state_lock:
+                result[rel] = {"size": e.size, "hash": h, "is_dir": False}
+                state["files"] += 1
+        except Exception as ex:
+            _log.warning("远端文件读取失败：%s（%s: %s）", rel, type(ex).__name__, ex)
+            with state_lock:
+                result[rel] = {"size": e.size, "hash": "", "is_dir": False}
+                state["files"] += 1
 
-    def worker(d: str):
+    def _process(p):
         if should_cancel and should_cancel():
-            return {}
-        sub = {}
-        _scan_remote_dir(client, d, sub, fast_hash)
-        return sub
+            with state_lock:
+                state["inflight"] -= 1
+            return
+        try:
+            entries = client.list_level(client.repo_id, client.branch, p)
+        except Exception as e:
+            _log.warning("远端目录扫描失败：%s（%s: %s）", p, type(e).__name__, e)
+            with state_lock:
+                state["done"] += 1
+                state["inflight"] -= 1
+            _emit(force=True)
+            return
+        subdirs = []
+        for e in entries:
+            if e.type == "dir":
+                subdirs.append(e.path)
+            else:
+                _collect_file(e)
+        with state_lock:
+            for d in subdirs:
+                dir_q.put(d)
+            state["discovered"] += len(subdirs)
+            state["done"] += 1
+            state["inflight"] -= 1
+        _emit()
 
-    # 不用 `with`：取消时 `with` 的 __exit__ 会执行 shutdown(wait=True)，
-    # 阻塞等到所有远端请求跑完——点取消毫无作用。改为手动管理，取消即
-    # shutdown(wait=False, cancel_futures=True)，立即返回、不等待在途请求。
-    ex = ThreadPoolExecutor(max_workers=max_workers)
-    futs = {ex.submit(worker, d): d for d in dirs}
-    try:
-        for fut in as_completed(futs):
+    def _consumer():
+        while True:
             if should_cancel and should_cancel():
-                ex.shutdown(wait=False, cancel_futures=True)
-                break
-            sub = fut.result()
-            result.update(sub)
-            done += 1
-            if on_progress:
-                # 协议需与调用方一致：progress(scanned, pending, processed, dirs_seen)。
-                # 旧实现只传 (done, total) 两个参数，与 routes_diff.py 的四参回调不匹配。
-                on_progress(len(result), max(total_dirs - done, 0), done, total_dirs)
-    finally:
-        # 正常结束时同样不阻塞调用方；cancel_futures 取消尚未开始的future
-        ex.shutdown(wait=False, cancel_futures=True)
+                return
+            try:
+                p = dir_q.get(timeout=0.5)
+            except queue.Empty:
+                with state_lock:
+                    idle = state["inflight"] == 0
+                if idle and dir_q.empty():
+                    return
+                continue
+            with state_lock:
+                state["inflight"] += 1
+            try:
+                _process(p)
+            finally:
+                dir_q.task_done()
 
+    # 先计入「已发现」，再入队——避免 worker 先处理根目录时 discovered 尚未置 1 的竞态
+    with state_lock:
+        state["discovered"] = 1
+    dir_q.put(path)
+
+    n = max(1, int(max_workers))
+    ex = ThreadPoolExecutor(max_workers=n)
+    try:
+        futs = [ex.submit(_consumer) for _ in range(n)]
+        try:
+            for fut in as_completed(futs):
+                if should_cancel and should_cancel():
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    break
+                fut.result()
+        finally:
+            # 取消即 shutdown(wait=False)，不阻塞等待在途请求
+            ex.shutdown(wait=False, cancel_futures=True)
+    finally:
+        pass
+
+    _emit(force=True)  # 收尾：确保最后一发进度为「完成」状态
     return result
 
 

@@ -48,6 +48,7 @@ export const en: Dict = {
     hcm: 'HCM Objects',
     diagnose: 'Diagnose',
     settings: 'Settings',
+    system: 'System',
   },
   hcm: {
     configRequired: 'Please fill in Token first',
@@ -405,6 +406,9 @@ export const en: Dict = {
     wholeRepo: 'Whole repo (root)',
     noSubDirs: 'No subdirs under this local directory',
     fastScan: 'Fast scan (size only, no content download)',
+    sectionConfig: 'Config',
+    sectionSummary: 'Diff summary',
+    wholeFileDiff: 'Whole-file diff',
     recentUpdates: 'Recent updates',
     refresh: 'Refresh',
     mergedBadge: 'Merged {{n}}',

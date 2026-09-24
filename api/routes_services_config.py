@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from api.common import app, logger, _PROJECT_ROOT
@@ -385,7 +385,15 @@ async def save_jira_config(req: JiraConfigReq):
 # --------------------------------------------------------------------------- #
 @router.get("/services-config")
 async def services_config_page():
-    """返回服务配置管理页面（web/services-config.html）。"""
+    """服务配置管理页入口（首选项窗口）。
+
+    页面已迁移进 React SPA（?view=services-config，与主界面同一套主题/语言）。
+    React 构建产物存在（开发态 / 前端已部署）时 302 到 SPA 视图；
+    否则（冻结后端仅打包原生 web/ 的场景）回退旧版独立 HTML。
+    """
+    react_index = _PROJECT_ROOT / "frontend" / "web-react" / "dist" / "index.html"
+    if react_index.exists():
+        return RedirectResponse("/?view=services-config", status_code=307)
     html = _PROJECT_ROOT / "web" / "services-config.html"
     if not html.exists():
         return {"ok": False, "error": "页面文件缺失：web/services-config.html"}

@@ -1265,6 +1265,10 @@
   height: 100%;
   min-height: 0;
 }
+
+/* DiffPanel 折叠区块：卡片间距 + 去除配置卡内部重复底色 */
+.diff-panel > .clash-card { margin-bottom: 10px; }
+.diff-cfg-region .diff-cfg-card { background: transparent; border-bottom: none; padding: 0; }
 .diff-list-pane {
   width: 380px;
   flex-shrink: 0;

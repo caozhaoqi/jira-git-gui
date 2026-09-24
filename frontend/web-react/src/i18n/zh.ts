@@ -48,6 +48,7 @@ export const zh: Dict = {
     hcm: 'HCM 对象',
     diagnose: '统一诊断',
     settings: '系统设置',
+    system: '系统',
   },
   hcm: {
     configRequired: '请先填写 Token',
@@ -407,6 +408,9 @@ export const zh: Dict = {
     wholeRepo: '整库（根目录）',
     noSubDirs: '该本地目录下没有子目录',
     fastScan: '快速扫描（仅比大小，不下载内容）',
+    sectionConfig: '配置',
+    sectionSummary: '差异汇总',
+    wholeFileDiff: '整文件差异',
     recentUpdates: '最近更新',
     refresh: '刷新',
     mergedBadge: '已合并 {{n}}',
