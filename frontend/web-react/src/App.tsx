@@ -93,6 +93,17 @@ export default function App() {
     }
   }, [setTab]);
 
+  // 原生菜单打开的独立窗口带 ?tab=<key>：初始即落到对应页签
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab') as TabKey | null;
+    if (tab && PANELS.some((p) => p.key === tab)) setTab(tab);
+  }, [setTab]);
+
+  // ?embed=1：首选项式专注窗口，隐藏侧栏
+  const [embed] = useState(
+    () => new URLSearchParams(window.location.search).get('embed') === '1',
+  );
+
   useEffect(() => {
     apiGet<StatusResp>('/api/status')
       .then((s) => {
@@ -172,7 +183,7 @@ export default function App() {
     <div className="app-shell">
       <TopBar onOpenConnect={() => setConnectOpen(true)} />
       <div className="app-body">
-        <Tabs />
+        {!embed && <Tabs />}
         <main className="workspace">
           {ACTIONBAR_TABS.has(activeTab) && <ActionBar />}
           {networkWarning && (

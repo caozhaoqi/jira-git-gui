@@ -92,6 +92,11 @@ export function DiffPanel() {
   const [resolving, setResolving] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // 区块折叠态（配置 / 汇总 / 最近更新）
+  const [cfgOpen, setCfgOpen] = useState(true);
+  const [summaryOpen, setSummaryOpen] = useState(true);
+  const [commitsOpen, setCommitsOpen] = useState(true);
+
   // 最近更新记录（git log 风格）与已合并记录
   const [commits, setCommits] = useState<Commit[]>([]);
   const [commitsLoading, setCommitsLoading] = useState(false);
@@ -700,7 +705,16 @@ export function DiffPanel() {
 
   return (
     <div className="diff-panel tab-inner wide">
-      <div className="diff-cfg-card">
+      <div className={`card-soft clash-card diff-cfg-region${cfgOpen ? '' : ' collapsed'}`}>
+        <div className="panel-header">
+          <button type="button" className="clash-collapser" onClick={() => setCfgOpen((o) => !o)}>
+            <span className="cfd-caret">{cfgOpen ? '▾' : '▸'}</span>
+            <span className="section-title">{t('diff.sectionConfig')}</span>
+          </button>
+        </div>
+        {cfgOpen && (
+        <div className="card-body">
+          <div className="diff-cfg-card">
         <div className="diff-cfg-row">
           <label className="field-inline">
             {t('diff.compareRepo')}
@@ -748,7 +762,12 @@ export function DiffPanel() {
               onChange={(e) => setCompareDir(e.target.value)}
               style={{ minWidth: 160 }}
             />
-            <button className="btn btn-sm btn-ghost" type="button" onClick={loadSubDirs}>
+            <button
+              className="btn btn-sm btn-ghost"
+              type="button"
+              onClick={() => (showDirChooser ? setShowDirChooser(false) : loadSubDirs())}
+              aria-expanded={showDirChooser}
+            >
               {t('diff.browseDir')}
             </button>
           </label>
@@ -788,6 +807,9 @@ export function DiffPanel() {
             {commitsLoading ? t('common.loading') : t('diff.recentUpdates')}
           </button>
         </div>
+          </div>
+        </div>
+        )}
       </div>
 
       {progress.visible && (
@@ -812,14 +834,26 @@ export function DiffPanel() {
       {!compareRepo && <div className="empty-hint">{t('diff.pickRepo')}</div>}
 
       {summary && (
-        <div className="diff-summary">
+        <div className={`card-soft clash-card diff-summary-region${summaryOpen ? '' : ' collapsed'}`}>
+          <div className="panel-header">
+            <button type="button" className="clash-collapser" onClick={() => setSummaryOpen((o) => !o)}>
+              <span className="cfd-caret">{summaryOpen ? '▾' : '▸'}</span>
+              <span className="section-title">{t('diff.sectionSummary')}</span>
+            </button>
+          </div>
+          {summaryOpen && (
+          <div className="card-body">
+            <div className="diff-summary">
           {`${summary.total ?? 0} · `}
           <span className="badge-modified">{t('diff.merge')} {summary.modified ?? 0}</span> ·{' '}
           <span className="badge-local">{t('diff.local')} {summary.local_only ?? 0}</span> ·{' '}
           <span className="badge-remote">{t('diff.remote')} {summary.remote_only ?? 0}</span> · {t('diff.noDiff')} {summary.same ?? 0}
           {summary.whitespace_only ? <span className="badge-eol"> {t('diff.ignoreEol')} {summary.whitespace_only}</span> : null}
           {mergedCount > 0 ? <span className="badge-merged"> · {t('diff.mergedBadge', { n: mergedCount })}</span> : null}
+          </div>
         </div>
+        )}
+      </div>
       )}
 
       {errors.length > 0 && (
@@ -908,13 +942,18 @@ export function DiffPanel() {
       </div>
 
       {/* 最近更新记录（git log 风格） */}
-      <div className="diff-commits">
+      <div className={`card-soft clash-card diff-commits-region${commitsOpen ? '' : ' collapsed'}`}>
         <div className="panel-header">
-          <h3 className="section-title">{t('diff.recentUpdates')}{compareDir ? ` · ${compareDir}` : ''}</h3>
+          <button type="button" className="clash-collapser" onClick={() => setCommitsOpen((o) => !o)}>
+            <span className="cfd-caret">{commitsOpen ? '▾' : '▸'}</span>
+            <span className="section-title">{t('diff.recentUpdates')}{compareDir ? ` · ${compareDir}` : ''}</span>
+          </button>
           <button className="btn btn-sm btn-ghost" onClick={loadCommits} disabled={commitsLoading || !compareRepo}>
             {commitsLoading ? t('common.loading') : t('diff.refresh')}
           </button>
         </div>
+        {commitsOpen && (
+        <div className="card-body">
         {commits.length === 0 ? (
           <div className="empty-hint">{t('diff.noCommits')}</div>
         ) : (
@@ -951,6 +990,8 @@ export function DiffPanel() {
               </div>
             ))}
           </div>
+        )}
+        </div>
         )}
       </div>
 
@@ -1043,31 +1084,45 @@ function renderDiffContent(res: DiffFileResp, status: DiffStatus, t: (k: string,
     }
     return `<div class="empty-hint">${t('diff.sameContent')}</div>`;
   }
-  return renderUnifiedDiff(diffText);
+  return renderUnifiedDiff(diffText, t);
 }
 
-function renderUnifiedDiff(diffText: string): string {
+function renderUnifiedDiff(diffText: string, t: (k: string, v?: Record<string, string | number>) => string): string {
   const lines = diffText.split('\n');
-  const rows: string[] = [];
+  const fileHeaders: string[] = [];
+  type Hunk = { header: string; rows: string[]; adds: number; dels: number };
+  const hunks: Hunk[] = [];
+  let cur: Hunk | null = null;
   let oldNo = 0, newNo = 0;
   for (const line of lines) {
     if (!line) continue;
-    let type = 'ctx';
-    let oldCell = '', newCell = '', content = line;
+    // 文件头（--- / +++）始终可见，不计入 hunk
+    if (line.startsWith('---') || line.startsWith('+++')) {
+      fileHeaders.push(esc(line));
+      continue;
+    }
     if (line.startsWith('@@')) {
-      type = 'hunk';
       const m = line.match(/@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
       if (m) { oldNo = parseInt(m[1]) - 1; newNo = parseInt(m[2]) - 1; }
-    } else if (line.startsWith('+++') || line.startsWith('---')) {
-      type = 'header';
-    } else if (line.startsWith('+')) {
-      type = 'add'; newNo++; content = line.substring(1); newCell = String(newNo);
+      cur = { header: line, rows: [], adds: 0, dels: 0 };
+      hunks.push(cur);
+      continue;
+    }
+    if (!cur) {
+      // 无 @@ 头（整文件新增 / 删除）：包成单个 hunk
+      cur = { header: t('diff.wholeFileDiff'), rows: [], adds: 0, dels: 0 };
+      hunks.push(cur);
+    }
+    let type = 'ctx';
+    let oldCell = '', newCell = '', content = line;
+    if (line.startsWith('+')) {
+      type = 'add'; newNo++; content = line.substring(1); newCell = String(newNo); cur.adds++;
     } else if (line.startsWith('-')) {
-      type = 'del'; oldNo++; content = line.substring(1); oldCell = String(oldNo);
+      type = 'del'; oldNo++; content = line.substring(1); oldCell = String(oldNo); cur.dels++;
     } else if (line.startsWith(' ')) {
       type = 'ctx'; oldNo++; newNo++; content = line.substring(1); oldCell = String(oldNo); newCell = String(newNo);
     }
-    rows.push(
+    cur.rows.push(
       `<tr class="diff-row diff-${type}">` +
       `<td class="diff-ln">${oldCell}</td>` +
       `<td class="diff-ln">${newCell}</td>` +
@@ -1076,7 +1131,28 @@ function renderUnifiedDiff(diffText: string): string {
       `</tr>`
     );
   }
-  return `<table class="diff-table">${rows.join('')}</table>`;
+  if (hunks.length === 0) {
+    return `<div class="empty-hint">${t('diff.sameContent')}</div>`;
+  }
+  const headerHtml = fileHeaders.length
+    ? `<div class="diff-file-headers">${fileHeaders.map((h) => `<div class="diff-file-header">${h}</div>`).join('')}</div>`
+    : '';
+  // 每个 hunk 用原生 <details> 包裹，默认展开、点击折叠，无需 JS。
+  const hunkHtml = hunks
+    .map((h) => {
+      const stats =
+        h.adds || h.dels
+          ? `<span class="diff-hunk-stats"><span class="diff-stat-add">+${h.adds}</span> <span class="diff-stat-del">-${h.dels}</span></span>`
+          : '';
+      return (
+        `<details class="diff-hunk" open>` +
+        `<summary class="diff-hunk-head"><span class="diff-hunk-title">${esc(h.header)}</span>${stats}</summary>` +
+        `<div class="diff-hunk-body"><table class="diff-table">${h.rows.join('')}</table></div>` +
+        `</details>`
+      );
+    })
+    .join('');
+  return headerHtml + hunkHtml;
 }
 
 function renderSideBySide(local: string, remote: string): string {

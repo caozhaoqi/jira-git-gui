@@ -292,6 +292,18 @@ button {
 .tab-txt {
   flex: 1;
 }
+/* 「系统」分组：可折叠菜单项 + 缩进子项 */
+.tab-group .tab-caret {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.sidebar.sidebar-collapsed .tab-group .tab-caret { display: none; }
+.tab-sub {
+  padding-left: 14px;
+  font-size: 12.5px;
+}
+.sidebar.sidebar-collapsed .tab-sub { padding-left: 0; }
 .sidebar-foot {
   margin-top: auto;
   padding-top: 12px;

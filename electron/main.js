@@ -200,7 +200,9 @@ function openPreferences() {
       sandbox: false,
     }
   });
-  prefWin.loadURL(`${BACKEND_URL}/services-config`);
+  // React SPA 视图（?view=services-config）：与主界面同一套组件 / 主题 / 语言，
+  // 由后端路由 /services-config 兼容重定向而来；这里直接指到 SPA 视图。
+  prefWin.loadURL(`${BACKEND_URL}/?view=services-config`);
   prefWin.on('closed', () => {
     log('首选项窗口已关闭。');
   });
@@ -230,6 +232,39 @@ function openHcmMeta() {
   });
 }
 
+// ---- 低频功能独立窗口：与「首选项」同款交互，主界面保持不动 ----
+// 加载主应用并带 ?tab=<key>&embed=1：前端按参数直接落到对应页签并隐藏侧栏；
+// 同源共享 localStorage，主题（jgg-theme）/语言自动与主界面一致。
+function openTabWindow(tabKey, title, width = 1180, height = 800) {
+  const win = new BrowserWindow({
+    width,
+    height,
+    minWidth: 860,
+    minHeight: 560,
+    title,
+    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    modal: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  // 页面 document.title 会覆盖窗口标题，锁定为菜单传入的标题
+  win.on('page-title-updated', (e) => e.preventDefault());
+  win.loadURL(`${BACKEND_URL}/?tab=${encodeURIComponent(tabKey)}&embed=1`);
+  win.on('closed', () => log(`${title} 窗口已关闭。`));
+}
+
+// 「系统」功能菜单项：低频页签从侧栏收进原生菜单（首选项区域），独立窗口打开
+const SYS_MENU_ITEMS = [
+  { label: '日志', accelerator: 'CmdOrCtrl+Alt+1', click: () => openTabWindow('logs', '日志') },
+  { label: 'Clash 分流', accelerator: 'CmdOrCtrl+Alt+2', click: () => openTabWindow('clash', 'Clash 分流') },
+  { label: '统一诊断', accelerator: 'CmdOrCtrl+Alt+3', click: () => openTabWindow('diagnose', '统一诊断') },
+  { label: '系统设置', accelerator: 'CmdOrCtrl+Alt+4', click: () => openTabWindow('settings', '系统设置') },
+];
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   const template = [];
@@ -241,6 +276,8 @@ function buildAppMenu() {
         { label: '关于 Jira Git GUI', role: 'about' },
         { type: 'separator' },
         { label: '首选项…', accelerator: 'CmdOrCtrl+,', click: openPreferences },
+        { type: 'separator' },
+        ...SYS_MENU_ITEMS,
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -256,7 +293,7 @@ function buildAppMenu() {
   if (!isMac) prefItem.accelerator = 'Ctrl+,';
   // const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
   // if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
-  template.push({ label: '设置', submenu: [prefItem] });
+  template.push({ label: '设置', submenu: [prefItem, { type: 'separator' }, ...SYS_MENU_ITEMS] });
 
   // 编辑（标准角色，保证复制 / 粘贴等可用）
   template.push({

@@ -45,6 +45,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('clipboard:write-text', text);
   },
 
+  /** 原生菜单跳转页签（日志 / Clash 分流 / 统一诊断 / 系统设置） @param {(tab: string) => void} cb */
+  onNavTab(cb) {
+    const handler = (_ev, payload) => {
+      try { cb(payload && payload.tab); } catch (_) {}
+    };
+    ipcRenderer.on('nav:tab', handler);
+    // 返回注销函数
+    return () => ipcRenderer.removeListener('nav:tab', handler);
+  },
+
   /** @param {(text: string) => void} cb */
   onAppLog(cb) {
     const handler = (_ev, payload) => {

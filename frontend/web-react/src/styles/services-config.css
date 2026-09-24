@@ -1,0 +1,206 @@
+/* ============================================================
+   独立「首选项」页（ServicesConfig）—— 全屏视图样式
+   全部取用 global.css 的主题变量（--bg/--panel/--text...），
+   深色模式由 html.dark 变量覆盖天然生效，无需单独写深色分支。
+   ============================================================ */
+
+.svc {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---- 头部：返回 + 标题 + 页签 + 主题切换 ---- */
+.svc-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.svc-title {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.svc-tabs {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+}
+
+.svc-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.svc-tab:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.svc-tab.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+/* ---- 主体 ---- */
+.svc-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px;
+}
+
+.svc-panel {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* ---- 表格 ---- */
+.svc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.svc-table th,
+.svc-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.svc-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.svc-table code {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--primary);
+}
+
+.svc-ok { color: var(--ok); }
+.svc-muted { color: var(--muted); }
+
+.svc-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.chip-hcm {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ---- 添加 / 编辑表单 ---- */
+.svc-add {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.svc-add h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.svc-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.svc-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.svc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.svc-field > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.svc-field.svc-full {
+  grid-column: 1 / -1;
+}
+
+.svc-field textarea.input {
+  resize: vertical;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.svc-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.svc-meta {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* ---- Toast ---- */
+.svc-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 100;
+  animation: svc-toast-in 0.18s ease;
+}
+
+.svc-toast.err {
+  border-left-color: var(--danger);
+}
+
+@keyframes svc-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
