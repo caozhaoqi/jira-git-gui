@@ -130,7 +130,7 @@ async def api_diff_scan(req: DiffScanReq):
 
             # 远端按 compare_dir 范围扫描；fast_hash 决定是否下载内容算 md5
             remote_files = _differ.scan_remote_cached(
-                client, namespace, max_workers=3, tree_ttl=3600,
+                client, namespace, max_workers=8, tree_ttl=3600,
                 on_progress=_on_remote_progress, use_cache=req.use_cache,
                 should_cancel=should_cancel, path=compare_dir,
                 fast_hash=req.fast_scan,
