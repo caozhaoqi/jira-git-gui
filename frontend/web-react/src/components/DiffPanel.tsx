@@ -51,6 +51,8 @@ export function DiffPanel() {
   const setProgress = useAppStore((s) => s.setProgress);
   const progress = useAppStore((s) => s.progress);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
+  const activeTab = useAppStore((s) => s.activeTab);
+  const storeRepos = useAppStore((s) => s.repos);
   const { t } = useT();
 
   // ===== 对比仓库 / 目录 / 扫描参数 =====
@@ -153,6 +155,25 @@ export function DiffPanel() {
     loadMappings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 自愈 1：DiffPanel 一经访问就常驻挂载（App.tsx visited 策略），若首次挂载时
+  // Cookie 已过期，/api/repos 返回 0 个且本地列表永远不会自动补。「仓库 / 文件」
+  // 页刷新过仓库（store.repos 有数据）而本地为空时，直接同步进来。
+  useEffect(() => {
+    if (!repos.length && storeRepos.length) {
+      setRepos(storeRepos);
+    }
+  }, [storeRepos, repos.length]);
+
+  // 自愈 2：每次切回 diff 页都刷新仓库列表（后端有 600s 缓存，代价低），
+  // 同时 loadRepos 内部会把 selectedRepo 回填到 compareRepo（若为空）——
+  // 修「在仓库页选了仓库、切到对比页却不生效」的脱节。
+  useEffect(() => {
+    if (activeTab === 'diff') {
+      loadRepos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   // 选中对比仓库：通知后端 set_repo，并按 .env 映射自动填本地目录
   const selectCompareRepo = useCallback(async (repoId: string) => {
