@@ -525,45 +525,8 @@ export function CfPanel() {
     }
   };
 
-  // windowStartMs：时间过滤生效时的窗口起始（ms）。页 1 最新，一旦翻到比窗口更旧的页即可停，
-  // 避免为「最近 1 小时」这类过滤把历史全量都拉下来。
-  const ensureAllLogs = useCallback(async (base: CfLastResult, windowStartMs = -Infinity) => {
-    const total = base.total || 0;
-    if (total === 0 || base.rows.length >= total) return;
-    const token = cfgRef.current.token;
-    const proxy = cfgRef.current.proxy.trim();
-    const fetchSize = Math.max(base.page_size || 200, 1000);
-    let nextPage = Math.floor(base.rows.length / fetchSize) + 1;
-    if (nextPage < 2) nextPage = 2;
-    try {
-      while (base.rows.length < total && nextPage <= 500) {
-        setStatus({ text: `正在加载全部日志用于排序…（${base.rows.length}/${total}）`, cls: '' });
-        const res = await apiPost<any>('/api/cf/logs', {
-          server_url: base.server_url,
-          token,
-          log_type: base.log_type,
-          record_model: base.record_model,
-          page_index: nextPage,
-          page_size: fetchSize,
-          proxy,
-        });
-        const payload = res.data || res.result || res;
-        const pageRows =
-          payload.list || payload.data || payload.items || res.list || res.data || [];
-        if (!pageRows.length) break;
-        base.rows = base.rows.concat(pageRows);
-        setResult({ ...base });
-        // 时间过滤生效时：本页最后（最旧）一行若已早于窗口起始，后续页只会更旧 → 停。
-        if (isFinite(windowStartMs)) {
-          const oldest = parseLogTime(cfTime(base.rows[base.rows.length - 1]));
-          if (!isNaN(oldest) && oldest < windowStartMs) break;
-        }
-        nextPage += 1;
-      }
-    } catch (e: any) {
-      setStatus({ text: `加载全部日志失败：${e.message}（已对当前已加载 ${base.rows.length} 条排序）`, cls: 'error' });
-    }
-  }, []);
+  // ensureAllLogs 已移除：原实现会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行并塞进
+  // 渲染进程内存，直接撑爆 V8 堆并诱发字体/布局 OOM。排序与过滤现只作用于本次已加载的页。
 
   // —— 时间范围过滤：预设下拉 / 手动起止（手动改动即切到「自定义」）——
   const onPresetChange = (p: TimePreset) => {
@@ -663,12 +626,8 @@ export function CfPanel() {
       // 注意：不要在此清空 search（实时过滤输入框）。
       // 用户刚输入的过滤条件应在新查询结果上继续生效，否则表现为「点查询后过滤内容被清空」。
       setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
-      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
-      try {
-        await ensureAllLogs(base, win ? win[0] : -Infinity);
-      } catch {
-        /* 拉取失败时降级：对已加载的数据排序并提示 */
-      }
+      // 不再自动全量拉取（原 ensureAllLogs 会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行，
+      // 直接撑爆渲染进程内存并诱发字体/布局 OOM）。排序/过滤一律只作用于本次已加载的页。
       // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
       await syncStreamFilter(serverUrl, logType, recordModel, pageSize);
     } catch (ex: any) {
@@ -879,16 +838,10 @@ export function CfPanel() {
     }
   };
 
-  const toggleSort = async () => {
-    const next = sortDir === 'asc' ? 'desc' : 'asc';
-    setSortDir(next);
-    setBusy('sort', true);
-    try {
-      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
-      if (resultRef.current) await ensureAllLogs(resultRef.current, win ? win[0] : -Infinity);
-    } finally {
-      setBusy('sort', false);
-    }
+  // 仅翻转排序方向：view 已按 sortDir 对已加载页（result.rows）排序，
+  // 不再调用 ensureAllLogs 全量拉取——否则会把几十万条日志塞进渲染进程内存导致 OOM。
+  const toggleSort = () => {
+    setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
   };
 
   // 排序 + 客户端实时过滤 + 本地分页 + 匹配计数
@@ -1267,7 +1220,7 @@ export function CfPanel() {
               className="input input-sm"
               type="number"
               min={1}
-              max={12000}
+              max={1000}
               value={cfg.page_size}
               onChange={(e) => setCfg({ ...cfg, page_size: parseInt(e.target.value) || 200 })}
               onBlur={() => saveCfg()}

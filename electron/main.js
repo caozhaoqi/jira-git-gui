@@ -16,6 +16,15 @@ const os = require('os');
 const http = require('http');
 const net = require('net');
 
+// 规避 Chromium Fontations(skrifa) 渲染后端在 macOS 上实例化可变 Web 字体时递归
+// 导致渲染进程 OOM 崩溃（FATAL ERROR: Oilpan: Large allocation）。
+// index.html 从 Google Fonts 拉取的 DM Sans / Outfit / JetBrains Mono 均为可变字体，
+// macOS 上 Web 字体走 Fontations 而非 CoreText，触发 skrifa::instance::Location::default
+// 的深层递归直至耗尽渲染堆。Electron 32 / Chromium M130 仍支持该开关（M139 才移除）。
+// 关闭后回退经典 FreeType/CoreText 路径：系统字体（PingFang SC 等）与 Web 字体均正常，
+// 且彻底消除崩溃向量。更彻底的根因修复见 index.html —— 移除 Google Fonts <link>。
+app.commandLine.appendSwitch('disable-features', 'Fontations,FontationsFontBackend');
+
 let pyProc = null;
 let mainWindow = null;
 let BACKEND_PORT = 8787;
