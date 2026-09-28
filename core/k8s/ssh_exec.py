@@ -158,18 +158,32 @@ class SshKubectlStream:
         self._chan = None
         self._rc = None
 
+    def _open_channel(self):
+        """在复用连接上打开 kubectl 流式通道（对齐 stream_kubectl 的 stderr->STDOUT）。"""
+        stdin, stdout, stderr = self._cli.exec_command(
+            _remote_kubectl_command(self._args))
+        chan = stdout.channel
+        chan.set_combine_stderr(True)  # 对齐 stream_kubectl 的 stderr->STDOUT
+        return chan
+
     async def start(self):
-        self._cli = await asyncio.to_thread(_get_client, self._env_name)
+        import socket
+        from paramiko.ssh_exception import SSHException
 
-        def _open():
-            import paramiko  # noqa: F401
-            stdin, stdout, stderr = self._cli.exec_command(
-                _remote_kubectl_command(self._args))
-            chan = stdout.channel
-            chan.set_combine_stderr(True)  # 对齐 stream_kubectl 的 stderr->STDOUT
-            return chan
+        # 缓存连接可能「transport 仍活跃但开 channel 失败」（sshd 回收半死
+        # 连接 / 超过 session 上限）：丢弃复用连接、重建一次再开通道，
+        # 避免偶发断链抛未捕获异常导致日志流中断。UserError（配置缺失）
+        # 不在此重试，直接上抛。
+        def _connect_and_open():
+            self._cli = _get_client(self._env_name)
+            try:
+                return self._open_channel()
+            except (SSHException, OSError, EOFError, socket.error):
+                _drop_client(self._env_name)
+                self._cli = _get_client(self._env_name)
+                return self._open_channel()
 
-        self._chan = await asyncio.to_thread(_open)
+        self._chan = await asyncio.to_thread(_connect_and_open)
         return self
 
     @property
