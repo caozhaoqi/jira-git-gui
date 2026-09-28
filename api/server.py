@@ -64,6 +64,31 @@ async def _startup_cf_autologin():
         asyncio.create_task(cf_autologin_all())
     except Exception as e:
         logger.warning(f"[CF] 启动自动登录任务创建失败: {e}")
+    try:
+        asyncio.create_task(_cache_evict_loop())
+    except Exception as e:
+        logger.warning(f"[cache] 缓存清理定时任务创建失败: {e}")
+
+
+# --------------------------------------------------------------------------- #
+#  后台缓存清理：evict_expired() 已写好但此前从未被调度，导致 cache/ 目录
+#  TTL 过期却从不被再次访问的文件无限堆积（实测 7130 文件 / 49M 且持续增长）。
+#  启动时先扫一次，之后每 10 分钟扫一次，回收过期条目与残留 .tmp。
+# --------------------------------------------------------------------------- #
+async def _cache_evict_loop():
+    from core.cache import evict_expired
+    try:
+        n = evict_expired()
+        if n:
+            logger.info(f"[cache] 启动清理回收 {n} 条过期缓存")
+    except Exception as e:
+        logger.warning(f"[cache] 启动清理失败: {e}")
+    while True:
+        await asyncio.sleep(600)
+        try:
+            evict_expired()
+        except Exception as e:
+            logger.warning(f"[cache] 周期清理失败: {e}")
 
 
 # --------------------------------------------------------------------------- #

@@ -99,7 +99,7 @@ async def api_cf_login(req: CfLoginReq):
 async def api_cf_auto_login(req: CfAutoLoginReq):
     """对配置的账号做自动登录（账号密码），返回结果列表。"""
     try:
-        results = await cf_autologin_all(proxy=req.proxy)
+        results = await cf_autologin_all(proxy=req.proxy, skip_permanent=False)
     except Exception as e:
         raise _http_error(e)
     broadcast("cf_token_update", {"auto_login": True, "count": len(results)})
