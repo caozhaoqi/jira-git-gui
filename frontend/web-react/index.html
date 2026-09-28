@@ -4,12 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jira Git 通用拉取工具</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+    <!-- 不再从 Google Fonts 拉取 DM Sans / Outfit / JetBrains Mono 可变 Web 字体：
+         macOS 上 Web 字体走 Chromium Fontations(skrifa) 后端，实例化可变轴时递归致渲染进程 OOM
+         （FATAL ERROR: Oilpan: Large allocation）。全局 CSS 已配齐系统字体回退栈
+         （-apple-system / PingFang SC / ui-monospace / SF Mono / Menlo / Consolas / monospace），
+         移除后排版自动回退到原生字体，且省去运行时网络字体请求（更快、可离线、与 Chromium 版本解耦）。
+         若日后确需 DM Sans 等，请改为自托管静态（非可变）字体文件，勿再依赖 CDN 可变字体。 -->
   </head>
   <body>
     <div id="root"></div>

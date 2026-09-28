@@ -8,7 +8,8 @@ HCM ``hcm.model.list`` 是纯请求-响应接口，没有服务端流式通道�
 通道（与 ``cf_token_update`` 等事件同源），体验等价于 WebSocket 推送。
 
 生命周期：``POST /api/cf/logs/stream``（action = start / stop / status）。
-- 全局同时只允许一个流：start 会先取消旧流；
+- **按 server_url 多实例**：每个环境各一条流可并行（多开窗口同时看多个环境），
+  同一环境重复 start 会先取消该环境的旧流；stop 带 server_url 只停该环境，不带则停全部；
 - 首轮轮询只做「静默种子」（记录已见行、不推送），避免把整页旧日志当新日志刷屏；
 - token 失效（PermissionError）时先清空 token 改走缓存/自动重登再试，仍失败才停流；
 - 连续 5 次其它错误也停流，避免无意义空转。
@@ -20,15 +21,16 @@ import hashlib
 import json
 from datetime import datetime
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any
 
 from api.common import logger
 from api.eventbus import broadcast
 from api.cf.cf_logs import cf_query_logs
 
 _lock = asyncio.Lock()
-_task: Optional[asyncio.Task] = None
-_cfg: dict = {}  # 当前流参数（含 interval / streaming，供 status 查询与前端展示）
+# 按 server_url 多实例：key -> {"task": asyncio.Task, "cfg": 流参数（含 interval/streaming）}。
+# 多开窗口同时看多个环境日志时，每个环境各持一条独立的轮询任务，互不影响。
+_streams: dict = {}
 
 _SEEN_MAX = 8000   # 去重集合上限（超出丢弃最旧一半）
 _SEEN_KEEP = 4000
@@ -100,8 +102,7 @@ def _extract_rows(res: Any) -> tuple:
     return [], 0
 
 
-async def _stream_loop(cfg: dict, interval: int) -> None:
-    global _cfg
+async def _stream_loop(cfg: dict, interval: int, key: str = "") -> None:
     seen: dict[str, None] = {}  # 有序去重：插入序≈时间序，超限时从最旧开始丢
     errs = 0
     first = True
@@ -153,7 +154,7 @@ async def _stream_loop(cfg: dict, interval: int) -> None:
                         "ok": False, "stopped": True, "error": str(e),
                         "ts": _now(), **_meta(cfg),
                     })
-                    _cfg = {**_cfg, "streaming": False}
+                    _streams.pop(key, None)
                     return
             except Exception as e:  # noqa: BLE001
                 errs += 1
@@ -167,7 +168,7 @@ async def _stream_loop(cfg: dict, interval: int) -> None:
                         "error": f"连续 {errs} 次拉取失败，实时刷新已停止",
                         "ts": _now(), **_meta(cfg),
                     })
-                    _cfg = {**_cfg, "streaming": False}
+                    _streams.pop(key, None)
                     return
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
@@ -177,17 +178,22 @@ async def _stream_loop(cfg: dict, interval: int) -> None:
 async def start_stream(server_url: str, token: str = "", proxy: str = "",
                        log_type: str = "", record_model: str = "dynamic_log",
                        page_size: int = 100, interval: int = 5) -> dict:
-    """启动（或重启）日志实时流。全局同时只有一个流。"""
-    global _task, _cfg
+    """启动（或重启）指定环境的日志实时流。
+
+    按 ``server_url`` 多实例：每个环境各一条流可并行（多开窗口同时看多个环境）；
+    同一环境重复 start 会先取消该环境的旧流，其它环境不受影响。
+    """
     async with _lock:
-        if _task and not _task.done():
-            _task.cancel()
+        key = (server_url or "").strip().rstrip("/")
+        old = _streams.get(key)
+        if old and isinstance(old.get("task"), asyncio.Task) and not old["task"].done():
+            old["task"].cancel()
             try:
-                await _task
+                await old["task"]
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
         cfg = {
-            "server_url": (server_url or "").strip().rstrip("/"),
+            "server_url": key,
             "token": (token or "").strip(),
             "proxy": (proxy or "").strip(),
             "log_type": (log_type or "").strip(),
@@ -195,32 +201,52 @@ async def start_stream(server_url: str, token: str = "", proxy: str = "",
             "page_size": max(10, min(int(page_size or 100), 500)),
         }
         interval = max(3, min(int(interval or 5), 120))
-        _cfg = {**cfg, "interval": interval, "streaming": True}
-        _task = asyncio.create_task(_stream_loop(cfg, interval))
-        logger.info(f"[CF-STREAM] 已启动：{cfg['server_url']} model={cfg['record_model']} "
-                    f"log_type={cfg['log_type'] or '-'} interval={interval}s")
-    return {"ok": True, **_cfg}
+        entry_cfg = {**cfg, "interval": interval, "streaming": True}
+        task = asyncio.create_task(_stream_loop(cfg, interval, key))
+        _streams[key] = {"task": task, "cfg": entry_cfg}
+        logger.info(f"[CF-STREAM] 已启动: {key or '(默认)'} model={cfg['record_model']} "
+                    f"log_type={cfg['log_type'] or '-'} interval={interval}s "
+                    f"(并行流数={len(_streams)})")
+    return {"ok": True, **{k: v for k, v in entry_cfg.items() if k != "token"}}
 
 
-async def stop_stream() -> dict:
-    """停止当前流（若有），并广播 stopped 事件。"""
-    global _task, _cfg
+async def stop_stream(server_url: str = "") -> dict:
+    """停止实时流。
+
+    带 ``server_url`` 只停该环境的流（多开场景下各窗口只停自己的）；
+    不带则停全部（兼容旧调用 / 兜底）。
+    """
+    stopped_any = False
     async with _lock:
-        was = bool(_cfg.get("streaming"))
-        if _task and not _task.done():
-            _task.cancel()
-            try:
-                await _task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-        _task = None
-        _cfg = {**_cfg, "streaming": False}
-        if was:
-            broadcast("cf_log_update", {"ok": True, "stopped": True, "ts": _now(), **_meta(_cfg)})
-        logger.info("[CF-STREAM] 已停止")
-    return {"ok": True, "streaming": False}
+        su = (server_url or "").strip()
+        keys = [su.rstrip("/")] if su else list(_streams.keys())
+        for key in keys:
+            entry = _streams.pop(key, None)
+            if not entry:
+                continue
+            t = entry.get("task")
+            if isinstance(t, asyncio.Task) and not t.done():
+                t.cancel()
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
+            stopped_any = True
+            broadcast("cf_log_update", {
+                "ok": True, "stopped": True, "ts": _now(), **_meta(entry.get("cfg", {})),
+            })
+    if stopped_any:
+        logger.info(f"[CF-STREAM] 已停止: {su or '全部'}（剩余流数={len(_streams)}）")
+    return {"ok": True, "streaming": bool(_streams)}
 
 
 def stream_status() -> dict:
-    """当前流状态（参数不含 token 明文）。"""
-    return {"ok": True, **{k: v for k, v in _cfg.items() if k != "token"}}
+    """当前全部流状态（按环境多实例，列表返回；不含 token 明文）。
+
+    兼容旧字段：顶层 ``streaming`` = 是否存在任意运行中的流。
+    """
+    streams = [
+        {k: v for k, v in entry.get("cfg", {}).items() if k != "token"}
+        for entry in _streams.values()
+    ]
+    return {"ok": True, "streaming": bool(streams), "count": len(streams), "streams": streams}

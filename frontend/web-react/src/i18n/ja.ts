@@ -784,6 +784,8 @@ export const ja: Dict = {
     liveRefresh: 'リアルタイム更新',
     liveStop: '停止',
     liveHint: '選択した間隔で最新ページをポーリングし、新しいログを自動でリストに反映します（SSE 通知、手動クエリ不要）',
+    multiOpen: 'マルチウィンドウ',
+    multiOpenHint: 'クラウド関数ログの別ウィンドウを開き、複数環境を同時に監視します（各ウィンドウで環境・フィルタ・ライブ更新を個別設定。バックエンドは環境ごとに並列ストリームを実行）',
     liveLastCheck: '最終チェック',
     searchPlaceholder: 'ログ内容・時間・種類を検索…（リアルタイム絞込）',
     caseSensitive: '大文字小文字を区別',

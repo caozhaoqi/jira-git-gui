@@ -785,6 +785,8 @@ export const en: Dict = {
     liveRefresh: 'Live refresh',
     liveStop: 'Stop',
     liveHint: 'Polls the newest page at the chosen interval and pushes new logs into the list automatically (SSE push, no manual query needed)',
+    multiOpen: 'New Window',
+    multiOpenHint: 'Open another standalone CF log window to watch multiple environments at once (each window has its own environment, filters and live refresh; backend runs one stream per environment in parallel)',
     liveLastCheck: 'Last check',
     searchPlaceholder: 'Search log content, time, type… (live filter)',
     caseSensitive: 'Case sensitive',

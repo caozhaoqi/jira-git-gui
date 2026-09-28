@@ -255,10 +255,12 @@ export function CfPanel() {
     }
   }, []);
 
-  const loadCfg = useCallback(() => {
+  // 返回解析出的 cfg：挂载流程把 server_url 显式传给 restoreStreamState（多开按环境认领流，
+  // 规避「挂载 effect 里 cfgRef 还是旧值」的时序问题）。
+  const loadCfg = useCallback((): Partial<CfCfg> | undefined => {
     try {
       const raw = localStorage.getItem(CF_CFG_KEY);
-      if (!raw) return;
+      if (!raw) return undefined;
       const parsed = JSON.parse(raw) as Partial<CfCfg>;
       setCfg((c) => {
         const next = { ...c, ...parsed };
@@ -270,6 +272,7 @@ export function CfPanel() {
         }
         return next;
       });
+      return parsed;
     } catch {
       /* ignore */
     }
@@ -307,24 +310,34 @@ export function CfPanel() {
     }
   }, []);
 
-  // 页面刷新后：后端流是「服务端常驻单例」，但前端 streamParamsRef 是内存态会丢。
-  // 挂载时向后端询问流状态并回填，否则刷新后前端既不知道流还在跑，过滤快照也对不上。
-  const restoreStreamState = useCallback(async (): Promise<boolean> => {
+  // 页面刷新后：后端流按环境多实例常驻，但前端 streamParamsRef 是内存态会丢。
+  // 挂载时向后端询问流状态，只认领与本窗口 server_url 匹配的那条（多开窗口各认各的），
+  // 否则刷新后前端既不知道流还在跑，过滤快照也对不上。
+  const restoreStreamState = useCallback(async (serverUrl?: string): Promise<boolean> => {
     try {
       const d = await apiPost<{
         streaming?: boolean; server_url?: string; log_type?: string;
         record_model?: string; page_size?: number; interval?: number;
+        streams?: Array<{
+          server_url?: string; log_type?: string;
+          record_model?: string; page_size?: number; interval?: number;
+        }>;
       }>('/api/cf/logs/stream', { action: 'status' });
-      if (!d || !d.streaming) return false;
-      if (d.interval) setStreamInterval(d.interval);
+      const myServer = ((serverUrl ?? cfgRef.current.server_url) || '').trim();
+      const list = Array.isArray(d?.streams) && d.streams!.length
+        ? d.streams!
+        : (d && d.streaming ? [d] : []); // 兼容旧版单流返回
+      const mine = list.find((s) => ((s.server_url || '').trim() === myServer));
+      if (!mine) return false;
+      if (mine.interval) setStreamInterval(mine.interval);
       streamParamsRef.current = {
-        server_url: (d.server_url || '').trim(),
-        log_type: (d.log_type || '').trim(),
-        record_model: (d.record_model || 'dynamic_log').trim() || 'dynamic_log',
-        page_size: d.page_size || 100,
+        server_url: (mine.server_url || '').trim(),
+        log_type: (mine.log_type || '').trim(),
+        record_model: (mine.record_model || 'dynamic_log').trim() || 'dynamic_log',
+        page_size: mine.page_size || 100,
       };
       setStreaming(true);
-      setStatus({ text: `已恢复实时刷新状态（后台流仍在运行：log_type=${d.log_type || '全部'}）`, cls: 'success' });
+      setStatus({ text: `已恢复实时刷新状态（后台流仍在运行：log_type=${mine.log_type || '全部'}）`, cls: 'success' });
       return true;
     } catch {
       /* 询问失败就当没开流 */
@@ -335,9 +348,9 @@ export function CfPanel() {
   useEffect(() => {
     (async () => {
       await loadAccounts();
-      loadCfg();
+      const parsedCfg = loadCfg();
       await loadTokens();
-      const restored = await restoreStreamState();
+      const restored = await restoreStreamState(parsedCfg?.server_url);
       // 恢复了后台流但当前没有基线结果：标记一下，等 cfg（loadCfg 已 setCfg）就绪后补查一次，
       // 否则实时刷新推来的新行会因 result 为空被丢弃，看起来「开着但没动静」。
       if (restored && !resultRef.current) setNeedBaseline(true);
@@ -349,6 +362,10 @@ export function CfPanel() {
   useEffect(() => {
     const off = sse.on('cf_log_update', (d: SSECFLogUpdate) => {
       if (d.stopped) {
+        // 多开模式：只响应本环境流的停止事件（其它环境停流与本窗口无关）
+        const evServer = (d.server_url || '').trim();
+        const myServer = ((resultRef.current?.server_url) || cfgRef.current.server_url || '').trim();
+        if (evServer && myServer && evServer !== myServer) return;
         setStreaming(false);
         streamParamsRef.current = null;
         setStatus({ text: d.error ? `实时刷新已停止：${d.error}` : '实时刷新已停止', cls: d.error ? 'error' : '' });
@@ -358,6 +375,9 @@ export function CfPanel() {
       if (d.ts) setLastTick(d.ts); // 每次轮询都更新心跳（无论有无新日志）
       const r = resultRef.current;
       if (!r) return;
+      // 多开模式：后端按环境并行多条流（SSE 广播是全量的），只合并本窗口当前环境的推送
+      const evServer = (d.server_url || '').trim();
+      if (evServer && evServer !== (r.server_url || '').trim()) return;
       const incoming = Array.isArray(d.rows) ? d.rows : [];
       if (!incoming.length) {
         if (d.error) setStatus({ text: `实时刷新拉取失败：${d.error}（将继续重试）`, cls: 'warning' });
@@ -525,45 +545,8 @@ export function CfPanel() {
     }
   };
 
-  // windowStartMs：时间过滤生效时的窗口起始（ms）。页 1 最新，一旦翻到比窗口更旧的页即可停，
-  // 避免为「最近 1 小时」这类过滤把历史全量都拉下来。
-  const ensureAllLogs = useCallback(async (base: CfLastResult, windowStartMs = -Infinity) => {
-    const total = base.total || 0;
-    if (total === 0 || base.rows.length >= total) return;
-    const token = cfgRef.current.token;
-    const proxy = cfgRef.current.proxy.trim();
-    const fetchSize = Math.max(base.page_size || 200, 1000);
-    let nextPage = Math.floor(base.rows.length / fetchSize) + 1;
-    if (nextPage < 2) nextPage = 2;
-    try {
-      while (base.rows.length < total && nextPage <= 500) {
-        setStatus({ text: `正在加载全部日志用于排序…（${base.rows.length}/${total}）`, cls: '' });
-        const res = await apiPost<any>('/api/cf/logs', {
-          server_url: base.server_url,
-          token,
-          log_type: base.log_type,
-          record_model: base.record_model,
-          page_index: nextPage,
-          page_size: fetchSize,
-          proxy,
-        });
-        const payload = res.data || res.result || res;
-        const pageRows =
-          payload.list || payload.data || payload.items || res.list || res.data || [];
-        if (!pageRows.length) break;
-        base.rows = base.rows.concat(pageRows);
-        setResult({ ...base });
-        // 时间过滤生效时：本页最后（最旧）一行若已早于窗口起始，后续页只会更旧 → 停。
-        if (isFinite(windowStartMs)) {
-          const oldest = parseLogTime(cfTime(base.rows[base.rows.length - 1]));
-          if (!isNaN(oldest) && oldest < windowStartMs) break;
-        }
-        nextPage += 1;
-      }
-    } catch (e: any) {
-      setStatus({ text: `加载全部日志失败：${e.message}（已对当前已加载 ${base.rows.length} 条排序）`, cls: 'error' });
-    }
-  }, []);
+  // ensureAllLogs 已移除：原实现会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行并塞进
+  // 渲染进程内存，直接撑爆 V8 堆并诱发字体/布局 OOM。排序与过滤现只作用于本次已加载的页。
 
   // —— 时间范围过滤：预设下拉 / 手动起止（手动改动即切到「自定义」）——
   const onPresetChange = (p: TimePreset) => {
@@ -598,6 +581,13 @@ export function CfPanel() {
     const prev = streamParamsRef.current;
     if (prev && prev.server_url === serverUrl && prev.log_type === logType && prev.record_model === recordModel) return;
     try {
+      // 环境变了（不只是类型过滤）：先显式停掉旧环境的流——按环境多实例后，
+      // start(新环境) 不会替你停别的环境的流，不停会留下孤儿流继续空转轮询。
+      if (prev && prev.server_url !== serverUrl) {
+        try {
+          await apiPost('/api/cf/logs/stream', { action: 'stop', server_url: prev.server_url });
+        } catch { /* ignore */ }
+      }
       await apiPost('/api/cf/logs/stream', {
         action: 'start',
         server_url: serverUrl,
@@ -663,12 +653,8 @@ export function CfPanel() {
       // 注意：不要在此清空 search（实时过滤输入框）。
       // 用户刚输入的过滤条件应在新查询结果上继续生效，否则表现为「点查询后过滤内容被清空」。
       setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
-      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
-      try {
-        await ensureAllLogs(base, win ? win[0] : -Infinity);
-      } catch {
-        /* 拉取失败时降级：对已加载的数据排序并提示 */
-      }
+      // 不再自动全量拉取（原 ensureAllLogs 会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行，
+      // 直接撑爆渲染进程内存并诱发字体/布局 OOM）。排序/过滤一律只作用于本次已加载的页。
       // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
       await syncStreamFilter(serverUrl, logType, recordModel, pageSize);
     } catch (ex: any) {
@@ -703,7 +689,9 @@ export function CfPanel() {
   // —— 实时刷新：后端按间隔轮询最新页，新日志经 SSE（cf_log_update）推送合并 ——
   const stopStream = useCallback(async () => {
     try {
-      await apiPost('/api/cf/logs/stream', { action: 'stop' });
+      // 带 server_url：多开模式下只停本窗口环境的流，不影响其它环境的并行流。
+      // 注意 switchEnv 切环境时调用此处，cfgRef 仍是旧环境 → 恰好停掉旧环境的流。
+      await apiPost('/api/cf/logs/stream', { action: 'stop', server_url: cfgRef.current.server_url.trim() });
     } catch {
       /* ignore */
     }
@@ -757,6 +745,21 @@ export function CfPanel() {
     } finally {
       setBusy('stream', false);
     }
+  };
+
+  // 多开：再开一个独立窗口看其它环境日志（Electron 原生窗口；浏览器模式 window.open 兜底）。
+  // 新窗口与主窗口同源共享 localStorage（主题/语言/cfg），各窗口独立选环境、过滤与实时刷新。
+  const openAnotherWindow = () => {
+    const acc = accounts.find((a) => (a.server_url || '') === cfg.server_url.trim());
+    const title = acc?.name ? `云函数日志 · ${acc.name}` : '云函数日志';
+    const api = (window as unknown as {
+      electronAPI?: { openTabWindow?: (tab: string, title: string) => void };
+    }).electronAPI;
+    if (api?.openTabWindow) {
+      api.openTabWindow('cf', title);
+      return;
+    }
+    window.open(`${window.location.origin}/?tab=cf&embed=1`, '_blank');
   };
 
   // 导出「当前过滤视图」（时间窗口 + 关键词），导出后自动把文件路径复制到剪贴板（可粘贴给 AI）。
@@ -879,16 +882,10 @@ export function CfPanel() {
     }
   };
 
-  const toggleSort = async () => {
-    const next = sortDir === 'asc' ? 'desc' : 'asc';
-    setSortDir(next);
-    setBusy('sort', true);
-    try {
-      const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
-      if (resultRef.current) await ensureAllLogs(resultRef.current, win ? win[0] : -Infinity);
-    } finally {
-      setBusy('sort', false);
-    }
+  // 仅翻转排序方向：view 已按 sortDir 对已加载页（result.rows）排序，
+  // 不再调用 ensureAllLogs 全量拉取——否则会把几十万条日志塞进渲染进程内存导致 OOM。
+  const toggleSort = () => {
+    setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
   };
 
   // 排序 + 客户端实时过滤 + 本地分页 + 匹配计数
@@ -1267,7 +1264,7 @@ export function CfPanel() {
               className="input input-sm"
               type="number"
               min={1}
-              max={12000}
+              max={1000}
               value={cfg.page_size}
               onChange={(e) => setCfg({ ...cfg, page_size: parseInt(e.target.value) || 200 })}
               onBlur={() => saveCfg()}
@@ -1324,6 +1321,14 @@ export function CfPanel() {
             title={t('cf.liveHint')}
           >
             {streaming ? `⏹ ${t('cf.liveStop')}` : `▶ ${t('cf.liveRefresh')}`}
+          </button>
+          {/* 多开：独立窗口同时查看多个环境日志（各窗口独立选环境 / 过滤 / 实时刷新） */}
+          <button
+            className="btn btn-ghost cf-query-btn"
+            onClick={openAnotherWindow}
+            title={t('cf.multiOpenHint')}
+          >
+            🗗 {t('cf.multiOpen')}
           </button>
           {/* 心跳：每次轮询（即使无新日志）都会推送 ts，显示出来证明链路活着 */}
           {streaming && (

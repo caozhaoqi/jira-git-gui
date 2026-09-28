@@ -27,6 +27,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('shell:open-external', String(url || ''));
   },
 
+  /** 多开窗口：独立窗口打开指定页签（cf = 云函数日志），用于同时查看多个环境日志 */
+  openTabWindow(tab, title) {
+    return ipcRenderer.invoke('window:open-tab', {
+      tab: String(tab || ''),
+      title: String(title || ''),
+    });
+  },
+
   /** 在内置浏览器窗口（应用内嵌 Chromium）打开外部 HCM Cloud 网页，可选注入 cookie 自动登录。 */
   openBuiltinBrowser(url, cookies) {
     return ipcRenderer.invoke('builtin-browser:open', {

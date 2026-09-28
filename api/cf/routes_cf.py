@@ -99,7 +99,7 @@ async def api_cf_login(req: CfLoginReq):
 async def api_cf_auto_login(req: CfAutoLoginReq):
     """对配置的账号做自动登录（账号密码），返回结果列表。"""
     try:
-        results = await cf_autologin_all(proxy=req.proxy)
+        results = await cf_autologin_all(proxy=req.proxy, skip_permanent=False)
     except Exception as e:
         raise _http_error(e)
     broadcast("cf_token_update", {"auto_login": True, "count": len(results)})
@@ -165,7 +165,8 @@ async def api_cf_log_stream(req: CfLogStreamReq):
     """
     try:
         if req.action == "stop":
-            return await cf_log_stream_stop()
+            # 带 server_url：多开模式下只停该环境的流，不影响其它环境并行流
+            return await cf_log_stream_stop(server_url=req.server_url)
         if req.action == "status":
             return cf_log_stream_status()
         return await cf_log_stream_start(

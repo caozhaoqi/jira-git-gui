@@ -786,6 +786,8 @@ export const zh: Dict = {
     liveRefresh: '实时刷新',
     liveStop: '停止刷新',
     liveHint: '开启后按所选间隔轮询最新一页，新日志自动推送到列表（SSE 推送，无需手动查询）',
+    multiOpen: '多开窗口',
+    multiOpenHint: '再开一个云函数日志独立窗口，可同时查看多个环境（各窗口独立选择环境、过滤条件与实时刷新；后端按环境并行多条流，互不影响）',
     liveLastCheck: '上次检查',
     searchPlaceholder: '搜索日志内容、时间、类型…（实时过滤）',
     caseSensitive: '大小写敏感',
