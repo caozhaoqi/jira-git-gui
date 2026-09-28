@@ -200,7 +200,10 @@ function openPreferences() {
     minWidth: 800,
     minHeight: 560,
     title: '首选项 · 系统配置',
-    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    // ⚠️ 刻意不设 parent。设了 parent 这个窗口就成了主窗口的「子窗口」（macOS 上
+    // 是真正的 addChildWindow 关系，同属一个 window group），于是最小化主窗口时
+    // 会把同组窗口一起隐藏 —— 用户看到的就是「多开后最小化一个，另一个也消失」。
+    // 这里要的是独立顶层窗口（与 Tauri 版行为一致），故必须保持无 parent。
     modal: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -226,7 +229,7 @@ function openHcmMeta() {
     minWidth: 860,
     minHeight: 560,
     title: 'HCM 元数据浏览器',
-    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    // 同上：不设 parent，保持独立窗口（避免与主窗口同组被一起最小化/隐藏）。
     modal: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -251,7 +254,9 @@ function openTabWindow(tabKey, title, width = 1180, height = 800) {
     minWidth: 860,
     minHeight: 560,
     title,
-    parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+    // ⚠️ 多开窗口必须无 parent！这是「多开后最小化一个、另一个也消失」的根因：
+    // 带 parent 的窗口属于主窗口的 window group，最小化主窗口会连带隐藏全部子窗口。
+    // 去掉 parent 后，每个窗口都是独立顶层窗口，互相之间不再联动。
     modal: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -354,6 +359,15 @@ function registerIpcHandlers() {
     logFile: LOG_FILE,
     isDev,
   }));
+
+  // 多开窗口：独立窗口打开指定页签（如 cf = 云函数日志 ?tab=cf&embed=1），
+  // 用于同时查看多个环境日志（后端流按环境并行，各窗口互不影响）。
+  ipcMain.handle('window:open-tab', (_ev, payload) => {
+    const tab = String((payload && payload.tab) || 'cf');
+    const title = String((payload && payload.title) || '窗口');
+    openTabWindow(tab, title);
+    return { ok: true };
+  });
   ipcMain.handle('shell:open-external', async (_ev, rawUrl) => {
     const url = String(rawUrl || '');
     if (!/^https?:\/\//i.test(url)) return false;
@@ -375,7 +389,7 @@ function registerIpcHandlers() {
       minWidth: 800,
       minHeight: 560,
       title: `内置浏览器 · ${origin}`,
-      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      // 同上：不设 parent，保持独立窗口。
       modal: false,
       show: true,
       webPreferences: {
@@ -582,6 +596,31 @@ function createWindow() {
   log(`加载 ${BACKEND_URL}/`);
   mainWindow.loadURL(`${BACKEND_URL}/`);
 
+  // window.open 兜底（「日志查看」多开走这条路）：由主进程自己建窗口，完全掌控 options。
+  // 关键：绝不能让新窗口落进 Electron 默认的「opener 子窗口」关系 —— 否则最小化主窗口
+  // 时，这些多开的日志窗口会被一起隐藏（与 openTabWindow 是同一个坑）。
+  // 返回 deny 是为了阻止 Electron 再建一个我们控制不了、且可能带 parent 的窗口。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (!/^https?:\/\//i.test(url)) return { action: 'deny' };
+    const win = new BrowserWindow({
+      width: 1180,
+      height: 800,
+      minWidth: 860,
+      minHeight: 560,
+      autoHideMenuBar: true,
+      // 刻意不设 parent：独立顶层窗口，多开互不影响。
+      webPreferences: {
+        preload: path.join(__dirname, 'preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+    win.loadURL(url);
+    win.on('closed', () => log('独立窗口（window.open）已关闭。'));
+    return { action: 'deny' };
+  });
+
   if (isDev) {
     log('Dev 模式：自动打开 DevTools');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -670,8 +709,10 @@ if (app) {
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      log('activate：重建窗口');
+    // 辅助窗口现在与主窗口相互独立（不再设 parent），因此「主窗口已关但还有其它
+    // 窗口开着」是可能的。按「主窗口是否存在」判断，避免主窗口关掉后唤不回来。
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      log('activate：重建主窗口');
       if (pyProc) {
         createWindow();
       } else {

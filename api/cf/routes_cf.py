@@ -165,7 +165,8 @@ async def api_cf_log_stream(req: CfLogStreamReq):
     """
     try:
         if req.action == "stop":
-            return await cf_log_stream_stop()
+            # 带 server_url：多开模式下只停该环境的流，不影响其它环境并行流
+            return await cf_log_stream_stop(server_url=req.server_url)
         if req.action == "status":
             return cf_log_stream_status()
         return await cf_log_stream_start(
