@@ -4,6 +4,7 @@ import type { K8sDescribeResp, K8sEvent } from '../../api/types';
 import { copyText } from '../../utils/clipboard';
 import { useK8s } from './context';
 import { useT } from '../../i18n';
+import { useModalA11y } from '../../utils/useModalA11y';
 
 /**
  * リソース記述モーダル —— web/js/05-k8s.js の openK8sDescribe / runK8sDescribe / renderK8sDescribeEvents から移行。
@@ -23,6 +24,7 @@ export interface DescribeSeed {
 export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClose: () => void }) {
   const { target } = useK8s();
   const { t } = useT();
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
 
   const [kind, setKind] = useState(seed.kind || 'pod');
   const [name, setName] = useState(seed.name || '');
@@ -66,13 +68,6 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Esc で閉じる
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const copy = useCallback(async () => {
     if (!text) { setMsg(t('k8s.describe.nothingToCopy')); return; }
     const ok = await copyText(text);
@@ -81,10 +76,18 @@ export function K8sDescribeModal({ seed, onClose }: { seed: DescribeSeed; onClos
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal-lg"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="k8s-describe-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h3>{t('k8s.describe.title')}</h3>
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+          <h3 id="k8s-describe-title">{t('k8s.describe.title')}</h3>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
 
         <div className="modal-body">

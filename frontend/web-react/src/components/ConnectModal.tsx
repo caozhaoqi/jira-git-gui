@@ -3,12 +3,14 @@ import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type { ConnectBody, ConnectResp, StatusResp } from '../api/types';
 import { useT } from '../i18n';
+import { useModalA11y } from '../utils/useModalA11y';
 
 export function ConnectModal({ onClose }: { onClose: () => void }) {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const setStatus = useAppStore((s) => s.setStatus);
   const { t } = useT();
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
 
   const [jiraUrl, setJiraUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -19,7 +21,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
   const [repoName, setRepoName] = useState('');
   const [branch, setBranch] = useState('');
   const [statusText, setStatusText] = useState('');
-  const [statusColor, setStatusColor] = useState('');
+  const [statusType, setStatusType] = useState<'' | 'ok' | 'err'>('');
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -55,7 +57,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
   async function test() {
     setTesting(true);
     setStatusText(t('connect.testing'));
-    setStatusColor('');
+    setStatusType('');
     try {
       const res = await apiPost<ConnectResp>('/api/connect', body());
       const parts: string[] = [];
@@ -66,17 +68,19 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
         parts.push(`${t('connect.repoName')}: ${res.repoDefaults.displayName}`);
       }
       if (res.note) parts.push(res.note);
+      let ok = res.cookieOk || Boolean(res.patTest?.ok) || Boolean(res.repoDefaults?.displayName);
       if (mode === 'cookie' && cookie.trim()) {
         if (res.cookieSaved) parts.push(t('connect.cookieSaved'));
         else if (res.cookieWarning) {
           parts.push(res.cookieWarning);
-          setStatusColor('var(--danger)');
+          ok = false;
         }
       }
+      setStatusType(ok ? 'ok' : 'err');
       setStatusText(parts.join(' | '));
     } catch (e: any) {
       setStatusText(`${t('common.error')}：${e.message}`);
-      setStatusColor('var(--danger)');
+      setStatusType('err');
     } finally {
       setTesting(false);
     }
@@ -99,10 +103,18 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="connect-modal-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h3>{t('connect.title')}</h3>
-          <button className="btn btn-icon" onClick={onClose}>
+          <h3 id="connect-modal-title">{t('connect.title')}</h3>
+          <button className="btn btn-icon" onClick={onClose} aria-label={t('common.close')}>
             ×
           </button>
         </div>
@@ -162,7 +174,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
             <span>{t('connect.branch')}</span>
             <input value={branch} onChange={(e) => setBranch(e.target.value)} />
           </label>
-          <div className="modal-status" style={{ color: statusColor }}>
+          <div className={'modal-status' + (statusType ? ' ' + statusType : '')}>
             {statusText}
           </div>
         </div>

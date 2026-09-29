@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { cfdebug } from '../api/cfdebug/client';
+import { useModalA11y } from '../utils/useModalA11y';
 
 export function CfDebugSyncModal({
   open,
@@ -16,6 +17,7 @@ export function CfDebugSyncModal({
 }) {
   const { t } = useT();
   const addToast = useAppStore((s) => s.addToast);
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [items, setItems] = useState<Array<{ index: number; name: string; server_url: string; type: string }>>([]);
   const [importText, setImportText] = useState('');
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
@@ -85,11 +87,19 @@ export function CfDebugSyncModal({
 
   return (
     <div className="cfd-modal-mask" onClick={onClose}>
-      <div className="cfd-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="cfd-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cfd-sync-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="cfd-modal-head">
-          <span className="section-title">{t('cfdebug.syncTitle')}</span>
+          <span id="cfd-sync-title" className="section-title">{t('cfdebug.syncTitle')}</span>
           <div className="spacer" />
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label={t('common.close')}>
             ✕
           </button>
         </div>

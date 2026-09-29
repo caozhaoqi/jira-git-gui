@@ -468,6 +468,12 @@
   font-weight: 700;
 }
 
+/* 点选回填表单的环境项高亮（选中 ≠ 当前环境：主色描边，与绿色 Current 徽标区分） */
+.k8s-env-item.selected {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg-panel));
+}
+
 /* ev-type */
 .k8s-events-table tr.ev-Warning .ev-type {
   color: var(--danger);
@@ -1134,28 +1140,26 @@
 .k8s-file-view .hljs-deletion { color: #e06c75; }
 .k8s-file-view .hljs-emphasis { font-style: italic; }
 .k8s-file-view .hljs-strong { font-weight: 600; }
-@media (prefers-color-scheme: dark) {
-  .k8s-file-view .hljs-comment,
-  .k8s-file-view .hljs-quote { color: #7f848e; }
-  .k8s-file-view .hljs-keyword,
-  .k8s-file-view .hljs-selector-tag,
-  .k8s-file-view .hljs-built_in,
-  .k8s-file-view .hljs-name,
-  .k8s-file-view .hljs-tag { color: #c678dd; }
-  .k8s-file-view .hljs-string,
-  .k8s-file-view .hljs-title,
-  .k8s-file-view .hljs-section,
-  .k8s-file-view .hljs-attribute,
-  .k8s-file-view .hljs-literal,
-  .k8s-file-view .hljs-type,
-  .k8s-file-view .hljs-addition { color: #98c379; }
-  .k8s-file-view .hljs-number,
-  .k8s-file-view .hljs-symbol,
-  .k8s-file-view .hljs-meta { color: #d19a66; }
-  .k8s-file-view .hljs-attr,
-  .k8s-file-view .hljs-variable,
-  .k8s-file-view .hljs-property { color: #61afef; }
-}
+html.dark .k8s-file-view .hljs-comment,
+html.dark .k8s-file-view .hljs-quote { color: #7f848e; }
+html.dark .k8s-file-view .hljs-keyword,
+html.dark .k8s-file-view .hljs-selector-tag,
+html.dark .k8s-file-view .hljs-built_in,
+html.dark .k8s-file-view .hljs-name,
+html.dark .k8s-file-view .hljs-tag { color: #c678dd; }
+html.dark .k8s-file-view .hljs-string,
+html.dark .k8s-file-view .hljs-title,
+html.dark .k8s-file-view .hljs-section,
+html.dark .k8s-file-view .hljs-attribute,
+html.dark .k8s-file-view .hljs-literal,
+html.dark .k8s-file-view .hljs-type,
+html.dark .k8s-file-view .hljs-addition { color: #98c379; }
+html.dark .k8s-file-view .hljs-number,
+html.dark .k8s-file-view .hljs-symbol,
+html.dark .k8s-file-view .hljs-meta { color: #d19a66; }
+html.dark .k8s-file-view .hljs-attr,
+html.dark .k8s-file-view .hljs-variable,
+html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 /* 环境管理弹窗（React 版新增类，原生用 .form-rows） */
 .k8s-env-form {

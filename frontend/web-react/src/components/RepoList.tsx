@@ -114,7 +114,16 @@ export function RepoList() {
           <div
             key={r.repo_id}
             className={`repo-item ${selectedRepo?.repo_id === r.repo_id ? 'selected' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-label={r.display_name || String(r.repo_id)}
             onClick={() => openRepo(r)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                void openRepo(r);
+              }
+            }}
           >
             <div className="repo-name">{r.display_name || r.repo_id}</div>
             <div className="repo-meta">

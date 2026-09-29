@@ -1134,7 +1134,10 @@ select:focus-visible {
 .modal-status {
   font-size: 12px;
   min-height: 16px;
+  color: var(--text);
 }
+.modal-status.ok { color: var(--success); }
+.modal-status.err { color: var(--danger); }
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -2036,9 +2039,7 @@ select:focus-visible {
 
 /* 搜索定位到的当前行（回车跳转高亮） */
 .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.18); }
-@media (prefers-color-scheme: dark) {
-  .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.28); }
-}
+html.dark .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.28); }
 
 /* 元数据显示维度切换分隔（list/info/view/all） */
 .hcm-kind-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 2px; }
@@ -2050,20 +2051,14 @@ select:focus-visible {
 /* JSON 高亮搜索命中标记（自适应浅/深主题） */
 .hcm-json mark { background: #fff3a3; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
 .hcm-json mark { color: #1a1a1a; }
-@media (prefers-color-scheme: dark) {
-  .hcm-json mark { background: #b58900; color: #1a1a1a; }
-}
+html.dark .hcm-json mark { background: #b58900; color: #1a1a1a; }
 /* 当前定位到的命中项（回车跳转高亮） */
 .hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; box-shadow: 0 0 0 2px rgba(255,138,61,0.35); }
-@media (prefers-color-scheme: dark) {
-  .hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; }
-}
+html.dark .hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; }
 
 /* 文件列表名字段高亮搜索命中标记（与 JSON 高亮一致，自适应浅/深主题） */
 .hcm-meta-name mark, .hcm-list mark { background: #fff3a3; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
-@media (prefers-color-scheme: dark) {
-  .hcm-meta-name mark, .hcm-list mark { background: #b58900; color: #1a1a1a; }
-}
+html.dark .hcm-meta-name mark, .hcm-list mark { background: #b58900; color: #1a1a1a; }
 
 /* ===== HCM 模型详情独立页（双击新窗口） ===== */
 .app-shell--detail { height: 100vh; }

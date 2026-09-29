@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
 import { useT } from '../../i18n';
+import { useModalA11y } from '../../utils/useModalA11y';
 
 interface EnvForm {
   name: string;
@@ -23,14 +24,20 @@ const EMPTY: EnvForm = {
 
 export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const { t } = useT();
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [list, setList] = useState<K8sEnv[]>([]);
   const [form, setForm] = useState<EnvForm>(EMPTY);
   const [msg, setMsg] = useState('');
+  // 点选（回填表单）的环境名：给列表项加 selected 高亮，否则看不出点了哪个
+  const [selName, setSelName] = useState('');
 
   const loadList = useCallback(async () => {
     try {
       const d = await apiGet<K8sEnvsResp>('/api/k8s/env');
-      setList(d.environments || []);
+      const envs = d.environments || [];
+      setList(envs);
+      // 首次加载锚定「Current」项（与绿色徽标一致）；之后保留用户点选，不覆盖
+      setSelName((prev) => prev || (envs.find((x) => x.is_current) || ({} as K8sEnv)).name || '');
     } catch (ex: any) {
       setMsg(t('k8s.env.listFail') + ex.message);
     }
@@ -53,6 +60,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       ssh_user: e.ssh_user || '',
       ssh_password: e.ssh_password || '',
     });
+    setSelName(e.name);
     setMsg('');
   };
 
@@ -96,6 +104,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       await apiPost('/api/k8s/env/delete', { name: form.name.trim() });
       setMsg(t('k8s.env.deleted'));
       setForm(EMPTY);
+      setSelName('');
       await loadList();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
@@ -104,16 +113,37 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="k8s-env-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <h3>{t('k8s.env.title')}</h3>
-          <button className="btn btn-sm btn-ghost" onClick={onClose}>✕</button>
+          <h3 id="k8s-env-title">{t('k8s.env.title')}</h3>
+          <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
         <div className="modal-body">
           <div className="k8s-env-list">
             {list.length === 0 && <div className="empty-hint">{t('k8s.env.empty')}</div>}
             {list.map((e) => (
-              <div key={e.name} className="k8s-env-item" onClick={() => fill(e)}>
+              <div
+                key={e.name}
+                className={'k8s-env-item' + (selName === e.name ? ' selected' : '')}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selName === e.name}
+                onClick={() => fill(e)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    fill(e);
+                  }
+                }}
+              >
                 <span className="nm">{e.label || e.name}</span>
                 <span className="nm">({e.name})</span>
                 <span className="kc">{e.ssh_host ? `SSH ${e.ssh_user || 'root'}@${e.ssh_host}${e.ssh_port && e.ssh_port !== '22' ? ':' + e.ssh_port : ''}` : (e.kubeconfig || t('k8s.env.noKubeconfigShort'))}</span>

@@ -58,7 +58,7 @@ export function Tabs() {
       onClick={() => setTab(tab.key)}
       title={sidebarOpen ? undefined : t(tab.labelKey)}
     >
-      <span className="tab-ico">{tab.icon}</span>
+      <span className="tab-ico" aria-hidden="true">{tab.icon}</span>
       <span className="tab-txt">{t(tab.labelKey)}</span>
     </button>
   );
@@ -75,9 +75,9 @@ export function Tabs() {
             title={sidebarOpen ? undefined : t('tab.system')}
             aria-expanded={sysExpanded}
           >
-            <span className="tab-ico">🛠</span>
+            <span className="tab-ico" aria-hidden="true">🛠</span>
             <span className="tab-txt">{t('tab.system')}</span>
-            <span className="tab-caret">{sysExpanded ? '▾' : '▸'}</span>
+            <span className="tab-caret" aria-hidden="true">{sysExpanded ? '▾' : '▸'}</span>
           </button>
         )}
         {sysExpanded && SYS_TABS.map((tab) => renderTab(tab, 'tab-sub'))}
@@ -91,7 +91,7 @@ export function Tabs() {
           title={toggleTitle}
           aria-label={toggleTitle}
         >
-          <span className="sidebar-toggle-ico">{sidebarOpen ? '◀' : '▶'}</span>
+          <span className="sidebar-toggle-ico" aria-hidden="true">{sidebarOpen ? '◀' : '▶'}</span>
           {sidebarOpen && <span className="sidebar-toggle-txt">{toggleTitle}</span>}
         </button>
       </div>
