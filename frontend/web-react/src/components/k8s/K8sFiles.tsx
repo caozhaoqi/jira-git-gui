@@ -417,6 +417,10 @@ export function K8sFiles() {
                       className={selected && selected.name === e.name ? 'selected' : ''}
                       onClick={() => setSelected({ name: e.name, isDir })}
                       onDoubleClick={() => openFile(e.name, isDir)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={e.name}
+                      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openFile(e.name, isDir); } }}
                     >
                       <td className="k8s-files-name">
                         <span className="k8s-files-icon">{isDir ? '📁' : '📄'}</span>

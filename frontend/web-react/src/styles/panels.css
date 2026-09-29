@@ -237,15 +237,15 @@
 
 /* cf 全局搜索高亮 + 匹配导航 */
 .cf-hl {
-  background: #fff3a3;
+  background: var(--hl-bg);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
 }
 .cf-hl.active {
-  background: #ffb300;
-  color: #1a1a1a;
-  box-shadow: 0 0 0 1px #ff8f00;
+  background: var(--hl-cf-active);
+  color: var(--hl-text);
+  box-shadow: 0 0 0 1px var(--hl-cf-ring);
 }
 .cf-match-nav {
   display: inline-flex;
@@ -264,7 +264,7 @@
   line-height: 1.2;
 }
 .cf-log-row:has(.cf-hl.active) {
-  background: rgba(255, 179, 0, 0.10);
+  background: var(--hl-cf-row);
 }
 
 /* k8s-form-grid */
@@ -405,15 +405,15 @@
 .k8s-yaml-pre .yk-num { color: #d19a66; }
 .k8s-yaml-pre .yk-comment { color: #7f848e; font-style: italic; }
 .k8s-yaml-pre mark {
-  background: #fff3a3;
-  color: #1a1a1a;
+  background: var(--hl-bg);
+  color: var(--hl-text);
   border-radius: 2px;
   padding: 0 1px;
 }
 .k8s-yaml-pre mark.active {
-  background: #ff8a3d;
-  color: #1a1a1a;
-  box-shadow: 0 0 0 2px rgba(255, 138, 61, 0.35);
+  background: var(--hl-active);
+  color: var(--hl-text);
+  box-shadow: 0 0 0 2px var(--hl-active-ring);
 }
 
 /* k8s-chk-name */

@@ -204,6 +204,10 @@ export function KibanaLogStream({
                 className={`kb-line lv-${(r.level || 'none').toLowerCase()}`}
                 onDoubleClick={() => setCtxRow(r)}
                 title={t('kibana.dblContext')}
+                role="button"
+                tabIndex={0}
+                aria-label={t('kibana.dblContext')}
+                onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setCtxRow(r); } }}
               >
                 <span className="kb-ts">{fmtTs(r.ts)}</span>
                 <span className={`kb-lv lv-${(r.level || 'none').toLowerCase()}`}>
