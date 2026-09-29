@@ -4,6 +4,7 @@ import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { EtaTracker, formatEta } from '../utils/eta';
 import { useModalA11y } from '../utils/useModalA11y';
+import { pickDirectory } from '../utils/pickDirectory';
 import type {
   DiffEntry,
   DiffStatus,
@@ -228,6 +229,12 @@ export function DiffPanel() {
     setCompareDir(path);
     setShowDirChooser(false);
   }, []);
+
+  // 本地目录原生选择：Electron 走系统对话框，浏览器 prompt 兜底
+  const browseLocalDir = useCallback(async () => {
+    const p = await pickDirectory(t('diff.localDir'));
+    if (p) setLocalDir(p);
+  }, [t]);
 
   // ===== 最近更新记录（git log）=====
   const loadCommits = useCallback(async () => {
@@ -721,10 +728,9 @@ export function DiffPanel() {
           <label className="field-inline">
             {t('diff.compareRepo')}
             <select
-              className="sel"
+              className="sel diff-sel-repo"
               value={compareRepo}
               onChange={(e) => selectCompareRepo(e.target.value)}
-              style={{ minWidth: 200 }}
             >
               <option value="">{t('diff.pickRepo')}</option>
               {repos.map((r) => {
@@ -742,14 +748,27 @@ export function DiffPanel() {
           <label className="field-inline">
             {t('diff.localDir')}
             <input
-              className="input"
+              className="input diff-input-local"
               placeholder="/path/to/local/repo"
               value={localDir}
               onChange={(e) => setLocalDir(e.target.value)}
-              style={{ minWidth: 240, flex: 1 }}
             />
+            <button
+              className="btn btn-sm btn-ghost"
+              type="button"
+              title={t('diff.browseDir')}
+              aria-label={t('diff.browseDir')}
+              onClick={browseLocalDir}
+            >
+              📁
+            </button>
           </label>
-          <button className="btn btn-primary" onClick={scanDiff} disabled={busy || !compareRepo}>
+          <button
+            className="btn btn-primary"
+            onClick={scanDiff}
+            disabled={busy || !compareRepo}
+            title={busy ? t('diff.scanning') : compareRepo ? undefined : t('diff.pickRepo')}
+          >
             {busy ? t('diff.scanning') : t('diff.scan')}
           </button>
         </div>
@@ -758,11 +777,10 @@ export function DiffPanel() {
           <label className="field-inline">
             {t('diff.compareDir')}
             <input
-              className="input"
+              className="input diff-input-dir"
               placeholder={t('diff.compareDirPlaceholder')}
               value={compareDir}
               onChange={(e) => setCompareDir(e.target.value)}
-              style={{ minWidth: 160 }}
             />
             <button
               className="btn btn-sm btn-ghost"
@@ -805,9 +823,6 @@ export function DiffPanel() {
           <label className="chk"><input type="checkbox" checked={ignoreLineEndings} onChange={(e) => setIgnoreLineEndings(e.target.checked)} /> {t('diff.ignoreEol')}</label>
           <label className="chk"><input type="checkbox" checked={showSame} onChange={(e) => setShowSame(e.target.checked)} /> {t('diff.showSame')}</label>
           <label className="chk"><input type="checkbox" checked={mergeRemoteOnly} onChange={(e) => setMergeRemoteOnly(e.target.checked)} /> {t('diff.mergeRemoteOnly')}</label>
-          <button className="btn btn-sm btn-ghost" type="button" onClick={loadCommits} disabled={commitsLoading || !compareRepo}>
-            {commitsLoading ? t('common.loading') : t('diff.recentUpdates')}
-          </button>
         </div>
           </div>
         </div>
@@ -859,7 +874,7 @@ export function DiffPanel() {
       )}
 
       {errors.length > 0 && (
-        <div className="diff-error-box" style={{ display: 'block' }}>
+        <div className="diff-error-box">
           {errors.map((e, i) => <div key={i} className="err-line">{e}</div>)}
         </div>
       )}

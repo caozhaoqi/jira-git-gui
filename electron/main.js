@@ -410,6 +410,23 @@ function registerIpcHandlers() {
     isDev,
   }));
 
+  // 原生目录选择对话框（Diff 面板 localDir 等）。取消/关闭返回 null。
+  ipcMain.handle('dialog:open-directory', async (_ev, payload) => {
+    const title = String((payload && payload.title) || '');
+    const defaultPath = String((payload && payload.defaultPath) || '');
+    const opts = {
+      title: title || undefined,
+      defaultPath: defaultPath || undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    };
+    const win = BrowserWindow.fromWebContents(_ev.sender);
+    const res = win
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts);
+    if (res.canceled || !res.filePaths || res.filePaths.length === 0) return null;
+    return res.filePaths[0];
+  });
+
   // 多开窗口：独立窗口打开指定页签（如 cf = 云函数日志 ?tab=cf&embed=1），
   // 用于同时查看多个环境日志（后端流按环境并行，各窗口互不影响）。
   ipcMain.handle('window:open-tab', (_ev, payload) => {

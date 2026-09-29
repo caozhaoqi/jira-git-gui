@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, apiGet } from '../api/client';
+import { requestConfirm } from '../utils/confirmStore';
 
 /* ============================================================
    独立全屏「首选项」页 —— 迁移自 web/services-config.html
@@ -132,7 +133,7 @@ export function ServicesConfig() {
 
   const delCf = useCallback(
     async (idx: number) => {
-      if (!window.confirm('确定删除该服务配置？')) return;
+      if (!(await requestConfirm({ message: '确定删除该服务配置？', danger: true }))) return;
       try {
         await api(`/api/services/cloud-functions/${idx}`, { method: 'DELETE' });
         showToast('已删除');

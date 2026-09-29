@@ -1267,7 +1267,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 /* DiffPanel 折叠区块：卡片间距 + 去除配置卡内部重复底色 */
 .diff-panel > .clash-card { margin-bottom: 10px; }
-.diff-cfg-region .diff-cfg-card { background: transparent; border-bottom: none; padding: 0; }
+.diff-cfg-region .diff-cfg-card { background: transparent; border-bottom: none; padding: 0; margin-bottom: 0; }
 .diff-list-pane {
   width: 380px;
   flex-shrink: 0;
@@ -1301,6 +1301,23 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   font-size: 12.5px;
   color: var(--text-dim);
 }
+/* diff 面板内空态提示收紧：shell 的 .empty-hint padding 32px 过大，
+   把「先选仓库再扫描」提示顶出 ~120px 空白，压缩到 16px。 */
+.diff-panel .empty-hint {
+  padding: 16px 16px;
+}
+/* Config 卡内间距放大（反馈：表单行上下左右过紧）。
+   全部 scope 在 .diff-cfg-region 内，不影响其他卡片；
+   .clash-card 同为 (0,1,0) 但在文件更后处，故用 .clash-card.diff-cfg-region 提 specificity。 */
+.clash-card.diff-cfg-region { padding: 20px 24px 22px; }
+.diff-cfg-region .panel-header { margin-bottom: 14px; }
+.diff-cfg-region .diff-cfg-card { gap: 14px; }
+.diff-cfg-region .diff-cfg-row { gap: 14px 20px; }
+.diff-cfg-region .field-inline { gap: 8px; }
+/* Config 卡内控件尺寸（原 inline style 抽取，避免组件里散落 minWidth/flex） */
+.diff-sel-repo { min-width: 200px; }
+.diff-input-local { min-width: 240px; flex: 1; }
+.diff-input-dir { min-width: 160px; }
 .diff-file-head {
   display: flex;
   align-items: center;
