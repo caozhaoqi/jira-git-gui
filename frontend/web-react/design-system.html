@@ -1,62 +1,63 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-page-node-id="XyMLmSuvE0E50aZQJaLgnn">
-<head data-page-node-id="a1Ltykz58WZayYNKJeEajQ">
-<meta charset="utf-8" data-page-node-id="gXpeaKrpkGOo9XXYiocC8K">
-<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="wHyQpYR5sVzu5QxUanRFFZ">
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>设计系统样式总览 · jira-git-gui</title>
 <style>
 /* ===== global.css (inlined) ===== */
 :root {
-  /* —— 背景层级 —— */
-  --bg: #f6f7f9;
+  /* —— 背景层级（2026-09 统一：与 shell 靛蓝主题对齐，此为唯一权威来源） —— */
+  --bg: #f0f2f7;
   --bg-panel: #ffffff;
-  --bg-elevated: #fbfcfd;
+  --bg-elevated: #f5f7fa;
   --bg-input: #ffffff;
-  --bg-hover: #f1f3f6;
+  --bg-hover: #ebeef4;
 
   /* —— 边框 —— */
-  --border: #e6e9ee;
-  --border-strong: #d4d9e0;
+  --border: #e2e6ee;
+  --border-strong: #d0d6e0;
   --border-soft: #eef1f4;
   --bg-head: #f6f8fa;
-  --accent-soft: rgba(47, 111, 235, 0.1);
+  --accent-soft: rgba(79, 70, 229, 0.1);
 
   /* —— 文本（三级灰） —— */
-  --text: #1f2329;
-  --text-dim: #6b7280;
-  --text-faint: #9aa1ad;
-  --muted: #6b7280;
+  --text: #111827;
+  --text-dim: #4b5563;
+  --text-faint: #9ca3af;
+  --muted: #9ca3af;
 
-  /* —— 主色 —— */
-  --primary: #2f6feb;
-  --primary-hover: #2560d8;
-  --primary-press: #1f54c4;
-  --primary-weak: #eaf1fe;
+  /* —— 主色（靛蓝） —— */
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --primary-press: #3730a3;
+  --primary-weak: #eef2ff;
   --on-primary: #ffffff;
-  --accent: #2f6feb;
+  --accent: #4f46e5;
 
   /* —— 状态色 + 弱背景 —— */
-  --danger: #e5484d;
-  --danger-bg: #fdecec;
-  --warn: #d98300;
-  --warn-bg: #fdf2e2;
-  --success: #1a9d5a;
-  --success-bg: #e7f6ee;
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --warn: #d97706;
+  --warn-bg: #fffbeb;
+  --success: #059669;
+  --success-bg: #ecfdf5;
 
   /* —— 选择 / 行高亮 —— */
-  --row-hover: #f1f3f6;
-  --row-selected: #dbe7ff;
+  --row-hover: #f5f7fa;
+  --row-selected: #eef2ff;
 
   /* —— 阴影（三级） —— */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.08);
-  --shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
-  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
-  --focus-ring: rgba(47, 111, 235, 0.42);
+  --shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.04), 0 1px 2px rgba(17, 24, 39, 0.06);
+  --shadow: 0 4px 6px -1px rgba(17, 24, 39, 0.07), 0 2px 4px -2px rgba(17, 24, 39, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 24, 39, 0.08), 0 4px 6px -4px rgba(17, 24, 39, 0.05);
+  --focus-ring: rgba(79, 70, 229, 0.42);
   --overlay: rgba(15, 23, 42, 0.45);
 
   /* —— 圆角（五级） —— */
-  --radius-sm: 6px;
-  --radius: 10px;
+  --radius-xs: 7px;
+  --radius-sm: 10px;
+  --radius: 14px;
   --radius-lg: 14px;
   --radius-xl: 18px;
   --radius-pill: 999px;
@@ -101,50 +102,61 @@
   --bg-elev-2: var(--bg-hover);
   --primary-soft: var(--accent-soft);
 
+  /* —— services-config / panels 旧词汇兜底 —— */
+  --panel: var(--bg-panel);
+  --panel-2: var(--bg-elevated);
+  --ok: var(--success);
+
+  /* —— shell 旧词汇兜底 —— */
+  --primary-600: var(--primary-hover);
+  --primary-700: var(--primary-press);
+  --primary-100: var(--primary-weak);
+  --info: var(--primary);
+
   font-family: var(--font-sans);
   font-size: 13px;
   color-scheme: light;
 }
 
 html.dark {
-  --bg: #16191e;
-  --bg-panel: #1e2227;
-  --bg-elevated: #252a31;
+  --bg: #0a0d14;
+  --bg-panel: #131720;
+  --bg-elevated: #1a1f2b;
   --bg-input: #2a2f37;
   --bg-hover: #282d35;
 
-  --border: #32383f;
-  --border-strong: #444b54;
+  --border: #2a313d;
+  --border-strong: #36404f;
   --border-soft: #2a2f37;
   --bg-head: #20252b;
-  --accent-soft: rgba(91, 149, 255, 0.14);
+  --accent-soft: rgba(99, 102, 241, 0.16);
 
-  --text: #e6e9ee;
-  --text-dim: #9aa3af;
+  --text: #e8ecf4;
+  --text-dim: #a0aabf;
   --text-faint: #6b7280;
-  --muted: #9aa3af;
+  --muted: #6b7280;
 
-  --primary: #5b95ff;
-  --primary-hover: #6fa3ff;
-  --primary-press: #4b86ff;
-  --primary-weak: #1c3052;
+  --primary: #6366f1;
+  --primary-hover: #5558e3;
+  --primary-press: #4f46e5;
+  --primary-weak: #16182e;
   --on-primary: #ffffff;
-  --accent: #5b95ff;
+  --accent: #6366f1;
 
-  --danger: #ff6b6b;
-  --danger-bg: #3a2326;
-  --warn: #f0a831;
-  --warn-bg: #3a2f1c;
-  --success: #3ecf8e;
-  --success-bg: #1c352a;
+  --danger: #f87171;
+  --danger-bg: #2a1010;
+  --warn: #fbbf24;
+  --warn-bg: #2a2008;
+  --success: #34d399;
+  --success-bg: #0d2a20;
 
-  --row-hover: #282d35;
-  --row-selected: #28406e;
+  --row-hover: #1a1f2b;
+  --row-selected: #16182e;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
-  --focus-ring: rgba(91, 149, 255, 0.5);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+  --focus-ring: rgba(99, 102, 241, 0.5);
   --overlay: rgba(0, 0, 0, 0.55);
 
   color-scheme: dark;
@@ -1507,6 +1519,40 @@ select:focus-visible {
 .diff-row.diff-header {
   color: var(--text-dim);
 }
+
+/* 单文件 diff：每个 hunk 用原生 <details> 折叠，默认展开 */
+.diff-file-headers { margin-bottom: 6px; }
+.diff-file-header { font-family: var(--mono); font-size: 11px; color: var(--text-dim); padding: 1px 0; white-space: pre-wrap; word-break: break-all; }
+.diff-hunk {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.diff-hunk > summary.diff-hunk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  background: var(--bg-elevated);
+  list-style: none;
+  user-select: none;
+}
+.diff-hunk > summary.diff-hunk-head::-webkit-details-marker { display: none; }
+.diff-hunk > summary.diff-hunk-head::before {
+  content: '▸';
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.diff-hunk[open] > summary.diff-hunk-head::before { content: '▾'; }
+.diff-hunk > summary.diff-hunk-head:hover { background: var(--bg-hover); }
+.diff-hunk-title { font-family: var(--mono); font-size: 12px; color: var(--text); flex: 1; min-width: 0; word-break: break-all; }
+.diff-hunk-stats { font-family: var(--mono); font-size: 11px; white-space: nowrap; }
+.diff-stat-add { color: #1a9d5a; }
+.diff-stat-del { color: #e5484d; }
+.diff-hunk-body { padding: 0; }
 .diff-info-hint {
   padding: 8px 12px;
   font-size: 12px;
@@ -2210,6 +2256,7 @@ select:focus-visible {
 .hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
 .hcm-meta-run-result .hcm-json-block { max-height: 42vh; }
 
+
 /* ===== panels.css (inlined) ===== */
 /* ============================================================
    panels.css —— 迁移面板（commits / diff / k8s / cf）专用样式
@@ -2221,14 +2268,9 @@ select:focus-visible {
 
    注意：global.css 是基础壳（顶栏 / 弹窗 / 树 / 日志面板）的样式，
    panels.css 只负责四块功能面板，两者类名不重叠。
+   令牌统一由 global.css / shell.css 提供，此处不再重复定义。
    ============================================================ */
 
-:root {
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', 'Courier New', monospace;
-  --code-bg: var(--bg-elevated);
-  --code-fg: var(--text);
-}
 /* panel-sub */
 .panel-sub, .hint {
   font-size: 12px;
@@ -3478,6 +3520,10 @@ select:focus-visible {
   height: 100%;
   min-height: 0;
 }
+
+/* DiffPanel 折叠区块：卡片间距 + 去除配置卡内部重复底色 */
+.diff-panel > .clash-card { margin-bottom: 10px; }
+.diff-cfg-region .diff-cfg-card { background: transparent; border-bottom: none; padding: 0; }
 .diff-list-pane {
   width: 380px;
   flex-shrink: 0;
@@ -3550,13 +3596,13 @@ select:focus-visible {
 /* 已合并徽标 */
 .diff-merged-badge {
   margin-left: auto;
-  color: #2e9e5b;
+  color: var(--success);
   font-weight: 700;
   font-size: 12px;
   flex-shrink: 0;
 }
 .badge-merged {
-  color: #2e9e5b;
+  color: var(--success);
   font-weight: 600;
 }
 
@@ -3597,12 +3643,74 @@ select:focus-visible {
   font-family: var(--mono);
   font-size: 11px;
 }
-.commit-file { color: var(--text-dim); }
-.commit-file.ct-M { color: #d29922; }
-.commit-file.ct-A { color: #2e9e5b; }
-.commit-file.ct-D { color: #e05252; }
-.commit-file.ct-R { color: #6c8cd5; }
+.commit-file { color: var(--text-dim); cursor: pointer; transition: background .12s, color .12s; padding: 1px 4px; border-radius: 4px; }
+.commit-file:hover { background: var(--accent-soft); color: var(--accent); }
+.commit-file:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.commit-file.ct-M { color: var(--warn); }
+.commit-file.ct-A { color: var(--success); }
+.commit-file.ct-D { color: var(--danger); }
+.commit-file.ct-R { color: var(--accent); }
 .commit-file-more { color: var(--text-dim); }
+
+/* F2：历史版本左右对比的表头 */
+.diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+
+/* ===== F4：合并冲突 3-way 决策面板 ===== */
+.conflict-modal { width: min(960px, 94vw); }
+.conflict-hint { font-size: 12px; color: var(--text-dim); padding: 2px 0 8px; line-height: 1.6; }
+.conflict-list { display: flex; flex-direction: column; gap: 14px; }
+.conflict-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  padding: 10px 12px;
+  background: var(--surface-2, var(--bg-elevated));
+}
+.conflict-path {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+.conflict-choices { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.conflict-choices .rd {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12.5px; color: var(--text); cursor: pointer;
+}
+.conflict-3way { display: flex; flex-direction: column; gap: 6px; }
+.conflict-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cpane {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.cpane-h {
+  font-size: 11px; color: var(--text-dim);
+  padding: 4px 8px;
+  background: var(--bg-head, var(--surface-2));
+  border-bottom: 1px solid var(--border);
+}
+.cpane-pre {
+  margin: 0; padding: 8px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  max-height: 200px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all;
+  color: var(--text);
+}
+.conflict-merged {
+  width: 100%; min-height: 170px;
+  padding: 8px 10px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-input, var(--bg-panel));
+  color: var(--text);
+  resize: vertical;
+}
+.conflict-merged:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--focus-ring); }
 
 /* K8s 快照日志区 */
 .k8s-log-wrap {
@@ -5410,7 +5518,59 @@ select:focus-visible {
 }
 .kb-site-modal .modal-header > .btn { margin-left: auto; }
 
-.kb-site-body { display: flex; gap: 0; min-height: 0; flex: 1; }
+/* ⚠️ 必须显式 flex-direction: row：同元素上的 .modal-body（global.css）带 column，
+   不写会被覆盖成上下堆叠（列表在上、表单在下，右侧留白）——这正是
+   「弹窗太小看不到内容」的深层根因。 */
+.kb-site-body { display: flex; flex-direction: row; gap: 0; min-height: 0; flex: 1; }
+
+/* 站点管理独立窗口（?view=kibana-sites）：复用弹窗卡片样式，但铺满整个窗口，
+   让「编辑 / 新增」表单有充裕空间（页内小弹窗看不全，是历史反馈）。 */
+/* 用 .modal.kb-sites-window 提高特异性，确保 width:100% 稳赢 .modal 的 440px
+   与 .kb-site-modal 的 860px（不依赖文件内顺序）。 */
+.modal.kb-sites-window {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  animation: none;
+}
+.modal.kb-sites-window .modal-body {
+  max-height: none;
+  flex: 1;
+  padding: 0;
+  /* 覆盖 .modal-body 的 column，列表与表单左右并排 */
+  flex-direction: row;
+}
+.modal.kb-sites-window .kb-site-list {
+  width: 300px;
+}
+
+/* 站点管理窗口：未编辑 / 未新增时的右侧引导占位（不留空白区） */
+.kb-site-placeholder {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-dim);
+  background: var(--bg-elev-1, var(--bg-panel));
+}
+.kb-site-placeholder-icon {
+  font-size: 34px;
+  opacity: 0.5;
+}
+.kb-site-placeholder-text {
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
 
 /* ===== 左侧站点列表 ===== */
 .kb-site-list {
@@ -5778,156 +5938,3453 @@ select:focus-visible {
 @keyframes mask-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
 
-/* ===== demo only ===== */
 
-/* ---- 仅用于样式总览页的排版，不进入产品 ---- */
-.ds-wrap { padding: 26px 30px 60px; max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
-.ds-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ds-h1 { font-size: 20px; font-weight: 700; margin: 0; }
-.ds-sub { color: var(--text-dim); font-size: 12.5px; margin-top: 4px; }
-.ds-sec { border-top: 1px solid var(--border); padding-top: 16px; }
-.ds-sec > h2 { font-size: 14px; margin: 0 0 12px; }
-.ds-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.ds-col { display: flex; flex-direction: column; gap: 10px; }
-.ds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
-.ds-sw { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-panel); }
-.ds-sw .c { height: 46px; }
-.ds-sw .n { padding: 6px 8px; font-size: 10.5px; color: var(--text-dim); font-family: var(--mono); }
-.ds-modal-host { position: relative; height: 320px; border: 1px dashed var(--border); border-radius: var(--radius); overflow: hidden; }
-.ds-modal-host .modal-mask { position: absolute; }
-.ds-code { font-family: var(--mono); font-size: 12px; }
+/* ===== shell.css (inlined) ===== */
+/* HTML 设计系统同步到 React：壳层 + 通用组件覆盖
+   ⚠️ 核心配色/圆角/间距/字体 token 统一由 global.css 提供（唯一权威）。
+   这里只保留 shell 专属增补 token，避免再次出现双套 token 覆盖。 */
 
+:root {
+  /* 代码区块表面（比面板更深一档） */
+  --code-bg: #f8f9fb;
+  --code-border: #e5e7eb;
+  --code-fg: #1f2937;
+
+  /* 升级一档阴影（xs/md 与 global 的 sm//lg 互补） */
+  --shadow-xs: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(17, 24, 39, 0.07), 0 2px 4px -2px rgba(17, 24, 39, 0.05);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-display: 'Outfit', var(--font-sans);
+
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color-scheme: light;
+}
+
+html.dark {
+  --code-bg: #0c0f16;
+  --code-border: #1e2430;
+  --code-fg: #c5cde0;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+}
+
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--primary-100);
+  color: var(--primary-700);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.appbar {
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-4);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+  z-index: 5;
+}
+.appbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+.brand-mark {
+  font-size: 22px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 4px rgba(79, 70, 229, 0.2));
+}
+.brand-name b {
+  background: linear-gradient(135deg, var(--primary), #7c3aed);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
+}
+.appbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.appbar-status {
+  font-size: 12px;
+  color: var(--text-2);
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 224px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px;
+  gap: 4px;
+}
+.sidebar .tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+.sidebar .tab {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  transition: all 0.18s var(--ease-out);
+  position: relative;
+  border-bottom: none;
+}
+.sidebar .tab:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.sidebar .tab.active {
+  background: var(--primary-050);
+  color: var(--primary);
+  font-weight: 600;
+  border-bottom: none;
+}
+.sidebar .tab.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+}
+.tab-ico {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.tab-txt {
+  flex: 1;
+}
+/* 「系统」分组：可折叠菜单项 + 缩进子项 */
+.tab-group .tab-caret {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.sidebar.sidebar-collapsed .tab-group .tab-caret { display: none; }
+.tab-sub {
+  padding-left: 14px;
+  font-size: 12.5px;
+}
+.sidebar.sidebar-collapsed .tab-sub { padding-left: 0; }
+.sidebar-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
+.sidebar-tip {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.55;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+/* ─── 侧边栏折叠（rail 模式）─── */
+.sidebar.sidebar-collapsed {
+  width: 56px;
+  padding: 14px 6px;
+  gap: 2px;
+  transition: width 0.18s var(--ease-out);
+}
+.sidebar.sidebar-collapsed .tab {
+  justify-content: center;
+  padding: 9px 6px;
+  gap: 0;
+}
+.sidebar.sidebar-collapsed .tab-txt,
+.sidebar.sidebar-collapsed .sidebar-tip,
+.sidebar.sidebar-collapsed .sidebar-toggle-txt {
+  display: none;
+}
+.sidebar.sidebar-collapsed .tab.active::before {
+  left: -2px;
+  width: 3px;
+}
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.18s var(--ease-out);
+}
+.sidebar-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+.sidebar.sidebar-collapsed .sidebar-toggle {
+  justify-content: center;
+  padding: 7px 0;
+  margin-top: auto;
+}
+.sidebar-toggle-ico {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.workspace-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px;
+}
+/* 标签页常驻挂载容器：当前页正常显示，非当前页仅隐藏（display:none）不卸载，
+   从而保留各面板的本地状态（文件树/diff 结果/进度/终端/表单/滚动位置）。
+   高度撑满 .workspace-body，使内部 height:100% 的面板照常工作。 */
+.tab-pane {
+  height: 100%;
+}
+.tab-pane--hidden {
+  display: none;
+}
+
+.actionbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.actionbar-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.actionbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+.actionbar-spacer {
+  flex: 1;
+}
+.actionbar-fields .field-inline {
+  font-size: 12px;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-direction: row;
+}
+
+.network-warning {
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* F3：远端会话失效横幅（Cookie 过期 / 浏览页不可用） */
+.cookie-expired-banner {
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cookie-expired-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.cookie-expired-text strong {
+  font-weight: 600;
+}
+.cookie-expired-text span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cookie-expired-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* F1：文件树差异状态色点 */
+.tree-diff-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.tree-diff-modified { background: #e0a458; }
+.tree-diff-whitespace_only { background: #9aa0a6; }
+.tree-diff-local_only { background: #4a90d9; }
+.tree-diff-remote_only { background: #b06fd6; }
+.tree-diff-same { background: #4caf78; }
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  display: inline-block;
+  flex: none;
+}
+.status-dot.ok {
+  background: var(--success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+  animation: pulse-ok 2s ease-in-out infinite;
+}
+.status-dot.warn {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 20%, transparent);
+  animation: pulse-warn 1.5s ease-in-out infinite;
+}
+@keyframes pulse-ok {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 12%, transparent);
+  }
+}
+@keyframes pulse-warn {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 20%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--warning) 12%, transparent);
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s var(--ease-out);
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--surface-2);
+  border-color: var(--muted);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.btn:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-600));
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  border-color: var(--primary-600);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+}
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.btn-ghost:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.btn-icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border-color: transparent;
+  font-size: 15px;
+}
+.btn-icon:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  box-shadow: none;
+  transform: none;
+}
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.btn-block {
+  width: 100%;
+}
+
+.input,
+.select,
+.sel,
+.textarea,
+.spin,
+.search-input {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  transition: all 0.18s var(--ease-out);
+}
+.input:hover,
+.select:hover,
+.sel:hover,
+.textarea:hover,
+.spin:hover,
+.search-input:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.input:focus,
+.select:focus,
+.sel:focus,
+.textarea:focus,
+.spin:focus,
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 4px var(--primary-050);
+}
+.spin {
+  width: 64px;
+  text-align: center;
+  padding: 6px 8px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.panel-sub,
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+.card-soft {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s var(--ease-out), transform 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out);
+}
+.card-soft:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.empty-hint {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 32px 24px;
+  text-align: center;
+  user-select: none;
+}
+/* 空态统一描边徽标式提示 */
+.empty-hint::before {
+  content: '◇';
+  display: block;
+  font-size: 20px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+  color: var(--primary);
+}
+
+.repo-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.repo-three-col {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+.repo-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow-xs);
+}
+.repo-col-mid {
+  flex: 1;
+  min-width: 200px;
+}
+.repo-resizer {
+  width: 6px;
+  margin: 0 -3px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  border-radius: 3px;
+  transition: background 0.15s ease;
+  z-index: 2;
+}
+.repo-resizer:hover {
+  background: var(--primary);
+}
+
+.repo-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.repo-search-input {
+  flex: 1;
+  min-width: 120px;
+}
+.repo-list {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.repo-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: all 0.22s var(--ease-out);
+  box-shadow: var(--shadow-xs);
+}
+.repo-item:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.repo-item.selected {
+  border-color: var(--primary);
+  background: var(--primary-050);
+  box-shadow: 0 0 0 1px var(--primary), var(--shadow-sm);
+}
+.repo-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.repo-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.manual-group {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 6px 14px;
+  flex-shrink: 0;
+}
+.manual-group summary {
+  cursor: pointer;
+  padding: 8px 0;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.form-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 12px;
+}
+.form-rows label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.tree-toolbar-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tree-search-wrap {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  min-width: 200px;
+}
+.tree-search-input {
+  flex: 1;
+}
+.tree-scope-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.tree-scope-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.tree-scope-btn.active {
+  background: var(--primary);
+  color: #fff;
+}
+.tree-container {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+.tree-row:hover {
+  background: var(--surface-2);
+}
+.tree-row.selected {
+  background: var(--primary-050);
+}
+.tree-checkbox {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--primary);
+}
+.tree-children {
+  margin-left: 18px;
+  border-left: 1px dashed var(--border);
+  padding-left: 6px;
+}
+
+.preview-pane,
+.file-tree-pane,
+.repo-list-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.preview-pane.maximized,
+.repo-col-fullscreen {
+  position: fixed !important;
+  inset: 0;
+  width: 100vw !important;
+  height: 100vh;
+  z-index: 100;
+  border-radius: 0;
+  border: none;
+  background: var(--surface);
+  padding: 16px;
+}
+.preview-content,
+.code-block,
+.log-block {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--code-fg);
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.logs-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.log-line.error {
+  color: var(--danger);
+}
+.log-line.warning {
+  color: var(--warning);
+}
+
+.tab-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.tab-inner.wide {
+  max-width: none;
+}
+
+.commits-panel,
+.diff-panel,
+.k8s-panel,
+.cf-panel {
+  height: 100%;
+  min-height: 0;
+}
+.commits-panel {
+  display: flex;
+  flex-direction: column;
+}
+.commits-body {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+.commits-list-pane,
+.commit-list {
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+.commits-detail-pane {
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.commit-item {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+}
+.commit-item.selected {
+  background: var(--primary-050);
+  border-color: var(--primary);
+}
+
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+}
+.diff-body {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+.diff-list-pane {
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.diff-content-pane {
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+.diff-cfg-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-xs);
+}
+.diff-summary {
+  padding: 8px 4px 12px;
+  border: none;
+}
+
+.k8s-panel {
+  display: flex;
+  flex-direction: column;
+}
+.k8s-envbar,
+.k8s-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.k8s-subtabs {
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.k8s-subtab {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.k8s-subpane {
+  display: flex !important;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+/* 每个子标签的常驻容器：显隐由内联 display 控制（flex=显示 / none=隐藏），
+   自身作为 flex 列撑满 .k8s-subpane，使内部组件（flex:1）可纵向滚动。*/
+.k8s-subtab-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.k8s-form,
+.k8s-snapshot-cfg,
+.k8s-yaml-cfg,
+.k8s-net-cfg,
+.k8s-top-cfg,
+.k8s-ev-cfg,
+.k8s-shell-connbar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+}
+.k8s-table-wrap,
+.k8s-log-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.k8s-stat {
+  min-width: 96px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-xs);
+}
+.k8s-stat .n {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.cf-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+}
+.cf-cfg-card,
+.cf-search-bar {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  box-shadow: var(--shadow-xs);
+}
+.cf-log-table {
+  background: var(--surface);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.toast-stack {
+  top: 68px;
+}
+.toast {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  border-left-width: 4px;
+}
+
+.progress-wrap {
+  position: static;
+  transform: none;
+  width: auto;
+  max-width: none;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.progress-wrap .progress-bar {
+  width: 140px;
+}
+.progress-inner {
+  margin: 0;
+  gap: 8px;
+}
+.progress-detail {
+  margin: 0;
+}
+
+.modal-mask {
+  background: rgba(15, 18, 28, 0.45);
+  backdrop-filter: blur(6px);
+}
+.modal {
+  width: min(560px, 94vw);
+  border-radius: 18px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
+}
+.modal-header {
+  padding: 16px 20px;
+}
+.modal-header h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+.modal-body {
+  padding: 8px 20px 16px;
+  gap: 12px;
+}
+.modal-footer {
+  padding: 12px 20px 16px;
+  background: var(--surface-2);
+}
+.field input,
+.field textarea {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.field input:focus,
+.field textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-050);
+}
+
+.change-\+ {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.change-M {
+  background: var(--primary-050);
+  color: var(--primary);
+}
+.change-D {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+/* ============================================================
+   流式布局：适配不同设备与缩放（宽屏伸缩 + 多档断点）
+   ============================================================ */
+
+/* ---- 宽屏伸缩（clamp / minmax / 百分比） ---- */
+.workspace-body {
+  padding: clamp(10px, 1.6vw, 18px);
+}
+.sidebar {
+  width: clamp(200px, 15vw, 232px);
+}
+.tab-inner {
+  max-width: min(1200px, 100%);
+}
+.appbar-status {
+  max-width: min(420px, 32vw);
+}
+.commits-body,
+.diff-body {
+  grid-template-columns: clamp(280px, 28vw, 380px) 1fr;
+}
+.commits-list-pane,
+.diff-list-pane {
+  width: auto;
+  min-width: 0;
+}
+.k8s-table-wrap,
+.cf-results {
+  overflow-x: auto;
+}
+.k8s-stat {
+  min-width: clamp(80px, 9vw, 110px);
+  padding: clamp(10px, 1.2vw, 14px) clamp(12px, 1.6vw, 18px);
+}
+.repo-col {
+  padding: clamp(10px, 1.2vw, 14px);
+}
+.repo-item {
+  padding: clamp(10px, 1vw, 12px) clamp(10px, 1.2vw, 14px);
+}
+.actionbar {
+  padding: clamp(8px, 0.9vw, 10px) clamp(10px, 1.4vw, 16px);
+}
+
+/* ---- 中等屏（笔记本 / 平板横屏） ---- */
+@media (max-width: 1280px) {
+  .workspace-body {
+    padding: 12px 14px;
+  }
+  .commits-body,
+  .diff-body {
+    grid-template-columns: clamp(260px, 30vw, 340px) 1fr;
+  }
+  .appbar-status {
+    display: none;
+  }
+}
+
+/* ---- 窄屏：侧栏图标化 + 主布局堆叠 ---- */
+@media (max-width: 960px) {
+  .sidebar {
+    width: 72px;
+  }
+  .tab-txt,
+  .sidebar-tip,
+  .brand-name {
+    display: none;
+  }
+  .appbar {
+    padding: 0 12px;
+  }
+  .appbar-brand {
+    font-size: 15px;
+  }
+  .commits-body,
+  .diff-body {
+    grid-template-columns: 1fr;
+  }
+  .commits-list-pane,
+  .diff-list-pane {
+    max-height: 42vh;
+  }
+  .repo-three-col {
+    flex-direction: column;
+  }
+  .repo-panel {
+    height: auto;
+  }
+  .repo-three-col {
+    min-height: auto;
+  }
+  .repo-col-left,
+  .repo-col-right {
+    width: auto !important;
+    min-height: 300px;
+  }
+  .repo-col-mid {
+    min-height: 420px;
+  }
+  .repo-resizer {
+    display: none;
+  }
+  .k8s-envbar,
+  .k8s-toolbar {
+    padding: 8px 12px;
+  }
+  .k8s-subtabs {
+    overflow-x: auto;
+  }
+  .k8s-subtab {
+    white-space: nowrap;
+  }
+}
+
+/* ---- 小屏（手机横屏 / 平板竖屏） ---- */
+@media (max-width: 720px) {
+  .workspace-body {
+    padding: 10px;
+  }
+  .appbar-actions .btn .lbl {
+    display: none;
+  }
+  .repo-toolbar,
+  .tree-toolbar-row {
+    flex-wrap: wrap;
+  }
+  .tree-sort-wrap {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .tree-search-wrap {
+    min-width: 0;
+  }
+  .repo-list {
+    gap: 6px;
+  }
+  .cf-cfg-field,
+  .cf-cfg-field--token,
+  .cf-cfg-field--main {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .cf-query-btn {
+    align-self: stretch;
+    flex: 1 1 auto;
+  }
+  .cf-search-count,
+  .k8s-files-search-status {
+    width: 100%;
+    order: 10;
+  }
+  .modal-body .field-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .toast-stack {
+    left: 10px;
+    right: 10px;
+  }
+  .toast {
+    max-width: none;
+  }
+  .k8s-files-toolbar {
+    padding: 10px;
+  }
+  .k8s-files-connrow .k8s-files-search-input {
+    min-width: 100%;
+  }
+}
+
+/* ---- 超小屏（手机竖屏） ---- */
+@media (max-width: 560px) {
+  .appbar-brand {
+    font-size: 13.5px;
+  }
+  .btn {
+    padding: 6px 10px;
+  }
+  .actionbar-group {
+    flex-wrap: wrap;
+  }
+  .section-title {
+    font-size: 15px;
+  }
+  .repo-col {
+    padding: 10px;
+  }
+  .modal {
+    width: 96vw;
+    border-radius: 14px;
+  }
+  .progress-wrap .progress-bar {
+    width: 100px;
+  }
+  .field-inline {
+    white-space: normal;
+  }
+  .k8s-subtab {
+    padding: 8px 10px;
+    font-size: 12.5px;
+  }
+}
+
+/* ============================================================
+   HTML 参考版对齐补齐
+   （field-inline / panel-header-actions / tree 排序控件 / 动效）
+   ============================================================ */
+
+/* 行内表单标签：与 HTML 版 .field-inline 一致（ActionBar / 提交 /
+   文件树 / 差异 / K8s 均使用） */
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.field-inline .input,
+.field-inline .sel,
+.field-inline .spin {
+  margin-left: 2px;
+}
+
+/* 面板标题右侧操作区（预览：最大化 / 复制路径） */
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 文件树排序控件 */
+.tree-sort-wrap {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.tree-sort-key {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* 预览列：标题固定、内容滚动 */
+.repo-col-right .panel-header {
+  flex-shrink: 0;
+}
+.repo-col-right .preview-pane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 拖拽分隔条激活态（拖动中高亮） */
+.repo-resizer.dragging {
+  background: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+/* ---- 动效（对齐 HTML 参考版） ---- */
+
+/* tab 切换：面板淡入上浮（HTML 版 .tab-pane.active 的 pane-in）。
+   注意：标签页现在常驻挂载、仅用 display:none 隐藏（见 .tab-pane），
+   display 从 none 切回 block 会重启 CSS 动画，若作用到 .tab-pane 上会导致每次切回标签页都重放动画。
+   因此这里用 :not(.tab-pane) 排除常驻面板，避免来回切换时的动画闪烁。 */
+.workspace-body > *:not(.tab-pane) {
+  animation: pane-in 0.3s var(--ease-out);
+}
+@keyframes pane-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Toast 右侧滑入 */
+.toast {
+  animation: toast-in 0.28s var(--ease-out);
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 弹窗：遮罩淡入 + 卡片缩放上浮 */
+.modal-mask {
+  animation: mask-in 0.2s ease-out;
+}
+.modal {
+  animation: modal-in 0.28s var(--ease-out);
+}
+@keyframes mask-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 滚动条 hover 加深（对齐 HTML 版） */
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+  background-clip: content-box;
+}
+
+/* 无障碍：尊重系统减弱动效设置 */
+@media (prefers-reduced-motion: reduce) {
+  .workspace-body > *,
+  .toast,
+  .modal,
+  .modal-mask,
+  .btn,
+  .repo-item,
+  .tab {
+    animation: none;
+    transition: none;
+  }
+}
+
+
+/* ===== logviewer.css (inlined) ===== */
+/* ============================================================
+   独立日志查看视图（?view=log）—— 迁移自 web/log_viewer.css
+
+   令牌统一由 global.css / shell.css 提供（--code-* / --danger-bg /
+   --warning-bg 等），此处不再重复定义，避免覆盖全局主题。
+   ============================================================ */
+
+.logviewer {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---------- 顶栏 ---------- */
+.lv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-head-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.lv-title {
+  min-width: 0;
+}
+.lv-podsel {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--mono);
+  max-width: 48vw;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.lv-podsel:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-weak);
+}
+.lv-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.lv-chip {
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--row-hover);
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.lv-chip-env {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+.lv-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---------- 工具栏 ---------- */
+.lv-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-toolbar-2 .input-sm {
+  width: 200px;
+  font-family: var(--mono);
+}
+.lv-toolbar-3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.lv-copied {
+  font-size: 12px;
+  color: var(--success, #16a34a);
+  font-family: var(--mono);
+}
+.lv-events {
+  flex-shrink: 0;
+  max-height: 38vh;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.lv-events-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 16px;
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 2;
+}
+.lv-events-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.lv-events-hint {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.lv-events-wrap {
+  padding: 0 16px 10px;
+}
+.lv-events-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.lv-events-table th {
+  text-align: left;
+  padding: 4px 10px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.lv-events-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--code-border);
+  vertical-align: top;
+}
+.lv-events-table .ev-time {
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+.lv-events-table .ev-type {
+  white-space: nowrap;
+}
+.lv-events-table tr.ev-Warning .ev-type {
+  color: var(--warn);
+}
+.lv-events-table tr.ev-Warning {
+  background: var(--warning-bg);
+}
+.lv-events-table .ev-msg {
+  color: var(--text);
+  max-width: 50vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.btn-danger {
+  background: var(--danger, #c0392b);
+  border-color: var(--danger, #c0392b);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(0.94);
+}
+.lv-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.lv-field .sel {
+  font-size: 12px;
+}
+.lv-field {
+  flex-wrap: wrap;
+}
+.lv-invalid {
+  border-color: var(--danger) !important;
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.lv-field-warn {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.lv-ts-epoch .input-sm {
+  width: 130px;
+  font-family: var(--mono);
+}
+.lv-search {
+  flex: 1 1 340px;
+  min-width: 260px;
+}
+.lv-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.lv-searchbox .input {
+  flex: 1;
+  min-width: 80px;
+}
+.lv-match {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 40px;
+  text-align: center;
+}
+.lv-re {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.lv-toggle {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+.lv-spacer {
+  flex: 1 1 auto;}
+.lv-font {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ---------- 日志主体 ---------- */
+.lv-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  position: relative;
+  background: var(--code-bg);
+}
+.lv-statusline {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 4px 16px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--code-border);
+}
+.lv-log {
+  margin: 0;
+  padding: 8px 0 45vh; /* 底部留白，便于滚动到真正末尾 */
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--code-fg);
+}
+.lv-line {
+  display: flex;
+  align-items: flex-start;
+  padding: 0 16px;
+  white-space: pre;
+}
+.lv-line .lv-no {
+  flex: 0 0 auto;
+  width: 54px;
+  text-align: right;
+  padding-right: 14px;
+  color: var(--text-dim);
+  user-select: none;
+  opacity: 0.65;
+}
+.lv-line .lv-text {
+  flex: 1 1 auto;
+  white-space: pre;
+  min-width: 0;
+}
+
+/* 换行模式 */
+.lv-log.wrap .lv-line,
+.lv-log.wrap .lv-line .lv-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 分隔行：===== container: xxx ===== */
+.lv-line.lv-sep {
+  background: var(--row-hover);
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 6px 16px;
+  margin-top: 4px;
+  border-top: 1px solid var(--code-border);
+}
+.lv-line.lv-sep .lv-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 级别高亮 */
+.lv-line.lev-ERROR,
+.lv-line.lev-FATAL {
+  background: var(--danger-bg);
+}
+.lv-line.lev-WARN {
+  background: var(--warning-bg);
+}
+.lv-line.lev-ERROR .lv-text,
+.lv-line.lev-FATAL .lv-text {
+  color: var(--danger);
+}
+.lv-line.lev-WARN .lv-text {
+  color: var(--warn);
+}
+.lv-line.lev-DEBUG {
+  opacity: 0.82;
+}
+
+/* 搜索匹配高亮 */
+mark.lv-hl {
+  background: #ffd54a;
+  color: #1a1a1a;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+html.dark mark.lv-hl {
+  background: #c9a200;
+  color: #0c0c0c;
+}
+
+/* 当前匹配行：左侧高亮条 */
+.lv-line.lv-curmatch {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.lv-empty {
+  padding: 48px 16px;
+  color: var(--text-dim);
+  text-align: center;
+  font-size: 13px;
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+
+/* ===== cfdebug.css (inlined) ===== */
+/* ============================================================
+   CF 云函数调试控制台（PyCharm 风格）—— cfdebug.css
+   对应组件：src/components/CfDebugPanel.tsx
+   设计令牌沿用 shell.css / panels.css 的 CSS 变量（自动适配深浅主题）。
+   ============================================================ */
+
+.cfdebug-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  background: var(--bg);
+}
+
+/* ── 顶部工具栏 ── */
+.cfdebug-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.cfdebug-env {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cfdebug-env-label {
+  font-size: 12.5px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.cfdebug-env .sel,
+.cfdebug-root .input {
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+.cfdebug-env .sel:focus,
+.cfdebug-root .input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
+.cfdebug-root {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 240px;
+}
+.cfdebug-root .input {
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+  font-family: var(--mono);
+}
+.cfdebug-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.cfdebug-status.cfd-idle { color: var(--muted); }
+.cfdebug-status.cfd-connecting { color: var(--primary); background: var(--primary-050); }
+.cfdebug-status.cfd-running { color: var(--info); background: var(--primary-050); }
+.cfdebug-status.cfd-paused { color: #b58105; background: var(--warning-bg); }
+.cfdebug-status.cfd-finished { color: var(--success); background: var(--success-bg); }
+.cfdebug-status.cfd-error { color: var(--danger); background: var(--danger-bg); }
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover {
+  filter: brightness(0.95);
+  color: #fff;
+}
+
+/* ── 主体三栏（参考 PyCharm/VSCode：左=项目、中=编辑器、右=调试信息） ── */
+.cfdebug-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 400px;
+  gap: 10px;
+  padding: 10px 14px;
+}
+
+/* 左栏：函数列表 + 参数 */
+.cfdebug-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  gap: 10px;
+  box-shadow: var(--shadow-xs);
+}
+.cfdebug-search .input {
+  width: 100%;
+  font-size: 12.5px;
+}
+.cfdebug-fnlist {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cfdebug-fn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: all 0.18s var(--ease-out);
+}
+.cfdebug-fn:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+.cfdebug-fn.selected {
+  border-color: var(--primary);
+  background: var(--primary-050);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.cfdebug-fn-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cfdebug-fn-name-txt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 「在浏览器打开该云函数日志」：常驻可见（比 CfPanel 里那个 muted 灰更容易发现），
+   hover/聚焦时变主色并加淡底，避免误以为只是装饰。 */
+.cfdebug-fn-openlog {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.75;
+  transition: all 0.16s var(--ease-out);
+}
+.cfdebug-fn:hover .cfdebug-fn-openlog {
+  opacity: 1;
+}
+.cfdebug-fn-openlog:hover,
+.cfdebug-fn-openlog:focus-visible {
+  border-color: var(--primary);
+  background: var(--primary-050);
+  color: var(--primary);
+  opacity: 1;
+}
+.cfdebug-fn-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cfd-model {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.cfd-model.mA { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.cfd-model.mB { color: #c678dd; border-color: color-mix(in srgb, #c678dd 40%, transparent); }
+.cfdebug-fn-params {
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.cfdebug-params {
+  flex-shrink: 0;
+  max-height: 46%;
+  overflow: auto;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.cfdebug-params .section-title {
+  font-size: 13px;
+}
+
+/* 远程模式环境选择器（独立于参数块，始终可点选） */
+.cfdebug-remote-pick {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--primary-050);
+}
+.cfdebug-remote-pick .field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cfdebug-remote-pick .sel {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+.cfdebug-remote-pick .sel:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
+
+/* 可折叠面板标题按钮（入参 / 调试日志 共用） */
+.cfdebug-collapser {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 13px;
+}
+.cfdebug-collapser:hover .section-title {
+  color: var(--primary);
+}
+.cfd-caret {
+  display: inline-block;
+  width: 14px;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 11px;
+  transition: transform 0.15s var(--ease-out);
+}
+.cfdebug-kwargs {
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+  tab-size: 2;
+}
+.cfdebug-adv {
+  margin-top: 8px;
+}
+.cfdebug-adv > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 4px 0;
+}
+.cfdebug-adv-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0 4px;
+}
+.cfdebug-adv-fields .field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.cfdebug-adv-fields .input {
+  width: 100%;
+}
+
+/* 中栏：源码 + 断点 */
+.cfdebug-center {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+}
+.cfdebug-source-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.cfdebug-source-head .btn-locate {
+  margin-left: 2px;
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: var(--primary-050);
+}
+.cfdebug-source-head .btn-locate:hover:not(:disabled) {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.cfdebug-src-name {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.cfdebug-src-path {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+}
+.cfdebug-stepbar {
+  display: inline-flex;
+  gap: 4px;
+}
+.cfdebug-stepbar .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.cfdebug-source {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 6px 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--code-bg);
+  color: var(--code-fg);
+}
+.cfd-code-line {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  padding: 0 8px;
+}
+.cfd-code-line:hover {
+  background: var(--surface-3);
+}
+.cfd-code-line.current {
+  background: var(--primary-050);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.cfd-code-line.has-bp .cfd-gutter {
+  color: var(--danger);
+}
+.cfd-code-line.has-bp-cond .cfd-gutter {
+  color: var(--warning);
+}
+.cfd-code-line.has-bp-log .cfd-gutter {
+  color: var(--info);
+}
+.cfd-gutter {
+  width: 18px;
+  flex-shrink: 0;
+  text-align: center;
+  color: var(--danger);
+  user-select: none;
+}
+.cfd-ln {
+  width: 42px;
+  flex-shrink: 0;
+  text-align: right;
+  padding-right: 10px;
+  color: var(--muted);
+  user-select: none;
+}
+.cfd-code {
+  white-space: pre;
+  flex: 1;
+  min-width: 0;
+  tab-size: 2;
+}
+
+/* 右栏：变量 / 调用栈 / 断点 / 结果 */
+.cfdebug-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+}
+.cfdebug-subtabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 0 6px;
+}
+.cfdebug-subtab {
+  border: none;
+  background: none;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.18s var(--ease-out);
+}
+.cfdebug-subtab:hover {
+  color: var(--text);
+}
+.cfdebug-subtab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.cfdebug-subbody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+}
+
+/* 变量树（仿 PyCharm：name+type 一行，value 换行到下一行全长展示） */
+.cfdebug-vars {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfd-var-node {
+  line-height: 1.6;
+}
+.cfd-var-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: default;
+}
+.cfd-var-row:hover {
+  background: var(--surface-2);
+}
+.cfd-var-toggle {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.cfd-var-name {
+  color: var(--primary);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.cfd-var-type {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.cfd-var-value {
+  color: var(--text);
+  flex-basis: 100%;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding-left: 18px;
+  opacity: 0.85;
+}
+.cfd-var-children {
+  padding-left: 14px;
+  border-left: 1px dashed var(--border);
+  margin-left: 6px;
+}
+.cfd-var-empty {
+  color: var(--muted);
+  padding-left: 18px;
+}
+
+/* 调用栈 */
+.cfdebug-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-frame {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cfdebug-frame:hover {
+  background: var(--primary-050);
+  border-color: var(--primary);
+}
+.cfdebug-frame-idx {
+  color: var(--muted);
+  width: 16px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.cfdebug-frame-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.cfdebug-frame-loc {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 断点列表 */
+.cfdebug-bplist {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-bp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 4px;
+}
+.cfdebug-bp-row:hover {
+  background: var(--surface-2);
+}
+.cfdebug-bp-dot {
+  color: var(--danger);
+}
+.cfdebug-bp-dot.cond {
+  color: var(--warning);
+}
+.cfdebug-bp-dot.log {
+  color: var(--info);
+}
+.cfdebug-bp-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.cfdebug-bp-opt {
+  color: var(--muted);
+  font-size: 11px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-bp-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.cfd-bp-mini {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.cfd-bp-mini:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.cfdebug-bp-editor {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.cfd-bp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.cfd-bp-field .input {
+  font-family: var(--mono);
+}
+.cfdebug-bp-editor-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 异常断点控制 */
+.cfdebug-exc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.cfd-hint {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* 监视表达式 */
+.cfdebug-watches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-watch-add {
+  display: flex;
+  gap: 6px;
+}
+.cfdebug-watch-add .input {
+  flex: 1;
+}
+.cfdebug-watch-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "expr del"
+    "val  val";
+  gap: 2px 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.cfdebug-watch-expr {
+  grid-area: expr;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  min-width: 0;
+}
+.cfdebug-watch-row .cfd-bp-mini {
+  grid-area: del;
+}
+.cfdebug-watch-val {
+  grid-area: val;
+  color: var(--muted);
+  font-size: 11px;
+  word-break: break-all;
+}
+.cfdebug-watch-val .cfd-eval-val {
+  color: var(--text);
+}
+.cfdebug-watch-val .cfd-eval-type {
+  margin-left: 6px;
+}
+
+/* 结果 */
+.cfdebug-result {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--code-fg);
+}
+
+/* ── 底部控制台（默认收起，仅保留标题栏高度） ── */
+.cfdebug-console {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.cfdebug-console-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.cfdebug-console.is-open .cfdebug-console-head {
+  border-bottom: 1px solid var(--border);
+}
+.cfdebug-console-head .section-title {
+  font-size: 13px;
+}
+/* 控制台正文：按内容自适应高度（少日志紧凑、多日志到 max-height 后内部滚动） */
+.cfdebug-console-body {
+  max-height: 32vh;
+  min-height: 60px;
+  overflow: auto;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--code-bg);
+  color: var(--code-fg);
+}
+.cfd-log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 1px 0;
+}
+.cfd-log-line.error { color: var(--danger); }
+.cfd-log-line.warn { color: var(--warning); }
+.cfd-log-line.debug { color: var(--muted); }
+.cfd-log-line.info { color: var(--code-fg); }
+
+/* ── 窄屏：三栏堆叠 ── */
+@media (max-width: 1100px) {
+  .cfdebug-body {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+  .cfdebug-left,
+  .cfdebug-center,
+  .cfdebug-right {
+    min-height: 320px;
+  }
+  .cfdebug-body.right-collapsed .cfdebug-right {
+    display: none;
+  }
+  .cfdebug-console-body {
+    max-height: 260px;
+  }
+}
+
+/* ── 调试模式切换（本地 / 远程） ── */
+.cfdebug-mode {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.cfdebug-mode .seg {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.18s var(--ease-out);
+}
+.cfdebug-mode .seg + .seg {
+  border-left: 1px solid var(--border);
+}
+.cfdebug-mode .seg:hover {
+  color: var(--text);
+}
+.cfdebug-mode .seg.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* 远程模式提示文字 */
+.cfdebug-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ── 配置同步弹窗（cf_accounts 导入/导出/复制） ── */
+.cfd-modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+.cfd-modal {
+  width: min(560px, 100%);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+.cfd-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.cfd-modal-head .spacer {
+  flex: 1;
+  min-width: 0;
+}
+.cfd-modal-body {
+  padding: 14px 16px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cfd-sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cfd-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  background: var(--surface-2);
+}
+.cfd-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.cfd-account-name {
+  font-weight: 600;
+  color: var(--text);
+  font-family: var(--font-display);
+  flex-shrink: 0;
+}
+.cfd-account-url {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.cfd-account-type {
+  font-size: 10.5px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.cfd-sync-import {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cfd-sync-import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cfd-sync-import-head .sel {
+  min-width: 180px;
+}
+
+/* ── 远程模式：工具栏内联服务器选择（紧邻开始调试） ── */
+.cfdebug-server-inline {
+  display: inline-flex;
+  align-items: center;
+}
+.cfdebug-server-inline .sel {
+  max-width: 240px;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+.cfdebug-server-inline .sel:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-050);
+}
+
+/* 远程模式数据去向提示条 */
+.cfdebug-remote-banner {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--primary-050);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+/* ── 右栏默认收起（源码常驻，右栏仅留展开按钮） ── */
+.cfdebug-body.right-collapsed {
+  grid-template-columns: 260px minmax(0, 1fr) 40px;
+}
+.cfdebug-right-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.cfdebug-right-toggle:hover .section-title {
+  color: var(--primary);
+}
+
+/* ── 左栏（云函数列表 + 入参）整体收起为窄轨；释放的空间让右侧调试信息栏自动变宽 ── */
+.cfdebug-body.left-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr) minmax(440px, 1fr);
+}
+.cfdebug-body.left-collapsed.right-collapsed {
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+}
+.cfdebug-left-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cfdebug-left-head .cfdebug-collapser {
+  flex: 1;
+}
+.cfdebug-panel-toggle {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: all 0.18s var(--ease-out);
+}
+.cfdebug-panel-toggle:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+.cfdebug-left-rail {
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 15px;
+  transition: all 0.18s var(--ease-out);
+}
+.cfdebug-left-rail:hover {
+  color: var(--primary);
+  background: var(--primary-050);
+}
+.cfdebug-body.left-collapsed .cfdebug-left {
+  padding: 6px 4px;
+}
+
+/* ── 源码语法高亮（highlight.js / Python，One Dark 调色板，适配代码底色） ── */
+.cfd-code .hljs-keyword,
+.cfd-code .hljs-built_in,
+.cfd-code .hljs-meta .hljs-keyword { color: #c678dd; }
+.cfd-code .hljs-string,
+.cfd-code .hljs-regexp { color: #98c379; }
+.cfd-code .hljs-comment { color: var(--muted); font-style: italic; }
+.cfd-code .hljs-number,
+.cfd-code .hljs-literal,
+.cfd-code .hljs-boolean { color: #d19a66; }
+.cfd-code .hljs-title,
+.cfd-code .hljs-title.function_ { color: #61afef; }
+.cfd-code .hljs-attr,
+.cfd-code .hljs-attribute,
+.cfd-code .hljs-property { color: #e06c75; }
+.cfd-code .hljs-params,
+.cfd-code .hljs-type,
+.cfd-code .hljs-class .hljs-title { color: #e5c07b; }
+.cfd-code .hljs-meta { color: #56b6c2; }
+
+/* ===== 右键求值（上下文菜单 + 结果弹窗） ===== */
+.cfd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+}
+.cfd-ctx-menu {
+  position: fixed;
+  z-index: 901;
+  min-width: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 4px;
+  font-size: 13px;
+}
+.cfd-ctx-expr {
+  padding: 4px 8px;
+  color: var(--text-2);
+  font-family: var(--mono);
+  word-break: break-all;
+}
+.cfd-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text);
+}
+.cfd-ctx-item:hover {
+  background: var(--primary-050);
+}
+.cfd-eval-popup {
+  position: fixed;
+  z-index: 901;
+  min-width: 200px;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.cfd-eval-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cfd-eval-expr {
+  flex: 1;
+  font-family: var(--mono);
+  color: var(--primary);
+  word-break: break-all;
+}
+.cfd-eval-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.cfd-eval-close:hover {
+  color: var(--text);
+}
+.cfd-eval-body {
+  margin-top: 6px;
+}
+.cfd-eval-val {
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cfd-eval-type {
+  margin-left: 8px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.cfd-eval-error {
+  margin-top: 6px;
+  color: var(--danger);
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── 日志管理 tab（服务器 dynamic_log） ── */
+.cfdebug-dynlogs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  overflow: auto;
+}
+.cfdebug-dynlogs-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cfdebug-dynlogs-toolbar .input {
+  flex: 1 1 100px;
+  min-width: 80px;
+}
+/* 记录模型选择框：稍宽 + 主色左边框，与 log_type 过滤器区分 */
+.cfdebug-dynlogs-toolbar .cfdebug-dynlogs-model {
+  flex: 1 1 160px;
+  border-left: 2px solid var(--primary, #1677ff);
+}
+.cfdebug-dynlogs-toolbar .cfdebug-dynlogs-model::placeholder {
+  color: var(--text-dim, #8a8f99);
+}
+.cfdebug-dynlogs-error {
+  color: var(--danger);
+  background: var(--surface-2);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.cfdebug-dynlogs-head,
+.cfdebug-dynlogs-row {
+  display: grid;
+  grid-template-columns: 22px 110px 1fr 130px 24px;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfdebug-dynlogs-head {
+  background: var(--surface-2);
+  font-weight: 600;
+  color: var(--text-2);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cfdebug-dynlogs-row {
+  border: 1px solid transparent;
+}
+.cfdebug-dynlogs-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.cfdebug-dynlogs-row .col-type {
+  color: var(--primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .col-content {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .col-time {
+  color: var(--text-2);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-dynlogs-row .cfd-bp-mini {
+  justify-self: end;
+}
+
+
+/* ===== services-config.css (inlined) ===== */
+/* ============================================================
+   独立「首选项」页（ServicesConfig）—— 全屏视图样式
+   全部取用 global.css 的主题变量（--bg/--panel/--text...），
+   深色模式由 html.dark 变量覆盖天然生效，无需单独写深色分支。
+   ============================================================ */
+
+.svc {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ---- 头部：返回 + 标题 + 页签 + 主题切换 ---- */
+.svc-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+.svc-title {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.svc-tabs {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  justify-content: center;
+}
+
+.svc-tab {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.svc-tab:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.svc-tab.active {
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+/* ---- 主体 ---- */
+.svc-body {
+  flex: 1;
+  overflow: auto;
+  padding: 18px;
+}
+
+.svc-panel {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* ---- 表格 ---- */
+.svc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.svc-table th,
+.svc-table td {
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.svc-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.svc-table code {
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+  color: var(--primary);
+}
+
+.svc-ok { color: var(--ok); }
+.svc-muted { color: var(--muted); }
+
+.svc-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.chip-hcm {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* ---- 添加 / 编辑表单 ---- */
+.svc-add {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.svc-add h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.svc-hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.svc-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.svc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.svc-field > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.svc-field.svc-full {
+  grid-column: 1 / -1;
+}
+
+.svc-field textarea.input {
+  resize: vertical;
+  font-family: var(--mono, monospace);
+  font-size: 12px;
+}
+
+.svc-bar {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.svc-meta {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* ---- Toast ---- */
+.svc-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ok);
+  padding: 8px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  z-index: 100;
+  animation: svc-toast-in 0.18s ease;
+}
+
+.svc-toast.err {
+  border-left-color: var(--danger);
+}
+
+@keyframes svc-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+
+/* ===== 总览页自身布局（不参与应用） ===== */
+.ds-wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 80px; }
+.ds-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ds-top h1 { font-size: 20px; margin: 0; }
+.ds-note { color: var(--text-dim); font-size: 12px; margin: 0 0 24px; }
+.ds-sec { margin: 32px 0 12px; font-size: 15px; font-weight: 700; display:flex; align-items:center; gap:8px; }
+.ds-sec::before { content:''; width: 4px; height: 16px; border-radius: 2px; background: var(--primary); }
+.ds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ds-swatch { border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-panel); }
+.ds-swatch .sw { height: 44px; border-bottom: 1px solid var(--border); }
+.ds-swatch .lb { padding: 6px 8px; font-size: 11px; font-family: var(--mono); color: var(--text-dim); }
+.ds-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+.ds-demo { border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-panel); padding: 18px; margin: 10px 0; }
 </style>
 </head>
-<body data-page-node-id="IiS5QV97Wxs9Q0WaEAJLFn">
-<div class="ds-wrap" data-page-node-id="yl7wrO6iZ9woqdkd2DkhDV">
-
-<div class="ds-top" data-page-node-id="QkfCXTH37gFF0y9ZFZsCmA">
-  <div data-page-node-id="iQESHwx9HVKbES6AhWhvM6">
-    <h1 class="ds-h1" data-page-node-id="PV1KAnWKZ50VQWbgPkL8og">jira-git-gui · 设计系统样式总览</h1>
-    <div class="ds-sub" data-page-node-id="ChljHYLCW6KNrwvqf8E6aG">本轮「整体设计系统统一」美化后的全部样式。点右上角切换明/暗主题。</div>
+<body>
+<div class="ds-wrap">
+  <div class="ds-top">
+    <h1>设计系统样式总览 · jira-git-gui</h1>
+    <button class="btn btn-primary" onclick="document.documentElement.classList.toggle('dark')">切换 明 / 暗</button>
   </div>
-  <button class="btn btn-primary" id="themeBtn" data-page-node-id="4mRJC8simygLgA1yksqYlL">切换主题</button>
-</div>
+  <p class="ds-note">令牌唯一权威：<code>global.css</code>（:root + html.dark）。本页内联全部面板 CSS（按 main.tsx 加载顺序），改 CSS 后重新生成即可肉眼验收。</p>
 
-<div class="ds-sec" data-page-node-id="WBUtyffpv8u0FiZpjLgOTM">
-  <h2 data-page-node-id="o4hPliJwCxnXSwFXe3rXfB">① 颜色 Tokens（CSS 变量）</h2>
-  <div class="ds-grid" data-page-node-id="qhqUeEKrbfW0ZEAkKyrmmB">
-    <div class="ds-sw" data-page-node-id="9gTTqWR9F9Zmh6f07XjU1d"><div class="c" style="background:var(--bg)" data-page-node-id="MAHm0KD45IunPolUXRDSlm"></div><div class="n" data-page-node-id="WRXgTiGU5IcC9jYD4czcbI">--bg</div></div><div class="ds-sw" data-page-node-id="ilguesHNYbyCaBDPGslHzU"><div class="c" style="background:var(--bg-panel)" data-page-node-id="5fHyzpLvwcGDwGIjhzJvzu"></div><div class="n" data-page-node-id="ELX7fNGw0dib82YvDIrk82">--bg-panel</div></div><div class="ds-sw" data-page-node-id="20pe5Aljg1jBePK6rqZrPc"><div class="c" style="background:var(--bg-elevated)" data-page-node-id="YAlw9s2shCkwbroCQvD8Ou"></div><div class="n" data-page-node-id="EekDfHY20rsmb6UAYeI06x">--bg-elevated</div></div>
-    <div class="ds-sw" data-page-node-id="a4zvFsTPT1fcYxyIMjiGIx"><div class="c" style="background:var(--bg-input)" data-page-node-id="hQ4zVnvFEmOGDkyhZoqXO3"></div><div class="n" data-page-node-id="axI5cGpaqYWogBCH9q3LOa">--bg-input</div></div><div class="ds-sw" data-page-node-id="cc4t3U39CeVDeAVnGtRGKd"><div class="c" style="background:var(--bg-hover)" data-page-node-id="0gI0pJU7wrLbTZwjf9tVHz"></div><div class="n" data-page-node-id="KMTMmg72vyBfQj5Z6aM1Aq">--bg-hover</div></div><div class="ds-sw" data-page-node-id="O41hwrLhvSFa4doND1nsSu"><div class="c" style="background:var(--border-strong)" data-page-node-id="pSOEDdbLTkDD04QCAi0x7W"></div><div class="n" data-page-node-id="GtmUQ6G6imL7Wth8DAXYoA">--border-strong</div></div>
-    <div class="ds-sw" data-page-node-id="GzpTF6H4kFCmJkFwHElqKe"><div class="c" style="background:var(--text)" data-page-node-id="Iw6bVedMmcqvHiI5FVYlnh"></div><div class="n" data-page-node-id="mFYQpondfZvZZ69pTzAu5D">--text</div></div><div class="ds-sw" data-page-node-id="QP0Ida1nYi0Z8i85QwEgqu"><div class="c" style="background:var(--text-dim)" data-page-node-id="yqQPJdGBoWg3E3BkdOu4C2"></div><div class="n" data-page-node-id="Uskc44VbSo3mqSzIX1VcyK">--text-dim</div></div><div class="ds-sw" data-page-node-id="OGPb6wp5xVrU7mzAKU1x8i"><div class="c" style="background:var(--text-faint)" data-page-node-id="BkQzWGMVG4QV7RzxERwLbZ"></div><div class="n" data-page-node-id="Tyf398ZXJ9pyxDDXFHArA7">--text-faint</div></div>
-    <div class="ds-sw" data-page-node-id="Nd2DTNjNkWgE1ZHIlMZX7F"><div class="c" style="background:var(--primary)" data-page-node-id="1UuBxmtR68uuSFLDapFCVY"></div><div class="n" data-page-node-id="1eunsH5NZdf06KZqe94iHt">--primary</div></div><div class="ds-sw" data-page-node-id="qs3KcGrQUiLklQuZbF9F6f"><div class="c" style="background:var(--primary-hover)" data-page-node-id="GqHKsG2jNziwIC3weidaWC"></div><div class="n" data-page-node-id="pG0R1qQQCpNwEnHdaYYDoa">--primary-hover</div></div><div class="ds-sw" data-page-node-id="CrdvWVtVJkH9VWrGmXEus4"><div class="c" style="background:var(--primary-weak)" data-page-node-id="tqzsCjfwopWspUmmRpVdXg"></div><div class="n" data-page-node-id="oKvEknQ5D5urXKkW9V0ktm">--primary-weak</div></div>
-    <div class="ds-sw" data-page-node-id="LtfrHjdISxDoDRkaE5oVes"><div class="c" style="background:var(--danger)" data-page-node-id="zsKeLA0a103nusX0v51xFG"></div><div class="n" data-page-node-id="WpTQYJn0ew59GXY126eGN8">--danger</div></div><div class="ds-sw" data-page-node-id="q09F691x85PGFBFjL5T8Wp"><div class="c" style="background:var(--warn)" data-page-node-id="mRS4YoWg7AUKoS53Kzj9Im"></div><div class="n" data-page-node-id="RFFi54Bazr5ZSN6BTl0UeU">--warn</div></div><div class="ds-sw" data-page-node-id="LVlL2UEXt9B0pgx2BbBb7z"><div class="c" style="background:var(--success)" data-page-node-id="HTE6BP9XC7U6nao7M8mZ6x"></div><div class="n" data-page-node-id="PBqeWoEprsRLKQStC2YYJd">--success</div></div>
+  <div class="ds-sec">色彩 · 背景层级</div>
+  <div class="ds-grid">
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg)"></div><div class="lb">--bg</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg-panel)"></div><div class="lb">--bg-panel</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg-elevated)"></div><div class="lb">--bg-elevated</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg-input)"></div><div class="lb">--bg-input</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg-hover)"></div><div class="lb">--bg-hover</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--bg-head)"></div><div class="lb">--bg-head</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--code-bg)"></div><div class="lb">--code-bg</div></div>
   </div>
-</div>
 
-<div class="ds-sec" data-page-node-id="Rn0EBh02RmHvnVzSCn7t0k">
-  <h2 data-page-node-id="hUuCshzXfw9t9kqwFnxmb1">② 按钮</h2>
-  <div class="ds-row" data-page-node-id="zdOFJtzf5ouaPDqOckD7MY">
-    <button class="btn" data-page-node-id="Q576dCWmcQNXHayVSMFwXC">默认按钮</button>
-    <button class="btn btn-primary" data-page-node-id="qmI2N77MrJDopE3ASOjWBG">主要按钮</button>
-    <button class="btn btn-sm" data-page-node-id="jkimlGQGOJxaZAaG7mDcGF">小号</button>
-    <button class="btn btn-sm btn-ghost" data-page-node-id="1pu1R0Eyt2rG4J0EK4GJfj">幽灵</button>
-    <button class="btn btn-active" data-page-node-id="ebJEZ1kOmyvJne5x9036Tv">激活态</button>
-    <button class="btn" disabled data-page-node-id="sQugb26B3NuzYCc8ywkBZd">禁用</button>
+  <div class="ds-sec">色彩 · 主色 / 状态</div>
+  <div class="ds-grid">
+    <div class="ds-swatch"><div class="sw" style="background:var(--primary)"></div><div class="lb">--primary</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--primary-hover)"></div><div class="lb">--primary-hover</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--primary-weak)"></div><div class="lb">--primary-weak</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--success)"></div><div class="lb">--success</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--success-bg)"></div><div class="lb">--success-bg</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--warn)"></div><div class="lb">--warn</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--warn-bg)"></div><div class="lb">--warn-bg</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--danger)"></div><div class="lb">--danger</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--danger-bg)"></div><div class="lb">--danger-bg</div></div>
   </div>
-</div>
 
-<div class="ds-sec" data-page-node-id="JygRQxPB0eY2SvslldNpPj">
-  <h2 data-page-node-id="XRAmc3SXA07dEtziwh1Cbq">③ 徽标 / 标签</h2>
-  <div class="ds-row" data-page-node-id="KBvYkbWmYDh4tVr9hozbMA">
-    <span class="badge badge--neutral" data-page-node-id="XGv0LtSjM8OxpAbNlH7Cvx">neutral</span>
-    <span class="badge badge--primary" data-page-node-id="5u2lJUWQdEfZu7N9XzqiXw">primary</span>
-    <span class="badge badge--success" data-page-node-id="Hu1XxMA7GVE9OTfvZ4satv">success</span>
-    <span class="badge badge--warn" data-page-node-id="buQRf3tC3TIHcmnJbBfaSE">warn</span>
-    <span class="badge badge--danger" data-page-node-id="h1UJliodLHrcFMl6i4hHWc">danger</span>
-    <span class="chip" data-page-node-id="YhTTd7H9QmSaUcY5sBaKxH">一个筛选片</span>
-    <span class="chip" data-page-node-id="MmLmG4Me1IMySSBDP3BBVV">10.6.6.185/24</span>
+  <div class="ds-sec">色彩 · 文本 / 边框</div>
+  <div class="ds-grid">
+    <div class="ds-swatch"><div class="sw" style="background:var(--text)"></div><div class="lb">--text</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--text-dim)"></div><div class="lb">--text-dim</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--text-faint)"></div><div class="lb">--text-faint</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--border)"></div><div class="lb">--border</div></div>
+    <div class="ds-swatch"><div class="sw" style="background:var(--border-strong)"></div><div class="lb">--border-strong</div></div>
   </div>
-</div>
 
-<div class="ds-sec" data-page-node-id="CColtB3DLVmlRCnEnNPXGY">
-  <h2 data-page-node-id="nCi2Ndoe8DlYei0U3XeQrz">④ 卡片（.card / .card-soft）+ 折叠头</h2>
-  <div class="ds-row" style="align-items:stretch" data-page-node-id="WgVjlF4AKPDxzdQiI8rL1J">
-    <div class="card" style="padding:16px 18px;width:300px" data-page-node-id="UeKOuvh6bi92cNLvEVEiqp">
-      <div class="panel-header" data-page-node-id="aCuigWnysNukxNHF5RCaWm"><span class="section-title" data-page-node-id="hjtGKJFMGHtStoPFDESza8">卡片标题</span><span class="badge badge--primary" data-page-node-id="Le70YCByVDPg81O4t92FE3">card</span></div>
-      <div style="color:var(--text-dim);font-size:12.5px" data-page-node-id="tbPo4GOGUYYOItrVxpnOP5">圆角 14 · 边框 · 轻阴影，用于分区容器。</div>
-    </div>
-    <div class="card-soft" style="padding:16px 18px;width:300px" data-page-node-id="axeBTUnBYsO5SEdGV8b5OL">
-      <div class="panel-header" data-page-node-id="vOXnFWLAkVZskW7skCNk6y"><span class="section-title" data-page-node-id="rKQqWk59jVrS3WT6gmWz4j">软卡片</span><span class="badge badge--neutral" data-page-node-id="IsVvHTVs2PP107Olwwk8oK">card-soft</span></div>
-      <div style="color:var(--text-dim);font-size:12.5px" data-page-node-id="fUjkjyal21A33RWeJU8bzg">与 .card 同源，供 Clash/CfDebug 折叠卡使用。</div>
+  <div class="ds-sec">按钮</div>
+  <div class="ds-demo">
+    <div class="ds-row">
+      <button class="btn">默认 .btn</button>
+      <button class="btn btn-primary">主操作 .btn-primary</button>
+      <button class="btn btn-ghost">幽灵 .btn-ghost</button>
+      <button class="btn btn-sm">小号 .btn-sm</button>
+      <button class="btn" disabled>禁用</button>
+      <button class="btn btn-icon" data-tip="图标按钮">⌘</button>
     </div>
   </div>
-</div>
 
-<div class="ds-sec" data-page-node-id="YgPeipSgBPnS1NOq0bc2ua">
-  <h2 data-page-node-id="GPBlz1s7nwEZaHqd1vHmKD">⑤ 表单控件</h2>
-  <div class="ds-row" style="align-items:flex-start" data-page-node-id="DAAq1SYRsHwACaIoq1ZzMP">
-    <div class="field" style="width:220px" data-page-node-id="sJEEUrDmg7IOjYFcWda2qD"><label data-page-node-id="MHJSHneGnUNQUlmhuDqMDj">输入框</label><input placeholder="请输入…" data-page-node-id="1ZCEjdNIaEcfjrrfLKqDQu"/></div>
-    <div class="field" style="width:220px" data-page-node-id="qnPGZXikE3mO56ePMlYbkT"><label data-page-node-id="Nkf8PQutimBe1vMq9WqjkB">下拉</label><select class="select" data-page-node-id="HdBozC7wbHMsonjF9n9QLf"><option data-page-node-id="42g6PkjbHHeLdBUIYlHyD4">选项 A</option><option data-page-node-id="b7MhvvkPDQOKpiWHliLuUW">选项 B</option></select></div>
-    <input class="input" style="width:180px" placeholder=".input（聚焦看环）" data-page-node-id="LeRMiECCdGDnV9Bbgdhu3v"/>
+  <div class="ds-sec">徽标 / 标签</div>
+  <div class="ds-demo">
+    <div class="ds-row">
+      <span class="badge">neutral</span>
+      <span class="badge badge--primary">primary</span>
+      <span class="badge badge--success">success</span>
+      <span class="badge badge--warn">warn</span>
+      <span class="badge badge--danger">danger</span>
+      <span class="chip">chip</span>
+      <span class="chip chip-hcm">chip-hcm</span>
+      <span class="badge-merged">已合并 badge-merged</span>
+    </div>
   </div>
-  <div class="field" style="margin-top:10px" data-page-node-id="z6zzX6RPcGDa4acrxE7r9B"><label data-page-node-id="XE121fz3xj3v2tSY8s6zwb">文本域</label><textarea placeholder="多行文本…"></textarea></div>
-</div>
 
-<div class="ds-sec" data-page-node-id="sMMmHyYKrVrNe3shshGhP1">
-  <h2 data-page-node-id="4YZ1J5BPooJDckTXzpqLzz">⑥ 表格（sticky 表头 · 行悬停）</h2>
-  <div class="card" style="overflow:hidden" data-page-node-id="96b4HE323GNZMyFTXvXSxt">
-    <table style="width:100%;border-collapse:collapse;font-size:12.5px" data-page-node-id="HnyjPV2luIg0IBrhsyk8Cq">
-      <thead data-page-node-id="AlV6tEEIIO6xzwuaX7UADX"><tr data-page-node-id="KFHVUAXEKGWfgG3TJRhzkd">
-        <th style="position:sticky;top:0;background:var(--bg-head);color:var(--text-dim);text-align:left;padding:8px 12px;font-weight:600" data-page-node-id="UDLEanI0fk9pZdoV8P7TOi">名称</th>
-        <th style="position:sticky;top:0;background:var(--bg-head);color:var(--text-dim);text-align:left;padding:8px 12px;font-weight:600" data-page-node-id="sWKNwzm7Ml5HQfDOFB7sV1">状态</th>
-        <th style="position:sticky;top:0;background:var(--bg-head);color:var(--text-dim);text-align:right;padding:8px 12px;font-weight:600" data-page-node-id="I3G1NsE9M01jXPCL8Bo4xd">大小</th>
-      </tr></thead>
-      <tbody data-page-node-id="YSvHluAzSQoJHNetNF0S5M">
-        <tr onmouseover="this.style.background='var(--row-hover)'" onmouseout="this.style.background=''" data-page-node-id="m9hSBoaLo9BGB6NbCgpwWG"><td style="padding:8px 12px;border-bottom:1px solid var(--border)" data-page-node-id="RmWreOIEACyO2TPmH4M2XB">nginx-deploy-7f9c</td><td style="padding:8px 12px;border-bottom:1px solid var(--border)" data-page-node-id="6P16LnU87VFJRLcVC6FLaS"><span class="badge badge--success" data-page-node-id="twyLQTJE3lfEG8h9NaeXAi">Running</span></td><td style="padding:8px 12px;border-bottom:1px solid var(--border);text-align:right" class="ds-code" data-page-node-id="ytSle7GgIgoQfK6tHo3A2z">2.1 MiB</td></tr>
-        <tr onmouseover="this.style.background='var(--row-hover)'" onmouseout="this.style.background=''" data-page-node-id="tlglawXQCTuP1xXfhfGTLg"><td style="padding:8px 12px;border-bottom:1px solid var(--border)" data-page-node-id="SkJxzGcYzrEZD0RwkH2n1c">api-gateway-0</td><td style="padding:8px 12px;border-bottom:1px solid var(--border)" data-page-node-id="6BjEEiPe3gO8tkRfJbz3cj"><span class="badge badge--warn" data-page-node-id="aSNyDBeGwF6GBqJmsYkxbm">Pending</span></td><td style="padding:8px 12px;border-bottom:1px solid var(--border);text-align:right" class="ds-code" data-page-node-id="nzhKJ4phXDEn3qwZtKQtI7">812 KiB</td></tr>
+  <div class="ds-sec">卡片</div>
+  <div class="ds-row">
+    <div class="card" style="flex:1;min-width:260px">
+      <div class="panel-header"><span class="section-title">.card + .panel-header</span><span class="badge badge--primary">primary</span></div>
+      <div style="color:var(--text-dim);font-size:12px">卡片正文。令牌驱动，明暗自动适配。</div>
+    </div>
+    <div class="card-soft" style="flex:1;min-width:260px">
+      <div class="panel-header"><span class="section-title">.card-soft</span></div>
+      <div style="color:var(--text-dim);font-size:12px">弱化背景卡片，用于次级信息块。</div>
+    </div>
+  </div>
+
+  <div class="ds-sec">表单</div>
+  <div class="ds-demo">
+    <div class="ds-row">
+      <input class="input" placeholder="input 输入框" style="width:200px">
+      <select class="select" style="width:160px"><option>select 下拉</option></select>
+      <textarea class="textarea" rows="2" placeholder="textarea 多行" style="width:260px"></textarea>
+    </div>
+    <div class="ds-row" style="color:var(--text-dim);font-size:12px">聚焦时有统一 focus-ring（键盘 Tab 可见）。</div>
+  </div>
+
+  <div class="ds-sec">反馈 / 状态</div>
+  <div class="ds-demo">
+    <div class="ds-row">
+      <div class="skeleton" style="width:140px;height:14px"></div>
+      <div class="skeleton" style="width:90px;height:14px"></div>
+      <span class="spin" style="width:16px;height:16px;border:2px solid var(--border-strong);border-top-color:var(--primary);border-radius:50%;display:inline-block"></span>
+      <span class="tooltip" data-tip="悬停提示 tooltip">悬停我看提示</span>
+    </div>
+    <div class="divider" style="margin:12px 0"></div>
+    <div class="ds-row" style="font-family:var(--mono);font-size:12px">
+      <span class="commit-file ct-M">M modified</span>
+      <span class="commit-file ct-A">A added</span>
+      <span class="commit-file ct-D">D deleted</span>
+      <span class="commit-file ct-R">R renamed</span>
+    </div>
+  </div>
+
+  <div class="ds-sec">表格（行 hover / 选中）</div>
+  <div class="ds-demo" style="padding:0;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:var(--bg-head);color:var(--text-dim);text-align:left">
+        <th style="padding:8px 12px;font-weight:500">服务</th><th style="padding:8px 12px;font-weight:500">状态</th><th style="padding:8px 12px;font-weight:500">耗时</th></tr></thead>
+      <tbody>
+        <tr style="border-top:1px solid var(--border)"><td style="padding:8px 12px">cf-a</td><td style="padding:8px 12px"><span class="badge badge--success">运行中</span></td><td style="padding:8px 12px;font-family:var(--mono)">12ms</td></tr>
+        <tr style="border-top:1px solid var(--border);background:var(--row-selected)"><td style="padding:8px 12px">cf-b</td><td style="padding:8px 12px"><span class="badge badge--warn">重连中</span></td><td style="padding:8px 12px;font-family:var(--mono)">—</td></tr>
+        <tr style="border-top:1px solid var(--border)"><td style="padding:8px 12px">cf-c</td><td style="padding:8px 12px"><span class="badge badge--danger">已停止</span></td><td style="padding:8px 12px;font-family:var(--mono)">—</td></tr>
       </tbody>
     </table>
   </div>
-</div>
-
-<div class="ds-sec" data-page-node-id="IUvQWoyEbDVyE0j8UHv017">
-  <h2 data-page-node-id="rDDlNIWLiS6LZrfjVHAPLl">⑦ 进度条 / 骨架屏 / 空态 / 提示</h2>
-  <div class="ds-col" style="max-width:520px" data-page-node-id="JoeppFp8jFhaEzTR3oNYTL">
-    <div data-page-node-id="7BP7jBz7Oq2i8bRZLCAvb3">
-      <div class="progress-inner" data-page-node-id="ObZ0X2oKz7Bn2cz5Exe5fh"><span class="progress-stage" data-page-node-id="xmlcvvSnxBrTLLixguRZpo">正在克隆仓库…</span><span class="progress-pct" data-page-node-id="z6X7hZNMe0YvDEE8mmikCi">62%</span></div>
-      <progress class="progress-bar" max="100" value="62" data-page-node-id="jmmqCKByHUv54zTIqIUUsS"></progress>
-    </div>
-    <div class="skeleton" style="height:14px;width:70%" data-page-node-id="6ixVFqRFsAmXhgh1zQ8rzu"></div>
-    <div class="skeleton" style="height:14px;width:45%" data-page-node-id="1EIaGERHD2hczQuuhNczzb"></div>
-    <div class="empty-hint card" data-page-node-id="KXGu3TielGyzSfGvjXTPok">暂无数据 · 这是一条空态提示</div>
-    <div class="ds-row" data-page-node-id="bKujZMnLOwBu2NppUVJ4xU">
-      <button class="btn tooltip" data-tip="鼠标悬停会浮出这个提示" data-page-node-id="lFEeoYDbfCWIvQ20sAPYCa">悬停看 tooltip</button>
-      <span class="tooltip" data-tip="深色气泡，mask-in 淡入" style="color:var(--text-dim);font-size:12.5px" data-page-node-id="YYBEB0XZlTYdHcsyP2lFKn">另一个带提示的元素</span>
-    </div>
-  </div>
-</div>
-
-<div class="ds-sec" data-page-node-id="x7d1YBRUg3uAlT6enEIT8k">
-  <h2 data-page-node-id="qHUodybvAZGBoojFD8Evmg">⑧ 弹窗（圆角 14 · 入场动画 · 主题遮罩）</h2>
-  <div class="ds-modal-host" data-page-node-id="Fryon17J6bpx1PKW7m6i6l">
-    <div class="modal-mask" data-page-node-id="xbjzq70ylhEWDEfk9XQVfU">
-      <div class="modal" data-page-node-id="DKhdviVdwgoNwtj0g11VCZ">
-        <div class="modal-header" data-page-node-id="ZTlfVOWPH4oMXMBvSetZAv"><h3 data-page-node-id="ZfDbKqYVpM0ZvBNqKUtoAH">示例对话框</h3><button class="btn btn-sm btn-ghost" data-page-node-id="7jqKRHSJ7jDGENhFSlONOG">✕</button></div>
-        <div class="modal-body" data-page-node-id="QVoMwYJx3dMf5EP6lux9UJ">
-          <div class="field" data-page-node-id="ptH0pPEbMAGccE1NGWqjkG"><label data-page-node-id="GVib6LklgAcuqENCL5WaY0">名称</label><input value="jira-git-gui" data-page-node-id="Hv3SlFYJ13gCec04eeSLI0"/></div>
-          <div class="field" data-page-node-id="PpKTXfmK9vct4eNSSKP9hs"><label data-page-node-id="zJpDDSNqZ9rCAARAAF3prJ">备注</label><textarea placeholder="…"></textarea></div>
-        </div>
-        <div class="modal-footer" data-page-node-id="0fvIgvv7V8xreLPumYr5Ay"><button class="btn" data-page-node-id="ygX3YqcvBJL8cq2WtSKRXs">取消</button><button class="btn btn-primary" data-page-node-id="eiiKubKb6fTZk451OjUr4M">确定</button></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script>
-  var btn = document.getElementById('themeBtn');
-  btn.addEventListener('click', function () {
-    var el = document.documentElement;
-    el.classList.toggle('dark');
-  });
-</script>
-
 </div>
 </body>
 </html>

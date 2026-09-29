@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import { KibanaContext, DEFAULT_QUERY, type KibanaQuery } from './context';
-import { KibanaFilters, KibanaSiteModal } from './KibanaFilters';
+import { KibanaFilters, openSiteManagerWindow } from './KibanaFilters';
 import { KibanaExplorer } from './KibanaExplorer';
 import { KibanaDiscover } from './KibanaDiscover';
 import { apiGet } from '../../api/client';
@@ -24,7 +24,6 @@ export function KibanaPanel() {
   const [site, setSite] = useState('');
   const [query, setQuery] = useState<KibanaQuery>(DEFAULT_QUERY);
   const [sub, setSub] = useState<SubTab>('explorer');
-  const [siteModalOpen, setSiteModalOpen] = useState(false);
   const [wrap, setWrap] = useState(true);
   const [refreshSec, setRefreshSec] = useState(0);
 
@@ -42,6 +41,13 @@ export function KibanaPanel() {
 
   useEffect(() => { reloadSites(); }, [reloadSites]);
 
+  // 站点在独立管理窗口（?view=kibana-sites）里增删改，回到本窗口（获得焦点）时自动刷新
+  useEffect(() => {
+    const onFocus = () => { reloadSites(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [reloadSites]);
+
   const setSiteAndReload = useCallback(async (name: string) => {
     setSite(name);
   }, []);
@@ -53,7 +59,7 @@ export function KibanaPanel() {
   const ctx = {
     sites, site, setSite: setSiteAndReload, reloadSites,
     query, setQuery: onChange, pushLog, addToast,
-    openSiteModal: () => setSiteModalOpen(true),
+    openSiteModal: () => openSiteManagerWindow(t('kibana.manageSites')),
   };
 
   return (
@@ -70,7 +76,8 @@ export function KibanaPanel() {
               ))}
             </select>
           </label>
-          <button className="btn btn-ghost btn-sm" onClick={() => setSiteModalOpen(true)}>
+          <button className="btn btn-ghost btn-sm"
+                  onClick={() => openSiteManagerWindow(t('kibana.manageSites'))}>
             {t('kibana.manageSites')}
           </button>
           <div className="spacer" />
@@ -116,11 +123,6 @@ export function KibanaPanel() {
                             refreshSec={refreshSec} />
           </div>
         </div>
-
-        {siteModalOpen && <KibanaSiteModal onClose={() => {
-          setSiteModalOpen(false);
-          reloadSites();
-        }} />}
       </div>
     </KibanaContext.Provider>
   );

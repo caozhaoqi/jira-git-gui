@@ -1226,6 +1226,7 @@ export const en: Dict = {
       add: 'Add',
       none: 'No sites configured',
       current: 'Active',
+      pickHint: 'Select a site on the left to edit, or add a new one',
       sectionBasic: 'Basic info',
       sectionAuth: 'Authentication',
       sectionQuery: 'Query config',

@@ -1230,6 +1230,7 @@ export const zh: Dict = {
       add: '新增',
       none: '尚未配置任何站点',
       current: '当前',
+      pickHint: '从左侧选择一个站点进行编辑，或新增站点',
       sectionBasic: '基本信息',
       sectionAuth: '认证',
       sectionQuery: '查询配置',

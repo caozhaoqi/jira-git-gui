@@ -35,6 +35,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     });
   },
 
+  /** 独立窗口打开应用内任意 URL 路径（如 /?view=kibana-sites 站点管理器），与 openTabWindow 同款；maximize=true 铺满工作区 */
+  openAppWindow(path, title, maximize) {
+    return ipcRenderer.invoke('window:open-url', {
+      path: String(path || '/'),
+      title: String(title || ''),
+      maximize: Boolean(maximize),
+    });
+  },
+
+  /** 主窗口上报当前激活页签，供原生菜单「新窗口打开当前功能」使用 */
+  setActiveTab(tab) {
+    ipcRenderer.send('window:active-tab', String(tab || ''));
+  },
+
   /** 在内置浏览器窗口（应用内嵌 Chromium）打开外部 HCM Cloud 网页，可选注入 cookie 自动登录。 */
   openBuiltinBrowser(url, cookies) {
     return ipcRenderer.invoke('builtin-browser:open', {

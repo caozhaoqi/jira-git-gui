@@ -104,6 +104,15 @@ export default function App() {
     () => new URLSearchParams(window.location.search).get('embed') === '1',
   );
 
+  // 主窗口把当前激活页签上报给原生菜单（用于「新窗口打开当前功能」）；
+  // embed 独立窗口不报，避免覆盖主窗口记录的 currentMainTab。
+  useEffect(() => {
+    const api = (window as unknown as {
+      electronAPI?: { setActiveTab?: (tab: string) => void };
+    }).electronAPI;
+    if (api?.setActiveTab && !embed) api.setActiveTab(activeTab);
+  }, [activeTab, embed]);
+
   useEffect(() => {
     apiGet<StatusResp>('/api/status')
       .then((s) => {

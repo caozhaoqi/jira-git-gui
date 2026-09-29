@@ -8,14 +8,9 @@
 
    注意：global.css 是基础壳（顶栏 / 弹窗 / 树 / 日志面板）的样式，
    panels.css 只负责四块功能面板，两者类名不重叠。
+   令牌统一由 global.css / shell.css 提供，此处不再重复定义。
    ============================================================ */
 
-:root {
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', 'Courier New', monospace;
-  --code-bg: var(--bg-elevated);
-  --code-fg: var(--text);
-}
 /* panel-sub */
 .panel-sub, .hint {
   font-size: 12px;
@@ -1341,13 +1336,13 @@
 /* 已合并徽标 */
 .diff-merged-badge {
   margin-left: auto;
-  color: #2e9e5b;
+  color: var(--success);
   font-weight: 700;
   font-size: 12px;
   flex-shrink: 0;
 }
 .badge-merged {
-  color: #2e9e5b;
+  color: var(--success);
   font-weight: 600;
 }
 
@@ -1389,16 +1384,16 @@
   font-size: 11px;
 }
 .commit-file { color: var(--text-dim); cursor: pointer; transition: background .12s, color .12s; padding: 1px 4px; border-radius: 4px; }
-.commit-file:hover { background: var(--accent-soft, rgba(80,120,255,.12)); color: var(--accent, #6c8cd5); }
-.commit-file:focus-visible { outline: 2px solid var(--accent, #6c8cd5); outline-offset: 1px; }
-.commit-file.ct-M { color: #d29922; }
-.commit-file.ct-A { color: #2e9e5b; }
-.commit-file.ct-D { color: #e05252; }
-.commit-file.ct-R { color: #6c8cd5; }
+.commit-file:hover { background: var(--accent-soft); color: var(--accent); }
+.commit-file:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.commit-file.ct-M { color: var(--warn); }
+.commit-file.ct-A { color: var(--success); }
+.commit-file.ct-D { color: var(--danger); }
+.commit-file.ct-R { color: var(--accent); }
 .commit-file-more { color: var(--text-dim); }
 
 /* F2：历史版本左右对比的表头 */
-.diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border, #2a2f3a); background: var(--panel-2, #1a1e26); }
+.diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 
 /* ===== F4：合并冲突 3-way 决策面板 ===== */
 .conflict-modal { width: min(960px, 94vw); }
@@ -3263,7 +3258,59 @@
 }
 .kb-site-modal .modal-header > .btn { margin-left: auto; }
 
-.kb-site-body { display: flex; gap: 0; min-height: 0; flex: 1; }
+/* ⚠️ 必须显式 flex-direction: row：同元素上的 .modal-body（global.css）带 column，
+   不写会被覆盖成上下堆叠（列表在上、表单在下，右侧留白）——这正是
+   「弹窗太小看不到内容」的深层根因。 */
+.kb-site-body { display: flex; flex-direction: row; gap: 0; min-height: 0; flex: 1; }
+
+/* 站点管理独立窗口（?view=kibana-sites）：复用弹窗卡片样式，但铺满整个窗口，
+   让「编辑 / 新增」表单有充裕空间（页内小弹窗看不全，是历史反馈）。 */
+/* 用 .modal.kb-sites-window 提高特异性，确保 width:100% 稳赢 .modal 的 440px
+   与 .kb-site-modal 的 860px（不依赖文件内顺序）。 */
+.modal.kb-sites-window {
+  width: 100%;
+  max-width: none;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  max-height: none;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  animation: none;
+}
+.modal.kb-sites-window .modal-body {
+  max-height: none;
+  flex: 1;
+  padding: 0;
+  /* 覆盖 .modal-body 的 column，列表与表单左右并排 */
+  flex-direction: row;
+}
+.modal.kb-sites-window .kb-site-list {
+  width: 300px;
+}
+
+/* 站点管理窗口：未编辑 / 未新增时的右侧引导占位（不留空白区） */
+.kb-site-placeholder {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-dim);
+  background: var(--bg-elev-1, var(--bg-panel));
+}
+.kb-site-placeholder-icon {
+  font-size: 34px;
+  opacity: 0.5;
+}
+.kb-site-placeholder-text {
+  font-size: 13px;
+  letter-spacing: 0.2px;
+}
 
 /* ===== 左侧站点列表 ===== */
 .kb-site-list {

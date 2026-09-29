@@ -245,9 +245,9 @@ function openHcmMeta() {
 }
 
 // ---- 低频功能独立窗口：与「首选项」同款交互，主界面保持不动 ----
-// 加载主应用并带 ?tab=<key>&embed=1：前端按参数直接落到对应页签并隐藏侧栏；
-// 同源共享 localStorage，主题（jgg-theme）/语言自动与主界面一致。
-function openTabWindow(tabKey, title, width = 1180, height = 800) {
+// 通用实现：加载应用内任意 URL 路径（默认走 SPA）。独立窗口共享 localStorage，
+// 主题（jgg-theme）/语言自动与主界面一致。maximize=true 时铺满工作区（如站点管理器）。
+function openAppWindow(urlPath, title, width = 1180, height = 800, maximize = false) {
   const win = new BrowserWindow({
     width,
     height,
@@ -267,8 +267,14 @@ function openTabWindow(tabKey, title, width = 1180, height = 800) {
   });
   // 页面 document.title 会覆盖窗口标题，锁定为菜单传入的标题
   win.on('page-title-updated', (e) => e.preventDefault());
-  win.loadURL(`${BACKEND_URL}/?tab=${encodeURIComponent(tabKey)}&embed=1`);
+  if (maximize) win.maximize();
+  win.loadURL(`${BACKEND_URL}${urlPath}`);
   win.on('closed', () => log(`${title} 窗口已关闭。`));
+}
+
+// 功能页签独立窗口：?tab=<key>&embed=1，前端按参数直落对应页签并隐藏侧栏
+function openTabWindow(tabKey, title, width = 1180, height = 800) {
+  openAppWindow(`/?tab=${encodeURIComponent(tabKey)}&embed=1`, title, width, height);
 }
 
 // 「系统」功能菜单项：低频页签从侧栏收进原生菜单（首选项区域），独立窗口打开
@@ -278,6 +284,27 @@ const SYS_MENU_ITEMS = [
   { label: '统一诊断', accelerator: 'CmdOrCtrl+Alt+3', click: () => openTabWindow('diagnose', '统一诊断') },
   { label: '系统设置', accelerator: 'CmdOrCtrl+Alt+4', click: () => openTabWindow('settings', '系统设置') },
 ];
+
+// 全部功能页签（主窗口侧栏能看到的每一项），用于「新窗口」菜单把每个功能都做成可多开。
+// label 与前端 i18n 的 tab.* 保持一致；带 embed=1 的独立窗口按 ?tab=<key> 直落对应功能。
+const ALL_TABS = [
+  { key: 'repo', label: '仓库' },
+  { key: 'diff', label: '差异对比' },
+  { key: 'k8s', label: 'K8s 快照' },
+  { key: 'kibana', label: 'Kibana 日志' },
+  { key: 'cf', label: '云函数日志' },
+  { key: 'cfdebug', label: '云函数调试' },
+  { key: 'hcm', label: 'HCM 对象' },
+  { key: 'logs', label: '日志' },
+  { key: 'clash', label: 'Clash 分流' },
+  { key: 'diagnose', label: '统一诊断' },
+  { key: 'settings', label: '系统设置' },
+];
+
+// 主窗口当前激活的页签：主窗口通过 IPC(window:active-tab) 实时上报，
+// 「新窗口」菜单里的「新窗口打开当前功能」据此打开当前所在的页面。
+// 用 let 让 buildAppMenu 闭包在点击时读取最新值（菜单只构建一次）。
+let currentMainTab = 'repo';
 
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
@@ -308,6 +335,29 @@ function buildAppMenu() {
   // const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
   // if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
   template.push({ label: '设置', submenu: [prefItem, { type: 'separator' }, ...SYS_MENU_ITEMS] });
+
+  // 「新窗口」：把每个功能都做成可多开的独立窗口。
+  //  - 第一项「新窗口打开当前功能」按主窗口当前所在页签开独立窗口（currentMainTab 实时值）；
+  //  - 其下逐项列出全部功能，点击即开对应功能的 embed 独立窗口；
+  //  - 独立窗口共享同源 localStorage（主题 / 语言自动一致），互不设 parent，可各自最小化 / 关闭。
+  template.push({
+    label: '新窗口',
+    submenu: [
+      {
+        label: '新窗口打开当前功能',
+        accelerator: 'CmdOrCtrl+Shift+N',
+        click: () => {
+          const t = ALL_TABS.find((x) => x.key === currentMainTab) || ALL_TABS[0];
+          openTabWindow(t.key, t.label);
+        },
+      },
+      { type: 'separator' },
+      ...ALL_TABS.map((t) => ({
+        label: t.label,
+        click: () => openTabWindow(t.key, t.label),
+      })),
+    ],
+  });
 
   // 编辑（标准角色，保证复制 / 粘贴等可用）
   template.push({
@@ -367,6 +417,22 @@ function registerIpcHandlers() {
     const title = String((payload && payload.title) || '窗口');
     openTabWindow(tab, title);
     return { ok: true };
+  });
+
+  // 独立窗口打开应用内任意 URL 路径（如 /?view=kibana-sites 站点管理器），
+  // 与 openTabWindow 同款独立顶层窗口（无 parent、注入 preload）；maximize=true 铺满工作区。
+  ipcMain.handle('window:open-url', (_ev, payload) => {
+    const p = String((payload && payload.path) || '/');
+    const title = String((payload && payload.title) || '窗口');
+    const maximize = Boolean(payload && payload.maximize);
+    openAppWindow(p.startsWith('/') ? p : `/${p}`, title, 1180, 800, maximize);
+    return { ok: true };
+  });
+
+  // 主窗口实时上报当前激活页签（仅主窗口、embed 窗口忽略），供「新窗口打开当前功能」使用
+  ipcMain.on('window:active-tab', (_ev, tabKey) => {
+    const key = String(tabKey || '');
+    if (ALL_TABS.some((t) => t.key === key)) currentMainTab = key;
   });
   ipcMain.handle('shell:open-external', async (_ev, rawUrl) => {
     const url = String(rawUrl || '');

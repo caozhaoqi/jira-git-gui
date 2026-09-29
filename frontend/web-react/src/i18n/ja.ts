@@ -1223,6 +1223,7 @@ export const ja: Dict = {
       add: '追加',
       none: 'サイト未設定',
       current: '使用中',
+      pickHint: '左側のサイトを選択して編集、または新規追加',
       sectionBasic: '基本情報',
       sectionAuth: '認証',
       sectionQuery: 'クエリ設定',
