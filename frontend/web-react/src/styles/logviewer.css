@@ -1,28 +1,9 @@
 /* ============================================================
    独立日志查看视图（?view=log）—— 迁移自 web/log_viewer.css
 
-   原生版依赖 styles.css 的令牌（--surface / --text-2 / --code-bg …），
-   React 版令牌名不同（global.css：--bg-panel / --text-dim / …），
-   这里做等价映射，并补齐代码区与告警底色令牌。
+   令牌统一由 global.css / shell.css 提供（--code-* / --danger-bg /
+   --warning-bg 等），此处不再重复定义，避免覆盖全局主题。
    ============================================================ */
-
-:root {
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', 'Courier New', monospace;
-  --code-bg: #fbfcfd;
-  --code-fg: #1f2329;
-  --code-border: #e3e6ea;
-  --danger-bg: #fdecec;
-  --warning-bg: #fdf4e3;
-}
-
-html.dark {
-  --code-bg: #1b1e23;
-  --code-fg: #dfe3e9;
-  --code-border: #333941;
-  --danger-bg: #3a2226;
-  --warning-bg: #3a3120;
-}
 
 .logviewer {
   display: flex;

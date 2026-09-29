@@ -487,11 +487,6 @@ export function LogViewer() {
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }, [raw]);
 
-  const goBack = useCallback(() => {
-    if (window.opener) window.close();
-    else history.back();
-  }, []);
-
   /* ---------- P2：复制 ---------- */
   const flashCopied = useCallback((which: string) => {
     setCopiedHint(which);
@@ -633,7 +628,6 @@ export function LogViewer() {
     <div className="logviewer">
       <header className="lv-head">
         <div className="lv-head-left">
-          <button className="btn btn-ghost btn-sm" onClick={goBack} title={t('common.back')}>← {t('common.back')}</button>
           <div className="lv-title">
             <select
               className="sel lv-podsel"

@@ -3,6 +3,7 @@ import { apiPost, apiGet } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { EtaTracker, formatEta } from '../utils/eta';
+import { useModalA11y } from '../utils/useModalA11y';
 import type {
   DiffEntry,
   DiffStatus,
@@ -54,6 +55,7 @@ export function DiffPanel() {
   const activeTab = useAppStore((s) => s.activeTab);
   const storeRepos = useAppStore((s) => s.repos);
   const { t } = useT();
+  const conflictDialogRef = useModalA11y<HTMLDivElement>(() => setConflicts([]));
 
   // ===== 对比仓库 / 目录 / 扫描参数 =====
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -998,10 +1000,18 @@ export function DiffPanel() {
       {/* F4：合并冲突 3-way 决策面板 */}
       {conflicts.length > 0 && (
         <div className="modal-mask" onClick={() => setConflicts([])}>
-          <div className="modal conflict-modal" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal conflict-modal"
+            ref={conflictDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="diff-conflict-title"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h3>{t('diff.conflictTitle')}（{conflicts.length}）</h3>
-              <button className="btn btn-sm btn-ghost" onClick={() => setConflicts([])}>{t('common.close')}</button>
+              <h3 id="diff-conflict-title">{t('diff.conflictTitle')}（{conflicts.length}）</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setConflicts([])} aria-label={t('common.close')}>{t('common.close')}</button>
             </div>
             <div className="modal-body">
             <div className="conflict-hint">{t('diff.conflictHint')}</div>

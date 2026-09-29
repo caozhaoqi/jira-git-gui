@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
@@ -179,8 +179,28 @@ export function KibanaFilters({
   );
 }
 
-/** 站点管理弹窗：增删改 + 连通性测试。 */
-export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
+/** 在独立全屏窗口打开站点管理器（/?view=kibana-sites）：Electron 走原生窗口 IPC，浏览器 window.open 兜底。 */
+export function openSiteManagerWindow(title: string, siteName?: string) {
+  const q = new URLSearchParams({ view: 'kibana-sites' });
+  if (siteName) q.set('site', siteName);
+  const path = `/?${q.toString()}`;
+  const api = (window as unknown as {
+    electronAPI?: { openAppWindow?: (path: string, title: string, maximize?: boolean) => void };
+  }).electronAPI;
+  if (api?.openAppWindow) {
+    api.openAppWindow(path, title, true);
+    return;
+  }
+  window.open(`${window.location.origin}${path}`, '_blank');
+}
+
+/**
+ * 站点管理器（独立窗口 /?view=kibana-sites）：列表 + 编辑表单并排，
+ * 编辑 / 新增都在本窗口内就地完成（不再二级弹窗/再开窗口）。
+ * 支持 ?site=<name> 打开即编辑某站点、?add=1 打开即新增；
+ * 未编辑时右侧显示引导占位（不留空白区）。
+ */
+function SiteManager() {
   const { t } = useT();
   const addToast = useAppStore((s) => s.addToast);
   const [sites, setSites] = useState<KibanaSite[]>([]);
@@ -190,6 +210,10 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState<Record<string, any>>({});
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
+
+  // URL 参数：?site=<name> 编辑 / ?add=1 新增
+  const initialSite = new URLSearchParams(window.location.search).get('site') || null;
+  const initialAdd = new URLSearchParams(window.location.search).get('add') === '1';
 
   const reload = useCallback(async () => {
     try {
@@ -222,6 +246,20 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // 站点列表首次就绪后，按 URL 参数自动打开对应表单（只执行一次）
+  const bootedRef = useRef(false);
+  useEffect(() => {
+    if (bootedRef.current || sites.length === 0) return;
+    bootedRef.current = true;
+    if (initialAdd) {
+      startEdit();
+    } else if (initialSite) {
+      const s = sites.find((x) => x.name === initialSite);
+      if (s) startEdit(s);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sites]);
+
   const closeForm = () => {
     setAdding(false);
     setEditing(null);
@@ -237,7 +275,7 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
       await apiPost('/api/kibana/sites', form);
       addToast(t('kibana.site.saved'), 'success');
       await reload();
-      setEditing(null);
+      closeForm();
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');
     }
@@ -281,183 +319,210 @@ export function KibanaSiteModal({ onClose }: { onClose: () => void }) {
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
-  return (
-    <div className="modal-mask" onClick={onClose}>
-      <div className="modal kb-site-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <span className="kb-modal-title-icon" aria-hidden>🛰️</span>
-          <span className="kb-modal-title-text">
-            <strong>{t('kibana.manageSites')}</strong>
-            <small>{sites.length} · {current ? sites.find((x) => x.name === current)?.label || current : t('kibana.noSite')}</small>
-          </span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t('common.close')}>✕</button>
-        </div>
-
-        <div className="modal-body kb-site-body">
-          <div className="kb-site-list">
-            <div className="kb-site-list-head">
-              <span className="kb-site-list-title">{t('kibana.site.list')}</span>
-              <button className="btn" onClick={() => startEdit()} title={t('kibana.site.add')}>
-                + {t('kibana.site.add')}
-              </button>
+  const listEl = (
+    <div className="kb-site-list">
+      <div className="kb-site-list-head">
+        <span className="kb-site-list-title">{t('kibana.site.list')}</span>
+        <button className="btn" onClick={() => startEdit()} title={t('kibana.site.add')}>
+          + {t('kibana.site.add')}
+        </button>
+      </div>
+      <div className="kb-site-list-scroll">
+        {sites.length === 0 && (
+          <div className="kb-site-empty">
+            <div className="kb-site-empty-icon">📡</div>
+            <div className="kb-site-empty-hint">{t('kibana.site.none')}</div>
+          </div>
+        )}
+        {sites.map((s) => (
+          <div key={s.name}
+               className={`kb-site-item${s.name === current ? ' current' : ''}`}>
+            <div className="kb-site-main" onClick={() => switchTo(s.name)}>
+              <div className="kb-site-title">
+                <span className="kb-site-title-name">{s.label || s.name}</span>
+                {s.name === current && <span className="kb-cur-tag">{t('kibana.site.current')}</span>}
+              </div>
+              <div className="kb-site-sub">{s.base_url}</div>
+              <div className="kb-site-sub">
+                {s.username || '—'} · {s.index_pattern} · {s.time_field}
+              </div>
             </div>
-            <div className="kb-site-list-scroll">
-              {sites.length === 0 && (
-                <div className="kb-site-empty">
-                  <div className="kb-site-empty-icon">📡</div>
-                  <div className="kb-site-empty-hint">{t('kibana.site.none')}</div>
-                </div>
-              )}
-              {sites.map((s) => (
-                <div key={s.name}
-                     className={`kb-site-item${s.name === current ? ' current' : ''}`}>
-                  <div className="kb-site-main" onClick={() => switchTo(s.name)}>
-                    <div className="kb-site-title">
-                      <span className="kb-site-title-name">{s.label || s.name}</span>
-                      {s.name === current && <span className="kb-cur-tag">{t('kibana.site.current')}</span>}
-                    </div>
-                    <div className="kb-site-sub">{s.base_url}</div>
-                    <div className="kb-site-sub">
-                      {s.username || '—'} · {s.index_pattern} · {s.time_field}
-                    </div>
-                  </div>
-                  <div className="kb-site-ops">
-                    <button className="kb-site-op-btn"
-                            onClick={() => startEdit(s)} title={t('common.edit')} aria-label={t('common.edit')}>✎</button>
-                    <button className="kb-site-op-btn danger"
-                            onClick={() => remove(s.name)} title={t('common.delete')} aria-label={t('common.delete')}>🗑</button>
-                  </div>
-                </div>
-              ))}
+            <div className="kb-site-ops">
+              <button className="kb-site-op-btn"
+                      onClick={() => startEdit(s)} title={t('common.edit')} aria-label={t('common.edit')}>✎</button>
+              <button className="kb-site-op-btn danger"
+                      onClick={() => remove(s.name)} title={t('common.delete')} aria-label={t('common.delete')}>🗑</button>
             </div>
           </div>
-
-          {(editing !== null || adding) && (
-            <div className="kb-site-form">
-              <div className="kb-site-form-scroll">
-                <div className="kb-site-section">
-                  <h4 className="kb-site-section-title">{t('kibana.site.sectionBasic')}</h4>
-                  <div className="kb-site-form-grid">
-                    <label className="kb-required">
-                      {t('kibana.site.name')}
-                      <input className="input input-sm" value={form.name || ''}
-                             disabled={!!sites.find((x) => x.name === form.name)}
-                             onChange={(e) => set('name', e.target.value)} />
-                      <span className="kb-help">{t('kibana.site.nameHint')}</span>
-                    </label>
-                    <label>
-                      {t('kibana.site.label')}
-                      <input className="input input-sm" value={form.label || ''}
-                             onChange={(e) => set('label', e.target.value)} />
-                      <span className="kb-help">{t('kibana.site.labelHint')}</span>
-                    </label>
-                    <label className="kb-span2 kb-required">
-                      {t('kibana.site.baseUrl')}
-                      <input className="input input-sm" value={form.base_url || ''}
-                             placeholder="http://host:5601/kibana"
-                             onChange={(e) => set('base_url', e.target.value)} />
-                      <span className="kb-help">{t('kibana.site.baseUrlHint')}</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="kb-site-section">
-                  <h4 className="kb-site-section-title">{t('kibana.site.sectionAuth')}</h4>
-                  <div className="kb-site-form-grid">
-                    <label>
-                      {t('kibana.site.username')}
-                      <input className="input input-sm" value={form.username || ''}
-                             onChange={(e) => set('username', e.target.value)} />
-                    </label>
-                    <label>
-                      {t('kibana.site.password')}
-                      <input className="input input-sm" type="password"
-                             value={form.password || ''}
-                             placeholder={editing ? t('kibana.site.keepPassword') : ''}
-                             onChange={(e) => set('password', e.target.value)} />
-                      <span className="kb-help">{t('kibana.site.passwordHint')}</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="kb-site-section">
-                  <h4 className="kb-site-section-title">{t('kibana.site.sectionQuery')}</h4>
-                  <div className="kb-site-form-grid">
-                    <label>
-                      {t('kibana.site.indexPattern')}
-                      <input className="input input-sm" value={form.index_pattern || ''}
-                             onChange={(e) => set('index_pattern', e.target.value)} />
-                    </label>
-                    <label>
-                      {t('kibana.site.timeField')}
-                      <input className="input input-sm" value={form.time_field || ''}
-                             onChange={(e) => set('time_field', e.target.value)} />
-                    </label>
-                    <label>
-                      {t('kibana.site.msgField')}
-                      <input className="input input-sm" value={form.msg_field || ''}
-                             onChange={(e) => set('msg_field', e.target.value)} />
-                    </label>
-                    <label>
-                      {t('kibana.site.fieldPrefix')}
-                      <input className="input input-sm" value={form.field_prefix || ''}
-                             onChange={(e) => set('field_prefix', e.target.value)} />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="kb-site-section">
-                  <h4 className="kb-site-section-title">{t('kibana.site.sectionAdvanced')}</h4>
-                  <div className="kb-site-form-grid">
-                    <label>
-                      {t('kibana.site.timeout')}
-                      <input className="input input-sm" type="number"
-                             min={1} max={300}
-                             value={form.timeout ?? 30}
-                             onChange={(e) => set('timeout', Number(e.target.value))} />
-                    </label>
-                    <label className="kb-chk">
-                      <input type="checkbox" checked={!!form.verify_ssl}
-                             onChange={(e) => set('verify_ssl', e.target.checked)} />
-                      {t('kibana.site.verifySsl')}
-                    </label>
-                  </div>
-                </div>
-
-                {testResult && (
-                  <div className={`kb-test-result${testResult.ok ? ' ok' : ' bad'}`}>
-                    <div className="kb-test-result-head">
-                      <span>{testResult.ok ? '✓' : '✕'}</span>
-                      <span>{testResult.ok ? t('kibana.site.testOk', { n: testResult.total ?? 0 }) : t('kibana.site.testFail')}</span>
-                    </div>
-                    {!testResult.ok && testResult.error && (
-                      <div className="kb-test-err">{testResult.error}</div>
-                    )}
-                    {(testResult.steps || []).map((s: any) => (
-                      <div key={s.name} className="kb-test-step">
-                        <span className={s.ok ? 'dot ok' : 'dot bad'} />
-                        {s.detail}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="kb-site-form-foot">
-                <button className="btn btn-ghost" onClick={test} disabled={testing}>
-                  {testing ? t('common.testing') : t('kibana.site.test')}
-                </button>
-                <div className="spacer" />
-                <button className="btn btn-ghost"
-                        onClick={closeForm}>{t('common.cancel')}</button>
-                <button className="btn btn-primary" onClick={save}>
-                  {t('common.save')}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        ))}
       </div>
+    </div>
+  );
+
+  const formEl = (editing !== null || adding) && (
+    <div className="kb-site-form">
+      <div className="kb-site-form-scroll">
+        <div className="kb-site-section">
+          <h4 className="kb-site-section-title">{t('kibana.site.sectionBasic')}</h4>
+          <div className="kb-site-form-grid">
+            <label className="kb-required">
+              {t('kibana.site.name')}
+              <input className="input input-sm" value={form.name || ''}
+                     disabled={!!sites.find((x) => x.name === form.name)}
+                     onChange={(e) => set('name', e.target.value)} />
+              <span className="kb-help">{t('kibana.site.nameHint')}</span>
+            </label>
+            <label>
+              {t('kibana.site.label')}
+              <input className="input input-sm" value={form.label || ''}
+                     onChange={(e) => set('label', e.target.value)} />
+              <span className="kb-help">{t('kibana.site.labelHint')}</span>
+            </label>
+            <label className="kb-span2 kb-required">
+              {t('kibana.site.baseUrl')}
+              <input className="input input-sm" value={form.base_url || ''}
+                     placeholder="http://host:5601/kibana"
+                     onChange={(e) => set('base_url', e.target.value)} />
+              <span className="kb-help">{t('kibana.site.baseUrlHint')}</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="kb-site-section">
+          <h4 className="kb-site-section-title">{t('kibana.site.sectionAuth')}</h4>
+          <div className="kb-site-form-grid">
+            <label>
+              {t('kibana.site.username')}
+              <input className="input input-sm" value={form.username || ''}
+                     onChange={(e) => set('username', e.target.value)} />
+            </label>
+            <label>
+              {t('kibana.site.password')}
+              <input className="input input-sm" type="password"
+                     value={form.password || ''}
+                     placeholder={editing ? t('kibana.site.keepPassword') : ''}
+                     onChange={(e) => set('password', e.target.value)} />
+              <span className="kb-help">{t('kibana.site.passwordHint')}</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="kb-site-section">
+          <h4 className="kb-site-section-title">{t('kibana.site.sectionQuery')}</h4>
+          <div className="kb-site-form-grid">
+            <label>
+              {t('kibana.site.indexPattern')}
+              <input className="input input-sm" value={form.index_pattern || ''}
+                     onChange={(e) => set('index_pattern', e.target.value)} />
+            </label>
+            <label>
+              {t('kibana.site.timeField')}
+              <input className="input input-sm" value={form.time_field || ''}
+                     onChange={(e) => set('time_field', e.target.value)} />
+            </label>
+            <label>
+              {t('kibana.site.msgField')}
+              <input className="input input-sm" value={form.msg_field || ''}
+                     onChange={(e) => set('msg_field', e.target.value)} />
+            </label>
+            <label>
+              {t('kibana.site.fieldPrefix')}
+              <input className="input input-sm" value={form.field_prefix || ''}
+                     onChange={(e) => set('field_prefix', e.target.value)} />
+            </label>
+          </div>
+        </div>
+
+        <div className="kb-site-section">
+          <h4 className="kb-site-section-title">{t('kibana.site.sectionAdvanced')}</h4>
+          <div className="kb-site-form-grid">
+            <label>
+              {t('kibana.site.timeout')}
+              <input className="input input-sm" type="number"
+                     min={1} max={300}
+                     value={form.timeout ?? 30}
+                     onChange={(e) => set('timeout', Number(e.target.value))} />
+            </label>
+            <label className="kb-chk">
+              <input type="checkbox" checked={!!form.verify_ssl}
+                     onChange={(e) => set('verify_ssl', e.target.checked)} />
+              {t('kibana.site.verifySsl')}
+            </label>
+          </div>
+        </div>
+
+        {testResult && (
+          <div className={`kb-test-result${testResult.ok ? ' ok' : ' bad'}`}>
+            <div className="kb-test-result-head">
+              <span>{testResult.ok ? '✓' : '✕'}</span>
+              <span>{testResult.ok ? t('kibana.site.testOk', { n: testResult.total ?? 0 }) : t('kibana.site.testFail')}</span>
+            </div>
+            {!testResult.ok && testResult.error && (
+              <div className="kb-test-err">{testResult.error}</div>
+            )}
+            {(testResult.steps || []).map((s: any) => (
+              <div key={s.name} className="kb-test-step">
+                <span className={s.ok ? 'dot ok' : 'dot bad'} />
+                {s.detail}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="kb-site-form-foot">
+        <button className="btn btn-ghost" onClick={test} disabled={testing}>
+          {testing ? t('common.testing') : t('kibana.site.test')}
+        </button>
+        <div className="spacer" />
+        <button className="btn btn-ghost"
+                onClick={closeForm}>{t('common.cancel')}</button>
+        <button className="btn btn-primary" onClick={save}>
+          {t('common.save')}
+        </button>
+      </div>
+    </div>
+  );
+
+  // 未编辑 / 未新增时的右侧占位：给引导而不是留空白
+  const placeholderEl = (
+    <div className="kb-site-placeholder">
+      <div className="kb-site-placeholder-icon" aria-hidden>🛰️</div>
+      <div className="kb-site-placeholder-text">{t('kibana.site.pickHint')}</div>
+      <button className="btn btn-primary" onClick={() => startEdit()}>
+        + {t('kibana.site.add')}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="modal kb-site-modal kb-sites-window">
+      <div className="modal-header">
+        <span className="kb-modal-title-icon" aria-hidden>🛰️</span>
+        <span className="kb-modal-title-text">
+          <strong>{t('kibana.manageSites')}</strong>
+          <small>{sites.length} · {current ? sites.find((x) => x.name === current)?.label || current : t('kibana.noSite')}</small>
+        </span>
+        <button className="btn btn-ghost btn-sm" onClick={() => window.close()}
+                aria-label={t('common.close')}>{t('common.close')}</button>
+      </div>
+      <div className="modal-body kb-site-body">
+        {listEl}
+        {(editing !== null || adding) ? formEl : placeholderEl}
+      </div>
+    </div>
+  );
+}
+
+/** 独立窗口全页入口（main.tsx 按 ?view=kibana-sites 路由）：列表 + 完整编辑表单。 */
+export function KibanaSitesView() {
+  return (
+    <div className="app-shell app-shell--detail">
+      <main className="workspace">
+        <div className="workspace-body">
+          <SiteManager />
+        </div>
+      </main>
     </div>
   );
 }

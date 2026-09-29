@@ -197,7 +197,7 @@
   border: 1px solid var(--border);
   color: var(--text-2);
 }
-.cfd-model.mA { color: #2e9e5b; border-color: color-mix(in srgb, #2e9e5b 40%, transparent); }
+.cfd-model.mA { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
 .cfd-model.mB { color: #c678dd; border-color: color-mix(in srgb, #c678dd 40%, transparent); }
 .cfdebug-fn-params {
   font-family: var(--mono);

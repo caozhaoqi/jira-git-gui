@@ -63,18 +63,8 @@ export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec }: 
     return hist.map((_, i) => i).filter((i) => i % step === 0);
   }, [hist]);
 
-  const exportAll = useCallback(async () => {
-    try {
-      const d = await apiPost<{ ok?: boolean; error?: string; content?: string;
-        filename?: string; count?: number }>('/api/kibana/export', { ...req, size: 20000 });
-      if (d.ok === false || !d.content) { setError(d.error || t('kibana.exportFailed')); return; }
-      const blob = new Blob([d.content], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = d.filename || 'kibana-logs.log'; a.click();
-      URL.revokeObjectURL(url);
-    } catch (ex: any) { setError(ex.message || String(ex)); }
-  }, [req, t]);
+  // 注：导出用 KibanaLogStream 内置的「Download」按钮（doExport，同走 /api/kibana/export
+  // size=20000），这里不再通过 extraActions 传第二个 —— 曾因此出现两个并排的 Download。
 
   return (
     <div className="kb-discover">
@@ -114,11 +104,6 @@ export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec }: 
         wrap={wrap}
         onToggleWrap={onToggleWrap}
         headerExtra={<span className="kb-cur-pod">🔍 {t('kibana.discover')}</span>}
-        extraActions={
-          <button className="btn btn-ghost btn-sm" onClick={exportAll}>
-            {t('common.download')}
-          </button>
-        }
       />
     </div>
   );

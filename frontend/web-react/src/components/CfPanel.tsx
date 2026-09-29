@@ -747,20 +747,6 @@ export function CfPanel() {
     }
   };
 
-  // 多开：再开一个独立窗口看其它环境日志（Electron 原生窗口；浏览器模式 window.open 兜底）。
-  // 新窗口与主窗口同源共享 localStorage（主题/语言/cfg），各窗口独立选环境、过滤与实时刷新。
-  const openAnotherWindow = () => {
-    const acc = accounts.find((a) => (a.server_url || '') === cfg.server_url.trim());
-    const title = acc?.name ? `云函数日志 · ${acc.name}` : '云函数日志';
-    const api = (window as unknown as {
-      electronAPI?: { openTabWindow?: (tab: string, title: string) => void };
-    }).electronAPI;
-    if (api?.openTabWindow) {
-      api.openTabWindow('cf', title);
-      return;
-    }
-    window.open(`${window.location.origin}/?tab=cf&embed=1`, '_blank');
-  };
 
   // 导出「当前过滤视图」（时间窗口 + 关键词），导出后自动把文件路径复制到剪贴板（可粘贴给 AI）。
   const exportLogs = async () => {
@@ -1321,14 +1307,6 @@ export function CfPanel() {
             title={t('cf.liveHint')}
           >
             {streaming ? `⏹ ${t('cf.liveStop')}` : `▶ ${t('cf.liveRefresh')}`}
-          </button>
-          {/* 多开：独立窗口同时查看多个环境日志（各窗口独立选环境 / 过滤 / 实时刷新） */}
-          <button
-            className="btn btn-ghost cf-query-btn"
-            onClick={openAnotherWindow}
-            title={t('cf.multiOpenHint')}
-          >
-            🗗 {t('cf.multiOpen')}
           </button>
           {/* 心跳：每次轮询（即使无新日志）都会推送 ts，显示出来证明链路活着 */}
           {streaming && (

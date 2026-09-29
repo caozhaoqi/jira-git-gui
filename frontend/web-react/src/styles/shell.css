@@ -1,119 +1,31 @@
-/* HTML 设计系统同步到 React：令牌 + 壳层 + 通用组件覆盖 */
+/* HTML 设计系统同步到 React：壳层 + 通用组件覆盖
+   ⚠️ 核心配色/圆角/间距/字体 token 统一由 global.css 提供（唯一权威）。
+   这里只保留 shell 专属增补 token，避免再次出现双套 token 覆盖。 */
 
 :root {
-  --bg: #f0f2f7;
-  --surface: #ffffff;
-  --surface-2: #f5f7fa;
-  --surface-3: #ebeef4;
-  --border: #e2e6ee;
-  --border-strong: #d0d6e0;
-
-  --text: #111827;
-  --text-2: #4b5563;
-  --muted: #9ca3af;
-  --text-3: #9ca3af;
-
-  --primary: #4f46e5;
-  --primary-600: #4338ca;
-  --primary-700: #3730a3;
-  --primary-050: #eef2ff;
-  --primary-100: #e0e7ff;
-
-  --success: #059669;
-  --success-bg: #ecfdf5;
-  --warning: #d97706;
-  --warning-bg: #fffbeb;
-  --danger: #dc2626;
-  --danger-bg: #fef2f2;
-  --info: #4f46e5;
-  --accent: #4f46e5;
-
+  /* 代码区块表面（比面板更深一档） */
   --code-bg: #f8f9fb;
   --code-border: #e5e7eb;
   --code-fg: #1f2937;
 
-  --radius: 14px;
-  --radius-sm: 10px;
-  --radius-xs: 7px;
-
-  /* 升级一档：焦点环 / 品牌渐变 / 高亮描边 */
-  --ring: 0 0 0 4px var(--primary-050);
-  --brand-grad: linear-gradient(135deg, #6366f1, #8b5cf6, #d946ef);
-  --brand-grad-primary: linear-gradient(135deg, var(--primary), var(--primary-600));
-  --surface-glass: color-mix(in srgb, var(--surface) 82%, transparent);
-
+  /* 升级一档阴影（xs/md 与 global 的 sm//lg 互补） */
   --shadow-xs: 0 1px 2px rgba(17, 24, 39, 0.04);
-  --shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.04), 0 1px 2px rgba(17, 24, 39, 0.06);
   --shadow-md: 0 4px 6px -1px rgba(17, 24, 39, 0.07), 0 2px 4px -2px rgba(17, 24, 39, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(17, 24, 39, 0.08), 0 4px 6px -4px rgba(17, 24, 39, 0.05);
 
-  --font: 'DM Sans', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
-    'Microsoft YaHei', sans-serif;
-  --font-display: 'Outfit', var(--font);
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-  --sp-1: 4px;
-  --sp-2: 8px;
-  --sp-3: 12px;
-  --sp-4: 16px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-display: 'Outfit', var(--font-sans);
 
-  /* 兼容旧 React 样式变量名 */
-  --bg-panel: var(--surface);
-  --bg-elevated: var(--surface-2);
-  --text-dim: var(--text-2);
-  --warn: var(--warning);
-  --primary-weak: var(--primary-050);
-  --row-hover: var(--surface-2);
-  --row-selected: var(--primary-050);
-  --shadow: var(--shadow-md);
-
-  font-family: var(--font);
+  font-family: var(--font-sans);
   font-size: 14px;
   color-scheme: light;
 }
 
-html.dark,
-html.dark body,
-body.dark {
-  --bg: #0a0d14;
-  --surface: #131720;
-  --surface-2: #1a1f2b;
-  --surface-3: #222836;
-  --border: #2a313d;
-  --border-strong: #36404f;
-  --text: #e8ecf4;
-  --text-2: #a0aabf;
-  --muted: #6b7280;
-  --text-3: #6b7280;
-  --primary: #6366f1;
-  --primary-600: #5558e3;
-  --primary-700: #4f46e5;
-  --primary-050: #16182e;
-  --primary-100: #1d2038;
-  --success: #34d399;
-  --success-bg: #0d2a20;
-  --warning: #fbbf24;
-  --warning-bg: #2a2008;
-  --danger: #f87171;
-  --danger-bg: #2a1010;
-  --info: #6366f1;
-  --accent: #6366f1;
+html.dark {
   --code-bg: #0c0f16;
   --code-border: #1e2430;
   --code-fg: #c5cde0;
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
-  --bg-panel: var(--surface);
-  --bg-elevated: var(--surface-2);
-  --text-dim: var(--text-2);
-  --warn: var(--warning);
-  --primary-weak: var(--primary-050);
-  --row-hover: var(--surface-2);
-  --row-selected: var(--primary-050);
-  --shadow: var(--shadow-md);
   color-scheme: dark;
 }
 

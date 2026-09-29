@@ -185,7 +185,7 @@
   padding: 8px 18px;
   border-radius: 8px;
   font-size: 13px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow);
   z-index: 100;
   animation: svc-toast-in 0.18s ease;
 }

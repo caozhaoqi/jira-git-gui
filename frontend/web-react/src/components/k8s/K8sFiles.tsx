@@ -12,6 +12,7 @@ import {
   type DownloadProgress,
 } from '../../utils/k8sFileDownload';
 import { K8sDownloadBar } from './K8sDownloadBar';
+import { useModalA11y } from '../../utils/useModalA11y';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
 interface SelectedFile { name: string; isDir: boolean; }
@@ -19,6 +20,10 @@ interface SelectedFile { name: string; isDir: boolean; }
 export function K8sFiles() {
   const { target, setTarget, addToast } = useK8s();
   const { t } = useT();
+  const editDialogRef = useModalA11y<HTMLDivElement>(() => {
+    setEditPath('');
+    setEditFullscreen(false);
+  });
 
   const [path, setPath] = useState('/');
   const [entries, setEntries] = useState<K8sFileEntry[]>([]);
@@ -460,10 +465,15 @@ export function K8sFiles() {
         <div className="modal-mask" onClick={() => { setEditPath(''); setEditFullscreen(false); }}>
           <div
             className={'modal modal-lg' + (editFullscreen ? ' modal-fullscreen' : '')}
+            ref={editDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="k8s-files-edit-title"
+            tabIndex={-1}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3>{t('k8s.files.editTitle')}{editPath.split('/').pop()}{editTruncated ? t('k8s.files.truncated') : ''}{editLang ? <span className="k8s-file-lang">{editLang}</span> : null}</h3>
+              <h3 id="k8s-files-edit-title">{t('k8s.files.editTitle')}{editPath.split('/').pop()}{editTruncated ? t('k8s.files.truncated') : ''}{editLang ? <span className="k8s-file-lang">{editLang}</span> : null}</h3>
               <div className="hcm-detail-head-actions">
                 <button
                   className={'btn btn-sm' + (editMode ? '' : ' btn-primary')}
@@ -486,7 +496,7 @@ export function K8sFiles() {
                 >
                   {editFullscreen ? '🗗 ' + t('k8s.files.exitFullscreen') : '⛶ ' + t('k8s.files.fullscreen')}
                 </button>
-                <button className="btn btn-sm btn-ghost" onClick={() => { setEditPath(''); setEditMode(false); setEditFullscreen(false); }}>✕</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => { setEditPath(''); setEditMode(false); setEditFullscreen(false); }} aria-label={t('common.close')}>✕</button>
               </div>
             </div>
             <div className="modal-body">

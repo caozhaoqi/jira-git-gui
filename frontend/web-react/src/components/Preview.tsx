@@ -88,6 +88,7 @@ export function Preview() {
             className="btn btn-ghost btn-sm"
             onClick={() => setMaximized((v) => !v)}
             title={t('common.more')}
+            aria-label={maximized ? t('file.exitMaximize') : t('file.maximize')}
           >
             ⛶
           </button>
@@ -96,6 +97,7 @@ export function Preview() {
             onClick={copyPath}
             disabled={!selectedFilePath}
             title={t('file.copyPath', { path: selectedFilePath || '' })}
+            aria-label={t('file.copyPathLabel')}
           >
             📋
           </button>

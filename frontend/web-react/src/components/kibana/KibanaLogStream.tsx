@@ -6,6 +6,7 @@ import type {
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import { copyText } from '../../utils/clipboard';
+import { useModalA11y } from '../../utils/useModalA11y';
 
 export interface LogStreamProps {
   /** 检索条件（不含分页/排序） */
@@ -237,6 +238,7 @@ function fmtTs(iso: string): string {
 
 function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () => void }) {
   const { t } = useT();
+  const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [rows, setRows] = useState<KibanaLogRow[]>([]);
   const [anchorIdx, setAnchorIdx] = useState(-1);
   const [err, setErr] = useState('');
@@ -265,10 +267,18 @@ function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () =
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal kb-ctx-modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal kb-ctx-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="kb-ctx-title"
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <span>{t('kibana.context')} · {row.pod || row.container || ''}</span>
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
+          <span id="kb-ctx-title">{t('kibana.context')} · {row.pod || row.container || ''}</span>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
         <div className="modal-body kb-ctx-body">
           {loading && <div className="empty-hint">{t('common.loading')}</div>}

@@ -320,7 +320,18 @@ export function FileTree() {
             selectedFilePath === entry.path ? 'selected' : ''
           } ${entry.path === jumpFocus ? 'jump-target' : ''}`}
           data-tree-path={entry.path}
+          role="button"
+          tabIndex={0}
+          aria-expanded={isDir ? isOpen : undefined}
+          aria-label={entry.name}
           onClick={() => (isDir ? toggleDir(entry) : onFileClick(entry))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (isDir) toggleDir(entry);
+              else onFileClick(entry);
+            }
+          }}
         >
           {!isDir && (
             <input
@@ -331,7 +342,7 @@ export function FileTree() {
               onChange={() => toggleCheckedPath(entry.path)}
             />
           )}
-          <span className="tree-toggle">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
+          <span className="tree-toggle" aria-hidden="true">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
           <span className="tree-icon">{isDir ? '📁' : '📄'}</span>
           <span className="tree-name">{entry.name}</span>
           {/* F1：差异状态色点（来自最近一次扫描的 diffOverlay）。same 不显示以免刷屏。 */}
@@ -468,7 +479,16 @@ export function FileTree() {
                 <div
                   key={i}
                   className="tree-search-item"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={h.path}
                   onClick={() => setSelectedFile(h.path)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setSelectedFile(h.path);
+                    }
+                  }}
                 >
                   <span className="tsr-icon">📄</span>
                   <span className="tsr-path">{h.path}</span>

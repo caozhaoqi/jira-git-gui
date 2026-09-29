@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../../i18n';
-import { KibanaFilters, KibanaSiteModal, useKibanaSites } from '../kibana/KibanaFilters';
+import { KibanaFilters, openSiteManagerWindow, useKibanaSites } from '../kibana/KibanaFilters';
 import { KibanaExplorer } from '../kibana/KibanaExplorer';
 import { DEFAULT_QUERY, type KibanaQuery } from '../kibana/context';
 
@@ -10,7 +10,7 @@ import { DEFAULT_QUERY, type KibanaQuery } from '../kibana/context';
  * 思路：K8s 容器日志（pod/namespace/container）已被采集进「系统日志」（Kibana/ES，字段
  * kubernetes.pod_name/container_name/namespace_name），无需新后端即可复用既有检索/聚合能力：
  *   - useKibanaSites 选日志服务器 / 站点（对应目标集群的 ES 索引）
- *   - KibanaSiteModal 直接在本 tab 里新增 / 切换 / 删除站点（可配置多台服务器的 Kibana 地址）
+ *   - 「管理站点」打开独立全屏窗口（/?view=kibana-sites）增删改站点（可配置多台服务器的 Kibana 地址）
  *   - KibanaFilters 提供 namespace/container/pod/keyword/级别 等筛选
  *   - KibanaExplorer 左侧按 pod->container->namespace 聚合（带错误红标），右侧 KibanaLogStream 展示日志
  *
@@ -22,9 +22,15 @@ export function K8sSysLog() {
   const { sites, current, setCurrent, reload } = useKibanaSites(true);
   const [query, setQuery] = useState<KibanaQuery>(DEFAULT_QUERY);
   const [wrap, setWrap] = useState(true);
-  const [siteModalOpen, setSiteModalOpen] = useState(false);
   // 只读聚合 tab：默认不自动刷新（ES 采集本身有延迟，非实时 tail）
   const refreshSec = 0;
+
+  // 站点在独立管理窗口里增删改，回到本窗口（获得焦点）时自动刷新列表
+  useEffect(() => {
+    const onFocus = () => { reload(); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [reload]);
 
   const onChange = useCallback((patch: Partial<KibanaQuery>) => {
     setQuery((q) => ({ ...q, ...patch }));
@@ -49,8 +55,9 @@ export function K8sSysLog() {
             ))}
           </select>
         </label>
-        {/* 「管理站点」真正打开站点管理弹窗：可在此新增 / 切换 / 删除多台服务器的 Kibana 地址 */}
-        <button className="btn btn-ghost btn-sm" onClick={() => setSiteModalOpen(true)}>
+        {/* 「管理站点」打开独立全屏管理窗口：可在此新增 / 切换 / 删除多台服务器的 Kibana 地址 */}
+        <button className="btn btn-ghost btn-sm"
+                onClick={() => openSiteManagerWindow(t('kibana.manageSites'))}>
           {t('kibana.manageSites')}
         </button>
         <button className="btn btn-ghost btn-sm" onClick={reload} title={t('kibana.reloadSites')}>
@@ -75,16 +82,6 @@ export function K8sSysLog() {
           wrap={wrap}
           onToggleWrap={() => setWrap((w) => !w)}
           refreshSec={refreshSec}
-        />
-      )}
-
-      {siteModalOpen && (
-        <KibanaSiteModal
-          onClose={() => {
-            setSiteModalOpen(false);
-            // 关闭后刷新站点列表：新增 / 删除 / 切换立即可见
-            reload();
-          }}
         />
       )}
     </div>
