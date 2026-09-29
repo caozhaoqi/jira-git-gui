@@ -13,6 +13,7 @@ import {
 } from '../../utils/k8sFileDownload';
 import { K8sDownloadBar } from './K8sDownloadBar';
 import { useModalA11y } from '../../utils/useModalA11y';
+import { requestConfirm } from '../../utils/confirmStore';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
 interface SelectedFile { name: string; isDir: boolean; }
@@ -205,7 +206,7 @@ export function K8sFiles() {
 
   const del = useCallback(async () => {
     if (!selected) { addToast(t('k8s.files.selectToDelete'), 'warn'); return; }
-    if (!window.confirm(t('k8s.files.confirmDelete', { type: selected.isDir ? t('k8s.files.dir') : t('k8s.files.file'), name: selected.name }))) return;
+    if (!(await requestConfirm({ message: t('k8s.files.confirmDelete', { type: selected.isDir ? t('k8s.files.dir') : t('k8s.files.file'), name: selected.name }), danger: true }))) return;
     const full = k8sPathJoin(path, selected.name);
     try {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/delete', {
@@ -417,6 +418,10 @@ export function K8sFiles() {
                       className={selected && selected.name === e.name ? 'selected' : ''}
                       onClick={() => setSelected({ name: e.name, isDir })}
                       onDoubleClick={() => openFile(e.name, isDir)}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={e.name}
+                      onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openFile(e.name, isDir); } }}
                     >
                       <td className="k8s-files-name">
                         <span className="k8s-files-icon">{isDir ? '📁' : '📄'}</span>

@@ -44,6 +44,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     });
   },
 
+  /** 原生目录选择对话框，返回所选绝对路径；取消返回 null */
+  openDirectory(title, defaultPath) {
+    return ipcRenderer.invoke('dialog:open-directory', {
+      title: String(title || ''),
+      defaultPath: String(defaultPath || ''),
+    });
+  },
+
   /** 主窗口上报当前激活页签，供原生菜单「新窗口打开当前功能」使用 */
   setActiveTab(tab) {
     ipcRenderer.send('window:active-tab', String(tab || ''));

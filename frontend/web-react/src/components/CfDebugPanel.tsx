@@ -6,6 +6,7 @@ import { logRowType, logRowTime, logRowContent, buildHcmLogUrl } from '../utils/
 import { sse } from '../api/events';
 import { cfdebug } from '../api/cfdebug/client';
 import { DapClient } from '../api/cfdebug/dapClient';
+import { requestConfirm } from '../utils/confirmStore';
 import { CfDebugSyncModal } from './CfDebugSyncModal';
 import hljs from 'highlight.js/lib/core';
 import python from 'highlight.js/lib/languages/python';
@@ -552,7 +553,7 @@ export function CfDebugPanel() {
 
   const deleteDynLogs = useCallback(async (ids: Array<string | number>) => {
     if (ids.length === 0) return;
-    if (!window.confirm(t('cfdebug.logConfirmDelete', { n: ids.length }))) return;
+    if (!(await requestConfirm({ message: t('cfdebug.logConfirmDelete', { n: ids.length }), danger: true }))) return;
     setDynLogsDeleting(true);
     setDynLogsError(null);
     try {

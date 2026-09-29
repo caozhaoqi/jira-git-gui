@@ -681,6 +681,10 @@ const loadList = useCallback(async () => {
                     onDoubleClick={() => openDetailWindow(it)}
                     onClick={() => loadMeta(it)}
                     title={t('hcm.dblToViewNew')}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={it.id}
+                    onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDetailWindow(it); } }}
                   >
                     <td>{it.name}</td>
                     <td>{it.description || '—'}</td>

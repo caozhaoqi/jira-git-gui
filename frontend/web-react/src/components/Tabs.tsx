@@ -57,6 +57,7 @@ export function Tabs() {
       data-tab={tab.key}
       onClick={() => setTab(tab.key)}
       title={sidebarOpen ? undefined : t(tab.labelKey)}
+      aria-current={activeTab === tab.key ? 'page' : undefined}
     >
       <span className="tab-ico" aria-hidden="true">{tab.icon}</span>
       <span className="tab-txt">{t(tab.labelKey)}</span>

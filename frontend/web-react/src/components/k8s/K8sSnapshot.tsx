@@ -271,6 +271,10 @@ export function K8sSnapshot() {
                     onClick={() => selectPod(r.name)}
                     onDoubleClick={() => openFullLog(r.name)}
                     title={t('k8s.snapshot.dblOpenLog')}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={r.name}
+                    onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openFullLog(r.name); } }}
                   >
                     <td className="k8s-name" title={r.name}>{r.name}</td>
                     <td>{r.phase || '—'}</td>

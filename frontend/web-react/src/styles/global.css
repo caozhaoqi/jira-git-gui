@@ -1,4 +1,17 @@
 :root {
+  /* 搜索/命中高亮色（统一 token，避免硬编码；浅/深主题分别引用） */
+  --hl-bg: #fff3a3;            /* JSON/列表/cf/k8s 命中底（浅 & cf/k8s 深） */
+  --hl-bg-dark: #b58900;      /* hcm 命中底（深）；.hcm-list mark 恒用此（历史行为） */
+  --hl-text: #1a1a1a;         /* 命中文字（黄底上近黑，浅/深通用） */
+  --hl-active: #ff8a3d;       /* JSON/k8s 当前命中底（浅/深同） */
+  --hl-active-ring: rgba(255,138,61,0.35);
+  --hl-cf-active: #ffb300;    /* cf 当前命中底 */
+  --hl-cf-ring: #ff8f00;
+  --hl-cf-row: rgba(255,179,0,0.10);
+  --hl-log-bg: #ffd54a;       /* 日志命中底（浅） */
+  --hl-log-bg-dark: #c9a200;  /* 日志命中底（深） */
+  --hl-log-text-dark: #0c0c0c;
+
   /* —— 背景层级（2026-09 统一：与 shell 靛蓝主题对齐，此为唯一权威来源） —— */
   --bg: #f0f2f7;
   --bg-panel: #ffffff;
@@ -514,6 +527,21 @@ select:focus-visible {
   transform: translateY(1px);
   box-shadow: var(--shadow-sm);
 }
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.btn-danger:hover {
+  filter: brightness(0.95);
+  color: #fff;
+}
+.btn-danger:active {
+  filter: brightness(0.9);
+  transform: translateY(1px);
+  box-shadow: var(--shadow-sm);
+}
 .btn-active {
   background: var(--primary-weak);
   border-color: var(--primary);
@@ -729,6 +757,7 @@ select:focus-visible {
 }
 .tree-toggle {
   width: 12px;
+  padding: 0 4px;
   color: var(--text-dim);
   flex: none;
 }
@@ -1144,6 +1173,14 @@ select:focus-visible {
   gap: 8px;
   padding: 12px 16px;
   border-top: 1px solid var(--border);
+}
+.confirm-msg {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ===== 日志面板 ===== */
@@ -2049,16 +2086,16 @@ html.dark .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.28);
 .hcm-saved-path .hcm-mono { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
 /* JSON 高亮搜索命中标记（自适应浅/深主题） */
-.hcm-json mark { background: #fff3a3; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
-.hcm-json mark { color: #1a1a1a; }
-html.dark .hcm-json mark { background: #b58900; color: #1a1a1a; }
+.hcm-json mark { background: var(--hl-bg); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
+.hcm-json mark { color: var(--hl-text); }
+html.dark .hcm-json mark { background: var(--hl-bg-dark); color: var(--hl-text); }
 /* 当前定位到的命中项（回车跳转高亮） */
-.hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; box-shadow: 0 0 0 2px rgba(255,138,61,0.35); }
-html.dark .hcm-json mark.active { background: #ff8a3d; color: #1a1a1a; }
+.hcm-json mark.active { background: var(--hl-active); color: var(--hl-text); box-shadow: 0 0 0 2px var(--hl-active-ring); }
+html.dark .hcm-json mark.active { background: var(--hl-active); color: var(--hl-text); }
 
 /* 文件列表名字段高亮搜索命中标记（与 JSON 高亮一致，自适应浅/深主题） */
-.hcm-meta-name mark, .hcm-list mark { background: #fff3a3; color: #1a1a1a; border-radius: 2px; padding: 0 1px; }
-html.dark .hcm-meta-name mark, .hcm-list mark { background: #b58900; color: #1a1a1a; }
+.hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
+html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); color: var(--hl-text); }
 
 /* ===== HCM 模型详情独立页（双击新窗口） ===== */
 .app-shell--detail { height: 100vh; }

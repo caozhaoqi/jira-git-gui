@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
+import { requestConfirm } from '../../utils/confirmStore';
 import type {
   KibanaBucket, KibanaFieldsResp, KibanaSite, KibanaSitesResp,
 } from '../../api/types';
@@ -282,7 +283,7 @@ function SiteManager() {
   };
 
   const remove = async (name: string) => {
-    if (!window.confirm(t('kibana.site.confirmDelete', { name }))) return;
+    if (!(await requestConfirm({ message: t('kibana.site.confirmDelete', { name }), danger: true }))) return;
     try {
       await apiPost('/api/kibana/sites/delete', { name });
       await reload();

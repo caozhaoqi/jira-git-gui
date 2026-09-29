@@ -354,14 +354,14 @@
 
 /* 搜索匹配高亮 */
 mark.lv-hl {
-  background: #ffd54a;
-  color: #1a1a1a;
+  background: var(--hl-log-bg);
+  color: var(--hl-text);
   border-radius: 2px;
   padding: 0 1px;
 }
 html.dark mark.lv-hl {
-  background: #c9a200;
-  color: #0c0c0c;
+  background: var(--hl-log-bg-dark);
+  color: var(--hl-log-text-dark);
 }
 
 /* 当前匹配行：左侧高亮条 */

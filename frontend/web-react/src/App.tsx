@@ -32,6 +32,7 @@ import { ToastStack } from './components/Toast';
 import { ProgressBar } from './components/ProgressBar';
 import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
+import { ConfirmHost } from './components/ConfirmHost';
 
 const ACTIONBAR_TABS = new Set(['repo']);
 
@@ -245,6 +246,7 @@ export default function App() {
       <ToastStack />
       <ProgressBar />
       {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
+      <ConfirmHost />
     </div>
   );
 }
