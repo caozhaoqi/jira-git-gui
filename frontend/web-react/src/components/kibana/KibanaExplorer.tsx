@@ -67,9 +67,6 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, re
   useEffect(() => { setSelected(''); }, [site]);
   // 把加载态与「是否查过」上报给顶部「查询」按钮
   useEffect(() => { kbCtx?.setBusy?.(loading); }, [loading, kbCtx]);
-  useEffect(() => {
-    if (!loading && !error) kbCtx?.setLoadedOnce?.(true);
-  }, [loading, error, kbCtx]);
 
   const grouped = useMemo(() => {
     const m = new Map<string, KibanaPodRow[]>();

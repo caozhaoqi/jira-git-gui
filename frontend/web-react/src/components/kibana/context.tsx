@@ -43,9 +43,6 @@ export interface KibanaContextValue {
   /** 子面板回报的加载态，供「查询」按钮显示加载中 */
   busy: boolean;
   setBusy: (b: boolean) => void;
-  /** 是否已完成过至少一次查询：未查询过时不应断言「无数据」 */
-  loadedOnce: boolean;
-  setLoadedOnce: (b: boolean) => void;
   openSiteModal: () => void;
 }
 

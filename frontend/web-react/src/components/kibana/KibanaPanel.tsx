@@ -30,7 +30,6 @@ export function KibanaPanel() {
   // 用一个自增计数触发子面板重新拉取；busy 由子面板回报，用于按钮加载态。
   const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const reloadSites = useCallback(async () => {
     try {
@@ -64,7 +63,7 @@ export function KibanaPanel() {
   const ctx = {
     sites, site, setSite: setSiteAndReload, reloadSites,
     query, setQuery: onChange, pushLog, addToast,
-    reloadKey, busy, setBusy, loadedOnce, setLoadedOnce,
+    reloadKey, busy, setBusy,
     openSiteModal: () => openSiteManagerWindow(t('kibana.manageSites')),
   };
 

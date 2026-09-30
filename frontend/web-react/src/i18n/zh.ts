@@ -460,7 +460,6 @@ export const zh: Dict = {
       top: '📊 资源 Top',
       shell: '💻 Shell',
       files: '📁 文件',
-      syslog: '📋 系统日志',
     },
     snapshot: {
       title: 'K8s 快照',
@@ -728,11 +727,6 @@ export const zh: Dict = {
       dlRetried: '已重试 {{n}} 次',
       dlNoPod: '请先选择 Pod',
       dlBinaryHint: '这是二进制文件，不支持在线预览；可点击列表行尾的 ⬇ 直接下载（分片 + 断点续传）。',
-    },
-    syslog: {
-      site: '日志服务器',
-      pickSite: '请先在上方选择一台日志服务器（Kibana 站点），再查看系统日志汇总的 K8s 日志',
-      hint: '注：本页查询的是已采集到日志库（ES/Kibana）的历史日志，与上方 kubectl 的「环境」选择器无关。',
     },
     env: {
       title: 'K8s 环境管理',

@@ -458,7 +458,6 @@ export const en: Dict = {
       top: '📊 Resource Top',
       shell: '💻 Shell',
       files: '📁 Files',
-      syslog: '📋 System Logs',
     },
     snapshot: {
       title: 'K8s Snapshot',
@@ -727,11 +726,6 @@ export const en: Dict = {
       dlNoPod: 'Please select a Pod first',
       dlBinaryHint:
         'This is a binary file, online preview not supported; click the ⬇ at the end of the row to download it (chunked + resumable).',
-    },
-    syslog: {
-      site: 'Log server',
-      pickSite: 'Select a log server (Kibana site) above to view K8s logs aggregated from system logs',
-      hint: 'Note: this tab queries logs already collected into ES/Kibana; it is independent of the kubectl environment selector above.',
     },
     env: {
       title: 'K8s Environment Management',
