@@ -55,6 +55,11 @@ function ensureDict(locale: Locale): void {
     });
 }
 
+// 启动恢复：若持久化语言非默认（zh-CN），模块求值时即触发字典动态加载。
+// ⚠️ 否则 reload 后 currentLocale=en-US 但 en 字典未加载，t() 全部回退中文，
+// 表现为「切英文→刷新→界面变回中文」（下拉框却显示 en-US）。
+if (currentLocale !== 'zh-CN') ensureDict(currentLocale);
+
 export function setLocale(locale: Locale): void {
   currentLocale = locale;
   ensureDict(locale);
