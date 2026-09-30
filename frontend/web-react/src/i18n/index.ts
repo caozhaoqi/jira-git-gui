@@ -1,13 +1,26 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import type { Dict, Locale, MessageKey } from './types';
-import { DEFAULT_LOCALE } from './types';
+import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY } from './types';
 import { zh } from './zh';
 
 // 默认语言静态加载（启动兜底 + 缺失 key 回退）；en/ja 按需动态 import 拆包
 const DICTS: Partial<Record<Locale, Dict>> = { 'zh-CN': zh };
 
-let currentLocale: Locale = DEFAULT_LOCALE;
+// 模块级 currentLocale 直接从 localStorage 恢复（与 store 初始 locale 同源同 key）。
+// ⚠️ 必须在模块求值时就对齐，不能依赖 store 启动后调用 setLocale：
+// client.ts 也 import 本模块，求值顺序 App → client → i18n → (循环) store，
+// store 模块体会先于本模块体执行——若把初始化放在 store 顶层调用 setLocale，
+// 这里尚未求值的 `let currentLocale` 处于 TDZ，会抛 ReferenceError 白屏。
+let currentLocale: Locale = (() => {
+  try {
+    const v = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (v === 'zh-CN' || v === 'en-US' || v === 'ja-JP') return v;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_LOCALE;
+})();
 
 // 字典异步加载完成的订阅源：useT 用它触发重渲染，让异步加载完的字典立即生效
 let dictVersion = 0;

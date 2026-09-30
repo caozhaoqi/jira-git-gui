@@ -95,3 +95,5 @@ todo.md
 .tmp-pytest/
 
 .ui-review/
+
+.playwright-cli/
