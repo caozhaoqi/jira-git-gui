@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useT } from '../../i18n';
+import { requestConfirm } from '../../utils/confirmStore';
 import { HcmApiError } from '../../api/hcm/client';
 import { hcmDirect } from '../../api/hcm/direct';
 import { useAppStore } from '../../store/useAppStore';
@@ -841,6 +842,16 @@ export function HcmCloudFuncErrorLocator() {
   // 反馈闭环反哺：扫描 diagnosis_feedback.jsonl，把人工确认的根因写回词典/路由索引。
   // apply=false 仅预览提案；apply=true 先备份再回写。
   async function runFeedbackLearn(apply: boolean) {
+    // apply=true 会直接改共享知识库（errdict + 路由索引），且面板自身文案就写着
+    // 「先预览，确认无误再回写」——所以这里必须先确认，并且要求已预览过。
+    if (apply) {
+      if (!learnDetail) {
+        setLearnMsg(t('hcm.cfErrLearnNeedPreview'));
+        return;
+      }
+      const ok = await requestConfirm({ message: t('hcm.cfErrLearnApplyConfirm'), danger: true });
+      if (!ok) return;
+    }
     setLearnBusy(true);
     setLearnMsg('');
     setLearnDetail(null);
@@ -1311,7 +1322,12 @@ export function HcmCloudFuncErrorLocator() {
           <button className="btn btn-sm" onClick={() => runFeedbackLearn(false)} disabled={learnBusy}>
             {learnBusy ? t('hcm.loading') : t('hcm.cfErrLearnPreview')}
           </button>
-          <button className="btn btn-sm btn-primary" onClick={() => runFeedbackLearn(true)} disabled={learnBusy}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => runFeedbackLearn(true)}
+            disabled={learnBusy || !learnDetail}
+            title={learnDetail ? t('hcm.cfErrLearnApply') : t('hcm.cfErrLearnNeedPreview')}
+          >
             {t('hcm.cfErrLearnApply')}
           </button>
         </div>

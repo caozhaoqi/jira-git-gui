@@ -195,6 +195,37 @@ button {
   border-radius: 0 3px 3px 0;
   background: var(--primary);
 }
+/* 「系统」是折叠容器、不是页面：子项命中时不能与子项同时呈现完整选中态
+   （两个条目同时高亮会让人以为两个页面都处于激活状态）。
+   分组只保留「内含当前页」的弱提示：主色文字 + 加粗，不加底色与左侧竖条。 */
+.sidebar .tab-group--contains-active {
+  background: transparent;
+  color: var(--primary);
+  font-weight: 600;
+}
+.sidebar .tab-group--contains-active::before {
+  display: none;
+}
+.sidebar .tab-group--contains-active:hover {
+  background: var(--surface-2);
+}
+/* 展开箭头：统一为可读的三角，并跟随展开状态旋转 */
+.sidebar .tab-caret {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  font-size: 10px;
+  color: var(--text-faint);
+  transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sidebar .tab-group:hover .tab-caret {
+  color: var(--text-dim);
+}
+.sidebar .tab-group[aria-expanded='true'] .tab-caret {
+  transform: rotate(90deg);
+}
 .tab-ico {
   font-size: 15px;
   width: 20px;
@@ -205,11 +236,6 @@ button {
   flex: 1;
 }
 /* 「系统」分组：可折叠菜单项 + 缩进子项 */
-.tab-group .tab-caret {
-  flex: 0 0 auto;
-  font-size: 11px;
-  color: var(--text-dim);
-}
 .sidebar.sidebar-collapsed .tab-group .tab-caret { display: none; }
 .tab-sub {
   padding-left: 14px;
@@ -430,129 +456,9 @@ button {
   }
 }
 
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.18s var(--ease-out);
-  white-space: nowrap;
-}
-.btn:hover {
-  background: var(--surface-2);
-  border-color: var(--muted);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-sm);
-}
-.btn:active {
-  transform: translateY(0);
-  box-shadow: none;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-.btn:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-.btn-primary {
-  background: linear-gradient(135deg, var(--primary), var(--primary-600));
-  border-color: var(--primary);
-  color: #fff;
-  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
-}
-.btn-primary:hover {
-  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
-  border-color: var(--primary-600);
-  color: #fff;
-  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
-}
-.btn-ghost {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-2);
-}
-.btn-ghost:hover {
-  background: var(--surface-2);
-  color: var(--text);
-  border-color: transparent;
-  box-shadow: none;
-  transform: none;
-}
-.btn-icon {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  border-color: transparent;
-  font-size: 15px;
-}
-.btn-icon:hover {
-  background: var(--surface-2);
-  border-color: var(--border);
-  box-shadow: none;
-  transform: none;
-}
-.btn-sm {
-  padding: 5px 10px;
-  font-size: 12px;
-}
-.btn-block {
-  width: 100%;
-}
-
-.input,
-.select,
-.sel,
-.textarea,
-.spin,
-.search-input {
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  transition: all 0.18s var(--ease-out);
-}
-.input:hover,
-.select:hover,
-.sel:hover,
-.textarea:hover,
-.spin:hover,
-.search-input:hover {
-  border-color: var(--border-strong);
-  background: var(--surface);
-}
-.input:focus,
-.select:focus,
-.sel:focus,
-.textarea:focus,
-.spin:focus,
-.search-input:focus {
-  outline: none;
-  border-color: var(--primary);
-  background: var(--surface);
-  box-shadow: 0 0 0 4px var(--primary-050);
-}
-.spin {
-  width: 64px;
-  text-align: center;
-  padding: 6px 8px;
-}
+/* 注：.btn / .btn-* 与 .input / .select / .sel / .textarea / .spin 的定义已收敛到
+   global.css（唯一权威），此处不再重复定义——历史上两套定义并存导致同一行控件
+   高度不一致（27/29/34/36px 混排）与 hover 行为互相打架。 */
 
 .panel-header {
   display: flex;
@@ -587,20 +493,25 @@ button {
 }
 
 .empty-hint {
-  color: var(--muted);
+  color: var(--text-dim);
   font-size: 13px;
   padding: 32px 24px;
   text-align: center;
   user-select: none;
+  line-height: 1.6;
 }
-/* 空态统一描边徽标式提示 */
+/* 空态图标：统一的「空托盘」线性图标（内联 SVG，离线可用），
+   取代原先的「◇」占位符——那个符号看起来像没写完的占位内容，而不是「此处为空」。 */
 .empty-hint::before {
-  content: '◇';
+  content: '';
   display: block;
-  font-size: 20px;
-  margin-bottom: 8px;
-  opacity: 0.5;
-  color: var(--primary);
+  width: 34px;
+  height: 34px;
+  margin: 0 auto 10px;
+  background: currentColor;
+  opacity: 0.34;
+  -webkit-mask: var(--empty-icon) center / contain no-repeat;
+  mask: var(--empty-icon) center / contain no-repeat;
 }
 
 .repo-panel {
@@ -839,6 +750,25 @@ button {
   border-radius: var(--radius);
   padding: 14px;
 }
+/* 日志滚动容器：只负责定位「回到最新」浮层，滚动仍在 .log-block 上 */
+.log-scroll-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.log-count {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* 「回到最新」：用户向上翻历史时出现，避免新日志把视图拽回底部 */
+.log-jump-end {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  box-shadow: var(--shadow-lg);
+}
 .log-line.error {
   color: var(--danger);
 }
@@ -1030,6 +960,12 @@ button {
   overflow: hidden;
 }
 
+/* 说明：.toast / .modal / .modal-mask 在 global.css 里有基础定义，这里是壳层的
+   「新版靛蓝视觉」细化（圆角/阴影/毛玻璃/宽度），文件末尾还有一段只加动画的规则。
+   三处是**有意分层**、逐层细化同一属性（后者按加载顺序覆盖前者），并非历史遗留的
+   双套冲突——不要像 .btn 那样把它们强行合并成一处（那会丢掉分层意图）。
+   ⚠️ 真正需要注意的相反案例是 .btn：global.css 的 .btn-sm 曾被 shell.css 的 .btn
+   覆盖导致尺寸档失效，那才是需要收敛成单一权威源的重复定义。 */
 .toast-stack {
   top: 68px;
 }
@@ -1293,7 +1229,7 @@ button {
     font-size: 13.5px;
   }
   .btn {
-    padding: 6px 10px;
+    padding: 0 var(--ctl-pad-x-sm);
   }
   .actionbar-group {
     flex-wrap: wrap;

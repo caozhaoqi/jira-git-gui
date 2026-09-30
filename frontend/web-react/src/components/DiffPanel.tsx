@@ -28,6 +28,7 @@ import type {
   DiffCommitsResp,
 } from '../api/types';
 import { useT } from '../i18n';
+import { requestConfirm } from '../utils/confirmStore';
 
 const DIFF_ICONS: Record<DiffStatus, string> = {
   modified: '✎',
@@ -53,11 +54,10 @@ export function DiffPanel() {
   const setProgress = useAppStore((s) => s.setProgress);
   const progress = useAppStore((s) => s.progress);
   const selectedRepo = useAppStore((s) => s.selectedRepo);
+  const selectRepo = useAppStore((s) => s.selectRepo);
   const activeTab = useAppStore((s) => s.activeTab);
   const storeRepos = useAppStore((s) => s.repos);
   const { t } = useT();
-  const conflictDialogRef = useModalA11y<HTMLDivElement>(() => setConflicts([]));
-
   // ===== 对比仓库 / 目录 / 扫描参数 =====
   const [repos, setRepos] = useState<Repo[]>([]);
   const [compareRepo, setCompareRepo] = useState<string>(selectedRepo?.repo_id || '');
@@ -94,6 +94,23 @@ export function DiffPanel() {
   const [conflictMerged, setConflictMerged] = useState<Record<string, string>>({});
   const [resolving, setResolving] = useState(false);
   const [busy, setBusy] = useState(false);
+  // 用户是否手工改过三路合并结果：用于关闭弹窗时决定是否需要确认
+  // （打开时 conflictMerged 已由 threeWayMerge 预填，不能用「非空」判断）
+  const [conflictDirty, setConflictDirty] = useState(false);
+  // 每次打开冲突弹窗换一个实例号：给 radio 组名加前缀，避免跨次/跨入口的同名冲突
+  const [conflictNonce, setConflictNonce] = useState(0);
+
+  // 关闭冲突弹窗：手工改过合并文本时先确认，避免遮罩误点/✕/Esc 丢掉编辑成果
+  const closeConflicts = useCallback(async () => {
+    if (conflictDirty) {
+      const ok = await requestConfirm({ message: t('diff.conflictCloseConfirm'), danger: true });
+      if (!ok) return false;
+    }
+    setConflicts([]);
+    setConflictDirty(false);
+    return true;
+  }, [conflictDirty, t]);
+  const conflictDialogRef = useModalA11y<HTMLDivElement>(() => { void closeConflicts(); });
 
   // 区块折叠态（配置 / 汇总 / 最近更新）
   const [cfgOpen, setCfgOpen] = useState(true);
@@ -183,11 +200,26 @@ export function DiffPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  // 单一仓库来源：后端 set_repo 只有一槽，所以「仓库」页切换仓库后，
+  // 对比页必须跟着走。此前 compareRepo 只在为空时被回填一次，于是会出现
+  // 「下拉框/文件树显示 A，实际扫描的是 B」的错位。
+  useEffect(() => {
+    const id = selectedRepo?.repo_id || '';
+    if (id && compareRepoRef.current !== id) {
+      setCompareRepo(id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRepo?.repo_id]);
+
   // 选中对比仓库：通知后端 set_repo，并按 .env 映射自动填本地目录
   const selectCompareRepo = useCallback(async (repoId: string) => {
     setCompareRepo(repoId);
     const r = repos.find((x) => x.repo_id === repoId);
     if (r) {
+      // 后端只有「一个当前仓库」这一槽位（/api/repo/select 全局生效），
+      // 因此对比页在这里选仓库时也必须同步「仓库」页的选中项，
+      // 否则两页会各显示一个仓库、而实际扫描用的是后端的同一个。
+      selectRepo(r);
       try {
         await apiPost('/api/repo/select', {
           repo_id: repoId,
@@ -197,15 +229,20 @@ export function DiffPanel() {
       } catch (e: any) {
         addToast(e.message || t('diff.selectRepoFail'), 'error');
       }
-      // 自动填本地目录：匹配 display_name 或 name
+      // 自动填本地目录：匹配 display_name 或 name。
+      // 仅在用户尚未填写时回填——无条件覆盖会把用户手输/手挑的目录静默冲掉。
       const guess =
         mappings[r.display_name || ''] || mappings[r.name || ''] || '';
       if (guess) {
-        setLocalDir(guess);
-        pushLog(`${t('diff.envLocalDir')}：${guess}`, 'info');
+        if (!localDirRef.current.trim()) {
+          setLocalDir(guess);
+          pushLog(`${t('diff.envLocalDir')}：${guess}`, 'info');
+        } else if (localDirRef.current.trim() !== guess) {
+          pushLog(`${t('diff.envLocalDirAvailable')}：${guess}`, 'info');
+        }
       }
     }
-  }, [repos, mappings, pushLog, addToast, t]);
+  }, [repos, mappings, pushLog, addToast, t, selectRepo]);
 
   // ===== 子目录选择器（范围限定）=====
   const loadSubDirs = useCallback(async () => {
@@ -418,6 +455,15 @@ export function DiffPanel() {
     });
   }, [entries, showSame, ignoreLineEndings]);
 
+  // 与 mergeAll 的取数口径保持一致：用于在按钮上标注「将合并 N 个」并决定是否可点
+  const mergeTargetCount = useMemo(() => {
+    if (mergeRemoteOnly) return entries.filter((e) => e.status === 'remote_only').length;
+    return entries.filter((e) => {
+      if (e.status === 'whitespace_only' && ignoreLineEndings) return false;
+      return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
+    }).length;
+  }, [entries, mergeRemoteOnly, ignoreLineEndings]);
+
   const openDiffFile = useCallback(async (path: string) => {
     setSelectedPath(path);
     setFileTitle(t('diff.fileTitleLoading') + path);
@@ -521,6 +567,8 @@ export function DiffPanel() {
     }
     setConflictResolutions(initRes);
     setConflictMerged(initMerged);
+    setConflictDirty(false);
+    setConflictNonce((n) => n + 1);
   }, [threeWayMerge]);
 
   // F4：提交冲突决策（ours/theirs/merged）到后端，成功后刷新扫描。
@@ -670,8 +718,18 @@ export function DiffPanel() {
         return e.status === 'modified' || e.status === 'remote_only' || e.status === 'whitespace_only';
       });
     }
+    if (!targets.length) {
+      addToast(t('diff.mergeNothing'), 'warn');
+      return;
+    }
+    // 批量写本地文件不可撤销：先确认，并列出将覆盖的文件数
+    const ok = await requestConfirm({
+      message: t('diff.mergeAllConfirm', { n: targets.length }),
+      danger: true,
+    });
+    if (!ok) return;
     await runMerge(targets, mergeRemoteOnly ? 'remote_only' : '');
-  }, [entries, mergeRemoteOnly, ignoreLineEndings, runMerge]);
+  }, [entries, mergeRemoteOnly, ignoreLineEndings, runMerge, addToast, t]);
 
   // F13：仅合并文件树里勾选的文件（checkedPaths 与当前差异条目交集）。
   const mergeSelected = useCallback(async () => {
@@ -881,7 +939,9 @@ export function DiffPanel() {
 
       <div className="diff-body">
         <div className="diff-list-pane">
-          {entries.length === 0 ? (
+          {/* 未选仓库时上方已有统一的前置条件提示（diff.pickRepo），
+              这里不再重复一遍「请先选择仓库」，否则一屏出现三条互相矛盾的引导。 */}
+          {!compareRepo ? null : entries.length === 0 ? (
             <div className="empty-hint">{t('diff.noDiffFiles')}</div>
           ) : visibleEntries.length === 0 ? (
             <div className="empty-hint">
@@ -896,7 +956,16 @@ export function DiffPanel() {
               <div
                 key={e.path}
                 className={'diff-item' + (e.status === 'whitespace_only' ? ' diff-item-eol' : '') + (selectedPath === e.path ? ' selected' : '')}
+                role="button"
+                tabIndex={0}
+                aria-label={e.path}
                 onClick={() => openDiffFile(e.path)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    openDiffFile(e.path);
+                  }
+                }}
               >
                 <span className="diff-icon">{DIFF_ICONS[e.status] || '?'}</span>
                 <span className="diff-path" title={e.path}>{e.path}{e.status === 'whitespace_only' ? ' ' : ''}{e.status === 'whitespace_only' ? <span className="diff-eol-badge">CRLF/LF</span> : null}</span>
@@ -922,8 +991,15 @@ export function DiffPanel() {
                   <button className="btn btn-sm btn-primary" onClick={mergeOne} disabled={busy}>{t('diff.mergeOne')}</button>
                 )}
                 {entries.length > 0 && (
-                  <button className="btn btn-sm btn-primary" onClick={mergeAll} disabled={busy}>
-                    {t('diff.mergeAll')}
+                  <button
+                    className="btn btn-sm btn-primary"
+                    onClick={mergeAll}
+                    // 只有确实存在「可合并」条目时才可点：此前只要扫描出条目就可点，
+                    // 即使列表里全是「无差异」，点了才知道没东西可合。
+                    disabled={busy || mergeTargetCount === 0}
+                    title={mergeTargetCount === 0 ? t('diff.mergeNothing') : ''}
+                  >
+                    {t('diff.mergeAll')}{mergeTargetCount > 0 ? ` (${mergeTargetCount})` : ''}
                   </button>
                 )}
                 {/* F13：仅合并文件树里勾选的文件 */}
@@ -952,9 +1028,9 @@ export function DiffPanel() {
             )
           ) : fileHtml ? (
             <div className="diff-content" dangerouslySetInnerHTML={{ __html: fileHtml }} />
-          ) : (
+          ) : compareRepo ? (
             <div className="empty-hint">{t('diff.selectFileDiff')}</div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -1014,7 +1090,7 @@ export function DiffPanel() {
 
       {/* F4：合并冲突 3-way 决策面板 */}
       {conflicts.length > 0 && (
-        <div className="modal-mask" onClick={() => setConflicts([])}>
+        <div className="modal-mask" onClick={() => { void closeConflicts(); }}>
           <div
             className="modal conflict-modal"
             ref={conflictDialogRef}
@@ -1026,7 +1102,7 @@ export function DiffPanel() {
           >
             <div className="modal-header">
               <h3 id="diff-conflict-title">{t('diff.conflictTitle')}（{conflicts.length}）</h3>
-              <button className="btn btn-sm btn-ghost" onClick={() => setConflicts([])} aria-label={t('common.close')}>{t('common.close')}</button>
+              <button className="btn btn-sm btn-ghost" onClick={() => { void closeConflicts(); }} aria-label={t('common.close')}>{t('common.close')}</button>
             </div>
             <div className="modal-body">
             <div className="conflict-hint">{t('diff.conflictHint')}</div>
@@ -1037,11 +1113,11 @@ export function DiffPanel() {
                   <div key={c.path} className="conflict-item">
                     <div className="conflict-path">{c.path}</div>
                     <div className="conflict-choices">
-                      <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'ours'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'ours' }))} /> {t('diff.keepLocal')}</label>
+                      <label className="rd"><input type="radio" name={`res-${conflictNonce}-${c.path}`} checked={res === 'ours'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'ours' }))} /> {t('diff.keepLocal')}</label>
                       {!c.is_binary && (
                         <>
-                          <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'theirs'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'theirs' }))} /> {t('diff.useRemote')}</label>
-                          <label className="rd"><input type="radio" name={`res-${c.path}`} checked={res === 'merged'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'merged' }))} /> {t('diff.manualMerge')}</label>
+                          <label className="rd"><input type="radio" name={`res-${conflictNonce}-${c.path}`} checked={res === 'theirs'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'theirs' }))} /> {t('diff.useRemote')}</label>
+                          <label className="rd"><input type="radio" name={`res-${conflictNonce}-${c.path}`} checked={res === 'merged'} onChange={() => setConflictResolutions((p) => ({ ...p, [c.path]: 'merged' }))} /> {t('diff.manualMerge')}</label>
                         </>
                       )}
                     </div>
@@ -1056,8 +1132,12 @@ export function DiffPanel() {
                         <textarea
                           className="conflict-merged"
                           value={conflictMerged[c.path] ?? ''}
-                          onChange={(e) => setConflictMerged((p) => ({ ...p, [c.path]: e.target.value }))}
+                          onChange={(e) => {
+                            setConflictDirty(true);
+                            setConflictMerged((p) => ({ ...p, [c.path]: e.target.value }));
+                          }}
                           spellCheck={false}
+                          aria-label={t('diff.manualMerge')}
                         />
                       </div>
                     )}

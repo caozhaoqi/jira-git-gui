@@ -99,6 +99,8 @@ export function RepoList() {
           placeholder={`🔍 ${t('repo.selectRepo')}…`}
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
+          aria-label={t('repo.searchLabel')}
+          type="search"
         />
         <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
           {busy ? t('common.loading') : `🔄 ${t('repo.discover')}`}

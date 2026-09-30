@@ -21,6 +21,9 @@ export function K8sEvents() {
   const [events, setEvents] = useState<K8sEvent[]>([]);
   const [summary, setSummary] = useState('');
   const [busy, setBusy] = useState(false);
+  // 是否已经主动查询过：未查询前不能断言「无事件」（此前一进页面就显示空态，
+  // 而自动刷新默认关闭，用户会以为集群真的没有事件）
+  const [queried, setQueried] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   const load = useCallback(async () => {
@@ -35,6 +38,7 @@ export function K8sEvents() {
       if (!d.ok) { setSummary(t('k8s.events.fail') + (d.error || '')); return; }
       setEvents(d.events || []);
       setSummary(t('k8s.events.summary', { total: d.total ?? 0, warning: d.warning ?? 0 }));
+      setQueried(true);
     } catch (ex: any) {
       setSummary(t('k8s.events.fail') + ex.message);
     } finally {
@@ -52,6 +56,13 @@ export function K8sEvents() {
     };
   }, [auto, load]);
 
+  // 切换环境后清掉上一个集群的事件，避免旧数据留在屏幕上被误读为新集群的结果
+  useEffect(() => {
+    setEvents([]);
+    setSummary('');
+    setQueried(false);
+  }, [target.env]);
+
   return (
     <div className="k8s-events">
       <div className="k8s-ev-cfg">
@@ -65,7 +76,15 @@ export function K8sEvents() {
       </div>
       <div className="k8s-ev-summary">{summary}</div>
       <div className="k8s-table-wrap">
-        {events.length === 0 ? <div className="empty-hint">{t('k8s.events.empty')}</div> :
+        {events.length === 0 ? (
+          <div className="empty-hint">
+            {!target.env
+              ? t('k8s.events.needEnv')
+              : !queried
+                ? t('k8s.events.notQueried')
+                : t('k8s.events.empty')}
+          </div>
+        ) :
           <table className="k8s-ev-table">
             <thead><tr><th>{t('k8s.events.colTime')}</th><th>{t('k8s.events.colType')}</th><th>{t('k8s.events.colReason')}</th><th>{t('k8s.events.colObject')}</th><th>{t('k8s.events.colSource')}</th><th>{t('k8s.events.colCount')}</th><th>{t('k8s.events.colMsg')}</th></tr></thead>
             <tbody>

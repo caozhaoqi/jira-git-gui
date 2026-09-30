@@ -41,6 +41,7 @@ function hcmHighlightLine(text: string, q: string): ReactNode {
 
 export function HcmObjectBrowser() {
   const { t } = useT();
+  const addToast = useAppStore((s) => s.addToast);
   // HCM token：全局唯一来源（store 统一持久化到 hcm.token，刷新后自动回填）
   const token = useAppStore((s) => s.hcmToken);
   const setToken = useAppStore((s) => s.setHcmToken);
@@ -703,13 +704,25 @@ const loadList = useCallback(async () => {
             {loading && <div className="hcm-loading">{t('hcm.loading')}…</div>}
           </div>
           <div className="hcm-pager">
-            <button className="btn btn-sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            <button
+              className="btn btn-sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+              aria-label={t('hcm.prevPage')}
+              title={t('hcm.prevPage')}
+            >
               ‹
             </button>
             <span>
               {page} / {totalPages}
             </span>
-            <button className="btn btn-sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            <button
+              className="btn btn-sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => p + 1)}
+              aria-label={t('hcm.nextPage')}
+              title={t('hcm.nextPage')}
+            >
               ›
             </button>
           </div>
@@ -1028,6 +1041,8 @@ const loadList = useCallback(async () => {
                       <div className="hcm-pager">
                         <button
                           className="btn btn-sm"
+                          aria-label={t('hcm.prevPage')}
+                          title={t('hcm.prevPage')}
                           disabled={dataPage <= 1}
                           onClick={() => {
                             const p = Math.max(1, dataPage - 1);
@@ -1042,6 +1057,8 @@ const loadList = useCallback(async () => {
                         </span>
                         <button
                           className="btn btn-sm"
+                          aria-label={t('hcm.nextPage')}
+                          title={t('hcm.nextPage')}
                           disabled={dataPage >= Math.ceil(dataTotal / dataPageSize)}
                           onClick={() => {
                             const p = dataPage + 1;
@@ -1058,9 +1075,20 @@ const loadList = useCallback(async () => {
                             type="number"
                             min={1}
                             max={1000}
-                            value={dataPageSize}
-                            onChange={(e) => setDataPageSize(parseInt(e.target.value) || 20)}
+                            value={Number.isFinite(dataPageSize) ? dataPageSize : ''}
+                            onChange={(e) => {
+                              // 不用 `parseInt(v) || 20` 静默回退：让非法值可见，
+                              // 失焦时统一钳制并提示（max 也不再形同虚设）
+                              const raw = e.target.value;
+                              setDataPageSize(raw === '' ? NaN : Number(raw));
+                            }}
                             onBlur={() => {
+                              const n = Math.trunc(Number(dataPageSize));
+                              const v = !Number.isFinite(n) || n < 1 ? 20 : Math.min(1000, n);
+                              if (v !== dataPageSize) {
+                                setDataPageSize(v);
+                                addToast(t('hcm.dataPageSizeClamped', { v }), 'warn');
+                              }
                               if (selected) {
                                 setDataPage(1);
                                 loadData(selected, 1);

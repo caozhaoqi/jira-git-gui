@@ -93,3 +93,5 @@ merge_state/
 todo.md
 
 .tmp-pytest/
+
+.ui-review/

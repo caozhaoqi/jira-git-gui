@@ -13,6 +13,8 @@ export function K8sTop() {
   const [rows, setRows] = useState<K8sTopRow[]>([]);
   const [summary, setSummary] = useState('');
   const [busy, setBusy] = useState(false);
+  // 未查询前不断言「无数据」（自动刷新默认关闭）
+  const [queried, setQueried] = useState(false);
   const [auto, setAuto] = useState(false);
   const timerRef = useRef<number | null>(null);
 
@@ -25,6 +27,7 @@ export function K8sTop() {
       if (!d.ok) { setSummary(t('k8s.top.fail') + (d.error || '')); return; }
       setRows(d.rows || []);
       setSummary(t('k8s.top.summary', { n: (d.rows || []).length }));
+      setQueried(true);
     } catch (ex: any) {
       setSummary(t('k8s.top.fail') + ex.message);
     } finally {
@@ -42,6 +45,13 @@ export function K8sTop() {
     };
   }, [auto, load]);
 
+  // 切换环境后清掉上一个集群的数据（旧数据留在屏幕上会被误读为新集群的结果）
+  useEffect(() => {
+    setRows([]);
+    setSummary('');
+    setQueried(false);
+  }, [target.env]);
+
   const maxCpu = Math.max(1e-9, ...rows.map((r) => parseTopVal(r.cpu)));
   const maxMem = Math.max(1e-9, ...rows.map((r) => parseTopVal(r.memory)));
 
@@ -58,7 +68,15 @@ export function K8sTop() {
       </div>
       <div className="k8s-top-summary">{summary}</div>
       <div className="k8s-table-wrap">
-        {rows.length === 0 ? <div className="empty-hint">{t('k8s.top.empty')}</div> :
+        {rows.length === 0 ? (
+          <div className="empty-hint">
+            {!target.env
+              ? t('k8s.top.needEnv')
+              : !queried
+                ? t('k8s.top.notQueried')
+                : t('k8s.top.empty')}
+          </div>
+        ) :
           <table className="k8s-top-table">
             <thead>
               {scope === 'nodes'

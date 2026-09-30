@@ -2500,14 +2500,28 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .clash-ip-del {
   border: none;
   background: transparent;
-  color: var(--muted);
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1;
-  padding: 0 2px;
+  /* 命中区从 12×14 提到 24×24：删除按钮过小既难点中，也容易误触相邻项 */
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  padding: 0;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .clash-ip-del:hover {
   color: var(--danger);
+  background: var(--danger-bg);
+}
+.clash-ip-del:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
 }
 
 /* 代理端口探测 */
@@ -2598,8 +2612,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--surface-2);
   color: var(--text-2);
   border-radius: 999px;
-  padding: 3px 10px;
+  /* 同一组胶囊此前出现 24px / 36px 两种高度（受内容行高影响），统一固定高度 */
+  min-height: var(--ctl-xs);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
   font-size: 11.5px;
+  line-height: 1.2;
   font-family: var(--mono);
   cursor: pointer;
   transition: all 0.15s var(--ease-out);
@@ -2609,9 +2628,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   color: var(--primary);
   background: var(--primary-050);
 }
+/* 「模板」候选：用虚线与弱文字表达「这是模板」，而不是整体降透明度——
+   降透明度让它看起来像禁用项，但它其实可点击。
+   注意文字色仍要保证可读（>=4.5:1），不能用 --text-faint（浅灰在浅底上只有 2.4:1）。 */
 .clash-cfg-cand.base {
-  opacity: 0.6;
   border-style: dashed;
+  color: var(--text-dim);
 }
 .clash-cfg-cand.sel {
   border-color: var(--primary);
@@ -2621,8 +2643,10 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .clash-cfg-cand.current {
   border-color: var(--success);
-  color: var(--success);
+  /* 11.5px 小字需 4.5:1：--success 在 --success-bg 上仅 3.6:1，改用加深同色相 */
+  color: var(--success-strong);
   background: var(--success-bg);
+  font-weight: 600;
 }
 .clash-cfg-actions {
   display: flex;
@@ -3052,9 +3076,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-keyword { flex: 1; min-width: 160px; }
 .kb-levels { display: inline-flex; gap: 4px; }
 .kb-level {
-  padding: 3px 9px;
+  min-height: var(--ctl-xs);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   background: var(--bg-panel);
   color: var(--text-dim);
   cursor: pointer;
@@ -3111,16 +3138,17 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-g-count { font-family: var(--mono); }
 .kb-tree-pod {
   width: 100%;
+  min-height: var(--ctl-sm);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 0 8px;
   border: none;
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   text-align: left;
   font-size: 12px;
 }
@@ -3698,3 +3726,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 @keyframes mask-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* K8s「系统日志」页签：说明它与上方 kubectl 环境选择器的关系 */
+.k8s-syslog-hint {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}

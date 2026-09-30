@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { RepoList } from './RepoList';
 import { FileTree } from './FileTree';
 import { Preview } from './Preview';
@@ -11,6 +11,25 @@ export function RepoPanel() {
   const [dragging, setDragging] = useState<null | 'left' | 'right'>(null);
   const draggingRef = useRef<null | 'left' | 'right'>(null);
   const { t } = useT();
+
+  // 键盘调整列宽（此前拖拽条仅鼠标可用，键盘用户完全无法调整布局）
+  const onKeyDown = (side: 'left' | 'right') => (e: ReactKeyboardEvent) => {
+    const step = e.shiftKey ? 48 : 16;
+    const clampL = (v: number) => Math.max(180, Math.min(520, v));
+    const clampR = (v: number) => Math.max(300, Math.min(900, v));
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const d = e.key === 'ArrowRight' ? step : -step;
+      if (side === 'left') setLeftWidth((w) => clampL(w + d));
+      else setRightWidth((w) => clampR(w - d));
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      if (side === 'left') setLeftWidth(180); else setRightWidth(900);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      if (side === 'left') setLeftWidth(520); else setRightWidth(300);
+    }
+  };
 
   const onMouseDown = (side: 'left' | 'right') => (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -45,7 +64,13 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'left' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('left')}
-          title={t('repo.title')}
+          onKeyDown={onKeyDown('left')}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('repo.resizeLeft')}
+          aria-valuenow={leftWidth}
+          tabIndex={0}
+          title={t('repo.resizeHint')}
         />
         <section className="repo-col repo-col-mid">
           <FileTree />
@@ -53,7 +78,13 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'right' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('right')}
-          title={t('repo.title')}
+          onKeyDown={onKeyDown('right')}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('repo.resizeRight')}
+          aria-valuenow={rightWidth}
+          tabIndex={0}
+          title={t('repo.resizeHint')}
         />
         <section className="repo-col repo-col-right" style={{ width: rightWidth, flexShrink: 0 }}>
           <Preview />

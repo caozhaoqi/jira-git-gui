@@ -26,6 +26,11 @@ export function KibanaPanel() {
   const [sub, setSub] = useState<SubTab>('explorer');
   const [wrap, setWrap] = useState(true);
   const [refreshSec, setRefreshSec] = useState(0);
+  // 「查询」按钮此前是空实现（onSearch={() => {}}），而它是这一页唯一显式的搜索控件。
+  // 用一个自增计数触发子面板重新拉取；busy 由子面板回报，用于按钮加载态。
+  const [reloadKey, setReloadKey] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const reloadSites = useCallback(async () => {
     try {
@@ -59,6 +64,7 @@ export function KibanaPanel() {
   const ctx = {
     sites, site, setSite: setSiteAndReload, reloadSites,
     query, setQuery: onChange, pushLog, addToast,
+    reloadKey, busy, setBusy, loadedOnce, setLoadedOnce,
     openSiteModal: () => openSiteManagerWindow(t('kibana.manageSites')),
   };
 
@@ -98,7 +104,8 @@ export function KibanaPanel() {
           site={site}
           value={query}
           onChange={onChange}
-          onSearch={() => { /* 子标签内部已随 query 变化自动查询 */ }}
+          onSearch={() => setReloadKey((k) => k + 1)}
+          busy={busy}
         />
 
         <div className="kibana-subtabs">
@@ -115,12 +122,12 @@ export function KibanaPanel() {
           <div style={{ display: sub === 'explorer' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
             <KibanaExplorer site={site} query={query} wrap={wrap}
                             onToggleWrap={() => setWrap((w) => !w)}
-                            refreshSec={refreshSec} />
+                            refreshSec={refreshSec} reloadKey={reloadKey} />
           </div>
           <div style={{ display: sub === 'discover' ? 'flex' : 'none', flex: 1, minHeight: 0 }}>
             <KibanaDiscover site={site} query={query} wrap={wrap}
                             onToggleWrap={() => setWrap((w) => !w)}
-                            refreshSec={refreshSec} />
+                            refreshSec={refreshSec} reloadKey={reloadKey} />
           </div>
         </div>
       </div>

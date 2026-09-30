@@ -47,6 +47,11 @@
   --warn-bg: #fffbeb;
   --success: #059669;
   --success-bg: #ecfdf5;
+  /* 用于「弱底 + 状态色文字」的小字场景：--success 压在 --success-bg 上只有
+     3.6:1，达不到 4.5:1；需要更深的同色相文字色 */
+  --success-strong: #047857;
+  --danger-strong: #b91c1c;
+  --warn-strong: #b45309;
 
   /* —— 选择 / 行高亮 —— */
   --row-hover: #f5f7fa;
@@ -77,6 +82,19 @@
   --sp-8: 32px;
   --sp-10: 40px;
 
+  /* —— 控件高度尺度（唯一权威） ——
+     按钮 / 输入框 / 下拉框统一按这四档对齐，避免同一行出现 27/29/34/36px 混排。
+     规则：一行内所有控件取同一档；表格行内小按钮用 xs/sm，表单主控件用 md。 */
+  --ctl-xs: 24px;   /* 标签内的微型按钮、行内操作 */
+  --ctl-sm: 28px;   /* 次级按钮、小输入框、筛选器 */
+  --ctl-md: 32px;   /* 默认：主按钮、表单输入、下拉框 */
+  --ctl-lg: 36px;   /* 强调区、模态主按钮 */
+
+  /* 控件内边距（与高度配套，横向统一） */
+  --ctl-pad-x: 14px;
+  --ctl-pad-x-sm: 10px;
+  --ctl-pad-x-xs: 8px;
+
   /* —— 动效 —— */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --dur-fast: 0.12s;
@@ -88,6 +106,10 @@
     'Liberation Mono', 'Courier New', monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
     'Microsoft YaHei', Roboto, Helvetica, Arial, sans-serif;
+
+  /* —— 图标（内联 SVG 蒙版，离线可用，无字体/图片依赖） ——
+     用法：background: currentColor; mask: var(--empty-icon) center/contain no-repeat; */
+  --empty-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h4l2 3h6l2-3h4'/%3E%3Cpath d='M5 5h14l2 7v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5z'/%3E%3C/svg%3E");
 
   /* —— 旧 token 兼容别名：修复全应用 240+ 处失效引用 ——
      （均指向上面的新 token，明暗主题自动适配） */
@@ -154,6 +176,10 @@ html.dark {
   --warn-bg: #2a2008;
   --success: #34d399;
   --success-bg: #0d2a20;
+  /* 深色下弱底本身足够深，直接用状态色即可（无需再压深） */
+  --success-strong: #34d399;
+  --danger-strong: #f87171;
+  --warn-strong: #fbbf24;
 
   --row-hover: #1a1f2b;
   --row-selected: #16182e;
@@ -470,62 +496,106 @@ select:focus-visible {
   font-size: 12px;
 }
 
-/* ===== 按钮 ===== */
+/* ===== 按钮（唯一权威定义；shell.css 中旧的重复定义已移除） ===== */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
+  min-height: var(--ctl-md);
+  padding: 0 var(--ctl-pad-x);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   color: var(--text);
   border-radius: var(--radius-sm);
-  padding: 5px 10px;
   cursor: pointer;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
   white-space: nowrap;
   user-select: none;
   transition: background-color var(--dur) var(--ease),
     border-color var(--dur) var(--ease), color var(--dur) var(--ease),
     box-shadow var(--dur) var(--ease), transform var(--dur-fast) var(--ease);
 }
-.btn:hover {
-  background: var(--row-hover);
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--muted);
+  box-shadow: var(--shadow-sm);
 }
-.btn:active {
+.btn:active:not(:disabled) {
   transform: translateY(1px);
+  box-shadow: none;
 }
-.btn:disabled {
-  opacity: 0.5;
+/* 禁用：不再用半透明「虚化」（白字压紫底时几乎看不清），改为可读的灰底弱字，
+   与启用态形成明确的「不可用但可辨识」层级 */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-faint);
+  box-shadow: none;
+  transform: none;
   cursor: not-allowed;
 }
-.btn-sm {
-  padding: 4px 8px;
+.btn:disabled:hover,
+.btn[aria-disabled='true']:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  box-shadow: none;
 }
+.btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* 尺寸档：只改高度与横向内边距，保证同一行控件严格等高 */
+.btn-sm {
+  min-height: var(--ctl-sm);
+  padding: 0 var(--ctl-pad-x-sm);
+  font-size: 12.5px;
+}
+.btn-xs {
+  min-height: var(--ctl-xs);
+  padding: 0 var(--ctl-pad-x-xs);
+  font-size: 11.5px;
+}
+.btn-block {
+  width: 100%;
+}
+
 .btn-ghost {
   background: transparent;
   border-color: transparent;
+  color: var(--text-2);
 }
-.btn-ghost:hover {
-  background: var(--row-hover);
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: transparent;
+  box-shadow: none;
 }
 .btn-primary {
-  background: var(--primary);
+  background: linear-gradient(135deg, var(--primary), var(--primary-600));
   border-color: var(--primary);
   color: var(--on-primary);
+  box-shadow: 0 1px 3px rgba(79, 70, 229, 0.3);
+}
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  border-color: var(--primary-600);
+  color: var(--on-primary);
+  box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+}
+.btn-primary:active:not(:disabled) {
   box-shadow: var(--shadow-sm);
 }
-.btn-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
-  box-shadow: var(--shadow);
-}
-.btn-primary:active {
-  background: var(--primary-press);
-  border-color: var(--primary-press);
-  transform: translateY(1px);
-  box-shadow: var(--shadow-sm);
+/* 主按钮禁用态：保留品牌色相但降到浅底弱字，避免「一片灰」失去主次 */
+.btn-primary:disabled,
+.btn-primary[aria-disabled='true'] {
+  background: var(--primary-weak);
+  border-color: transparent;
+  color: color-mix(in srgb, var(--primary) 62%, var(--text-faint));
+  box-shadow: none;
 }
 .btn-danger {
   background: var(--danger);
@@ -533,13 +603,12 @@ select:focus-visible {
   color: #fff;
   box-shadow: var(--shadow-sm);
 }
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   filter: brightness(0.95);
   color: #fff;
 }
-.btn-danger:active {
+.btn-danger:active:not(:disabled) {
   filter: brightness(0.9);
-  transform: translateY(1px);
   box-shadow: var(--shadow-sm);
 }
 .btn-active {
@@ -548,8 +617,23 @@ select:focus-visible {
   color: var(--primary);
 }
 .btn-icon {
-  border-radius: 6px;
-  padding: 5px 8px;
+  width: var(--ctl-md);
+  height: var(--ctl-md);
+  min-height: var(--ctl-md);
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border-color: transparent;
+  font-size: 15px;
+}
+.btn-icon:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.btn-icon.btn-sm {
+  width: var(--ctl-sm);
+  height: var(--ctl-sm);
+  min-height: var(--ctl-sm);
 }
 
 /* ===== 标签页 ===== */
@@ -1000,6 +1084,27 @@ select:focus-visible {
 }
 .progress-wrap.done {
   border-left: 3px solid var(--success);
+}
+/* 终态关闭按钮：错误/完成横幅需要能手动收起 */
+.progress-close {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-xs);
+  flex: 0 0 auto;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.progress-close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
 }
 .progress-inner {
   display: flex;
@@ -1989,25 +2094,133 @@ select:focus-visible {
   color: var(--text-dim);
 }
 
-/* 通用 input（K8s 配置区等） */
-.input {
+/* ===== 表单控件（唯一权威定义；shell.css 中旧的重复定义已移除） =====
+   统一 min-height 到控件尺度 token，保证与 .btn 同行时严格等高。 */
+.input,
+.select,
+.sel,
+.textarea,
+.search-input {
+  min-height: var(--ctl-md);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  background: var(--surface-2);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 13px;
   font-family: inherit;
   outline: none;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
 }
-.input:focus {
+.select,
+.sel {
+  padding-right: 8px;
+  cursor: pointer;
+}
+.textarea {
+  min-height: 84px;
+  padding: 8px 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.input:hover,
+.select:hover,
+.sel:hover,
+.textarea:hover,
+.search-input:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.input:focus,
+.select:focus,
+.sel:focus,
+.textarea:focus,
+.search-input:focus {
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-050);
   outline: none;
 }
-.input-sm {
-  padding: 4px 7px;
-  font-size: 12px;
+.input-sm,
+.select-sm,
+.sel-sm,
+.inp-sm {
+  min-height: var(--ctl-sm);
+  padding: 0 9px;
+  font-size: 12.5px;
+}
+/* 兼容别名：统一诊断面板历史上用了 .inp / .ta，但样式表中从未定义，
+   于是那几个控件一直按浏览器原生样式渲染（21px 高、2px inset 边框），
+   与全站表单风格断裂。这里补上别名为同一套控件样式。 */
+.inp {
+  min-height: var(--ctl-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.inp:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.inp:focus {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-050);
+  outline: none;
+}
+.ta {
+  min-height: 96px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.55;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.ta:hover {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+.ta:focus {
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-050);
+  outline: none;
+}
+.spin {
+  width: 72px;
+  min-height: var(--ctl-md);
+  text-align: center;
+  padding: 0 8px;
+}
+/* 原生复选框/单选框统一尺寸（默认 13px 太小，鼠标与触控都难命中） */
+input[type='checkbox'],
+input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+input[type='checkbox']:disabled,
+input[type='radio']:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
 }
 
 @media (max-width: 1100px) {

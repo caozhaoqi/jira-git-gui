@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { apiGet } from '../../api/client';
 import type { KibanaPodRow, KibanaPodsResp } from '../../api/types';
 import { useT } from '../../i18n';
 import { KibanaLogStream } from './KibanaLogStream';
-import type { KibanaQuery } from './context';
+import { KibanaContext, type KibanaQuery } from './context';
 
 interface Props {
   site: string;
@@ -11,11 +11,16 @@ interface Props {
   wrap: boolean;
   onToggleWrap: () => void;
   refreshSec: number;
+  /** 点「查询」时自增，用于强制重新拉取 */
+  reloadKey?: number;
 }
 
 /** 容器视角：左侧按应用分组的 Pod 树（带日志量 / 错误红标），右侧日志流。 */
-export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec }: Props) {
+export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, reloadKey = 0 }: Props) {
   const { t } = useT();
+  // 说明：K8s「系统日志」子页签也复用本组件，但那处没有 KibanaContext.Provider，
+  // 因此这里用可空 context（直接 useKibana() 会抛错导致该页签白屏）。
+  const kbCtx = useContext(KibanaContext);
   const [pods, setPods] = useState<KibanaPodRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -32,10 +37,15 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec }: 
     setError('');
     try {
       const q = new URLSearchParams({
+        // 必须带 site：Pod 树与日志必须来自同一个站点，否则会出现「日志是 A 集群、
+        // 下拉里是 B 集群 Pod」的混集群视图。
+        site,
         start: query.start || 'now-1h', end: query.end || '',
         namespace: query.namespace, container: query.container, app: query.app,
         host: query.host, keyword: query.keyword,
-        excludeKeyword: query.excludeKeyword,
+        // 后端字段名是 exclude_keyword（下划线）；此前传 camelCase 被 pydantic
+        // 静默忽略，导致「排除关键词」填了也永远不生效。
+        exclude_keyword: query.excludeKeyword,
         levels: query.levels.join(','),
       });
       const d = await apiGet<KibanaPodsResp>(`/api/kibana/pods?${q.toString()}`);
@@ -52,9 +62,14 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec }: 
     }
   }, [query, selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { loadPods(); }, [qKey, loadPods]);
+  useEffect(() => { loadPods(); }, [qKey, loadPods, reloadKey]);
   // 站点切换时清空选择
   useEffect(() => { setSelected(''); }, [site]);
+  // 把加载态与「是否查过」上报给顶部「查询」按钮
+  useEffect(() => { kbCtx?.setBusy?.(loading); }, [loading, kbCtx]);
+  useEffect(() => {
+    if (!loading && !error) kbCtx?.setLoadedOnce?.(true);
+  }, [loading, error, kbCtx]);
 
   const grouped = useMemo(() => {
     const m = new Map<string, KibanaPodRow[]>();
@@ -80,7 +95,7 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec }: 
     start: query.start, end: query.end, namespace: query.namespace,
     container: query.container, app: query.app, host: query.host,
     pod: selected, pods: [] as string[],
-    keyword: query.keyword, excludeKeyword: query.excludeKeyword,
+    keyword: query.keyword, exclude_keyword: query.excludeKeyword,
     levels: query.levels,
   }), [site, query, selected]);
 

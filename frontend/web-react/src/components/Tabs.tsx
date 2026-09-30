@@ -71,14 +71,17 @@ export function Tabs() {
         {!isElectron && (
           <button
             type="button"
-            className={`tab tab-group${activeInSys ? ' active' : ''}`}
+            // 注意：分组是容器而非页面，因此不能用 .active（那会让 DOM/工具误认为
+            // 「系统」和它的子项同时是当前页）；用独立的 --contains-active 修饰类。
+            className={`tab tab-group${activeInSys ? ' tab-group--contains-active' : ''}`}
             onClick={() => setSysOpen((o) => !o)}
             title={sidebarOpen ? undefined : t('tab.system')}
             aria-expanded={sysExpanded}
           >
             <span className="tab-ico" aria-hidden="true">🛠</span>
             <span className="tab-txt">{t('tab.system')}</span>
-            <span className="tab-caret" aria-hidden="true">{sysExpanded ? '▾' : '▸'}</span>
+            {/* 箭头只渲染一个朝向，展开态由 CSS 旋转（与面板内其他折叠控件一致） */}
+            <span className="tab-caret" aria-hidden="true">▸</span>
           </button>
         )}
         {sysExpanded && SYS_TABS.map((tab) => renderTab(tab, 'tab-sub'))}

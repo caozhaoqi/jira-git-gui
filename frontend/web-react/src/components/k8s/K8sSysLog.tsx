@@ -22,6 +22,8 @@ export function K8sSysLog() {
   const { sites, current, setCurrent, reload } = useKibanaSites(true);
   const [query, setQuery] = useState<KibanaQuery>(DEFAULT_QUERY);
   const [wrap, setWrap] = useState(true);
+  // 「查询」按钮此前是空实现；这里用计数驱动 KibanaExplorer 重新拉取
+  const [reloadKey, setReloadKey] = useState(0);
   // 只读聚合 tab：默认不自动刷新（ES 采集本身有延迟，非实时 tail）
   const refreshSec = 0;
 
@@ -64,13 +66,16 @@ export function K8sSysLog() {
           ↻
         </button>
         {currentSite?.base_url && <span className="k8s-env-kc panel-sub">{currentSite.base_url}</span>}
+        {/* 本页签查的是采集到 ES/Kibana 的历史日志，与上方 kubectl 的「环境」无关：
+            两个下拉框并排很容易让人以为「环境」在这里也应该生效，故显式说明。 */}
+        <span className="k8s-syslog-hint panel-sub">{t('k8s.syslog.hint')}</span>
       </div>
 
       <KibanaFilters
         site={current}
         value={query}
         onChange={onChange}
-        onSearch={() => { /* KibanaExplorer 随 query 变化已自动重查 */ }}
+        onSearch={() => setReloadKey((k) => k + 1)}
       />
 
       {!current ? (
@@ -82,6 +87,7 @@ export function K8sSysLog() {
           wrap={wrap}
           onToggleWrap={() => setWrap((w) => !w)}
           refreshSec={refreshSec}
+          reloadKey={reloadKey}
         />
       )}
     </div>

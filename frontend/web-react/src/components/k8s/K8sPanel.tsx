@@ -41,6 +41,16 @@ function envTagText(envs: { name: string; label?: string }[], cur: string): stri
   return e ? `${e.label || e.name} (${e.name})` : cur || '—';
 }
 
+/** 环境「类型」标签：下拉框已经显示了环境名，这里只补充下拉框表达不了的风险等级
+    （生产/测试/开发），避免同一行里把同一个环境名显示两遍。 */
+function envKindKey(name: string): string {
+  const v = (name || '').toLowerCase();
+  if (v.includes('prod') || v === 'prd' || v.includes('生产')) return 'k8s.envKind.prod';
+  if (v.includes('test') || v.includes('uat') || v.includes('stag') || v.includes('测试') || v.includes('预发')) return 'k8s.envKind.test';
+  if (v.includes('dev') || v.includes('开发') || v.includes('development')) return 'k8s.envKind.dev';
+  return 'k8s.envKind.other';
+}
+
 export function K8sPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
@@ -112,7 +122,12 @@ export function K8sPanel() {
               ))}
             </select>
           </label>
-          <span className={envTagClass(target.env)}>{envTagText(envs, target.env)}</span>
+          <span
+            className={envTagClass(target.env)}
+            title={envTagText(envs, target.env)}
+          >
+            {target.env ? t(envKindKey(target.env)) : '—'}
+          </span>
           <button className="btn btn-ghost btn-sm" onClick={() => setEnvModalOpen(true)}>{t('k8s.manageEnv')}</button>
           <span className="k8s-env-kc panel-sub">{kcText}</span>
         </div>

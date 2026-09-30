@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiPost } from '../api/client';
 import { useT } from '../i18n';
+import { requestConfirm } from '../utils/confirmStore';
 
 export function ActionBar() {
   const selectedRepo = useAppStore((s) => s.selectedRepo);
   const selectedFilePath = useAppStore((s) => s.selectedFilePath);
   const checkedPaths = useAppStore((s) => s.checkedPaths);
+  const clearCheckedPaths = useAppStore((s) => s.clearCheckedPaths);
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
   const setProgress = useAppStore((s) => s.setProgress);
@@ -65,6 +67,9 @@ export function ActionBar() {
       await apiPost('/api/download', { paths, max_workers: workers });
       setProgress({ visible: true, mode: 'indeterminate', stage: t('repo.downloadSelected'), detail: '' });
       pushLog(t('repo.downloadSelectedStart', { n: paths.length }));
+      // 已下载的勾选要清掉：否则这些「看不见的勾选」会一直留给差异页的
+      // 「合并勾选项」使用，用户无法察觉、也无法在差异列表里取消。
+      clearCheckedPaths();
     } catch (e: any) {
       pushLog(t('repo.downloadFail', { msg: e.message }), 'error');
       addToast(e.message, 'error');
@@ -77,12 +82,24 @@ export function ActionBar() {
   }
 
   async function clearResume() {
+    // 断点续传清单一旦清空只能重下，属不可撤销操作：先确认再执行。
+    if (!(await requestConfirm({ message: t('repo.clearResumeConfirm'), danger: true }))) return;
     try {
       const res = await apiPost<{ msg?: string; error?: string }>('/api/resume', {});
-      pushLog(res.msg || res.error || t('repo.resumeDone'));
+      const msg = res.msg || res.error || t('repo.resumeDone');
+      pushLog(msg);
+      // 结果只在「系统 → 日志」页可见，这里补一条即时反馈
+      addToast(res.error ? msg : t('repo.resumeCleared'), res.error ? 'error' : 'success');
     } catch (e: any) {
       pushLog(t('repo.resumeFail', { msg: e.message }), 'error');
+      addToast(t('repo.resumeFail', { msg: e.message }), 'error');
     }
+  }
+
+  async function handleClearLogs() {
+    if (!(await requestConfirm({ message: t('repo.clearLogsConfirm'), danger: true }))) return;
+    clearLogs();
+    addToast(t('repo.logsCleared'), 'success');
   }
 
   return (
@@ -103,7 +120,7 @@ export function ActionBar() {
         <button className="btn btn-ghost" onClick={clearResume}>
           {t('repo.clearResume')}
         </button>
-        <button className="btn btn-ghost" onClick={clearLogs}>
+        <button className="btn btn-ghost" onClick={handleClearLogs}>
           {t('repo.clearLogs')}
         </button>
       </div>

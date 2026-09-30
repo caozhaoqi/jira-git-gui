@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type {
@@ -67,6 +67,18 @@ export function FileTree() {
   // 「粘贴完整路径直达」：一次请求并行拉回根到目标的每一层，
   // 避免逐层点开时每层都付一次远端页面渲染的等待。
   const [jumpPath, setJumpPath] = useState('');
+  // 本地目录用「草稿 + 提交」方式：此前输入框直接绑 store，每敲一个字符就触发
+  // 一次 /api/tree 请求，且失败时每个字符弹一个错误 toast。
+  const [localDirDraft, setLocalDirDraft] = useState(treeLocalDir);
+  const lastTreeErrRef = useRef('');
+
+  // 外部（.env 映射、直达跳转等）改了 store 值时，草稿跟随
+  useEffect(() => { setLocalDirDraft(treeLocalDir); }, [treeLocalDir]);
+
+  const commitLocalDir = useCallback(() => {
+    const v = localDirDraft.trim();
+    if (v !== treeLocalDir) setTreeLocalDir(v);
+  }, [localDirDraft, treeLocalDir, setTreeLocalDir]);
   const [jumping, setJumping] = useState(false);
   const [jumpError, setJumpError] = useState('');
   // jumpFocus=高亮（持久）；pendingScroll=待滚动（滚到即清空）。
@@ -89,16 +101,24 @@ export function FileTree() {
         setRootEntries([]);
         setTreeError(res.error);
         pushLog(`${t('repo.fileTree')}：${res.error}`, 'error');
-        addToast(res.error, 'error');
+        // 同一错误只弹一次，避免目录连续重试时刷屏
+        if (res.error && res.error !== lastTreeErrRef.current) {
+          lastTreeErrRef.current = res.error;
+          addToast(res.error, 'error');
+        }
       } else {
         setRootEntries(res.entries || []);
+        lastTreeErrRef.current = '';
         pushLog(`${t('repo.fileTree')}：${(res.entries || []).length}`);
       }
     } catch (e: any) {
       setRootEntries([]);
       setTreeError(e.message || t('file.loadErr'));
       pushLog(`${t('repo.fileTree')}：${e.message}`, 'error');
-      addToast(e.message, 'error');
+      if (e.message && e.message !== lastTreeErrRef.current) {
+        lastTreeErrRef.current = e.message;
+        addToast(e.message, 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -389,8 +409,11 @@ export function FileTree() {
           <input
             className="input tree-local-input"
             placeholder={t('file.localDirPlaceholder')}
-            value={treeLocalDir}
-            onChange={(e) => setTreeLocalDir(e.target.value)}
+            value={localDirDraft}
+            onChange={(e) => setLocalDirDraft(e.target.value)}
+            onBlur={commitLocalDir}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitLocalDir(); }}
+            aria-label={t('file.localDir')}
           />
         </label>
       </div>
@@ -400,6 +423,7 @@ export function FileTree() {
             className="input tree-jump-input"
             placeholder={t('file.jumpPlaceholder')}
             title={t('file.jumpPlaceholder')}
+            aria-label={t('file.jumpPlaceholder')}
             value={jumpPath}
             disabled={jumping}
             onChange={(e) => setJumpPath(e.target.value)}
@@ -426,6 +450,8 @@ export function FileTree() {
               placeholder={`🔍 ${t('file.browser')}`}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
+              aria-label={t('file.searchLabel')}
+              type="search"
             />
             <div className="tree-scope-toggle" role="tablist">
               <button

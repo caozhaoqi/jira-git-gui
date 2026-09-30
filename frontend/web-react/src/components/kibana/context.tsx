@@ -38,6 +38,14 @@ export interface KibanaContextValue {
   setQuery: (patch: Partial<KibanaQuery>) => void;
   pushLog: (msg: string, level?: string) => void;
   addToast: (msg: string, type?: ToastType) => void;
+  /** 自增计数：点「查询」时 +1，子面板据此重新拉取（此前该按钮是空实现） */
+  reloadKey: number;
+  /** 子面板回报的加载态，供「查询」按钮显示加载中 */
+  busy: boolean;
+  setBusy: (b: boolean) => void;
+  /** 是否已完成过至少一次查询：未查询过时不应断言「无数据」 */
+  loadedOnce: boolean;
+  setLoadedOnce: (b: boolean) => void;
   openSiteModal: () => void;
 }
 

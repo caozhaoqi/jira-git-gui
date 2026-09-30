@@ -159,9 +159,13 @@ export function K8sSnapshot() {
         addToast(t('k8s.snapshot.pickPod'), 'warn');
         return;
       }
-      openLogViewer({ pod: name, env: target.env, namespace: target.namespace });
+      // 用「本次快照实际使用的命名空间」打开日志：快照有自己的 namespace 输入框
+      // （见 run() 里的 namespace.trim()），若这里仍用 target.namespace，
+      // 在快照配置里填了命名空间时会把日志查看器过滤到错误的命名空间。
+      const nsForLog = namespace.trim() || target.namespace;
+      openLogViewer({ pod: name, env: target.env, namespace: nsForLog });
     },
-    [addToast, openLogViewer, target.env, target.namespace, t],
+    [addToast, openLogViewer, target.env, target.namespace, namespace, t],
   );
 
   return (
@@ -200,7 +204,14 @@ export function K8sSnapshot() {
           )}
 
           {!running ? (
-            <button className="btn btn-primary btn-sm" onClick={run} disabled={!target.env}>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={run}
+              // 与 run() 内的守卫保持一致：没选环境但填了 kubeconfig 也应可运行，
+              // 否则那个 kubeconfig 输入框永远无法生效（前端把它渲染成了摆设）。
+              disabled={!target.env && !kubeconfig.trim()}
+              title={!target.env && !kubeconfig.trim() ? t('k8s.snapshot.needEnvOrKubeconfig') : undefined}
+            >
               {t('k8s.snapshot.run')}
             </button>
           ) : (

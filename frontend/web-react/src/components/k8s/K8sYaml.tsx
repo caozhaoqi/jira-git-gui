@@ -3,6 +3,7 @@ import { api, apiPost } from '../../api/client';
 import type { K8sPodsResp, K8sYamlResp } from '../../api/types';
 import { useK8s } from './context';
 import { useT } from '../../i18n';
+import { requestConfirm } from '../../utils/confirmStore';
 
 const KINDS = ['pod', 'deployment', 'service', 'configmap', 'secret', 'ingress', 'statefulset', 'daemonset', 'pvc'];
 
@@ -153,6 +154,8 @@ export function K8sYaml() {
   const [podList, setPodList] = useState<string[]>([]);
   const [mode, setMode] = useState<'view' | 'edit'>('view');
   const [q, setQ] = useState('');
+  // 「已提交到集群」的内容基准：只有编辑器内容与之不同才允许 apply
+  const appliedRef = useRef('');
 
   const loadPodList = useCallback(async () => {
     const qry = encodeURIComponent(ns.trim());
@@ -179,6 +182,7 @@ export function K8sYaml() {
       });
       if (!d.ok) { setMsg(t('k8s.yaml.fail') + (d.error || '')); return; }
       setEditor(d.yaml || '');
+      appliedRef.current = d.yaml || '';
       setOut('');
       setQ('');
       setMode('view');
@@ -190,6 +194,13 @@ export function K8sYaml() {
 
   const applyYaml = useCallback(async () => {
     if (!editor.trim()) { setMsg(t('k8s.yaml.empty')); return; }
+    // 应用 = 对集群 kubectl apply，属不可撤销的写操作：
+    // 仅在编辑模式且内容确有改动时允许，并二次确认（避免在只读查看态误点把刚拉取的清单又 apply 一遍）。
+    const ok = await requestConfirm({
+      message: t('k8s.yaml.applyConfirm', { kind, name: name.trim() || '-', ns: ns.trim() || 'default' }),
+      danger: true,
+    });
+    if (!ok) return;
     setMsg(t('k8s.yaml.uploading'));
     try {
       const d = await apiPost<K8sYamlResp>('/api/k8s/yaml', {
@@ -198,6 +209,7 @@ export function K8sYaml() {
       if (!d.ok) { setMsg(t('k8s.yaml.fail') + (d.error || '')); return; }
       setOut((d.stdout || '') + (d.stderr ? '\n' + d.stderr : ''));
       setMsg(t('k8s.yaml.uploadOk'));
+      appliedRef.current = editor; // 应用成功后重置「已改动」基准
     } catch (ex: any) {
       setMsg(t('k8s.yaml.fail') + ex.message);
     }
@@ -219,7 +231,20 @@ export function K8sYaml() {
         <label>{t('k8s.yaml.namespace')}<input className="input" value={ns} onChange={(e) => setNs(e.target.value)} placeholder={t('k8s.yaml.namespacePh')} /></label>
         <label className="chk"><input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} /> {t('k8s.yaml.cleanStatus')}</label>
         <button className="btn btn-sm" onClick={() => getYaml()}>{t('k8s.yaml.get')}</button>
-        <button className="btn btn-sm" onClick={applyYaml}>{t('k8s.yaml.apply')}</button>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={applyYaml}
+          disabled={mode !== 'edit' || !editor.trim() || editor === appliedRef.current}
+          title={
+            mode !== 'edit'
+              ? t('k8s.yaml.applyNeedEdit')
+              : editor === appliedRef.current
+                ? t('k8s.yaml.applyNoChange')
+                : t('k8s.yaml.apply')
+          }
+        >
+          {t('k8s.yaml.apply')}
+        </button>
         <button
           className="btn btn-sm btn-ghost"
           onClick={() => {
