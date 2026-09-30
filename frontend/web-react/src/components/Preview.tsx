@@ -77,6 +77,19 @@ export function Preview() {
     }
   }
 
+  // 最大化后必须能用 Esc 退出（此前只能再点一次同一个图标，键盘用户尤其难发现）
+  useEffect(() => {
+    if (!maximized) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setMaximized(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [maximized]);
+
   return (
     <div className={`preview-pane ${maximized ? 'maximized repo-col-fullscreen' : ''}`}>
       <div className="panel-header">

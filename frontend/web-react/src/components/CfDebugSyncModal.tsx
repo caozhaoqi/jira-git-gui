@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { cfdebug } from '../api/cfdebug/client';
 import { useModalA11y } from '../utils/useModalA11y';
+import { requestConfirm } from '../utils/confirmStore';
 
 export function CfDebugSyncModal({
   open,
@@ -71,6 +72,11 @@ export function CfDebugSyncModal({
     } catch {
       addToast(t('cfdebug.syncJsonErr'), 'error');
       return;
+    }
+    // 「替换」模式会用导入内容整体覆盖本地账号配置文件（无备份），属不可撤销操作
+    if (importMode === 'replace') {
+      const ok = await requestConfirm({ message: t('cfdebug.syncReplaceConfirm'), danger: true });
+      if (!ok) return;
     }
     try {
       const r = await cfdebug.importAccounts(arr as Record<string, unknown>[], importMode);
@@ -149,7 +155,10 @@ export function CfDebugSyncModal({
               placeholder={t('cfdebug.syncImportHint')}
               onChange={(e) => setImportText(e.target.value)}
             />
-            <button className="btn btn-sm btn-primary" onClick={() => void doImport()}>
+            <button
+              className={'btn btn-sm ' + (importMode === 'replace' ? 'btn-danger' : 'btn-primary')}
+              onClick={() => void doImport()}
+            >
               ⬆ {t('cfdebug.syncImportBtn')}
             </button>
           </div>

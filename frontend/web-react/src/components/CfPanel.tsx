@@ -255,6 +255,27 @@ export function CfPanel() {
     }
   }, []);
 
+  // 分页参数的「失焦钳制」：把空值/非法值/越界值收敛到合法范围并明确提示，
+  // 而不是在 onChange 里用 `|| 默认值` 静默吞掉（用户会以为生效了，实际用的是别的值）。
+  const PAGE_SIZE_MAX = 1000;
+  const clampPageSize = useCallback(() => {
+    const n = Math.trunc(Number(cfg.page_size));
+    const v = !Number.isFinite(n) || n < 1 ? 200 : Math.min(PAGE_SIZE_MAX, n);
+    if (v !== cfg.page_size) {
+      setCfg((c) => ({ ...c, page_size: v }));
+      addToast(t('cf.pageSizeClamped', { v, max: PAGE_SIZE_MAX }), 'warn');
+    }
+  }, [cfg.page_size, addToast, t]);
+
+  const clampPageIndex = useCallback(() => {
+    const n = Math.trunc(Number(cfg.page_index));
+    const v = !Number.isFinite(n) || n < 1 ? 1 : n;
+    if (v !== cfg.page_index) {
+      setCfg((c) => ({ ...c, page_index: v }));
+      addToast(t('cf.pageIndexClamped', { v }), 'warn');
+    }
+  }, [cfg.page_index, addToast, t]);
+
   // 返回解析出的 cfg：挂载流程把 server_url 显式传给 restoreStreamState（多开按环境认领流，
   // 规避「挂载 effect 里 cfgRef 还是旧值」的时序问题）。
   const loadCfg = useCallback((): Partial<CfCfg> | undefined => {
@@ -1022,6 +1043,7 @@ export function CfPanel() {
               className="sel"
               value={env}
               onChange={(e) => switchEnv(e.target.value)}
+              aria-label={t('cf.selectEnv')}
             >
               <option value="">{t('cf.selectEnv')}</option>
               {accounts.map((a) => (
@@ -1036,8 +1058,12 @@ export function CfPanel() {
             className="btn btn-ghost btn-sm"
             onClick={() => setCfgOpen((v) => !v)}
             title={t('cf.toggleConfig')}
+            aria-expanded={cfgOpen}
           >
-            {t('cf.config')} {cfgOpen ? '▾' : '▸'}
+            {/* 箭头置于文字之前并统一用 .cfd-caret：放在末尾的小三角在视觉上会被
+                误读成句读符号（「配置 ·」），前置后与面板内其它折叠控件一致 */}
+            <span className="cfd-caret" aria-hidden="true">▸</span>
+            {t('cf.config')}
           </button>
           <button
             className="btn btn-sm btn-primary"
@@ -1056,6 +1082,7 @@ export function CfPanel() {
                 <label>{t('cf.serverUrl')}</label>
                 <input
                   className="input"
+                  aria-label={t('cf.serverUrl')}
                   placeholder={t('cf.serverUrlPlaceholder')}
                   value={cfg.server_url}
                   onChange={(e) => setCfg({ ...cfg, server_url: e.target.value })}
@@ -1068,6 +1095,7 @@ export function CfPanel() {
                 <label>{t('cf.mobile')}</label>
                 <input
                   className="input"
+                  aria-label={t('cf.username')}
                   placeholder={t('cf.mobilePlaceholder')}
                   value={cfg.username}
                   onChange={(e) => setCfg({ ...cfg, username: e.target.value })}
@@ -1078,6 +1106,7 @@ export function CfPanel() {
                 <label>{t('cf.password')}</label>
                 <input
                   className="input"
+                  aria-label={t('cf.password')}
                   type="password"
                   placeholder={t('cf.passwordPlaceholder')}
                   value={cfg.password}
@@ -1089,6 +1118,7 @@ export function CfPanel() {
                 <label>{t('cf.token')}</label>
                 <input
                   className="input"
+                  aria-label={t('cf.token')}
                   placeholder={t('cf.tokenPlaceholder')}
                   value={cfg.token}
                   onChange={(e) => setCfg({ ...cfg, token: e.target.value })}
@@ -1141,6 +1171,7 @@ export function CfPanel() {
                 <label>{t('cf.proxy')}</label>
                 <input
                   className="input"
+                  aria-label={t('cf.proxy')}
                   placeholder="http://127.0.0.1:7890"
                   value={cfg.proxy}
                   onChange={(e) => setCfg({ ...cfg, proxy: e.target.value })}
@@ -1218,6 +1249,7 @@ export function CfPanel() {
             <label>{t('cf.logType')}</label>
             <input
               className="input"
+              aria-label={t('cf.logType')}
               placeholder="salary_seal_delay_payment_vvv1"
               value={cfg.log_type}
               onChange={(e) => setCfg({ ...cfg, log_type: e.target.value })}
@@ -1229,6 +1261,7 @@ export function CfPanel() {
             <label>{t('cf.recordModel')}</label>
             <input
               className="input"
+              aria-label={t('cf.recordModel')}
               list="cf-record-models"
               placeholder="dynamic_log"
               value={cfg.record_model}
@@ -1251,9 +1284,14 @@ export function CfPanel() {
               type="number"
               min={1}
               max={1000}
-              value={cfg.page_size}
-              onChange={(e) => setCfg({ ...cfg, page_size: parseInt(e.target.value) || 200 })}
-              onBlur={() => saveCfg()}
+              value={Number.isFinite(cfg.page_size) ? cfg.page_size : ''}
+              onChange={(e) => {
+                // 不再用 `parseInt(v) || 200` 静默回退：清空/非法输入应保持可见，
+                // 交由失焦时统一钳制并明确告知，避免「输入 0 却跑了 200 条」。
+                const raw = e.target.value;
+                setCfg({ ...cfg, page_size: raw === '' ? NaN : Number(raw) });
+              }}
+              onBlur={() => { clampPageSize(); saveCfg(); }}
             />
           </div>
           <div className="cf-cfg-field cf-cfg-field--w80">
@@ -1262,9 +1300,12 @@ export function CfPanel() {
               className="input input-sm"
               type="number"
               min={1}
-              value={cfg.page_index}
-              onChange={(e) => setCfg({ ...cfg, page_index: parseInt(e.target.value) || 1 })}
-              onBlur={() => saveCfg()}
+              value={Number.isFinite(cfg.page_index) ? cfg.page_index : ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                setCfg({ ...cfg, page_index: raw === '' ? NaN : Number(raw) });
+              }}
+              onBlur={() => { clampPageIndex(); saveCfg(); }}
             />
           </div>
           <button

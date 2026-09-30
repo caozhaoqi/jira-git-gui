@@ -21,10 +21,6 @@ interface SelectedFile { name: string; isDir: boolean; }
 export function K8sFiles() {
   const { target, setTarget, addToast } = useK8s();
   const { t } = useT();
-  const editDialogRef = useModalA11y<HTMLDivElement>(() => {
-    setEditPath('');
-    setEditFullscreen(false);
-  });
 
   const [path, setPath] = useState('/');
   const [entries, setEntries] = useState<K8sFileEntry[]>([]);
@@ -37,12 +33,33 @@ export function K8sFiles() {
   const [editFullscreen, setEditFullscreen] = useState(false);
   // 查看模式（高亮只读）与编辑模式（textarea 可保存）切换
   const [editMode, setEditMode] = useState(false);
+  // 打开文件时的原始内容：用于判断「是否真的改过」，进而决定保存按钮是否可用
+  const loadedRef = useRef<string | null>(null);
   const [editLang, setEditLang] = useState('');
   const [searchQ, setSearchQ] = useState('');
   const [searchStatus, setSearchStatus] = useState('');
   const [searchResults, setSearchResults] = useState<K8sFileSearchHit[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [podList, setPodList] = useState<{ name: string; phase?: string }[]>([]);
+
+  // 关闭编辑器：处于编辑且有未保存改动时先确认，避免遮罩误点 / Esc 丢掉手改内容
+  const closeEditor = useCallback(async () => {
+    if (editMode && loadedRef.current !== null && editContent !== loadedRef.current) {
+      const ok = await requestConfirm({
+        message: t('k8s.files.unsavedConfirm', { name: baseNameOf(editPath) }),
+        danger: true,
+      });
+      if (!ok) return false;
+    }
+    setEditPath('');
+    setEditFullscreen(false);
+    setEditMode(false);
+    loadedRef.current = null;
+    return true;
+  }, [editMode, editContent, editPath, t]);
+  const editDialogRef = useModalA11y<HTMLDivElement>(() => {
+    void closeEditor();
+  });
 
   const loadPods = useCallback(async () => {
     if (!target.env) return;
@@ -71,6 +88,9 @@ export function K8sFiles() {
 
   const listFiles = useCallback(async (p?: string) => {
     const pp = p !== undefined ? p : path;
+    // 切换目录/环境/容器时必须清掉选中项：否则同一文件名会「看起来仍被选中」，
+    // 而删除/下载用的是新目录下的同名路径（删错文件）。
+    setSelected(null);
     if (!target.pod) {
       setEntries([]);
       return;
@@ -116,6 +136,8 @@ export function K8sFiles() {
       setEditLang(langFromName(full).label);
       setEditMode(false); // 默认以高亮查看模式打开
       setEditTruncated(!!d.truncated);
+      // 记录原始内容（截断时置 null：见 saveFile 的说明）
+      loadedRef.current = d.truncated ? null : (d.content || '');
       setEditMsg('');
     } catch (ex: any) {
       addToast(t('k8s.files.readFail') + ex.message, 'error');
@@ -124,6 +146,12 @@ export function K8sFiles() {
 
   const saveFile = useCallback(async () => {
     if (!editPath) return;
+    // 截断保护：file/read 只取前 200KB，直接回写会把文件尾部永久截掉
+    // （还会把「... (truncated, total N bytes)」这行提示当成正文写进去）。
+    if (editTruncated) {
+      setEditMsg(t('k8s.files.saveBlockedTruncated'));
+      return;
+    }
     setEditMsg(t('k8s.files.saveMsgSaving'));
     try {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/write', {
@@ -131,11 +159,16 @@ export function K8sFiles() {
       });
       if (!d.ok) { setEditMsg(t('k8s.files.saveFail') + (d.error || '')); return; }
       setEditMsg(t('k8s.files.saveDone'));
+      loadedRef.current = editContent;
       listFiles(path);
     } catch (ex: any) {
       setEditMsg(t('k8s.files.saveFail') + ex.message);
     }
-  }, [editPath, editContent, target.env, target.pod, target.container, target.namespace, listFiles, path, t]);
+  }, [editPath, editContent, editTruncated, target.env, target.pod, target.container, target.namespace, listFiles, path, t]);
+
+  // 保存可用条件：处于编辑模式 + 内容确有改动 + 文件未被截断
+  const editDirty = loadedRef.current !== null && editContent !== loadedRef.current;
+  const canSave = editMode && editDirty && !editTruncated;
 
   // ===== 分片下载（断点续传 + 进度条） =====
   //
@@ -467,7 +500,7 @@ export function K8sFiles() {
       />
 
       {editPath && (
-        <div className="modal-mask" onClick={() => { setEditPath(''); setEditFullscreen(false); }}>
+        <div className="modal-mask" onClick={() => { void closeEditor(); }}>
           <div
             className={'modal modal-lg' + (editFullscreen ? ' modal-fullscreen' : '')}
             ref={editDialogRef}
@@ -501,7 +534,7 @@ export function K8sFiles() {
                 >
                   {editFullscreen ? '🗗 ' + t('k8s.files.exitFullscreen') : '⛶ ' + t('k8s.files.fullscreen')}
                 </button>
-                <button className="btn btn-sm btn-ghost" onClick={() => { setEditPath(''); setEditMode(false); setEditFullscreen(false); }} aria-label={t('common.close')}>✕</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => { void closeEditor(); }} aria-label={t('common.close')}>✕</button>
               </div>
             </div>
             <div className="modal-body">
@@ -512,9 +545,16 @@ export function K8sFiles() {
               )}
             </div>
             <div className="modal-footer">
-              <span className="k8s-env-msg">{editMsg}</span>
+              <span className="k8s-env-msg">{editMsg || (editTruncated ? t('k8s.files.saveBlockedTruncated') : '')}</span>
               <div className="spacer" />
-              <button className="btn btn-sm" onClick={saveFile}>{t('k8s.files.save')}</button>
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={saveFile}
+                disabled={!canSave}
+                title={editTruncated ? t('k8s.files.saveBlockedTruncated') : t('k8s.files.save')}
+              >
+                {t('k8s.files.save')}
+              </button>
               <button className="btn btn-sm btn-ghost" onClick={fileDownload}>{t('k8s.files.downloadFile')}</button>
             </div>
           </div>

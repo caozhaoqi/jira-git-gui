@@ -162,8 +162,19 @@ export default function App() {
         if (d.ok) {
           pushLog(`克隆结果：${d.msg}`);
           if (d.path) pushLog(`本地路径：${d.path}`);
+          setProgress({ visible: false });
+        } else {
+          // 失败必须在进度区显性呈现（此前直接隐藏进度条，失败与成功看起来一样）
+          pushLog(`克隆失败：${d.msg}`, 'error');
+          addToast(`克隆失败：${d.msg}`, 'error');
+          setProgress({
+            visible: true,
+            mode: 'error',
+            stage: '克隆失败',
+            detail: d.msg || '',
+            eta: '',
+          });
         }
-        setProgress({ visible: false });
       }),
       sse.on('download_done', (d: SSEDownloadDone) => {
         cloneEtaStarted.current = false;
@@ -171,7 +182,18 @@ export default function App() {
           `下载完成：成功 ${d.ok_count}（跳过 ${d.skipped}），失败 ${d.fail_count}。`
         );
         if (d.dest) pushLog(`已保存到：${d.dest}`);
-        setProgress({ visible: false });
+        if ((d.fail_count || 0) > 0) {
+          addToast(`下载完成，但有 ${d.fail_count} 项失败`, 'error');
+          setProgress({
+            visible: true,
+            mode: 'error',
+            stage: `下载失败 ${d.fail_count} 项`,
+            detail: d.dest ? `已保存到：${d.dest}（成功 ${d.ok_count}，跳过 ${d.skipped}）` : '',
+            eta: '',
+          });
+        } else {
+          setProgress({ visible: false });
+        }
       }),
       sse.on('network_warning', (d: SSENetworkWarning) => {
         const msg = d.message || '网络中断';

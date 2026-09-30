@@ -39,11 +39,29 @@ export function KibanaFilters({
   const { t } = useT();
   const [fields, setFields] = useState<KibanaFieldsResp>({});
   const [fieldsErr, setFieldsErr] = useState('');
+  // 关键词/排除词的本地草稿（提交后才写入 query，避免逐字符触发查询）
+  const [kwDraft, setKwDraft] = useState(value.keyword);
+  const [exDraft, setExDraft] = useState(value.excludeKeyword);
+
+  // 外部（如切换站点/标签页重置）改了 query 时，草稿跟随
+  useEffect(() => { setKwDraft(value.keyword); }, [value.keyword]);
+  useEffect(() => { setExDraft(value.excludeKeyword); }, [value.excludeKeyword]);
+
+  const commitKeyword = useCallback(() => {
+    if (kwDraft !== value.keyword) onChange({ keyword: kwDraft });
+  }, [kwDraft, value.keyword, onChange]);
+  const commitExclude = useCallback(() => {
+    if (exDraft !== value.excludeKeyword) onChange({ excludeKeyword: exDraft });
+  }, [exDraft, value.excludeKeyword, onChange]);
 
   const loadFields = useCallback(async () => {
     if (!site) return;
     try {
-      const d = await apiGet<KibanaFieldsResp>('/api/kibana/fields?start=now-24h');
+      // 必须带 site：否则这里返回的是后端「当前站点」的字段/Pod 选项，
+      // 而日志查询用的是下拉框选中的站点，两处会显示不同集群的数据。
+      const d = await apiGet<KibanaFieldsResp>(
+        `/api/kibana/fields?start=now-24h&site=${encodeURIComponent(site)}`
+      );
       setFields(d);
       setFieldsErr(d.ok === false ? (d.error || '') : '');
     } catch (ex: any) {
@@ -139,19 +157,25 @@ export function KibanaFilters({
       </div>
 
       <div className="kb-filter-row">
+        {/* 关键词用本地草稿：输入过程中不触发查询（一次查询约数秒，逐字符打会打爆后端），
+            回车或失焦时才提交；旁边有「查询」按钮可显式触发。 */}
         <input
           className="input input-sm kb-keyword"
-          value={value.keyword}
-          onChange={(e) => onChange({ keyword: e.target.value })}
-          onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }}
+          value={kwDraft}
+          onChange={(e) => setKwDraft(e.target.value)}
+          onBlur={commitKeyword}
+          onKeyDown={(e) => { if (e.key === 'Enter') { commitKeyword(); onSearch(); } }}
           placeholder={t('kibana.keywordPh')}
+          aria-label={t('kibana.keywordPh')}
         />
         <input
           className="input input-sm kb-keyword"
-          value={value.excludeKeyword}
-          onChange={(e) => onChange({ excludeKeyword: e.target.value })}
-          onKeyDown={(e) => { if (e.key === 'Enter') onSearch(); }}
+          value={exDraft}
+          onChange={(e) => setExDraft(e.target.value)}
+          onBlur={commitExclude}
+          onKeyDown={(e) => { if (e.key === 'Enter') { commitExclude(); onSearch(); } }}
           placeholder={t('kibana.excludePh')}
+          aria-label={t('kibana.excludePh')}
         />
         <div className="kb-levels">
           {LEVELS.map((lv) => {
@@ -526,25 +550,6 @@ export function KibanaSitesView() {
       </main>
     </div>
   );
-}
-
-export function useKibanaSites(includeServers = false) {
-  const [sites, setSites] = useState<KibanaSite[]>([]);
-  const [current, setCurrent] = useState('');
-  const reload = useCallback(async () => {
-    try {
-      // includeServers=true：额外并入由 cf_accounts / hcm_whitelist 派生的「服务器站点」
-      const d = await apiGet<KibanaSitesResp>(
-        `/api/kibana/sites${includeServers ? '?servers=1' : ''}`
-      );
-      const list = d.sites || [];
-      setSites(list);
-      // 不覆盖用户当前选择（reload 时保留已选站点）
-      setCurrent((prev) => prev || d.current || (list[0]?.name ?? ''));
-    } catch { /* 静默：面板里有各自的错误提示 */ }
-  }, [includeServers]);
-  useEffect(() => { reload(); }, [reload]);
-  return { sites, current, setCurrent, reload };
 }
 
 export { TIME_PRESETS, LEVELS };

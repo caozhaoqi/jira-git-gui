@@ -59,7 +59,9 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
     setStatusText(t('connect.testing'));
     setStatusType('');
     try {
-      const res = await apiPost<ConnectResp>('/api/connect', body());
+      // dry_run：只探测连通性，不改写服务端配置、不落盘（此前「测试」与「应用」
+      // 打同一请求，点测试就已经切换仓库并保存凭据）
+      const res = await apiPost<ConnectResp>('/api/connect', { ...body(), dry_run: true });
       const parts: string[] = [];
       parts.push(res.cookieOk ? 'Cookie ✓' : 'Cookie ✗');
       if (res.patTest) parts.push(`PAT ${res.patTest.ok ? '✓' : '✗'}: ${res.patTest.msg}`);
@@ -69,13 +71,12 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
       }
       if (res.note) parts.push(res.note);
       let ok = res.cookieOk || Boolean(res.patTest?.ok) || Boolean(res.repoDefaults?.displayName);
-      if (mode === 'cookie' && cookie.trim()) {
-        if (res.cookieSaved) parts.push(t('connect.cookieSaved'));
-        else if (res.cookieWarning) {
-          parts.push(res.cookieWarning);
-          ok = false;
-        }
+      if (mode === 'cookie' && cookie.trim() && res.cookieWarning) {
+        parts.push(res.cookieWarning);
+        ok = false;
       }
+      // 测试不保存：明确提示，避免用户以为已经生效
+      parts.push(t('connect.testNotSaved'));
       setStatusType(ok ? 'ok' : 'err');
       setStatusText(parts.join(' | '));
     } catch (e: any) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
+import { requestConfirm } from '../utils/confirmStore';
 import type { K8sEnvsResp, K8sEnv } from '../api/types';
 
 // --- 类型 ---
@@ -269,7 +270,19 @@ export function UnifiedDiagnosisPanel() {
           <button className="btn btn-primary" onClick={doDiagnose} disabled={loading}>
             {loading ? '诊断中…' : '一键诊断'}
           </button>
-          <button className="btn btn-ghost" onClick={() => { setErrorText(''); setResult(null); }}>
+          <button
+            className="btn btn-ghost"
+            onClick={async () => {
+              // 清空会同时抹掉粘贴的错误文本与整份诊断结果（含 AI 提示词），
+              // 有结果时先确认，避免误点丢失分析结果。
+              if (result) {
+                const ok = await requestConfirm({ message: '清空粘贴内容与当前诊断结果？该操作不可撤销。', danger: true });
+                if (!ok) return;
+              }
+              setErrorText('');
+              setResult(null);
+            }}
+          >
             清空
           </button>
         </div>

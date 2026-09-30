@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { useT } from '../i18n';
+import { requestConfirm } from '../utils/confirmStore';
 
 interface NetIface {
   device: string;
@@ -86,6 +87,8 @@ export function ClashPanel() {
   const [services, setServices] = useState<Service[]>([]);
   const [defaultIps, setDefaultIps] = useState<string[]>(DEFAULT_IPS);
   const [ips, setIps] = useState<string[]>([]);
+  // 本次会话内是否已成功「一键应用」：未应用过时不允许撤销（撤销会删路由/还原配置）
+  const [applied, setApplied] = useState(false);
   const [newIp, setNewIp] = useState('');
   const [checks, setChecks] = useState<Record<string, CheckResp>>({});
   const [checking, setChecking] = useState(false);
@@ -236,6 +239,11 @@ export function ClashPanel() {
   };
 
   const doApply = async () => {
+    // 一键应用会改写路由表与 Clash 配置，先确认（避免误点后网络中断）
+    if (!(await requestConfirm({
+      message: t('clash.applyConfirm', { n: ips.length, dev: lanDevice }),
+      danger: true,
+    }))) return;
     setApplying(true);
     setApplyLog(null);
     try {
@@ -245,6 +253,8 @@ export function ClashPanel() {
         clash_config_path: cfgPath,
       });
       setApplyLog(r);
+      // 记录「已应用」状态：撤销按钮在此之前一直置灰，避免在没应用过的机器上执行删除路由
+      if (r.ok) setApplied(true);
     } catch (e: any) {
       setApplyLog({ ok: false, error: e.message || t('clash.applyFail') });
     } finally {
@@ -253,6 +263,10 @@ export function ClashPanel() {
   };
 
   const doRevert = async () => {
+    if (!(await requestConfirm({
+      message: t('clash.revertConfirm', { n: ips.length }),
+      danger: true,
+    }))) return;
     setApplying(true);
     setApplyLog(null);
     try {
@@ -262,6 +276,7 @@ export function ClashPanel() {
         clash_config_path: cfgPath,
       });
       setApplyLog(r);
+      if (r.ok) setApplied(false);
     } catch (e: any) {
       setApplyLog({ ok: false, error: e.message || t('clash.revertFail') });
     } finally {
@@ -459,7 +474,13 @@ export function ClashPanel() {
           <button className="btn" onClick={addIp} disabled={!newIp.trim()}>
             ＋ {t('clash.add')}
           </button>
-          <button className="btn btn-ghost" onClick={() => setIps(defaultIps.length ? defaultIps : DEFAULT_IPS)} title={t('clash.restoreDefault')}>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setIps(defaultIps)}
+            // 默认值接口失败时 defaultIps 为空：此时点「恢复默认」会直接清空用户手输的 IP
+            disabled={!defaultIps.length}
+            title={defaultIps.length ? t('clash.restoreDefault') : t('clash.restoreDefaultUnavailable')}
+          >
             {t('clash.restoreDefault')}
           </button>
         </div>
@@ -508,8 +529,8 @@ export function ClashPanel() {
             <button
               className="btn btn-ghost"
               onClick={doRevert}
-              disabled={applying || !ips.length}
-              title={t('clash.revertTip')}
+              disabled={applying || !ips.length || !applied}
+              title={applied ? t('clash.revertTip') : t('clash.revertNeedApply')}
             >
               {t('clash.revert')}
             </button>

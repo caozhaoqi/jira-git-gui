@@ -18,6 +18,9 @@ class ConnectReq(BaseModel):
     repo_id: str = ""
     repo_name: str = ""
     branch: str = ""
+    # 「测试连通性」必须无副作用：dry_run=True 时只用候选配置跑一次探测，
+    # 不改写全局 client 的配置/仓库，也不落盘 session.json。
+    dry_run: bool = False
 
 
 class RepoSelectReq(BaseModel):

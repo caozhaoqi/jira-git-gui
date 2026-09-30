@@ -160,14 +160,21 @@
    hover/聚焦时变主色并加淡底，避免误以为只是装饰。 */
 .cfdebug-fn-openlog {
   flex: none;
-  padding: 1px 5px;
+  /* 21×21 的命中区对鼠标偏小；提到 24×24 并保持图标居中 */
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text-2);
   cursor: pointer;
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1;
   opacity: 0.75;
   transition: all 0.16s var(--ease-out);
 }
@@ -257,25 +264,40 @@
 .cfdebug-collapser {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
+  min-height: var(--ctl-sm);
   border: none;
   background: none;
-  padding: 2px 0;
+  padding: 0;
   cursor: pointer;
   color: var(--text);
   font-size: 13px;
+  text-align: left;
 }
 .cfdebug-collapser:hover .section-title {
   color: var(--primary);
 }
+/* 折叠箭头：与侧栏、Diff/Clash 折叠头统一为同一视觉重量（此前 11px 灰字太小，
+   在标题左侧看起来像一个游离的标点，而不是「可展开」的控件） */
 .cfd-caret {
-  display: inline-block;
-  width: 14px;
-  text-align: center;
-  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  flex: 0 0 16px;
+  color: var(--text-dim);
   font-size: 11px;
-  transition: transform 0.15s var(--ease-out);
+  transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.cfdebug-collapser:hover .cfd-caret,
+.clash-collapser:hover .cfd-caret,
+button[aria-expanded]:hover .cfd-caret {
+  color: var(--primary);
+}
+/* 展开态由 aria-expanded 驱动旋转，标记里只渲染一个朝向 */
+button[aria-expanded='true'] .cfd-caret {
+  transform: rotate(90deg);
 }
 .cfdebug-kwargs {
   width: 100%;

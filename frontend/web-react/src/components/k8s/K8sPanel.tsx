@@ -13,9 +13,8 @@ import { K8sShell } from './K8sShell';
 import { K8sFiles } from './K8sFiles';
 import { K8sEnvModal } from './K8sEnvModal';
 import { K8sDescribeModal, type DescribeSeed } from './K8sDescribeModal';
-import { K8sSysLog } from './K8sSysLog';
 
-type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files' | 'syslog';
+type SubTab = 'snapshot' | 'yaml' | 'network' | 'events' | 'top' | 'shell' | 'files';
 
 const SUBTABS: { key: SubTab; labelKey: string }[] = [
   { key: 'snapshot', labelKey: 'k8s.subtabs.snapshot' },
@@ -25,7 +24,6 @@ const SUBTABS: { key: SubTab; labelKey: string }[] = [
   { key: 'top', labelKey: 'k8s.subtabs.top' },
   { key: 'shell', labelKey: 'k8s.subtabs.shell' },
   { key: 'files', labelKey: 'k8s.subtabs.files' },
-  { key: 'syslog', labelKey: 'k8s.subtabs.syslog' },
 ];
 
 function envTagClass(name: string): string {
@@ -39,6 +37,16 @@ function envTagClass(name: string): string {
 function envTagText(envs: { name: string; label?: string }[], cur: string): string {
   const e = envs.find((x) => x.name === cur);
   return e ? `${e.label || e.name} (${e.name})` : cur || '—';
+}
+
+/** 环境「类型」标签：下拉框已经显示了环境名，这里只补充下拉框表达不了的风险等级
+    （生产/测试/开发），避免同一行里把同一个环境名显示两遍。 */
+function envKindKey(name: string): string {
+  const v = (name || '').toLowerCase();
+  if (v.includes('prod') || v === 'prd' || v.includes('生产')) return 'k8s.envKind.prod';
+  if (v.includes('test') || v.includes('uat') || v.includes('stag') || v.includes('测试') || v.includes('预发')) return 'k8s.envKind.test';
+  if (v.includes('dev') || v.includes('开发') || v.includes('development')) return 'k8s.envKind.dev';
+  return 'k8s.envKind.other';
 }
 
 export function K8sPanel() {
@@ -112,7 +120,12 @@ export function K8sPanel() {
               ))}
             </select>
           </label>
-          <span className={envTagClass(target.env)}>{envTagText(envs, target.env)}</span>
+          <span
+            className={envTagClass(target.env)}
+            title={envTagText(envs, target.env)}
+          >
+            {target.env ? t(envKindKey(target.env)) : '—'}
+          </span>
           <button className="btn btn-ghost btn-sm" onClick={() => setEnvModalOpen(true)}>{t('k8s.manageEnv')}</button>
           <span className="k8s-env-kc panel-sub">{kcText}</span>
         </div>
@@ -141,9 +154,6 @@ export function K8sPanel() {
           <div className="k8s-subtab-pane" style={{ display: sub === 'top' ? 'flex' : 'none' }}><K8sTop /></div>
           <div className="k8s-subtab-pane" style={{ display: sub === 'shell' ? 'flex' : 'none' }}><K8sShell /></div>
           <div className="k8s-subtab-pane" style={{ display: sub === 'files' ? 'flex' : 'none' }}><K8sFiles /></div>
-          <div className="k8s-subtab-pane" style={{ display: sub === 'syslog' ? 'flex' : 'none' }}>
-            <K8sSysLog />
-          </div>
         </div>
 
         {envModalOpen && <K8sEnvModal onClose={() => setEnvModalOpen(false)} />}

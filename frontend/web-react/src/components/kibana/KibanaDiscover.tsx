@@ -13,6 +13,8 @@ interface Props {
   wrap: boolean;
   onToggleWrap: () => void;
   refreshSec: number;
+  /** 点「查询」时自增，用于强制重新拉取 */
+  reloadKey?: number;
 }
 
 function fmtTick(iso: string): string {  if (!iso) return '';
@@ -23,7 +25,7 @@ function fmtTick(iso: string): string {  if (!iso) return '';
 }
 
 /** 检索视角：顶部时间直方图（总量 + 错误量）+ 结果日志流。 */
-export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec }: Props) {
+export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec, reloadKey = 0 }: Props) {
   const { t } = useT();
   const [hist, setHist] = useState<KibanaHistBucket[]>([]);
   const [error, setError] = useState('');
@@ -33,7 +35,7 @@ export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec }: 
     start: query.start, end: query.end, namespace: query.namespace,
     container: query.container, app: query.app, host: query.host,
     pod: query.pod, pods: [] as string[],
-    keyword: query.keyword, excludeKeyword: query.excludeKeyword,
+    keyword: query.keyword, exclude_keyword: query.excludeKeyword,
     levels: query.levels,
   }), [site, query]);
 
@@ -49,7 +51,7 @@ export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec }: 
     }
   }, [req]);
 
-  useEffect(() => { loadHist(); }, [qKey, loadHist]);
+  useEffect(() => { loadHist(); }, [qKey, loadHist, reloadKey]);
 
   const { maxCount } = useMemo(() => {
     let mc = 0;

@@ -15,6 +15,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from fastapi import APIRouter
+from core.client import JiraGitClient
 from api.common import (
     app, client, logger, broadcast,
     _session, _env_loaded, _env_path,
@@ -127,6 +128,9 @@ async def api_connect(req: ConnectReq):
     Cookie 保留逻辑：前端连接弹窗出于安全不回显 Cookie 明文，用户未重新
     粘贴时 req.cookie 为空。此时若已有 session/上次保存的 Cookie，自动沿用，
     避免每次打开弹窗都丢失 Cookie。
+
+    副作用约定：``dry_run=True``（前端「测试」按钮）只做连通性探测，
+    不改写全局 client、不保存 session；只有「应用」才会落盘生效。
     """
     # Cookie/PAT 模式下：用户未输入新值时，沿用当前已加载的值
     effective_cookie = req.cookie
@@ -143,6 +147,27 @@ async def api_connect(req: ConnectReq):
         pat=effective_pat,
         cookie=effective_cookie,
     )
+
+    if req.dry_run:
+        # 用一个临时 client 跑探测：完全不动全局实例（此前「测试」与「应用」
+        # 共用同一实现，点一下「测试」就已经切换了仓库并把凭据写进 session.json）
+        probe = JiraGitClient()
+        try:
+            probe.set_config(cfg)
+            if req.repo_id:
+                probe.set_repo(req.repo_id, req.repo_name, req.branch)
+            result = await asyncio.to_thread(probe.connect) or {}
+        finally:
+            try:
+                if probe._http_client is not None:
+                    probe._http_client.close()
+            except Exception:
+                pass
+        result["dryRun"] = True
+        # 明确告诉前端：测试不会持久化，避免用户以为已经保存
+        result["cookieSaved"] = False
+        return result
+
     client.set_config(cfg)
     if req.repo_id:
         client.set_repo(req.repo_id, req.repo_name, req.branch)
