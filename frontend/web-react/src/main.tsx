@@ -4,6 +4,7 @@ import Root from './Root';
 import { LogViewer } from './components/LogViewer';
 import { ServicesConfig } from './components/ServicesConfig';
 import { KibanaSitesView } from './components/kibana/KibanaFilters';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './styles/global.css';
 import './styles/panels.css';
 import './styles/shell.css';
@@ -34,6 +35,10 @@ if (view === 'log') {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <Entry />
+    {/* 顶层兜底：任何未被区域级边界捕获的渲染异常都会在这里变成可读的错误卡片，
+        而不是整页白屏（面板永久挂载策略会放大单点故障，见 ErrorBoundary 注释）。 */}
+    <ErrorBoundary>
+      <Entry />
+    </ErrorBoundary>
   </React.StrictMode>
 );

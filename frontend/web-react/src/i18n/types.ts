@@ -16,3 +16,7 @@ export const LOCALES: { value: Locale; label: string; flag: string }[] = [
 ];
 
 export const DEFAULT_LOCALE: Locale = 'zh-CN';
+
+// localStorage 里存语言的 key（store 与 i18n 共用；i18n 不能 import store——
+// 两者存在循环依赖，所以 key 常量放这个零依赖模块里）
+export const LOCALE_STORAGE_KEY = 'jgg-locale';

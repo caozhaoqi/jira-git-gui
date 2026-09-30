@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build --base /web/",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check-i18n": "node scripts/check-i18n.mjs",
+    "test": "node scripts/check-i18n.mjs && node ../../tests/test_eta.mjs && node ../../tests/test_log_fields_type_filter.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

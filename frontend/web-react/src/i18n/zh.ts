@@ -2,7 +2,16 @@ import type { Dict } from './types';
 
 // 中文（基语言，key 权威源）。所有 {{var}} 为插值占位符。
 export const zh: Dict = {
+  api: {
+    // 底层 API 客户端（api/client.ts）在请求失败时抛出的通用文案：
+    // 此处是「所有语言下都显示中文」的最后一批硬编码，改为走 i18n。
+    errTimeout: '请求超时，请检查网络或稍后重试',
+    errNetwork: '网络连接失败，请检查网络或服务是否运行',
+    errAuth: '登录已失效，请重新登录',
+    errFetch: '拉取失败',
+  },
   common: {
+    error: '错误',
     ok: '确定',
     cancel: '取消',
     close: '关闭',
@@ -51,6 +60,10 @@ export const zh: Dict = {
     system: '系统',
   },
   hcm: {
+    cfErrRiskLevel: '风险等级',
+    cfErrRiskType: '类型',
+    cfErrRiskLine: '行号',
+    cfErrRiskMsg: '说明',
     configRequired: '请先填写 Token',
     baseUrl: '代理地址',
     proxyHint: '通过本地后端 8787 同源代理转发，无需改动',
@@ -140,7 +153,7 @@ export const zh: Dict = {
     metaRealData: '真实数据',
     metaRunQuery: '运行此列表/查询',
     metaUpdateTime: '更新时间',
-    metaTooMany: '文件数 {n} 超过单次拉取上限，请缩小业务类型范围分页查看',
+    metaTooMany: '文件数 {{n}} 超过单次拉取上限，请缩小业务类型范围分页查看',
     cfErrTitle: '云函数错误定位',
     cfErrHint: '使用前提：云函数需按「[定位] model=.. id=.. field=.. value=.. stage=.. || 原因」格式抛错（详见设计文档）。仅错误号时只能复制 error_code 去服务端按 error_code 查。',
     cfErrPaste: '粘贴报错信息（error_code 或 [定位] 文本）',
@@ -285,9 +298,6 @@ export const zh: Dict = {
     branch: '分支',
     test: '测试连接',
     apply: '确定',
-      applyConfirm: '将对集群执行 kubectl apply：{{kind}}/{{name}}（命名空间 {{ns}}）。确定继续？',
-      applyNeedEdit: '请先切到「编辑」模式再应用',
-      applyNoChange: '内容与已拉取的一致，无需应用',
     readLocalCookie: '已从本地读取上次保存的 Cookie（如需更新请重新粘贴）',
     testing: '测试中…（PAT 模式会触发真实克隆，可能耗时）',
     testNotSaved: '（测试不会保存配置，需点「应用」生效）',
@@ -523,6 +533,9 @@ export const zh: Dict = {
       colSev: '级别',
     },
     yaml: {
+      applyConfirm: '将对集群执行 kubectl apply：{{kind}}/{{name}}（命名空间 {{ns}}）。确定继续？',
+      applyNeedEdit: '请先切到「编辑」模式再应用',
+      applyNoChange: '内容与已拉取的一致，无需应用',
       title: 'YAML',
       load: '加载 YAML',
       loading: '加载中…',
@@ -710,7 +723,7 @@ export const zh: Dict = {
       saveDone: '✅ 已保存',
       saveFail: '失败：',
       saveBlockedTruncated: '文件过大已被截断，保存会丢失尾部内容，请改用「下载文件」分片下载后再编辑；',
-      unsavedConfirm: '「{name}」有未保存的修改，关闭将丢弃这些改动。确定关闭吗？',
+      unsavedConfirm: '「{{name}}」有未保存的修改，关闭将丢弃这些改动。确定关闭吗？',
       // ↓ 分片下载 / 断点续传 / 进度条
       dlRowBtn: '下载该文件（分片 + 断点续传）',
       dlPreparing: '正在获取文件大小…',
@@ -756,6 +769,7 @@ export const zh: Dict = {
     },
   },
   cf: {
+    openLog: '在浏览器打开此云函数日志',
     title: '云函数日志',
     account: '账号',
     captcha: '验证码',
@@ -847,6 +861,7 @@ export const zh: Dict = {
     timeHint: '按时间收窄查询结果；选「最近 X」自动填起止，手动改动起止即切为自定义；「导出」会带着当前时间段。',
   },
   clash: {
+    writing: '写入中…',
     title: 'Clash 分流',
     refresh: '刷新规则',
     ruleCount: '规则数',
@@ -1087,6 +1102,8 @@ export const zh: Dict = {
     desc: '说明',
   },
   cfdebug: {
+    scanFail: '扫描失败：{{msg}}',
+    watchPlaceholder: '输入监视表达式，回车添加',
     title: '云函数调试',
     env: '调试环境',
     envMock: '离线 Mock（不连任何环境）',

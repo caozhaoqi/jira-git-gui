@@ -22,5 +22,24 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // 把体积大且很少变的第三方库拆成独立 chunk：
+        //  - 应用代码改动时，用户不必重新下载 react/highlight（长期缓存命中）
+        //  - 各 chunk 可并行下载解析
+        // 实测拆分前：单个 626KB chunk（应用代码 417 + react 142 + highlight 78）。
+        // xterm 已在 K8sShell 里动态 import，会自动单独成包，无需在此声明。
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('highlight.js')) return 'v-highlight';
+          if (id.includes('@xterm')) return 'v-xterm';
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+            return 'v-react';
+          }
+          if (id.includes('zustand')) return 'v-zustand';
+          return 'v-other';
+        },
+      },
+    },
   },
 });

@@ -148,7 +148,8 @@ def load_base(local_dir: str, remote_hash: str):
         return None
 
 
-def detect_conflict(local_base: str, rel_path: str, remote_content) -> dict:
+def detect_conflict(local_base: str, rel_path: str, remote_content,
+                    manifest: "dict | None" = None) -> dict:
     """合并前的 3-way 冲突检测（F4）。
 
     冲突 = 存在上次同步快照 且 本地相对快照有改动 且 远端相对快照有改动
@@ -156,6 +157,9 @@ def detect_conflict(local_base: str, rel_path: str, remote_content) -> dict:
 
     返回 conflict(bool) 及 base/ours/theirs，供前端 3-way 合并视图。
     注意：仅当 remote_content 为文本(str) 时才提供 3-way；二进制退化为 ours/theirs 二选一。
+
+    ``manifest`` 可由调用方传入复用：批量合并时每个文件都重新 ``load_manifest``
+    会把整个 manifest（实测可达数百 KB）反复 json.loads，N 个文件即 O(N²)。
     """
     target = Path(local_base) / rel_path
     local_content = ""
@@ -167,7 +171,8 @@ def detect_conflict(local_base: str, rel_path: str, remote_content) -> dict:
         except OSError:
             local_content = ""
     remote_hash = content_hash(remote_content)
-    manifest = load_manifest(local_base)
+    if manifest is None:
+        manifest = load_manifest(local_base)
     rec = manifest.get(rel_path) or {}
     snap_local = rec.get("local_hash")
     snap_remote = rec.get("remote_hash")

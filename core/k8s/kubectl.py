@@ -41,6 +41,31 @@ def _kubectl_env():
     return env
 
 
+# kubectl 单次调用的输出上限（字节）。默认 16MB，可用 JGG_KUBECTL_MAX_BYTES 覆盖。
+MAX_OUTPUT_BYTES = int(os.environ.get("JGG_KUBECTL_MAX_BYTES", str(16 * 1024 * 1024)))
+
+
+def _cap_output(stdout: str, stderr: str) -> tuple[str, str, bool]:
+    """按 MAX_OUTPUT_BYTES 截断 stdout（保留头尾，中间省略），返回是否被截断。
+
+    保留尾部是因为 kubectl 的错误/汇总信息通常在末尾（如 events 的最后几条、
+    describe 的 Events 段），只留头部会把最有用的部分切掉。
+    """
+    if stdout is None:
+        return "", stderr or "", False
+    raw = stdout if isinstance(stdout, str) else str(stdout)
+    if len(raw) <= MAX_OUTPUT_BYTES:
+        return raw, stderr or "", False
+    head = int(MAX_OUTPUT_BYTES * 0.6)
+    tail = MAX_OUTPUT_BYTES - head
+    omitted = len(raw) - MAX_OUTPUT_BYTES
+    return (
+        raw[:head] + f"\n… [中间省略 {omitted} 字节] …\n" + raw[-tail:],
+        stderr or "",
+        True,
+    )
+
+
 def run_kubectl(args, kubeconfig=None, timeout=60, input=None):
     """执行 kubectl。
 
@@ -68,8 +93,17 @@ def run_kubectl(args, kubeconfig=None, timeout=60, input=None):
     cmd += args
     try:
         if input is None:
+            # 上限保护：kubectl 输出没有天然上限（`get events -A -o json`、
+            # `describe` 在大集群上可达几十 MB），全量进内存既撑内存也拖慢序列化。
+            # 超过 MAX_OUTPUT_BYTES 时截断并在 stderr 标注，让调用方/前端知道不完整。
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=_kubectl_env())
-            return proc.stdout, proc.returncode, proc.stderr
+            out, err, truncated = _cap_output(proc.stdout, proc.stderr)
+            if truncated:
+                err = (err + "\n" if err else "") + (
+                    f"[输出已截断] 超过上限 {MAX_OUTPUT_BYTES // 1048576} MB，"
+                    "请缩小范围（加 -n/--selector/--tail 或限定 namespace）后重试。"
+                )
+            return out, proc.returncode, err
         # 有 stdin：字节模式，兼容二进制内容
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout, env=_kubectl_env(), input=input)
         out = proc.stdout.decode("utf-8", "replace") if isinstance(proc.stdout, bytes) else proc.stdout

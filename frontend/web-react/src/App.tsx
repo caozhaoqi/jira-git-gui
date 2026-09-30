@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { sse } from './api/events';
 import { apiGet } from './api/client';
 import { useAppStore, type TabKey } from './store/useAppStore';
@@ -18,21 +18,30 @@ import { normalizeStatus } from './api/types';
 import { TopBar } from './components/TopBar';
 import { Tabs } from './components/Tabs';
 import { ActionBar } from './components/ActionBar';
-import { RepoPanel } from './components/RepoPanel';
-import { DiffPanel } from './components/DiffPanel';
-import { K8sPanel } from './components/k8s/K8sPanel';
-import { KibanaPanel } from './components/kibana/KibanaPanel';
-import { CfPanel } from './components/CfPanel';
-import { CfDebugPanel } from './components/CfDebugPanel';
-import { ClashPanel } from './components/ClashPanel';
-import { HcmObjectBrowser } from './components/hcm/HcmObjectBrowser';
-import { SettingsPanel } from './components/SettingsPanel';
-import { UnifiedDiagnosisPanel } from './components/UnifiedDiagnosisPanel';
+import { LogPanel } from './components/LogPanel';
+// 面板按需加载（代码分割）：11 个面板此前全部静态 import，导致首屏必须下载并解析
+// 整个应用代码（实测应用自身 chunk 达 417KB）。改用 React.lazy 后，每个面板各自成包，
+// 只有首次切到该页签时才拉取；切走后仍按下面的「永久挂载」策略保留实例，因此不会因为
+// 懒加载而丢失终端会话/表单输入等本地状态。
+const lazyNamed = <P,>(loader: () => Promise<Record<string, unknown>>, name: string) =>
+  lazy(() => loader().then((m) => ({ default: m[name] as ComponentType<P> })));
+
+const RepoPanel = lazyNamed<Record<string, never>>(() => import('./components/RepoPanel'), 'RepoPanel');
+const DiffPanel = lazyNamed<Record<string, never>>(() => import('./components/DiffPanel'), 'DiffPanel');
+const K8sPanel = lazyNamed<Record<string, never>>(() => import('./components/k8s/K8sPanel'), 'K8sPanel');
+const KibanaPanel = lazyNamed<Record<string, never>>(() => import('./components/kibana/KibanaPanel'), 'KibanaPanel');
+const CfPanel = lazyNamed<Record<string, never>>(() => import('./components/CfPanel'), 'CfPanel');
+const CfDebugPanel = lazyNamed<Record<string, never>>(() => import('./components/CfDebugPanel'), 'CfDebugPanel');
+const ClashPanel = lazyNamed<Record<string, never>>(() => import('./components/ClashPanel'), 'ClashPanel');
+const HcmObjectBrowser = lazyNamed<Record<string, never>>(() => import('./components/hcm/HcmObjectBrowser'), 'HcmObjectBrowser');
+const UnifiedDiagnosisPanel = lazyNamed<Record<string, never>>(() => import('./components/UnifiedDiagnosisPanel'), 'UnifiedDiagnosisPanel');
+const SettingsPanel = lazyNamed<Record<string, never>>(() => import('./components/SettingsPanel'), 'SettingsPanel');
 import { ToastStack } from './components/Toast';
 import { ProgressBar } from './components/ProgressBar';
-import { LogPanel } from './components/LogPanel';
 import { ConnectModal } from './components/ConnectModal';
 import { ConfirmHost } from './components/ConfirmHost';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { PanelActiveContext } from './utils/panelActive';
 
 const ACTIONBAR_TABS = new Set(['repo']);
 
@@ -41,18 +50,21 @@ const ACTIONBAR_TABS = new Set(['repo']);
 // 让切换标签页时组件实例不卸载 —— 文件树、diff 结果、扫描进度、终端会话、
 // 表单输入、滚动位置等本地状态全部保留，直到整个程序（窗口）关闭才随 React 卸载而清理。
 // 未访问过的标签页不会预挂载，避免冷启动就拉起所有面板（K8s 终端等）。
-const PANELS: { key: TabKey; el: ReactNode }[] = [
-  { key: 'repo', el: <RepoPanel /> },
-  { key: 'diff', el: <DiffPanel /> },
-  { key: 'logs', el: <LogPanel /> },
-  { key: 'k8s', el: <K8sPanel /> },
-  { key: 'kibana', el: <KibanaPanel /> },
-  { key: 'cf', el: <CfPanel /> },
-  { key: 'cfdebug', el: <CfDebugPanel /> },
-  { key: 'clash', el: <ClashPanel /> },
-  { key: 'hcm', el: <HcmObjectBrowser /> },
-  { key: 'diagnose', el: <UnifiedDiagnosisPanel /> },
-  { key: 'settings', el: <SettingsPanel /> },
+// 每个面板各自的错误边界：面板「访问过即永久挂载」，若某面板 render 抛错又无边界，
+// 异常会冒到根节点把全部页签一起卸载（整站白屏，连切页签自救都不行）。
+// labelKey 用于错误卡片上显示「哪个页签坏了」。
+const PANELS: { key: TabKey; labelKey: string; el: ReactNode }[] = [
+  { key: 'repo', labelKey: 'tab.repo', el: <RepoPanel /> },
+  { key: 'diff', labelKey: 'tab.diff', el: <DiffPanel /> },
+  { key: 'logs', labelKey: 'tab.logs', el: <LogPanel /> },
+  { key: 'k8s', labelKey: 'tab.k8s', el: <K8sPanel /> },
+  { key: 'kibana', labelKey: 'tab.kibana', el: <KibanaPanel /> },
+  { key: 'cf', labelKey: 'tab.cf', el: <CfPanel /> },
+  { key: 'cfdebug', labelKey: 'tab.cfdebug', el: <CfDebugPanel /> },
+  { key: 'clash', labelKey: 'tab.clash', el: <ClashPanel /> },
+  { key: 'hcm', labelKey: 'tab.hcm', el: <HcmObjectBrowser /> },
+  { key: 'diagnose', labelKey: 'tab.diagnose', el: <UnifiedDiagnosisPanel /> },
+  { key: 'settings', labelKey: 'tab.settings', el: <SettingsPanel /> },
 ];
 
 export default function App() {
@@ -130,8 +142,20 @@ export default function App() {
         if (r.error) {
           pushLog(`发现仓库错误：${r.error}`, 'warning');
         } else {
-          setRepos(r.repos || []);
-          pushLog(`【发现仓库】返回 ${(r.repos || []).length} 个`);
+          const list = r.repos || [];
+          setRepos(list);
+          pushLog(`【发现仓库】返回 ${list.length} 个`);
+          // 按后端当前仓库回填选中项：后端（client.set_repo）在刷新后仍记得已选仓库，
+          // 而前端 store 的 selectedRepo 是内存态。此前不回填 → 顶栏显示着仓库名，
+          // 文件树却是空的并提示「请先选择仓库」，两边状态互相矛盾。
+          const st = useAppStore.getState();
+          if (!st.selectedRepo && st.status?.repo_id) {
+            const hit = list.find((x) => String(x.repo_id) === String(st.status?.repo_id));
+            if (hit) {
+              st.selectRepo(hit);
+              pushLog(`已恢复上次选择的仓库：${hit.display_name || hit.repo_id}`);
+            }
+          }
         }
       })
       .catch((e) => pushLog(`发现仓库异常：${e.message}`, 'error'));
@@ -252,13 +276,20 @@ export default function App() {
             </div>
           )}
           <div className="workspace-body">
-            {PANELS.map(({ key, el }) =>
+            {PANELS.map(({ key, labelKey, el }) =>
               visited.has(key) || activeTab === key ? (
                 <div
                   key={key}
                   className={`tab-pane${activeTab === key ? '' : ' tab-pane--hidden'}`}
                 >
-                  {el}
+                  <ErrorBoundary label={t(labelKey)}>
+                    {/* 把「是否当前页签」告知面板：隐藏面板据此暂停轮询 */}
+                    <PanelActiveContext.Provider value={activeTab === key}>
+                      <Suspense fallback={<div className="panel-loading">{t('common.loading')}</div>}>
+                        {el}
+                      </Suspense>
+                    </PanelActiveContext.Provider>
+                  </ErrorBoundary>
                 </div>
               ) : null,
             )}

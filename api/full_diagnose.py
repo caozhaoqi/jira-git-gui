@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime
@@ -296,10 +297,18 @@ def _build_full_prompt(base_prompt: str, target: dict, dynamic: dict,
 
 
 async def full_diagnose(req) -> dict:
-    """一次编排 CF + K8s + remote dynamic_log + metadata + coding rules。"""
+    """一次编排 CF + K8s + remote dynamic_log + metadata + coding rules。
+
+    注意：unified_diagnose / _load_metadata / _load_coding_rules 都是**同步阻塞**的
+    （内部有 httpx 请求、kubectl 子进程、大文件读取）。本函数是主推入口
+    （"recommended_entrypoint"），必须用 asyncio.to_thread 下放到线程执行，
+    否则一次「一键诊断」会把事件循环整个冻住——SSE 心跳断流、WebSocket 终端卡死、
+    所有并发请求排队（兄弟路由 api/routes_unified_diagnose.py 已用 to_thread，
+    这里此前漏了）。
+    """
     target = _parsed_target(req)
     try:
-        base = unified_diagnose(req)
+        base = await asyncio.to_thread(unified_diagnose, req)
     except Exception as e:
         logger.exception(f"[FULL-DIAG] 基础联合诊断失败: {e}")
         base = {
@@ -310,8 +319,8 @@ async def full_diagnose(req) -> dict:
             "aiPrompt": "",
         }
     dynamic = await _fetch_dynamic_log(req, target)
-    metadata = _load_metadata(req)
-    coding_rules = _load_coding_rules(req)
+    metadata = await asyncio.to_thread(_load_metadata, req)
+    coding_rules = await asyncio.to_thread(_load_coding_rules, req)
     query_plan = build_query_plan(req, target, dynamic=dynamic, base=base, metadata=metadata)
 
     references = []

@@ -42,9 +42,11 @@ Install and run. No Python required.
 ### Option 2 — one-click script (from source)
 
 ```bash
-./scripts/run.sh              # start the backend and open the browser
-./scripts/run.sh --electron   # start the Electron desktop app instead
+./scripts/run_web.sh              # start the backend and open the browser
+./scripts/run_web.sh --electron   # start the Electron desktop app instead
 ```
+
+> `scripts/run.sh` launches the legacy PyQt6 desktop UI (`main.py`) — it predates the web frontend and does not accept `--electron`. The Windows equivalents are `run_web.ps1` / `run.ps1`.
 
 ### Option 3 — manual
 
@@ -150,12 +152,19 @@ The **Cloud functions** tab queries, filters, sorts and exports cloud-function l
 
 ## What each tab is
 
+The sidebar has the main tabs plus a **System** group (in the Electron app the System tabs also appear in the native menu, under Cmd/Ctrl+Alt+1..4).
+
 - **Repository / File tree / Preview** — pick a repo, browse it, read code.
-- **Commits** — search commits by issue or repo, with line-level diffs.
 - **Diff** — the compare-and-merge workflow above.
-- **K8s** — Snapshot / Pod YAML / Describe / Network / Events / Top / Shell / Files / Logs.
-- **Cloud functions** — cloud-function log query and error diagnosis.
 - **Log** — the app's own log; useful when something breaks.
+- **K8s** — Snapshot / Pod YAML / Describe / Network / Events / Top / Shell / Files / Logs.
+- **Kibana Logs** — query system/container logs collected into Elasticsearch, per server or Kibana site.
+- **Cloud functions** — cloud-function log query, export and error diagnosis.
+- **Cloud-function debug** — run a cloud function locally with breakpoints / mock data, and locate errors against source.
+- **Clash** — manage the Clash proxy: adapters, rules, one-click apply/revert, diagnostics.
+- **HCM objects** — browse and query HCM platform data models.
+- **Unified diagnosis** — one-click combined CF + K8s + dynamic-log diagnosis with AI-ready evidence bundle.
+- **Settings** — app preferences.
 
 The light/dark theme toggle is in the top bar.
 

@@ -1,7 +1,13 @@
-// 统一 API 客户端，复刻遗留 web/js/01-core.js 的 api()/apiPost()/apiDelete() 行为：
+// 统一 API 客户端，复刻遗留 web/js/01-core.js 的 api()/apiPost() 行为：
 // - 同源：使用 location.origin（Electron / Web / Tauri 均同源）
 // - 仅消费一次 body（先 text 再 parse）
 // - 错误分类：timeout / network / auth / server / business
+//
+// 错误文案走 i18n 的纯函数 t()（非组件模块专用）：此前这里是 7 条硬编码中文，
+// 所有语言下都显示中文。循环依赖说明：i18n → useAppStore → client → i18n，
+// 但 client 只在请求失败（运行时）才调用 t()，且 t 是函数声明（提升 + live
+// binding），模块加载顺序不会出问题。
+import { t } from '../i18n';
 
 export type ApiErrorType =
   | 'timeout'
@@ -60,9 +66,9 @@ export async function api<T = any>(
     });
   } catch (e: any) {
     if (e && e.name === 'AbortError') {
-      throw new ApiError('请求超时，请检查网络或稍后重试', 'timeout');
+      throw new ApiError(t('api.errTimeout'), 'timeout');
     }
-    throw new ApiError('网络连接失败，请检查网络或服务是否运行', 'network');
+    throw new ApiError(t('api.errNetwork'), 'network');
   }
 
   let text = '';
@@ -85,7 +91,7 @@ export async function api<T = any>(
   if (!res.ok) {
     const detail = extractDetail(data);
     if (isAuthError(res.status, detail)) {
-      throw new ApiError(detail || '登录已失效，请重新登录', 'auth', res.status);
+      throw new ApiError(detail || t('api.errAuth'), 'auth', res.status);
     }
     const type: ApiErrorType =
       res.status >= 500 ? 'server' : 'business';
@@ -113,9 +119,9 @@ export async function apiText(path: string): Promise<string> {
     res = await fetch(`${API}${path}`, { cache: 'no-store' });
   } catch (e: any) {
     if (e && e.name === 'AbortError') {
-      throw new ApiError('请求超时，请检查网络或稍后重试', 'timeout');
+      throw new ApiError(t('api.errTimeout'), 'timeout');
     }
-    throw new ApiError('网络连接失败，请检查网络或服务是否运行', 'network');
+    throw new ApiError(t('api.errNetwork'), 'network');
   }
   const text = await res.text().catch(() => '');
   if (!res.ok) {
@@ -126,7 +132,7 @@ export async function apiText(path: string): Promise<string> {
       detail = text.slice(0, 400);
     }
     if (isAuthError(res.status, detail)) {
-      throw new ApiError(detail || '登录已失效，请重新登录', 'auth', res.status);
+      throw new ApiError(detail || t('api.errAuth'), 'auth', res.status);
     }
     throw new ApiError(
       detail || `HTTP ${res.status} ${res.statusText || ''}`.trim(),
@@ -140,7 +146,7 @@ export async function apiText(path: string): Promise<string> {
     try {
       const j = JSON.parse(text);
       if (j && j.ok === false) {
-        throw new ApiError(j.error || '拉取失败', 'business', 200);
+        throw new ApiError(j.error || t('api.errFetch'), 'business', 200);
       }
     } catch (e) {
       if (e instanceof ApiError) throw e;
@@ -159,8 +165,4 @@ export async function apiPost<T = any>(
   opts: Omit<RequestInit, 'method' | 'body'> = {}
 ): Promise<T> {
   return api<T>(path, { ...opts, method: 'POST', body: JSON.stringify(body) });
-}
-
-export async function apiDelete<T = any>(path: string): Promise<T> {
-  return api<T>(path, { method: 'DELETE' });
 }

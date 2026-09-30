@@ -9,6 +9,8 @@ from datetime import datetime
 import httpx
 
 from api.common import logger, _PROJECT_ROOT, _HCM_WL, _cf_is_session_err, _cf_token_stale
+from core.app_paths import get_data_root
+from core.log_retention import prune_cf_exports
 from api.cf.cf_tokens import (
     _CF_TOKEN_CACHE, _cf_tokens_save, TOKEN_CACHE_LOCK,
     _HCM_MODEL_LIST_API, _HCM_HCMINNER_HEADER, _HCM_HCMINNER_VALUE,
@@ -217,7 +219,9 @@ def cf_export_logs(req) -> "dict":
     """
     if not req.rows:
         raise ValueError("无可导出的日志数据")
-    export_dir = _PROJECT_ROOT / "logs" / "cf_logs"
+    # 用 data_root 而非 _PROJECT_ROOT：打包后 _PROJECT_ROOT 在应用包内（只读/临时），
+    # 导出会失败或被清理掉。
+    export_dir = get_data_root() / "logs" / "cf_logs"
     export_dir.mkdir(parents=True, exist_ok=True)
     safe_log_type = "".join(c if c.isalnum() or c in "-_" else "_" for c in (req.log_type or "unknown"))[:60]
     record_model = (req.record_model or "dynamic_log").strip() or "dynamic_log"
@@ -264,6 +268,8 @@ def cf_export_logs(req) -> "dict":
     content = json.dumps(out, ensure_ascii=False, indent=2)
     try:
         fpath.write_text(content, encoding="utf-8")
+        # 保留策略：导出目录此前只增不减（实测 134 个 / 122MB，单个最大 9.2MB）
+        prune_cf_exports(export_dir)
     except Exception as e:
         logger.exception(f"[CF] 导出日志写入失败: {e}")
         raise RuntimeError(f"写入文件失败: {e}")
@@ -315,7 +321,7 @@ def cf_save_clipboard(req) -> "dict":
     """将剪贴板文本内容保存为本地文件，返回文件路径。"""
     if not req.text or not req.text.strip():
         raise ValueError("剪贴板内容为空")
-    export_dir = _PROJECT_ROOT / "logs" / "cf_clipboard"
+    export_dir = get_data_root() / "logs" / "cf_clipboard"
     export_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c if c.isalnum() or c in "-_." else "_" for c in (req.filename or "").strip())[:80]
@@ -326,6 +332,7 @@ def cf_save_clipboard(req) -> "dict":
     fpath = export_dir / safe_name
     try:
         fpath.write_text(req.text, encoding="utf-8")
+        prune_cf_exports(export_dir)
     except Exception as e:
         logger.exception(f"[CF] 剪贴板文件写入失败: {e}")
         raise RuntimeError(f"写入文件失败: {e}")

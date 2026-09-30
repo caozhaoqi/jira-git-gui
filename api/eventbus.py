@@ -51,20 +51,63 @@ def unsubscribe(q: asyncio.Queue) -> None:
             _subscribers.remove(q)
 
 
+# 必达事件：这些是用户必须看到的告警（Cookie 失效 / 网络中断），
+# 若被高频进度事件（scan_stage/merge_progress/k8s 快照进度…）以「丢最旧」
+# 的方式挤出队列，用户会错过关键提示——比如 Cookie 已过期却还以为在正常扫描。
+_CRITICAL_EVENTS = frozenset({"cookie_expired", "network_warning"})
+
+
+def _is_critical(item: dict) -> bool:
+    return item.get("event") in _CRITICAL_EVENTS
+
+
 def _enqueue(q: asyncio.Queue, item: dict) -> None:
-    """在事件循环线程中执行入队（唤醒 await q.get() 的消费者）。"""
+    """在事件循环线程中执行入队（唤醒 await q.get() 的消费者）。
+
+    队列满时的丢弃策略按事件重要性区分：
+    - 普通事件：丢最旧的一条腾位（维持原有「不阻塞生产者」语义）；
+    - 关键事件（cookie_expired / network_warning）：优先挤出一条**最旧的普通
+      事件**来腾位；队列里全是关键事件时才丢最旧的关键事件。
+      这样高频进度风暴不会把告警挤掉。
+    """
     try:
         q.put_nowait(item)
+        return
     except asyncio.QueueFull:
-        # 队列满：丢弃最旧的事件，避免阻塞生产者线程
+        pass
+
+    if not _is_critical(item):
         try:
             q.get_nowait()
         except QueueEmpty:
-            pass
+            return
         try:
             q.put_nowait(item)
         except asyncio.QueueFull:
             pass
+        return
+
+    # 关键事件：把队列整个倒出来，挤掉一条最旧的普通事件后原样放回。
+    # call_soon_threadsafe 调度的回调在同一循环线程内串行执行，中途无并发竞争。
+    drained: list[dict] = []
+    spare: Optional[dict] = None
+    while True:
+        try:
+            old = q.get_nowait()
+        except QueueEmpty:
+            break
+        if spare is None and not _is_critical(old):
+            spare = old
+        else:
+            drained.append(old)
+    if spare is None and drained:
+        drained.pop(0)  # 队列里全是关键事件：丢最旧的，保证新告警能入队
+    for old in drained:
+        q.put_nowait(old)
+    try:
+        q.put_nowait(item)
+    except asyncio.QueueFull:
+        pass  # 理论不可达（已腾位），防御性保留
 
 
 def broadcast(event: str, data: Any) -> None:
@@ -88,8 +131,6 @@ def broadcast(event: str, data: Any) -> None:
                 # 循环已关闭，忽略
                 pass
         else:
-            # 事件循环尚未就绪（理论上仅主循环线程内调用可达）
-            try:
-                q.put_nowait(item)
-            except asyncio.QueueFull:
-                pass
+            # 事件循环尚未就绪（理论上仅主循环线程内调用可达）；
+            # 兜底路径同样按优先级丢弃，保证关键告警不被进度事件挤掉
+            _enqueue(q, item)

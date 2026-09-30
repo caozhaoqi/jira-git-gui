@@ -3,6 +3,7 @@ import { api } from '../../api/client';
 import type { K8sEventsResp, K8sEvent } from '../../api/types';
 import { useK8s } from './context';
 import { useT } from '../../i18n';
+import { usePanelActive } from '../../utils/panelActive';
 
 function fmtTime(iso?: string): string {
   if (!iso) return '';
@@ -12,6 +13,7 @@ function fmtTime(iso?: string): string {
 export function K8sEvents() {
   const { target } = useK8s();
   const { t } = useT();
+  const active = usePanelActive();
   const [ns, setNs] = useState('');
   const [kind, setKind] = useState('');
   const [name, setName] = useState('');
@@ -47,14 +49,16 @@ export function K8sEvents() {
   }, [target.env, ns, kind, name, limit, allNs, t]);
 
   useEffect(() => {
-    if (auto) {
+    // 面板隐藏时（切到了别的页签）不轮询：面板是永久挂载的，定时器不会自动停，
+    // 否则用户早已离开本页，后台仍每 10s 打一次后端。
+    if (auto && active) {
       load();
       timerRef.current = window.setInterval(() => { load(); }, 10000);
     }
     return () => {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [auto, load]);
+  }, [auto, load, active]);
 
   // 切换环境后清掉上一个集群的事件，避免旧数据留在屏幕上被误读为新集群的结果
   useEffect(() => {

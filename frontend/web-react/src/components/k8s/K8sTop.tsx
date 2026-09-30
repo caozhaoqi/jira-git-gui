@@ -4,6 +4,7 @@ import type { K8sTopResp, K8sTopRow } from '../../api/types';
 import { useK8s } from './context';
 import { parseTopVal } from '../../utils/format';
 import { useT } from '../../i18n';
+import { usePanelActive } from '../../utils/panelActive';
 
 export function K8sTop() {
   const { target } = useK8s();
@@ -17,6 +18,7 @@ export function K8sTop() {
   const [queried, setQueried] = useState(false);
   const [auto, setAuto] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const active = usePanelActive();
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -36,14 +38,15 @@ export function K8sTop() {
   }, [target.env, scope, ns, t]);
 
   useEffect(() => {
-    if (auto) {
+    // 同上：隐藏面板暂停轮询，避免切走后仍在后台按 10s 打后端
+    if (auto && active) {
       load();
       timerRef.current = window.setInterval(() => load(), 10000);
     }
     return () => {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
-  }, [auto, load]);
+  }, [auto, load, active]);
 
   // 切换环境后清掉上一个集群的数据（旧数据留在屏幕上会被误读为新集群的结果）
   useEffect(() => {

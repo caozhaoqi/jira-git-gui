@@ -2,7 +2,14 @@ import type { Dict } from './types';
 
 // 日本語 (zh.ts と同じ構造)
 export const ja: Dict = {
+  api: {
+    errTimeout: 'リクエストがタイムアウトしました。ネットワークを確認して再試行してください。',
+    errNetwork: 'ネットワーク接続に失敗しました。ネットワークまたはサービスの起動を確認してください。',
+    errAuth: 'セッションが失効しました。再度ログインしてください。',
+    errFetch: '取得に失敗しました',
+  },
   common: {
+    error: 'エラー',
     ok: 'OK',
     cancel: 'キャンセル',
     close: '閉じる',
@@ -51,6 +58,10 @@ export const ja: Dict = {
     system: 'システム',
   },
   hcm: {
+    cfErrRiskLevel: 'リスクレベル',
+    cfErrRiskType: '種類',
+    cfErrRiskLine: '行',
+    cfErrRiskMsg: '内容',
     configRequired: 'トークンを入力してください',
     baseUrl: 'プロキシ URL',
     proxyHint: 'ローカルバックエンド 8787 の同一オリジンプロキシ経由で転送',
@@ -140,7 +151,7 @@ export const ja: Dict = {
     metaRealData: '実データ',
     metaRunQuery: 'このリスト/クエリを実行',
     metaUpdateTime: '更新日時',
-    metaTooMany: 'ファイル数 {n} が上限を超えています。biz_type を絞ってページングしてください',
+    metaTooMany: 'ファイル数 {{n}} が上限を超えています。biz_type を絞ってページングしてください',
     cfErrTitle: 'クラウド関数エラー特定',
     cfErrHint: '前提：クラウド関数は「[LOC] model=.. id=.. field=.. value=.. stage=.. || 理由」形式でエラーを送出（設計資料参照）。error_code のみの場合はコピーしてサーバー側で error_code 検索できます。',
     cfErrPaste: 'エラー情報を貼り付け（error_code または [LOC] テキスト）',
@@ -283,9 +294,6 @@ export const ja: Dict = {
     branch: 'ブランチ',
     test: '接続テスト',
     apply: '適用',
-      applyConfirm: 'クラスタに kubectl apply を実行します：{{kind}}/{{name}}（namespace {{ns}}）。続行しますか？',
-      applyNeedEdit: '先に「編集」モードへ切り替えてください',
-      applyNoChange: '取得時から変更がありません',
     readLocalCookie: 'ローカルに保存された Cookie を読み込みました（更新するには再貼り付け）',
     testing: 'テスト中…（PAT モードは実際のクローンを実行、時間がかかる場合があります）',
     testNotSaved: '（テストでは保存されません。「適用」で確定します）',
@@ -521,6 +529,9 @@ export const ja: Dict = {
       colSev: '重要度',
     },
     yaml: {
+      applyConfirm: 'クラスタに kubectl apply を実行します：{{kind}}/{{name}}（namespace {{ns}}）。続行しますか？',
+      applyNeedEdit: '先に「編集」モードへ切り替えてください',
+      applyNoChange: '取得時から変更がありません',
       title: 'YAML',
       load: 'YAML 読込',
       loading: '読み込み中…',
@@ -708,7 +719,7 @@ export const ja: Dict = {
       saveDone: '✅ 保存しました',
       saveFail: '失敗：',
       saveBlockedTruncated: 'ファイルが大きいため切り捨てられています。保存すると末尾が失われるため「ファイルをダウンロード」を使用してください。',
-      unsavedConfirm: '「{name}」に未保存の変更があります。閉じると破棄されます。よろしいですか？',
+      unsavedConfirm: '「{{name}}」に未保存の変更があります。閉じると破棄されます。よろしいですか？',
       // ↓ 分割ダウンロード / レジューム / 進捗バー
       dlRowBtn: 'このファイルをダウンロード（分割 + レジューム）',
       dlPreparing: 'ファイルサイズを取得中…',
@@ -755,6 +766,7 @@ export const ja: Dict = {
     },
   },
   cf: {
+    openLog: 'このクラウド関数ログをブラウザで開く',
     title: 'クラウド関数ログ',
     account: 'アカウント',
     captcha: '認証コード',
@@ -846,6 +858,7 @@ export const ja: Dict = {
     timeHint: '期間で結果を絞り込みます。「直近 X」を選ぶと開始/終了を自動入力し、手で変更するとカスタムに切り替わります。「出力」には現在の期間が含まれます。',
   },
   clash: {
+    writing: '書き込み中…',
     title: 'Clash ルーティング',
     refresh: 'ルール更新',
     ruleCount: 'ルール数',
@@ -1086,6 +1099,7 @@ export const ja: Dict = {
     desc: '説明',
   },
   cfdebug: {
+    scanFail: 'スキャン失敗：{{msg}}',
     title: 'クラウド関数デバッグ',
     env: 'デバッグ環境',
     envMock: 'オフライン Mock（接続なし）',

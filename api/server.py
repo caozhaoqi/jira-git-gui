@@ -10,10 +10,12 @@
 所有路由实现已下沉到对应业务模块，保持 /api/* 路径与行为完全不变。
 """
 import sys
+import re
 import asyncio
 
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 
 from api.common import app, logger, broadcast, capture_loop, _PROJECT_ROOT
 from api.cf.cf_core import cf_autologin_all
@@ -23,6 +25,12 @@ from core.errors import UserError
 #  全局异常处理：任何未捕获的 500 都把完整 traceback 写入日志，并向前端
 #  返回结构化 detail（含异常类型与消息），避免前端只看到「Internal Server Error」。
 # --------------------------------------------------------------------------- #
+# 响应压缩：650KB 的 JS 压缩后仅 195KB（实测）。GZipMiddleware 的默认排除列表
+# 已包含 text/event-stream，因此不会破坏 /api/events 的实时推送，也不会重复压缩
+# 图片/字体等已压缩资源。
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
+
+
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request, exc):
     import traceback as _tb
@@ -100,15 +108,36 @@ WEB_DIR = _PROJECT_ROOT / "frontend" / "web-react" / "dist"
 if not WEB_DIR.exists():
     WEB_DIR = _PROJECT_ROOT / "web"
 if WEB_DIR.exists():
-    class _NoCacheStaticFiles(StaticFiles):
-        """禁用浏览器/中间缓存的静态文件提供器，避免前端改完还加载旧文件。"""
+    # Vite 产物带内容哈希（assets/index-Ab12Cd34.js），内容变则文件名变，
+    # 因此可以安全地长缓存；而未带哈希的文件（index.html 等）必须禁缓存，
+    # 否则「前端改完还加载旧文件」。此前一刀切 no-store，导致每次刷新都要
+    # 重新下载 650KB JS + 157KB CSS。
+    _HASHED_ASSET_RE = re.compile(
+        r"[.-][A-Za-z0-9_-]{8,}\.(?:js|mjs|css|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|ico|map)$"
+    )
+
+    class _CachingStaticFiles(StaticFiles):
+        """带内容哈希的资源长缓存（immutable）；其余保持 no-store。"""
+
         def file_response(self, *a, **kw):
             resp = super().file_response(*a, **kw)
-            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-            resp.headers["Pragma"] = "no-cache"
-            resp.headers["Expires"] = "0"
+            path = str(kw.get("path") or (a[0] if a else ""))
+            if _HASHED_ASSET_RE.search(path):
+                # 一年 + immutable：浏览器不会在有效期内发条件请求
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                # 注意：starlette 的 MutableHeaders 没有 .pop()，用 del 并容错
+                for h in ("Pragma", "Expires"):
+                    try:
+                        del resp.headers[h]
+                    except KeyError:
+                        pass
+            else:
+                resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                resp.headers["Pragma"] = "no-cache"
+                resp.headers["Expires"] = "0"
             return resp
-    app.mount("/web", _NoCacheStaticFiles(directory=str(WEB_DIR), html=True), name="web")
+
+    app.mount("/web", _CachingStaticFiles(directory=str(WEB_DIR), html=True), name="web")
 
 
 @app.get("/")

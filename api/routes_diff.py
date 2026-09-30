@@ -27,6 +27,47 @@ from core.diff.merge_manifest import detect_conflict, save_base  # F4 冲突感�
 
 router = APIRouter()
 
+# --------------------------------------------------------------------------- #
+#  扫描期临时放宽全局限流（引用计数）
+#
+#  历史实现是「读当前值 → 抬高到至少 20 → finally 恢复读到的值」，有两个缺陷：
+#    1) 并发扫描时泄漏：A(6→20)、B(读到 20)，A 先结束恢复 6，B 结束恢复 20
+#       —— 用户设的 6 QPS 被永久改成 20，对 Jira 持续超速。
+#    2) 扫描期间用户通过「速率」旋钮改的值会被 finally 覆盖掉。
+#  改为引用计数：只在第一个扫描进入时抬高、最后一个退出时恢复；且恢复前确认
+#  当前值仍是自己设置的那个，否则尊重用户的新设置。
+# --------------------------------------------------------------------------- #
+_SCAN_QPS_LOCK = threading.Lock()
+_SCAN_QPS_ACTIVE = 0
+_SCAN_QPS_SAVED: "float | None" = None
+_SCAN_QPS_FLOOR = 20.0
+
+
+def _scan_qps_enter() -> None:
+    global _SCAN_QPS_ACTIVE, _SCAN_QPS_SAVED
+    import core.throttle as _th
+    with _SCAN_QPS_LOCK:
+        _SCAN_QPS_ACTIVE += 1
+        if _SCAN_QPS_ACTIVE == 1:
+            cur = float(_th.get_rate_limiter().qps)
+            _SCAN_QPS_SAVED = cur
+            if cur < _SCAN_QPS_FLOOR:
+                _th.set_global_rate_limit(_SCAN_QPS_FLOOR)
+
+
+def _scan_qps_exit() -> None:
+    global _SCAN_QPS_ACTIVE, _SCAN_QPS_SAVED
+    import core.throttle as _th
+    with _SCAN_QPS_LOCK:
+        _SCAN_QPS_ACTIVE = max(0, _SCAN_QPS_ACTIVE - 1)
+        if _SCAN_QPS_ACTIVE == 0 and _SCAN_QPS_SAVED is not None:
+            expected = max(_SCAN_QPS_SAVED, _SCAN_QPS_FLOOR)
+            # 仅当当前值仍是我们抬高后的那个值才恢复；用户中途改过则保留用户的值
+            if float(_th.get_rate_limiter().qps) == expected:
+                _th.set_global_rate_limit(_SCAN_QPS_SAVED)
+            _SCAN_QPS_SAVED = None
+
+
 
 class DiffScanReq(BaseModel):
     local_dir: str
@@ -95,20 +136,24 @@ async def api_diff_scan(req: DiffScanReq):
 
     # 本地扫描基准目录 = local_dir / compare_dir
     local_base = os.path.join(local_dir, compare_dir) if compare_dir else local_dir
-    namespace = str(client.repo_id)
     scan_cancel = threading.Event()
     watchdog = NetworkWatchdog(threshold=5)
     client._watchdog = watchdog
     should_cancel = make_should_cancel(scan_cancel, watchdog, "差异扫描")
+    # 仓库/分支快照：扫描可能持续数十秒，期间用户切到「仓库」页换仓库会改掉全局
+    # client.set_repo，扫描线程若继续读 client.repo_id 就会中途换到另一个仓库的
+    # 目录树上，diff 结果张冠李戴并按错误 namespace 写缓存。这里一次性定死目标。
+    scan_repo_id = str(client.repo_id or "")
+    scan_branch = str(getattr(client, "branch", "") or "")
+    # 缓存 namespace 与扫描目标同源（此前单独读一次 client.repo_id，可能与快照不一致）
+    namespace = scan_repo_id
 
     def _scan():
-        import core.throttle as _th
-        saved_qps = _th.get_rate_limiter().qps
+        _scan_qps_enter()
         try:
-            _th.set_global_rate_limit(max(saved_qps, 20))
             return _scan_inner()
         finally:
-            _th.set_global_rate_limit(saved_qps)
+            _scan_qps_exit()
 
     def _scan_inner():
         try:
@@ -134,6 +179,7 @@ async def api_diff_scan(req: DiffScanReq):
                 on_progress=_on_remote_progress, use_cache=req.use_cache,
                 should_cancel=should_cancel, path=compare_dir,
                 fast_hash=req.fast_scan,
+                repo_id=scan_repo_id, branch=scan_branch,
             )
             # 归一化为相对 compare_dir 的相对路径，与本地对齐
             prefix = (compare_dir + "/") if compare_dir else ""
@@ -379,7 +425,11 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                     err = f"远端内容获取失败：{req.path}（已跳过写入）"
                 if err is None:
                     # F4：冲突检测（本地与远端相对快照都改过）→ 不覆盖，留给前端 3-way。
-                    info = detect_conflict(local_base, req.path, content)
+                    # 下放线程：detect_conflict 会整文件读+md5，写在 async 里会阻塞事件循环；
+                    # 并复用上面已加载的 manifest，避免每个文件重复 json.loads 整个 manifest。
+                    info = await asyncio.to_thread(
+                        detect_conflict, local_base, req.path, content, manifest
+                    )
                     if info["conflict"]:
                         results[idx] = {
                             "path": req.path, "ok": False, "conflict": True,
@@ -403,7 +453,9 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                         if _differ.is_already_merged(local_base, req.path, manifest):
                             ok = True
                         else:
-                            ok = _differ.merge_to_local(local_base, req.path, content)
+                            ok = await asyncio.to_thread(
+                                _differ.merge_to_local, local_base, req.path, content
+                            )
                     except Exception as ex:
                         ok = False
                         err = str(ex)
@@ -414,7 +466,7 @@ async def api_diff_merge_batch(reqs: list[MergeReq], status_filter: str = ""):
                     manifest[req.path] = {
                         "ok": True, "remote_hash": remote_hash, "local_hash": remote_hash,
                     }
-                    save_base(local_base, remote_hash, content)
+                    await asyncio.to_thread(save_base, local_base, remote_hash, content)
                 else:
                     manifest[req.path] = {"ok": False, "remote_hash": ""}
                 if not ok and err is None:

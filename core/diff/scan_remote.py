@@ -14,7 +14,8 @@ from .models import _log
 from .scan_local import _file_hash
 
 
-def scan_remote(client, path: str = "", fast_hash: bool = False) -> dict[str, dict]:
+def scan_remote(client, path: str = "", fast_hash: bool = False,
+                repo_id: "str | None" = None, branch: "str | None" = None) -> dict[str, dict]:
     """递归扫描远端仓库某路径下的文件，返回 {相对路径: {size, hash}}。
 
     Args:
@@ -23,16 +24,25 @@ def scan_remote(client, path: str = "", fast_hash: bool = False) -> dict[str, di
         fast_hash:  True=快扫，仅记录 size（不下载内容算 md5），compute_diff 退化为
                     按大小比较；False=精确，逐文件下载内容算 md5（慢但能识别
                     「大小相同但内容不同」的修改）。默认 False 保持旧行为。
+        repo_id:    仓库快照（None 表示回退读 client.repo_id）。**扫描全程只认这个值**，
+                    否则扫描途中用户在别的页签切换仓库会改掉全局 client，
+                    导致后半程列的是另一个仓库的目录树、结果张冠李戴。
+        branch:     分支快照，同上。
 
     Returns:
         {relative_path: {size, hash, is_dir}}
     """
+    if repo_id is None:
+        repo_id = getattr(client, "repo_id", "")
+    if branch is None:
+        branch = getattr(client, "branch", "")
     result = {}
-    _scan_remote_dir(client, path, result, fast_hash)
+    _scan_remote_dir(client, path, result, fast_hash, repo_id, branch)
     return result
 
 
-def _scan_remote_dir(client, path: str, result: dict, fast_hash: bool = False):
+def _scan_remote_dir(client, path: str, result: dict, fast_hash: bool = False,
+                     repo_id: str = "", branch: str = ""):
     """递归扫描目录（内部使用）。
 
     ``fast_hash=True`` 时不再为每个文件调用 ``get_file`` 下载内容算 md5，
@@ -40,7 +50,7 @@ def _scan_remote_dir(client, path: str, result: dict, fast_hash: bool = False):
     降到 O(目录层数) 次 list_level 请求，对大仓库从分钟级降到秒级。
     """
     try:
-        entries = client.list_level(client.repo_id, client.branch, path)
+        entries = client.list_level(repo_id, branch, path)
     except Exception as e:
         # 注意：这里曾把 TypeError（list_level 缺 branch/path 参数）吞成一句 warning，
         # 导致远端树被误判为「空」，进而算出错误差异。异常类型与信息必须带上。
@@ -49,7 +59,8 @@ def _scan_remote_dir(client, path: str, result: dict, fast_hash: bool = False):
     for e in entries:
         rel = e.path
         if e.type == "dir":
-            _scan_remote_dir(client, rel, result, fast_hash)
+            # 递归必须继续透传快照，否则子目录会退回读全局 client（且默认值为空）
+            _scan_remote_dir(client, rel, result, fast_hash, repo_id, branch)
         else:
             if fast_hash:
                 # 快扫：不下载内容，仅记录 size（hash 留空，compute_diff 退化为 size 比较）
@@ -78,8 +89,13 @@ def scan_remote_parallel(
     on_progress=None,
     should_cancel=None,
     fast_hash: bool = False,
+    repo_id: "str | None" = None,
+    branch: "str | None" = None,
 ) -> dict[str, dict]:
     """并行**递归**扫描远端仓库（每层都并发，带细粒度进度回调）。
+
+    ``repo_id`` / ``branch`` 为扫描入口的目标快照：多线程 worker 全程只读它，
+    不再读全局 ``client.repo_id``，避免扫描途中切仓库造成跨仓库混读。
 
     与旧实现的关键区别：
     - 旧实现只对**第一层子目录**开线程池，每个 worker 内部 ``_scan_remote_dir``
@@ -166,7 +182,7 @@ def scan_remote_parallel(
                 state["inflight"] -= 1
             return
         try:
-            entries = client.list_level(client.repo_id, client.branch, p)
+            entries = client.list_level(repo_id, branch, p)
         except Exception as e:
             _log.warning("远端目录扫描失败：%s（%s: %s）", p, type(e).__name__, e)
             with state_lock:
@@ -262,6 +278,8 @@ def scan_remote_cached(
     on_progress=None,
     should_cancel=None,
     fast_hash: bool = False,
+    repo_id: "str | None" = None,
+    branch: "str | None" = None,
 ) -> dict[str, dict]:
     """缓存优先的远端扫描（远端较少变更，TTL 默认 1 小时）。
 
@@ -303,7 +321,7 @@ def scan_remote_cached(
     result = scan_remote_parallel(
         client, max_workers=max_workers, path=path,
         on_progress=on_progress, should_cancel=should_cancel,
-        fast_hash=fast_hash,
+        fast_hash=fast_hash, repo_id=repo_id, branch=branch,
     )
     if result:
         cache.set(ns, key, result)

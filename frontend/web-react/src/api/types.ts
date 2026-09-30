@@ -111,12 +111,6 @@ export interface ConnectResp {
   error?: string;
 }
 
-export interface RepoSelectBody {
-  repo_id: string;
-  repo_name?: string;
-  branch?: string;
-}
-
 export interface ConnectBody {
   jira_url?: string;
   username?: string;
@@ -143,10 +137,6 @@ export interface Commit {
   branch?: string;
   repository_name?: string;
   files?: CommitFile[];
-}
-export interface CommitsResp {
-  commits?: Commit[];
-  error?: string;
 }
 export interface FileAtCommitResp {
   content?: string;
@@ -208,13 +198,6 @@ export interface DiffFileResp {
   normalized_same?: boolean;
   error?: string;
 }
-export interface DiffMergeReq {
-  local_dir: string;
-  path: string;
-  compare_dir?: string;
-  use_cache?: boolean;
-  status?: string;
-}
 export interface DiffMergeResp {
   ok?: boolean;
   error?: string;
@@ -230,18 +213,6 @@ export interface DiffMergeResp {
   is_binary?: boolean;
   remote_hash?: string;
   local_hash?: string;
-}
-export interface DiffMergeBatchReq {
-  local_dir: string;
-  path: string;
-  compare_dir?: string;
-  status?: string;
-}
-export interface DiffMergeBatchItem {
-  local_dir: string;
-  path: string;
-  compare_dir?: string;
-  status?: string;
 }
 export interface DiffMergeBatchResp {
   results?: {
@@ -311,31 +282,6 @@ export interface K8sEnvsResp {
   current?: string;
   error?: string;
 }
-export interface K8sEnvSaveReq {
-  name: string;
-  label?: string;
-  kubeconfig?: string;
-  context?: string;
-  namespace?: string;
-  intranet_hosts?: string[];
-  ssh_host?: string;
-  ssh_port?: string;
-  ssh_user?: string;
-  ssh_password?: string;
-}
-export interface K8sSnapshotReq {
-  namespace?: string;
-  selector?: string;
-  pod_filter?: string;
-  tail?: number;
-  restart_threshold?: number;
-  all_logs?: boolean;
-  include_previous?: boolean;
-  out_dir?: string;
-  kubeconfig?: string;
-  env?: string;
-  log_level?: string;
-}
 export type K8sSev = 'ok' | 'med' | 'high';
 export interface K8sRecord {
   name: string;
@@ -369,25 +315,12 @@ export interface K8sPodsResp {
   pods?: K8sPod[];
   error?: string;
 }
-export interface K8sYamlReq {
-  env: string;
-  kind: string;
-  name: string;
-  namespace?: string;
-  action: 'get' | 'apply';
-  content?: string;
-  clean?: boolean;
-}
 export interface K8sYamlResp {
   ok?: boolean;
   yaml?: string;
   stdout?: string;
   stderr?: string;
   error?: string;
-}
-export interface K8sNetworkReq {
-  env: string;
-  extra_hosts?: string[];
 }
 export interface K8sNetCheck {
   name: string;
@@ -451,25 +384,10 @@ export interface K8sFileEntry {
   size?: number;
   modtime?: string;
 }
-export interface K8sFileListReq {
-  env: string;
-  pod: string;
-  container?: string;
-  namespace?: string;
-  path: string;
-}
 export interface K8sFileListResp {
   ok?: boolean;
   entries?: K8sFileEntry[];
   error?: string;
-}
-export interface K8sFileReadReq {
-  env: string;
-  pod: string;
-  container?: string;
-  namespace?: string;
-  path: string;
-  max_bytes?: number;
 }
 export interface K8sFileReadResp {
   ok?: boolean;
@@ -499,25 +417,9 @@ export interface K8sFileDownloadResp {
   eof?: boolean;
   error?: string;
 }
-export interface K8sFileWriteReq {
-  env: string;
-  pod: string;
-  container?: string;
-  namespace?: string;
-  path: string;
-  content: string;
-}
 export interface K8sFileWriteResp {
   ok?: boolean;
   error?: string;
-}
-export interface K8sFileSearchReq {
-  env: string;
-  pod: string;
-  container?: string;
-  namespace?: string;
-  q: string;
-  path: string;
 }
 export interface K8sFileSearchHit {
   path: string;
@@ -531,11 +433,6 @@ export interface K8sFileSearchResp {
   truncated?: boolean;
   error?: string;
 }
-export interface K8sLogResp {
-  // 纯文本日志（text/plain）
-  error?: string;
-}
-
 // ===== Kibana 日志 =====
 export interface KibanaSite {
   name: string;
@@ -556,19 +453,6 @@ export interface KibanaSitesResp {
   sites?: KibanaSite[];
   current?: string | null;
   error?: string;
-}
-export interface KibanaTestStep {
-  name: string;
-  ok: boolean;
-  detail: string;
-}
-export interface KibanaTestResp {
-  ok?: boolean;
-  error?: string;
-  steps?: KibanaTestStep[];
-  kibana_version?: string;
-  cluster?: { cluster_name?: string; status?: string; nodes?: number };
-  total?: number;
 }
 export interface KibanaBucket {
   key: string;
@@ -665,43 +549,12 @@ export interface KibanaExportResp {
   content?: string;
   count?: number;
 }
-export interface KibanaIndexPattern {
-  id: string;
-  title: string;
-  time_field?: string;
-}
-
 // ===== CF 云函数日志 =====
 export interface CfAccount {
   name: string;
   server_url?: string;
   username?: string;
   password?: string;
-}
-export interface CfAccountsResp {
-  accounts?: CfAccount[];
-}
-export interface CfLoginReq {
-  server_url: string;
-  mobile: string;
-  password: string;
-  proxy?: string;
-  image_code?: string;
-  image_code_index?: string;
-  captcha_id?: string;
-}
-export interface CfLoginResp {
-  token?: string;
-  ok?: boolean;
-  message?: string;
-  need_img_valid?: boolean;
-  error?: string;
-}
-export interface CfCaptchaResp {
-  captcha_id?: string;
-  image_code_index?: string;
-  image?: string; // data URL
-  error?: string;
 }
 export interface CfLogsRow {
   id?: string | number;
@@ -726,48 +579,6 @@ export interface CfLogsRow {
   desc?: string;
   type?: string;
 }
-export interface CfLogsReq {
-  server_url: string;
-  token: string;
-  log_type?: string;
-  record_model?: string;
-  page_index: number;
-  page_size: number;
-  proxy?: string;
-}
-export interface CfLogsResp {
-  data?: any;
-  result?: any;
-  list?: CfLogsRow[];
-  total?: number;
-  method?: string;
-  error?: string;
-}
-export interface CfExportReq {
-  server_url: string;
-  log_type?: string;
-  record_model?: string;
-  auth_method?: string;
-  page_index: number;
-  page_size: number;
-  total: number;
-  rows: CfLogsRow[];
-  raw: any;
-}
-export interface CfExportResp {
-  path?: string;
-  count?: number;
-  error?: string;
-}
-export interface CfClipboardSaveReq {
-  text: string;
-}
-export interface CfClipboardSaveResp {
-  path?: string;
-  size?: number;
-  error?: string;
-}
-
 // ===== SSE 事件载荷 =====
 
 export interface SSELog {

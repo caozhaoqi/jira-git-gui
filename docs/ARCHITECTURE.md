@@ -7,41 +7,43 @@
 
 ```
 jira-git-gui/
-├── backend/                         # ★ 后端核心（Python）
-│   ├── main.py                      #   桌面 GUI 入口（PyQt6）—— 创建 MainWindow 并启动事件循环
-│   ├── server.py                    #   ⚠️ 遗留单体后端（旧版，已由 api/ 取代，勿再修改）
-│   ├── run_merge.py                 #   CLI：把远端仓库最新代码合并到本地（缓存优先 + 同步历史）
-│   ├── api/                         #   后端（FastAPI）—— 对外 HTTP / WebSocket 契约，按业务域分子路由
-│   ├── core/                        #   核心逻辑层（无 GUI 依赖，按业务域：k8s / diff / config / cf / hcm）
-│   ├── workers/                     #   后台 worker（下载 / 同步等耗时任务）
-│   └── tools/                       #   独立小工具（如 k8s YAML 清洗演示）
-├── desktop/                         # ★ 桌面 GUI（PyQt6）—— 当前主交付形态
-│   └── gui/                         #   界面层（main_window / k8s_panel / styles 等）
-├── frontend/                        # ★ Web 前端（React，编译产物由 api 挂载 /web 提供）
-│   ├── web-react/                   #   活跃前端源码（vite + React + TS）
-│   └── web-legacy/                  #   旧版前端（原生 JS/CSS，归档）
-├── electron/                        # ★ Electron 桌面壳（独立平台工程，main.js 拉起 api 后端）
-├── tauri/                           # ★ Tauri 桌面壳（Rust 工程，src-tauri 拉起 api 后端）
+├── main.py                          # 遗留 PyQt6 桌面入口（仅供参考，交付形态见 electron/tauri）
+├── api/                             # ★ 后端（FastAPI）—— 对外 HTTP / SSE / WebSocket 契约，按业务域分子路由
+├── core/                            # ★ 核心逻辑层（无 GUI 依赖，按业务子域分目录）
+│   ├── client/                      #   JiraGitClient（连接/仓库/文件/下载/看门狗）
+│   ├── config/                      #   连接 / CF / HCM / 会话配置
+│   ├── diff/                        #   差异扫描 / 对比 / 合并（含断点续传 manifest）
+│   ├── k8s/                         #   kubectl 封装 / 环境 / Pod / exec+PTY / SSH 远程 / 快照
+│   ├── kibana/                      #   Kibana/ES 日志查询、服务器派生站点
+│   ├── sync/                        #   同步历史存储
+│   └── (顶层通用)                   #   app_paths / cache / constants / errors / log_retention /
+│                                    #   logger / models / safe / throttle / watchdog
+├── frontend/web-react/              # ★ 活跃前端源码（vite + React + TS），构建产物 dist/ 由 api 挂载 /web
+├── web/                             # 旧版前端（原生 JS/CSS，归档；dist 存在时不经 /web 提供）
+├── electron/                        # ★ Electron 桌面壳（main.js 拉起 api 后端）
+├── tauri/                           # ★ Tauri 桌面壳（Rust 工程，拉起 api 后端）
+├── gui/  workers/                   # 遗留 PyQt6 GUI 与后台 worker（保留参考，交付不再使用）
 ├── build/                           # 打包脚本（PyInstaller spec 等，产物已 gitignore）
-├── scripts/                         # 启动器 / 构建脚本（*.sh + *.ps1 跨平台）
+├── scripts/                         # 启动器 / 构建脚本（run_web.sh 为 Web/Electron 启动入口；*.sh + *.ps1 跨平台）
 ├── config/                          # 本地配置 JSON（*.local.json 已被 gitignore）
-├── tests/                           # pytest 单元测试
-└── docs/                            # 专题文档（本文件、HCM、Tauri 迁移、打包等）
+├── store/  logs/  cache/  merge_state/  sync_history/   # 运行时数据目录
+├── tests/                           # pytest 单元测试 + 前端纯逻辑 .mjs 测试（npm test）
+└── docs/                            # 专题文档（本文件、打包等）
 ```
 
-> 说明：`web/`（构建产物）保留在仓库根，由 `api/server.py` 经 `app.mount("/web", ...)`
-> 直接托管，路径约定不可移动；`web-react/dist` 构建后挂载于 `frontend/web-react/dist`。
+> 说明：`frontend/web-react/dist`（React 构建产物）优先挂载于 `/web`；仅当 dist
+> 不存在时回退到 `web/` 下的旧版静态文件。
 
 **分层依赖方向（单向，避免环）：**
 
 ```
-gui/*  →  api/*  →  core/*   （上层依赖下层）
-workers/*  →  core/* / api/*
-tests/*  →  core/* / api/*
+frontend(web-react)  →  api/*（HTTP/SSE）  →  core/*   （上层依赖下层）
+gui/*（遗留 PyQt6）  →  api/* / core/*
+tests/*              →  core/* / api/*
 ```
 
 `core/` 内部也遵循「业务子域 → 通用基础」：
-`k8s_*`、`diff_*`、`config_*` 等子域模块 → 通用基础 `app_paths`/`constants`/`models`/`errors`/`safe`/`throttle`/`logger`/`cache`。
+`client/`、`diff/`、`k8s/`、`kibana/`、`config/` 等子域 → 通用基础 `app_paths`/`constants`/`models`/`errors`/`safe`/`throttle`/`logger`/`cache`/`watchdog`/`log_retention`。
 
 ---
 
@@ -68,81 +70,101 @@ tests/*  →  core/* / api/*
 | `routes_cf.py` | CF 云函数日志路由 | 调 `cf_core` |
 | `routes_hcm.py` `hcm_core.py` | HCM 对象浏览器 | HCM 平台对象查询 |
 | `routes_repos.py` | 仓库浏览路由 | status/connect/tree/file/commits/search |
-| `routes_diff.py` | 差异对比路由 | 计算/对比/下载对比 |
-| `routes_events.py` `routes_sync_history.py` `routes_settings.py` `routes_download.py` `routes_cache.py` | 各业务路由 | 事件/同步历史/设置/下载/缓存 |
-| `cf_core.py` | CF 逻辑聚合层 | re-export，真实实现在 `cf_tokens`/`cf_login`/`cf_logs` |
-| `cf_tokens.py` | CF：token 缓存 + 验证码 | 共享状态 `_CF_TOKEN_CACHE` |
-| `cf_login.py` | CF：登录 / 自动登录 / 刷新 | |
-| `cf_logs.py` | CF：日志查询 / 导出 / 剪贴板 / 掩码 | |
+| `routes_diff.py` | 差异对比路由 | 计算/对比/下载对比/批量合并（断点续传） |
+| `routes_jira_issue.py` `routes_services_config.py` | 业务路由 | Jira issue / 服务配置页 |
+| `routes_events.py` `routes_sync_history.py` `routes_settings.py` `routes_download.py` `routes_cache.py` | 各业务路由 | 事件(SSE)/同步历史/设置/下载/缓存 |
+| `eventbus.py` | SSE 事件总线 | 跨模块跨线程广播；队列满按优先级丢弃（告警不被进度事件挤掉） |
+| `unified_diagnose.py` `full_diagnose.py` `diagnosis_capabilities.py` | 统一诊断 | CF + K8s + dynamic_log + 元数据一键诊断与编排 |
+| `cf/` | CF 云函数子包 | routes_cf + cf_tokens/cf_login/cf_logs/cf_diagnose/cf_stream（实时日志流） |
+| `cfdebug/` | 云函数调试子包 | 本地 runner / DAP 断点桥 / mock 数据 / 错误定位 |
+| `clash/` | Clash 子包 | probe（只读探测）/ rules（规则生成应用）/ config（诊断与写入） |
+| `hcm/` | HCM 对象浏览器 | `routes_hcm.py` + `hcm_core.py`（HCM 平台对象查询） |
+| `k8s/` | K8s 子包 | snapshot / env / observe / exec(WS 终端) / files / state |
+| `kibana/` | Kibana 子包 | sites / logs / meta（ES 系统日志汇聚查询） |
+| `cf_core.py` | CF 兼容层 | re-export，真实实现在 `cf/` 子包 |
 
 > **约定**：`routes_*.py` 是「薄路由层」（解析参数、调 `core`/`cf_*`），重逻辑下沉到 `core/`。
-> `cf_core.py` 仅做向后兼容的 re-export，业务逻辑已拆到 `cf_tokens/cf_login/cf_logs`。
+> 阻塞操作（httpx / kubectl 子进程 / 大文件读写 / paramiko SSH）在 async 路由里
+> 必须 `asyncio.to_thread` 下放，否则会冻结事件循环（SSE 断流、WebSocket 卡死）。
 
 **K8s / Clash 路由的进一步拆分（聚合 + 子模块）**：原先 1000+ 行的单体
-`routes_k8s.py` / `routes_clash.py` 已按业务子域拆成 `routes_k8s_<子域>.py` /
-`routes_clash_<子域>.py`，原文件退化为仅 `include_router` 的聚合壳，对外路由路径与
+`routes_k8s.py` / `routes_clash.py` 已按业务子域拆成 `api/k8s/routes_k8s_<子域>.py` /
+`api/clash/routes_clash_<子域>.py`，原文件退化为仅 `include_router` 的聚合壳，对外路由路径与
 挂载点不变。子模块在需要保持旧 `import` 路径（测试直接引用）时，由聚合壳 re-export
 顶层符号（如 `routes_k8s._k8s_normalize_time_arg`、`routes_clash._load_clash_defaults`）。
 
-> 注：`routes_k8s_exec.py` 的交互式 WebSocket 终端当前为**降级实现**——core 暂未提供
-> 常驻 PTY 能力，因此对前端每次发来的命令帧做一次性的 `exec_command` 并返回输出帧，
-> 复用 `ready`/`data`/`exit` 协议。真正的 PTY 行编辑 / resize 需在 `core.k8s_exec` 补充
-> 常驻 PTY 能力后再启用。
+> 交互式 WebSocket 终端已是**真 PTY**：`core/k8s/exec_pty.py` 提供本地常驻 PTY
+> 会话（ready/data/exit 协议）；SSH 远程环境走 `core/k8s/ssh_exec.py`（paramiko
+> invoke_shell，同一协议），按环境复用连接。
 
 ---
 
 ## 三、核心层 `core/`（无 GUI 依赖）
 
-按子域分组，文件前缀即业务域：
+按业务子域分目录，目录名即业务域：
 
-### 3.1 K8s 运维子域（`k8s_*`）
+### 3.1 客户端子域（`client/`）
 | 模块 | 职责 |
 |------|------|
-| `k8s_kubectl.py` | kubectl 二进制定位（Homebrew/Docker/PATH 回退） |
-| `k8s_manager.py` | 环境管理入口 / 集群句柄 |
-| `k8s_env.py` | 多环境（dev/test/prod）kubeconfig 管理 |
-| `k8s_pods.py` | Pod 列表 / YAML / 事件 / describe / top / 网络检测 |
-| `k8s_exec.py` | 容器内执行 / 文件浏览器 |
-| `k8s_snapshot.py` | 快照编排（调度 Pod 抓取） |
-| `k8s_snapshot_fetch.py` | 抓取 Pod 日志 / 运行快照 |
-| `k8s_snapshot_render.py` | 快照 HTML 渲染 |
+| `__init__.py` | `JiraGitClient` 聚合组装（Mixin 拆分） |
+| `connection.py` | httpx 请求封装（PAT/Cookie、网络看门狗挂钩） |
+| `repos.py` | 仓库发现 / 列表解析（discover dump 覆盖写 + 历史清理） |
+| `files.py` | 文件读取 / 目录树 |
+| `browse.py` | Jira 页面浏览（Cookie 模式远端目录树） |
+| `clone.py` | PAT 模式克隆 |
+| `download.py` | 下载（并发 + 断点） |
 
-### 3.2 差异对比子域（`diff_*`）
+### 3.2 K8s 子域（`k8s/`）
 | 模块 | 职责 |
 |------|------|
-| `diff_models.py` | Diff 数据模型（DiffEntry 等） |
-| `diff_scan.py` | 本地/远程文件扫描 + 缓存 |
-| `diff_diff.py` | 计算 diff / 规范化（JSONC/空白） |
-| `diff_merge.py` | 合并到本地 / merge_entries |
+| `kubectl.py` | kubectl 执行封装（输出按 `MAX_OUTPUT_BYTES` 头尾截断） |
+| `env.py` | 多环境 kubeconfig 管理（含 SSH 远程环境标记 `ssh://<env>`） |
+| `pods.py` | Pod 列表 / YAML / 事件 / describe / top |
+| `events.py` | 事件查询 |
+| `yaml.py` | 资源 YAML 获取 / 清理 / 应用 |
+| `exec.py` `exec_cmd.py` `exec_fs.py` | 容器内一次性执行 / 命令 / 文件浏览（自动 SSH 化） |
+| `exec_pty.py` | 本地常驻 PTY 会话（交互终端） |
+| `ssh_exec.py` | SSH 远程执行 + PTY（paramiko，按环境复用连接） |
+| `netdetect.py` | 网络连通性探测 |
+| `snapshot_fetch.py` `snapshot_render.py` | 快照抓取（tail 钳制）/ HTML 渲染 |
 
-### 3.3 配置子域（`config_*`）
+### 3.3 差异对比子域（`diff/`）
 | 模块 | 职责 |
 |------|------|
-| `config.py` | 默认连接配置（从 .env 加载） |
-| `config_connect.py` | 连接配置 |
-| `config_cf.py` `config_hcm.py` | CF / HCM 平台配置 |
-| `config_merge.py` | 合并配置 |
-| `config_session.py` | 会话级配置 |
+| `models.py` | DiffEntry 等数据模型 |
+| `scan_local.py` `scan_remote.py` | 本地/远端扫描（远端带 repo_id/branch 快照防跨仓库混读 + TTL 缓存） |
+| `diff_core.py` `normalize.py` | 计算 diff / 规范化（JSONC/空白） |
+| `merge_file.py` `merge_entries.py` | 合并到本地 |
+| `merge_manifest.py` | 断点续传 manifest（读写/冲突检测） |
 
-### 3.4 通用基础（无业务前缀）
+### 3.4 Kibana / 配置 / 同步子域
 | 模块 | 职责 |
 |------|------|
-| `app_paths.py` | 运行时可写目录（freeze 时迁到 `~/.jira-git-gui`） |
+| `kibana/client.py` `queries.py` | ES 查询客户端 / DSL 构建（pod/namespace 聚合） |
+| `kibana/config.py` `servers.py` | 站点配置 / 服务器派生站点（`srv::` 前缀） |
+| `config/connect.py` `cf.py` `hcm.py` `merge.py` `session.py` | 连接 / CF / HCM / 合并 / 会话配置 |
+| `sync/store.py` `view.py` | 同步历史存储 / 视图（敏感信息脱敏） |
+
+### 3.5 通用基础（`core/` 顶层）
+| 模块 | 职责 |
+|------|------|
+| `app_paths.py` | 运行时可写目录（freeze 时迁到应用数据目录） |
 | `constants.py` | 目录 / 代理 / 超时等常量 |
 | `models.py` | ConnectConfig / RepoInfo / TreeEntry / DiffResult |
 | `errors.py` | `UserError` 等异常 |
 | `safe.py` | 安全工具（脱敏等） |
-| `throttle.py` | 全局令牌桶限流 |
-| `cache.py` | 通用缓存 |
+| `throttle.py` | 全局令牌桶限流（扫描 QPS 抬升/恢复在此之上实现） |
+| `cache.py` | 通用缓存（TTL + evict） |
+| `log_retention.py` | 日志/导出目录保留策略（discover dump / cf_logs 按数量+龄清理） |
 | `logger.py` | 日志桥接 / `get_logger` |
-| `watchdog.py` | 网络看门狗 |
-| `client.py` | `JiraGitClient`：Jira/Git 核心客户端（http/repos/files/download） |
-| `differ.py` | 差异引擎高层封装 |
-| `sync_history.py` | 同步历史记录 |
+| `watchdog.py` | 网络看门狗（显式传参，不再写全局单例） |
 
 ---
 
-## 四、GUI 层 `gui/`（PyQt6）
+## 四、GUI 层 `gui/`（PyQt6，遗留）
+
+> ⚠️ 当前交付形态是 **Electron / Tauri + React 前端**；本目录仅作参考保留，
+> 日常开发请改 `frontend/web-react/` + `api/`。入口 `main.py`（`scripts/run.sh`）。
 
 | 模块 | 职责 |
 |------|------|
@@ -167,7 +189,8 @@ tests/*  →  core/* / api/*
 
 ## 六、命名约定（便于维护）
 
-1. **路由文件**：`routes_<业务>.py`，薄层，只做参数解析 + 调 `core`/`cf_*`。
-2. **业务子域**：`k8s_<职责>.py`、`diff_<职责>.py`、`config_<场景>.py`。
-3. **聚合兼容层**：把大模块拆小后，原文件保留为 `re-export` 壳（如 `cf_core.py`），保证旧 `import` 路径不变。
+1. **路由文件**：`api/routes_<业务>.py` 或业务子包 `api/<业务>/routes_<业务>.py`，薄层，只做参数解析 + 调 `core`。
+2. **业务子域**：`core/` 下按目录分域（`client/`、`diff/`、`k8s/`、`kibana/`、`config/`、`sync/`），文件名不带前缀。
+3. **聚合兼容层**：把大模块拆小后，原文件保留为 `re-export` 壳（如 `api/cf/cf_core.py`），保证旧 `import` 路径不变。
 4. **无 GUI 依赖**：`core/` 不得 import `gui/`；`api/` 不得 import `gui/`。
+5. **i18n**：前端文案统一走 `i18n/` 字典（zh/en/ja 三份同步），`api/client.ts` 等非组件模块用纯函数 `t()`；`npm test` 里有 i18n 键完整性校验。

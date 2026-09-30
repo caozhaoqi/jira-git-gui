@@ -4,6 +4,7 @@ import { apiGet, apiText } from '../api/client';
 import type { K8sPodsResp } from '../api/types';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
+import { usePanelActive } from '../utils/panelActive';
 
 /* ============================================================
    独立全屏日志查看页 —— 迁移自 web/log_viewer.{html,js,css}
@@ -396,14 +397,15 @@ export function LogViewer() {
     await refresh();
   }, [refresh]);
 
-  /* ---------- 自动刷新 ---------- */
+  /* ---------- 自动刷新（面板隐藏时暂停，避免后台空转打后端） ---------- */
+  const panelActive = usePanelActive();
   useEffect(() => {
     const sec = parseInt(auto, 10) || 0;
     autoFollowRef.current = sec > 0;
-    if (sec <= 0) return;
+    if (sec <= 0 || !panelActive) return;
     const t = window.setInterval(refresh, sec * 1000);
     return () => window.clearInterval(t);
-  }, [auto, refresh]);
+  }, [auto, refresh, panelActive]);
 
   // tail / previous 変化后立即重拉（对应原生 onchange = refresh）
   const firstTailRun = useRef(true);

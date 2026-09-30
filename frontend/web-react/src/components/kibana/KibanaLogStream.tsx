@@ -7,6 +7,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import { copyText } from '../../utils/clipboard';
 import { useModalA11y } from '../../utils/useModalA11y';
+import { usePanelActive } from '../../utils/panelActive';
 
 export interface LogStreamProps {
   /** 检索条件（不含分页/排序） */
@@ -35,6 +36,8 @@ export function KibanaLogStream({
 }: LogStreamProps) {
   const { t } = useT();
   const addToast = useAppStore((s) => s.addToast);
+  // 面板隐藏（切到其它页签）时暂停自动刷新，避免后台空转打后端
+  const active = usePanelActive();
 
   const [rows, setRows] = useState<KibanaLogRow[]>([]);
   const [total, setTotal] = useState<{ value: number; relation?: string } | null>(null);
@@ -85,16 +88,16 @@ export function KibanaLogStream({
   // 条件变化 → 立即查一次
   useEffect(() => { search(); }, [reqKey, order, search]);
 
-  // 自动刷新：静默重查，不置 busy（避免按钮闪烁）
+  // 自动刷新：静默重查，不置 busy（避免按钮闪烁）；面板隐藏时暂停
   useEffect(() => {
-    if (!refreshSec || refreshSec <= 0) return;
+    if (!refreshSec || refreshSec <= 0 || !active) return;
     const timer = window.setInterval(async () => {
       setAutoRefreshing(true);
       await search({ silent: true });
       setAutoRefreshing(false);
     }, refreshSec * 1000);
     return () => window.clearInterval(timer);
-  }, [refreshSec, search]);
+  }, [refreshSec, search, active]);
 
   // 跟随：内容变化后滚到底
   useEffect(() => {
