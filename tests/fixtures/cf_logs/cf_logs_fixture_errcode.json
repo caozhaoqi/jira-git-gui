@@ -1,0 +1,10 @@
+{
+  "logs": [
+    {
+      "id": "fixture-1",
+      "create_time": "2026-09-17 15:50:33",
+      "log_type": "dynamic_log",
+      "content": "EXECUTE_OPEN_API_ERROR errcode: 1787706690673 model=employee field=id_card stage=field_read"
+    }
+  ]
+}

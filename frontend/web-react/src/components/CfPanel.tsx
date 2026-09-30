@@ -1095,7 +1095,7 @@ export function CfPanel() {
                 <label>{t('cf.mobile')}</label>
                 <input
                   className="input"
-                  aria-label={t('cf.username')}
+                  aria-label={t('cf.mobile')}
                   placeholder={t('cf.mobilePlaceholder')}
                   value={cfg.username}
                   onChange={(e) => setCfg({ ...cfg, username: e.target.value })}

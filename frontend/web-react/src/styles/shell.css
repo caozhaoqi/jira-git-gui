@@ -1390,3 +1390,83 @@ button {
     transition: none;
   }
 }
+
+/* ─── 错误边界（ErrorBoundary）─────────────────────────────────────────────
+   区域级：占据该页签面板的位置，不破坏其余页签；顶层：铺满窗口。
+   目标是把「整站白屏」降级为「只有坏掉的那块显示可读说明 + 重试」。 */
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.error-boundary--area {
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+}
+.error-boundary--app {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 1000;
+}
+.error-boundary-card {
+  max-width: 560px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 20px 22px;
+  text-align: left;
+}
+.error-boundary-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.error-boundary-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.error-boundary-msg {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.error-boundary-detail {
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius-xs);
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-boundary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 懒加载面板首次拉取时的占位（本地加载很快，避免闪白即可） */
+.panel-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  color: var(--text-faint);
+  font-size: 13px;
+}

@@ -40,6 +40,8 @@ _INFERRED_DICT_PATH = _REF_DIR / "errdict_inferred.json"
 _ROUTE_INDEX_PATH = _REF_DIR / "ERROR_ROUTE_INDEX.md"
 _SOURCE_INDEX_PATH = _REF_DIR / "cf_source_index.json"
 _CASE_DIR = _PROJECT_ROOT / "logs" / "cf_cases"
+# 诊断关联用的本地导出日志目录（运行时数据，测试 monkeypatch 指向 fixture）
+_LOG_MATCH_DIR = _PROJECT_ROOT / "logs" / "cf_logs"
 _FEEDBACK_PATH = _CASE_DIR / "diagnosis_feedback.jsonl"
 _REFERENCE_ROOT = Path(os.environ.get(
     "HCM_REFERENCE_ROOT",
@@ -1197,8 +1199,13 @@ def _find_source_evidence(parsed: dict, limit: int = 8) -> dict:
 
 
 def _find_log_matches(parsed: dict, limit: int = 20) -> dict:
-    """在本地已导出的 CF 日志中关联 error_code/errcode/定位字段。"""
-    log_dir = _PROJECT_ROOT / "logs" / "cf_logs"
+    """在本地已导出的 CF 日志中关联 error_code/errcode/定位字段。
+
+    日志目录抽成模块级 ``_LOG_MATCH_DIR``：测试可用 monkeypatch 指向 fixture，
+    因为 ``logs/cf_logs/`` 是运行时数据（保留策略会清理旧导出），直接依赖它
+    的测试会随数据清理而漂移失败。
+    """
+    log_dir = _LOG_MATCH_DIR
     if not log_dir.is_dir():
         return {"available": False, "matches": [], "scanned_files": 0}
     error_code = str(parsed.get("error_code") or "")

@@ -2,7 +2,14 @@ import type { Dict } from './types';
 
 // English (mirror of zh.ts structure)
 export const en: Dict = {
+  api: {
+    errTimeout: 'Request timed out. Check your network and try again.',
+    errNetwork: 'Network connection failed. Check the network or whether the service is running.',
+    errAuth: 'Session expired. Please sign in again.',
+    errFetch: 'Fetch failed',
+  },
   common: {
+    error: 'Error',
     ok: 'OK',
     cancel: 'Cancel',
     close: 'Close',
@@ -51,6 +58,10 @@ export const en: Dict = {
     system: 'System',
   },
   hcm: {
+    cfErrRiskLevel: 'Risk level',
+    cfErrRiskType: 'Type',
+    cfErrRiskLine: 'Line',
+    cfErrRiskMsg: 'Message',
     configRequired: 'Please fill in Token first',
     baseUrl: 'Proxy URL',
     proxyHint: 'Routed through local backend 8787 same-origin proxy, no change needed',
@@ -140,7 +151,7 @@ export const en: Dict = {
     metaRealData: 'Real Data',
     metaRunQuery: 'Run this list/query',
     metaUpdateTime: 'Updated',
-    metaTooMany: 'File count {n} exceeds single-load limit; narrow biz_type to paginate',
+    metaTooMany: 'File count {{n}} exceeds single-load limit; narrow biz_type to paginate',
     cfErrTitle: 'Cloud Function Error Locator',
     cfErrHint: 'Prereq: cloud functions must raise errors in "[LOC] model=.. id=.. field=.. value=.. stage=.. || reason" format (see design doc). With only an error_code you can copy it and search server-side by error_code.',
     cfErrPaste: 'Paste error info (error_code or [LOC] text)',
@@ -283,9 +294,6 @@ export const en: Dict = {
     branch: 'Branch',
     test: 'Test connection',
     apply: 'Apply',
-      applyConfirm: 'Run kubectl apply on the cluster for {{kind}}/{{name}} (namespace {{ns}})?',
-      applyNeedEdit: 'Switch to Edit mode first',
-      applyNoChange: 'No change since the last fetch',
     readLocalCookie: 'Loaded saved Cookie from local storage (paste again to update)',
     testing: 'Testing… (PAT mode triggers a real clone, may take time)',
     testNotSaved: '(Test does not save — click Apply to commit)',
@@ -521,6 +529,9 @@ export const en: Dict = {
       colSev: 'Severity',
     },
     yaml: {
+      applyConfirm: 'Run kubectl apply on the cluster for {{kind}}/{{name}} (namespace {{ns}})?',
+      applyNeedEdit: 'Switch to Edit mode first',
+      applyNoChange: 'No change since the last fetch',
       title: 'YAML',
       load: 'Load YAML',
       loading: 'Loading…',
@@ -708,7 +719,7 @@ export const en: Dict = {
       saveDone: '✅ Saved',
       saveFail: 'Failed: ',
       saveBlockedTruncated: 'This file was truncated (>200KB); saving would lose the tail — use “Download file” instead.',
-      unsavedConfirm: '“{name}” has unsaved changes. Close and discard them?',
+      unsavedConfirm: '“{{name}}” has unsaved changes. Close and discard them?',
       // ↓ Chunked download / resume / progress bar
       dlRowBtn: 'Download this file (chunked + resumable)',
       dlPreparing: 'Fetching file size…',
@@ -755,6 +766,7 @@ export const en: Dict = {
     },
   },
   cf: {
+    openLog: 'Open this cloud function log in browser',
     title: 'Cloud-Function Logs',
     account: 'Account',
     captcha: 'Captcha',
@@ -846,6 +858,7 @@ export const en: Dict = {
     timeHint: 'Narrow results by time; picking a preset fills start/end, editing them switches to Custom. "Export" includes the current time range.',
   },
   clash: {
+    writing: 'Writing…',
     title: 'Clash Routing',
     refresh: 'Refresh rules',
     ruleCount: 'Rules',
@@ -1086,6 +1099,7 @@ export const en: Dict = {
     desc: 'Description',
   },
   cfdebug: {
+    scanFail: 'Scan failed: {{msg}}',
     title: 'Cloud-Function Debug',
     env: 'Debug Environment',
     envMock: 'Offline Mock (no connection)',
@@ -1175,7 +1189,7 @@ export const en: Dict = {
     refresh: 'Refresh',
     loading: 'Loading…',
     deleting: 'Deleting…',
-    deleteSelected: 'Delete selected ({{n})',
+    deleteSelected: 'Delete selected ({{n}})',
     deleteSelectedHint: 'Batch delete selected log entries',
     deleteOne: 'Delete this entry',
     openLog: 'Open this cloud function log in browser',

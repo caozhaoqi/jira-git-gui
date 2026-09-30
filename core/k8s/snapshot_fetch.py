@@ -85,7 +85,15 @@ def run_snapshot(opts, on_log=None, on_progress=None, should_cancel=None):
     namespace = opts.get("namespace") or None
     selector = opts.get("selector") or None
     pod_filter = opts.get("pod_filter") or None
-    tail = int(opts.get("tail", 200))
+    # tail 必须钳制：请求体里的 tail 没有上限，tail=1000000 且 all_logs=true 时
+    # 会把每个 Pod 每个容器的完整日志都堆进内存直到快照结束。
+    # api/k8s/routes_k8s_snapshot.py 的日志接口已有同样的 min(...,5000)，
+    # 这条快照路径此前漏了。
+    try:
+        tail = int(opts.get("tail", 200))
+    except (TypeError, ValueError):
+        tail = 200
+    tail = max(1, min(tail, 5000))
     restart_threshold = int(opts.get("restart_threshold", 5))
     all_logs = bool(opts.get("all_logs", False))
     include_previous = bool(opts.get("include_previous", False))

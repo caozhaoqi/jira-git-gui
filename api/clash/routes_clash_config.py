@@ -5,6 +5,7 @@
 探测本机 Clash 配置文件路径、读取默认值配置、批量把 DIRECT 规则写入所有配置文件。
 底层工具函数见 ``clash_base``。
 """
+import asyncio
 import logging
 import re
 
@@ -23,6 +24,11 @@ router = APIRouter()
 
 @router.post("/api/clash/diagnose")
 async def clash_diagnose(req: DiagnoseReq):
+    # 同步阻塞（串行 curl -m 4/-m 8 探测、文件扫描、配置读写）：下放线程执行
+    return await asyncio.to_thread(_clash_diagnose_sync, req)
+
+
+def _clash_diagnose_sync(req: DiagnoseReq):
     """全面诊断：系统代理 / 默认路由 / Clash 端口 / 外网直连+代理 / 各 IP 直连+代理 / 配置解析。"""
     items = []
 
@@ -116,6 +122,11 @@ async def clash_diagnose(req: DiagnoseReq):
 
 @router.get("/api/clash/config-path")
 async def clash_config_path():
+    # 同步阻塞（串行 curl -m 4/-m 8 探测、文件扫描、配置读写）：下放线程执行
+    return await asyncio.to_thread(_clash_config_path_sync)
+
+
+def _clash_config_path_sync():
     """探测本机常见 Clash 配置文件路径（供前端一键填充）。"""
     paths = _probe_config_paths()
     current = ""
@@ -132,6 +143,11 @@ async def clash_config_path():
 
 @router.get("/api/clash/defaults")
 async def clash_defaults():
+    # 同步阻塞（串行 curl -m 4/-m 8 探测、文件扫描、配置读写）：下放线程执行
+    return await asyncio.to_thread(_clash_defaults_sync)
+
+
+def _clash_defaults_sync():
     """返回默认 IP / 默认局域网接口；source 标识来源：local / example / missing / corrupt。"""
     d, src_path, src = _resolve_clash_defaults_source(_CLASH_DEFAULTS_FILE)
     _log.info(
@@ -151,6 +167,11 @@ async def clash_defaults():
 
 @router.post("/api/clash/patch-all")
 async def clash_patch_all(req: PatchAllReq):
+    # 同步阻塞（串行 curl -m 4/-m 8 探测、文件扫描、配置读写）：下放线程执行
+    return await asyncio.to_thread(_clash_patch_all_sync, req)
+
+
+def _clash_patch_all_sync(req: PatchAllReq):
     """把 DIRECT 规则写入 ~/.config/clash 下【所有】yaml（含 ClashX 当前加载的）。"""
     import glob
     import os

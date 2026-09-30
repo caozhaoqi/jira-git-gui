@@ -143,6 +143,28 @@ function initializePaths() {
     LOG_DIR,
     `electron-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.log`
   );
+  pruneElectronLogs();
+}
+
+// 保留策略：electron-YYYYMMDD.log 是按天新建的，此前**从不清理**，实测累积
+// 34 个文件（单日 5MB+）。这里在启动时只保留最近 N 天（默认 7），避免只涨不减。
+// 注：Python 侧的 jira_git_gui.log 已有 RotatingFileHandler 轮转，不在此列。
+const ELECTRON_LOG_KEEP_DAYS = Number(process.env.JGG_KEEP_ELECTRON_LOGS_DAYS || 7);
+
+function pruneElectronLogs() {
+  try {
+    const cutoff = Date.now() - ELECTRON_LOG_KEEP_DAYS * 86400000;
+    for (const name of fs.readdirSync(LOG_DIR)) {
+      if (!/^electron-\d{8}\.log$/.test(name)) continue;
+      const full = path.join(LOG_DIR, name);
+      let st;
+      try { st = fs.statSync(full); } catch (_) { continue; }
+      // 只按文件自身 mtime 判断（比从文件名解析日期更稳）
+      if (st.mtimeMs < cutoff) {
+        try { fs.unlinkSync(full); } catch (_) {}
+      }
+    }
+  } catch (_) { /* 清理失败不影响启动 */ }
 }
 
 function _ts() {

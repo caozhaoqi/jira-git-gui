@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import api.cf.cf_diagnose as diagnose
@@ -194,7 +195,12 @@ def test_diagnose_context_contains_dictionary_and_wiki():
     assert "HCM" in result["aiPrompt"]
 
 
-def test_reference_source_evidence_and_error_catalog():
+def test_reference_source_evidence_and_error_catalog(monkeypatch):
+    # logMatches 依赖 logs/cf_logs/ 下的运行时导出数据——该目录被保留策略按期清理，
+    # 直接依赖会随数据漂移而失败。改为 monkeypatch 指向静态 fixture，保证确定性。
+    fixture_dir = Path(__file__).parent / "fixtures" / "cf_logs"
+    monkeypatch.setattr(diagnose, "_LOG_MATCH_DIR", fixture_dir)
+
     result = cf_diagnose_context(_req("errcode: 17003 error_code: 1787706690673"))
     assert result["sourceEvidence"]["available"] is True
     assert result["sourceEvidence"]["hits"]

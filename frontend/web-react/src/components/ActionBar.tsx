@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiPost } from '../api/client';
 import { useT } from '../i18n';
@@ -20,6 +20,12 @@ export function ActionBar() {
   const progress = useAppStore((s) => s.progress);
   const { t } = useT();
   const [rate, setRate] = useState(String(qps));
+  // 输入框跟随 store 的 qps：useState 只在首渲染取值一次，晚到的 status.qps
+  // （App 拉取 /api/status 后 setQps）不会回填，输入框会一直显示初始默认 6。
+  // 扫描期间后端临时抬高 QPS（enter/exit）也会如实反映到输入框。
+  useEffect(() => {
+    setRate(String(qps));
+  }, [qps]);
 
   const workers = concurrency;
 

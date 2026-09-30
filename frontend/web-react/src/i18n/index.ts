@@ -47,10 +47,6 @@ export function setLocale(locale: Locale): void {
   ensureDict(locale);
 }
 
-export function getLocale(): Locale {
-  return currentLocale;
-}
-
 // 按点路径解析嵌套字典
 function lookup(dict: Dict, key: MessageKey): string | undefined {
   const parts = key.split('.');

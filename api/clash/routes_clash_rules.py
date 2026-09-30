@@ -5,6 +5,7 @@
 osascript 提权批量加/删路由 + 写入 Clash rules、修复「USB 网卡抢占默认路由」导致的外网中断。
 底层工具函数见 ``clash_base``。
 """
+import asyncio
 import logging
 import os
 import re
@@ -108,6 +109,13 @@ async def clash_generate(req: GenReq):
 
 @router.post("/api/clash/apply")
 async def clash_apply(req: ApplyReq):
+    # 本路由全程是同步阻塞操作（提权 osascript 最长 180s、netstat/route/ifconfig
+    # 子进程、配置文件读写），必须下放到线程，否则一次点击就把事件循环冻住，
+    # 导致 SSE 心跳断流、终端 WebSocket 卡死、所有并发请求排队。
+    return await asyncio.to_thread(_clash_apply_sync, req)
+
+
+def _clash_apply_sync(req: ApplyReq):
     """一键应用：osascript 提权批量加路由 + 写入 Clash rules。"""
     ips = [x.strip() for x in req.ips if x.strip()]
     if not ips:
@@ -174,6 +182,13 @@ async def clash_apply(req: ApplyReq):
 
 @router.post("/api/clash/revert")
 async def clash_revert(req: RevertReq):
+    # 本路由全程是同步阻塞操作（提权 osascript 最长 180s、netstat/route/ifconfig
+    # 子进程、配置文件读写），必须下放到线程，否则一次点击就把事件循环冻住，
+    # 导致 SSE 心跳断流、终端 WebSocket 卡死、所有并发请求排队。
+    return await asyncio.to_thread(_clash_revert_sync, req)
+
+
+def _clash_revert_sync(req: RevertReq):
     """一键撤销：删除自动添加的路由 + 移除 Clash 配置中的自动规则。"""
     route_result: dict = {"applied": False}
     clash_result: dict = {"updated": False}
@@ -233,6 +248,13 @@ async def clash_revert(req: RevertReq):
 
 @router.post("/api/clash/fix-service-order")
 async def clash_fix_service_order(req: FixRouteReq):
+    # 本路由全程是同步阻塞操作（提权 osascript 最长 180s、netstat/route/ifconfig
+    # 子进程、配置文件读写），必须下放到线程，否则一次点击就把事件循环冻住，
+    # 导致 SSE 心跳断流、终端 WebSocket 卡死、所有并发请求排队。
+    return await asyncio.to_thread(_clash_fix_service_order_sync, req)
+
+
+def _clash_fix_service_order_sync(req: FixRouteReq):
     """把外网接口（Wi-Fi）提到服务顺序第一位，并立即把默认路由切回外网接口。"""
     services = _list_services()
     if not services:

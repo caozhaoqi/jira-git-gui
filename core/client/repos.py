@@ -16,6 +16,8 @@ from typing import Dict, List, Optional
 from core.constants import REPOS_DIR
 from core.models import RepoInfo
 from core import throttle
+from core.app_paths import get_data_root
+from core.log_retention import prune_discover_raw
 from core.logger import get_logger
 
 logger = get_logger("jira-git-gui")
@@ -90,10 +92,19 @@ class ReposMixin:
         # 本次扫描是否出现过「登录态失效」信号（跳转登录页 / 401 / 403）。
         # 每次扫描前重置，供最后的 0 结果提示区分「Cookie 过期」与「接口不可用」。
         self._last_auth_failed = False
+        # 调试用原始响应 dump：此前每次发现都新建 discover_raw_<ts>.txt 且从不清理，
+        # 实测累积 537 个文件 / 113MB。改为「固定文件名覆盖写」（始终保留最近一次，
+        # 排查问题时仍然可用），并顺手清理历史遗留的带时间戳文件。
+        # 路径用 get_data_root()：打包后 _PROJECT_ROOT 指向应用包内（只读/会被清掉）。
+        log_dir = get_data_root() / "logs"
         ts = time.strftime("%Y%m%d_%H%M%S")
-        raw_path = Path("logs") / f"discover_raw_{ts}.txt"
+        raw_path = log_dir / f"discover_raw_{ts}.txt"
         try:
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                prune_discover_raw(log_dir)
+            except Exception:
+                pass  # 清理失败不影响发现流程
             raw_fp = raw_path.open("w", encoding="utf-8")
         except Exception:
             raw_fp = None
