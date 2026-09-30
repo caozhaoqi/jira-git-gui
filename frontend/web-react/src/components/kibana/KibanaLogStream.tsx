@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { apiPost } from '../../api/client';
 import type {
   KibanaContextResp, KibanaExportResp, KibanaLogRow, KibanaLogsReq, KibanaLogsResp,
@@ -8,6 +8,7 @@ import { useT } from '../../i18n';
 import { copyText } from '../../utils/clipboard';
 import { useModalA11y } from '../../utils/useModalA11y';
 import { usePanelActive } from '../../utils/panelActive';
+import { KibanaContext } from './context';
 
 export interface LogStreamProps {
   /** 检索条件（不含分页/排序） */
@@ -38,6 +39,11 @@ export function KibanaLogStream({
   const addToast = useAppStore((s) => s.addToast);
   // 面板隐藏（切到其它页签）时暂停自动刷新，避免后台空转打后端
   const active = usePanelActive();
+  // 顶部「查询」按钮的加载态（计数制，见 context.addBusy）；独立窗口无 Provider 时静默。
+  // ⚠️ 只取 addBusy（Panel 里是 useCallback([]) 的稳定引用），不能把 ctx 对象本身
+  // 放进 search/loadMore 的依赖数组——ctx 每次渲染都是新字面量，会让回调每帧重建、
+  // useEffect 每帧触发，造成请求风暴（ERR_INSUFFICIENT_RESOURCES）。
+  const addBusy = useContext(KibanaContext)?.addBusy;
 
   const [rows, setRows] = useState<KibanaLogRow[]>([]);
   const [total, setTotal] = useState<{ value: number; relation?: string } | null>(null);
@@ -48,6 +54,9 @@ export function KibanaLogStream({
   // 自动刷新时只在「用户已在底部」才自动滚，避免打断正在往上翻的人
   const [autoRefreshing, setAutoRefreshing] = useState(false);
   const [ctxRow, setCtxRow] = useState<KibanaLogRow | null>(null);
+  // 最后一次成功查询时间 + 自动刷新倒计时（秒）
+  const [lastUpdated, setLastUpdated] = useState('');
+  const [countdown, setCountdown] = useState(0);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const reqRef = useRef(req);
@@ -61,6 +70,7 @@ export function KibanaLogStream({
     const silent = opts?.silent;
     if (!silent) setBusy(true);
     setError('');
+    addBusy?.(1);
     try {
       const d = await apiPost<KibanaLogsResp>('/api/kibana/logs', {
         ...reqRef.current,
@@ -76,26 +86,37 @@ export function KibanaLogStream({
       }
       setRows(d.rows || []);
       setTotal(d.total ?? null);
+      const p = (n: number) => String(n).padStart(2, '0');
+      const now = new Date();
+      setLastUpdated(`${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`);
     } catch (ex: any) {
       setError(ex.message || String(ex));
       onReqError?.(ex.message || String(ex));
       if (!silent) setRows([]);
     } finally {
       if (!silent) setBusy(false);
+      addBusy?.(-1);
     }
-  }, [onReqError]);
+  }, [onReqError, addBusy]);
 
   // 条件变化 → 立即查一次
   useEffect(() => { search(); }, [reqKey, order, search]);
 
-  // 自动刷新：静默重查，不置 busy（避免按钮闪烁）；面板隐藏时暂停
+  // 自动刷新：1s 粒度倒计时（head 区显示「Xs 后刷新」），到 0 静默重查；
+  // 面板隐藏时暂停；刷新间隔变化时立即重置倒计时。
   useEffect(() => {
-    if (!refreshSec || refreshSec <= 0 || !active) return;
-    const timer = window.setInterval(async () => {
-      setAutoRefreshing(true);
-      await search({ silent: true });
-      setAutoRefreshing(false);
-    }, refreshSec * 1000);
+    if (!refreshSec || refreshSec <= 0 || !active) { setCountdown(0); return; }
+    setCountdown(refreshSec);
+    const timer = window.setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          setAutoRefreshing(true);
+          search({ silent: true }).finally(() => setAutoRefreshing(false));
+          return refreshSec;
+        }
+        return c - 1;
+      });
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [refreshSec, search, active]);
 
@@ -109,6 +130,7 @@ export function KibanaLogStream({
   const loadMore = useCallback(async () => {
     if (busy || !rows.length) return;
     setBusy(true);
+    addBusy?.(1);
     try {
       const d = await apiPost<KibanaLogsResp>('/api/kibana/logs', {
         ...reqRef.current, size: PAGE, from_: rows.length, order: orderRef.current,
@@ -120,8 +142,9 @@ export function KibanaLogStream({
       addToast(ex.message || String(ex), 'error');
     } finally {
       setBusy(false);
+      addBusy?.(-1);
     }
-  }, [busy, rows.length, addToast]);
+  }, [busy, rows.length, addToast, addBusy]);
 
   const doExport = useCallback(async () => {
     try {
@@ -170,7 +193,22 @@ export function KibanaLogStream({
             {errCount > 0 && <b className="kb-err-count"> · {errCount} ERROR</b>}
           </span>
         )}
-        {autoRefreshing && <span className="kb-tick">⟳</span>}
+        {lastUpdated && (
+          <span className="kb-last-update"
+                title={t('kibana.lastUpdate', { time: lastUpdated })}>
+            {t('kibana.lastUpdate', { time: lastUpdated })}
+          </span>
+        )}
+        {refreshSec > 0 && countdown > 0 && (
+          <span className={`kb-countdown${autoRefreshing ? ' run' : ''}`}
+                title={t('kibana.nextRefresh', { s: countdown })}>
+            {autoRefreshing ? '⟳' : `⟳ ${countdown}s`}
+          </span>
+        )}
+        <button className="btn btn-ghost btn-sm" onClick={() => search()}
+                disabled={busy} title={t('kibana.refreshNow')}>
+          <span className={busy ? 'kb-spin' : ''}>↻</span>
+        </button>
         <button
           className={`btn btn-ghost btn-sm${order === 'desc' ? ' btn-active' : ''}`}
           onClick={() => setOrder(order === 'desc' ? 'asc' : 'desc')}

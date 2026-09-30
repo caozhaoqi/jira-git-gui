@@ -13,6 +13,8 @@ interface Props {
   refreshSec: number;
   /** 点「查询」时自增，用于强制重新拉取 */
   reloadKey?: number;
+  /** 点直方图/时间元素时回调（容器视角当前未用，透传给 LogStream 层一致性） */
+  onTimeRangePick?: (patch: Partial<KibanaQuery>) => void;
 }
 
 /** 容器视角：左侧按应用分组的 Pod 树（带日志量 / 错误红标），右侧日志流。 */
@@ -20,7 +22,9 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, re
   const { t } = useT();
   // 说明：K8s「系统日志」子页签也复用本组件，但那处没有 KibanaContext.Provider，
   // 因此这里用可空 context（直接 useKibana() 会抛错导致该页签白屏）。
-  const kbCtx = useContext(KibanaContext);
+  // 只取 addBusy 稳定引用（勿把 ctx 对象放进依赖数组——每次渲染都是新字面量，
+  // 会让 loadPods 每帧重建 → effect 每帧触发 → 请求风暴）
+  const addBusy = useContext(KibanaContext)?.addBusy;
   const [pods, setPods] = useState<KibanaPodRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -35,6 +39,7 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, re
   const loadPods = useCallback(async () => {
     setLoading(true);
     setError('');
+    addBusy?.(1);
     try {
       const q = new URLSearchParams({
         // 必须带 site：Pod 树与日志必须来自同一个站点，否则会出现「日志是 A 集群、
@@ -59,14 +64,13 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, re
       setError(ex.message || String(ex));
     } finally {
       setLoading(false);
+      addBusy?.(-1);
     }
-  }, [query, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query, selected, addBusy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadPods(); }, [qKey, loadPods, reloadKey]);
   // 站点切换时清空选择
   useEffect(() => { setSelected(''); }, [site]);
-  // 把加载态与「是否查过」上报给顶部「查询」按钮
-  useEffect(() => { kbCtx?.setBusy?.(loading); }, [loading, kbCtx]);
 
   const grouped = useMemo(() => {
     const m = new Map<string, KibanaPodRow[]>();

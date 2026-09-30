@@ -40,9 +40,10 @@ export interface KibanaContextValue {
   addToast: (msg: string, type?: ToastType) => void;
   /** 自增计数：点「查询」时 +1，子面板据此重新拉取（此前该按钮是空实现） */
   reloadKey: number;
-  /** 子面板回报的加载态，供「查询」按钮显示加载中 */
+  /** 子面板回报加载态：+1 进入 / -1 退出（计数制——多个子请求并发时布尔会互相覆盖） */
+  addBusy: (delta: 1 | -1) => void;
+  /** 顶部「查询」按钮的加载态 = busyCount > 0 */
   busy: boolean;
-  setBusy: (b: boolean) => void;
   openSiteModal: () => void;
 }
 

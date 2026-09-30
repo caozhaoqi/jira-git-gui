@@ -3265,6 +3265,58 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-bar:has(.kb-bar-err) { /* 有错误的柱子高亮底 */ }
 
+/* ── Kibana 增强：可点柱条 / 更新时间 / 刷新倒计时 / 未应用标记 ─────────── */
+.kb-zoomout {
+  color: var(--primary);
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.kb-zoomout:hover { background: var(--surface-2, rgba(99, 102, 241, 0.1)); }
+
+.kb-bar.clickable { cursor: pointer; }
+.kb-bar.clickable:hover .kb-bar-fill { filter: brightness(1.25); }
+.kb-bar.clickable:hover .kb-bar-label { color: var(--primary); }
+.kb-bar.clickable:focus-visible { outline: 1px solid var(--primary); outline-offset: 1px; }
+
+.kb-last-update {
+  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  white-space: nowrap;
+}
+.kb-countdown {
+  font-family: var(--mono); font-size: 11px; color: var(--primary);
+  white-space: nowrap; min-width: 34px; text-align: center;
+}
+.kb-countdown.run { animation: spin 1s linear infinite; display: inline-block; }
+.kb-spin { display: inline-block; animation: spin 1s linear infinite; }
+
+/* 自动刷新开启时：标签旁的小绿点呼吸提示 */
+.kb-autoref .kb-autoref-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-dim); opacity: 0.4; flex: none;
+}
+.kb-autoref.on .kb-autoref-dot.run {
+  background: var(--ok, #2e9e5b);
+  animation: kb-breathe 2s ease-in-out infinite;
+}
+@keyframes kb-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+/* 条件有未应用的修改：查询按钮旁的小橙点 + 按钮轻微脉动 */
+.kb-dirty-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--warning, #e8a33d); flex: none;
+}
+.kb-apply-pulse { animation: kb-pulse 1.6s ease-in-out infinite; }
+@keyframes kb-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kb-apply-pulse, .kb-autoref.on .kb-autoref-dot.run, .kb-spin, .kb-countdown.run { animation: none; }
+}
+
 /* 站点管理弹窗 —— 美化版 */
 .kb-site-modal {
   width: 860px;

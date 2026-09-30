@@ -7,7 +7,8 @@ import type {
   KibanaBucket, KibanaFieldsResp, KibanaSite, KibanaSitesResp,
 } from '../../api/types';
 
-/** 共享的筛选条：时间范围 + 各维度下拉 + 关键词 + 级别。两个子标签共用。 */
+/** 共享的筛选条：时间范围 + 各维度下拉 + 关键词 + 级别。两个子标签共用。
+ *  草稿制：value 是「编辑中草稿」，改动不打后端；点「查询」（onApply）/回车才应用。 */
 export interface FiltersProps {
   site: string;
   value: {
@@ -16,9 +17,10 @@ export interface FiltersProps {
     levels: string[];
   };
   onChange: (patch: Record<string, unknown>) => void;
-  onSearch: () => void;
-  busy?: boolean;
-  /** 容器视角不需要 Pod 下拉（左侧树选），传 false 可隐藏 */
+  /** 应用草稿并触发查询（「查询」按钮 / 关键词回车） */
+  onApply: () => void;
+  /** 草稿与已提交条件不一致（查询按钮高亮提示） */
+  dirty?: boolean;
   showPodSelect?: boolean;
   pod?: string;
 }
@@ -34,25 +36,11 @@ const TIME_PRESETS = [
 const LEVELS = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
 
 export function KibanaFilters({
-  site, value, onChange, onSearch, busy, showPodSelect, pod,
+  site, value, onChange, onApply, dirty, showPodSelect, pod,
 }: FiltersProps) {
   const { t } = useT();
   const [fields, setFields] = useState<KibanaFieldsResp>({});
   const [fieldsErr, setFieldsErr] = useState('');
-  // 关键词/排除词的本地草稿（提交后才写入 query，避免逐字符触发查询）
-  const [kwDraft, setKwDraft] = useState(value.keyword);
-  const [exDraft, setExDraft] = useState(value.excludeKeyword);
-
-  // 外部（如切换站点/标签页重置）改了 query 时，草稿跟随
-  useEffect(() => { setKwDraft(value.keyword); }, [value.keyword]);
-  useEffect(() => { setExDraft(value.excludeKeyword); }, [value.excludeKeyword]);
-
-  const commitKeyword = useCallback(() => {
-    if (kwDraft !== value.keyword) onChange({ keyword: kwDraft });
-  }, [kwDraft, value.keyword, onChange]);
-  const commitExclude = useCallback(() => {
-    if (exDraft !== value.excludeKeyword) onChange({ excludeKeyword: exDraft });
-  }, [exDraft, value.excludeKeyword, onChange]);
 
   const loadFields = useCallback(async () => {
     if (!site) return;
@@ -98,6 +86,7 @@ export function KibanaFilters({
           className="input input-sm kb-time-input"
           value={value.start}
           onChange={(e) => onChange({ start: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') onApply(); }}
           placeholder="now-1h"
           title={t('kibana.time.startPh')}
         />
@@ -106,6 +95,7 @@ export function KibanaFilters({
           className="input input-sm kb-time-input"
           value={value.end}
           onChange={(e) => onChange({ end: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') onApply(); }}
           placeholder={t('kibana.time.endPh')}
         />
 
@@ -157,23 +147,21 @@ export function KibanaFilters({
       </div>
 
       <div className="kb-filter-row">
-        {/* 关键词用本地草稿：输入过程中不触发查询（一次查询约数秒，逐字符打会打爆后端），
-            回车或失焦时才提交；旁边有「查询」按钮可显式触发。 */}
+        {/* 草稿制：关键词输入只写草稿，回车或点「查询」才应用（一次查询约数秒，
+            逐字符打会打爆后端；此前 onBlur 提交也会在点其它下拉时意外触发查询）。 */}
         <input
           className="input input-sm kb-keyword"
-          value={kwDraft}
-          onChange={(e) => setKwDraft(e.target.value)}
-          onBlur={commitKeyword}
-          onKeyDown={(e) => { if (e.key === 'Enter') { commitKeyword(); onSearch(); } }}
+          value={value.keyword}
+          onChange={(e) => onChange({ keyword: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') onApply(); }}
           placeholder={t('kibana.keywordPh')}
           aria-label={t('kibana.keywordPh')}
         />
         <input
           className="input input-sm kb-keyword"
-          value={exDraft}
-          onChange={(e) => setExDraft(e.target.value)}
-          onBlur={commitExclude}
-          onKeyDown={(e) => { if (e.key === 'Enter') { commitExclude(); onSearch(); } }}
+          value={value.excludeKeyword}
+          onChange={(e) => onChange({ excludeKeyword: e.target.value })}
+          onKeyDown={(e) => { if (e.key === 'Enter') onApply(); }}
           placeholder={t('kibana.excludePh')}
           aria-label={t('kibana.excludePh')}
         />
@@ -194,10 +182,18 @@ export function KibanaFilters({
         </div>
         <div className="spacer" />
         {fieldsErr && <span className="kb-err">{fieldsErr}</span>}
+        {dirty && <span className="kb-dirty-dot" title={t('kibana.unapplied')} aria-label={t('kibana.unapplied')} />}
         <button className="btn btn-ghost btn-sm" onClick={loadFields}
                 title={t('kibana.reloadFields')}>↻</button>
-        <button className="btn btn-primary btn-sm" onClick={onSearch} disabled={busy}>
-          {busy ? t('common.loading') : t('kibana.search')}
+        <button
+          className={`btn btn-sm${dirty ? ' btn-primary kb-apply-pulse' : ' btn-primary'}`}
+          // ⚠️ 必须包一层箭头函数：直接 onClick={onApply} 会把 React 点击事件对象
+          // 当作 override 传入，展开时把 target（DOM 元素）拷进 draft/query，
+          // 下一帧 JSON.stringify(draft) 就因循环结构炸掉（ErrorBoundary 白屏）。
+          onClick={() => onApply()}
+          title={dirty ? t('kibana.unapplied') : t('kibana.search')}
+        >
+          {t('kibana.search')}
         </button>
       </div>
     </div>
