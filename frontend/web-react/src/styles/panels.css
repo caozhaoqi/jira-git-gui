@@ -3778,3 +3778,62 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 @keyframes mask-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* ===== 云函数日志：分布可视化（时间直方图 + 类型分布）=====
+   数据源是「当前已加载」的日志行（纯前端聚合），头部会标注「基于 N 条」，避免误读为全量。 */
+.cf-dist-card { margin-top: var(--sp-3); }
+.cf-dist-card .panel-header { gap: var(--sp-2); }
+.cf-dist-meta { margin-left: auto; color: var(--text-dim); font-size: 12px; }
+.cf-dist-meta-err { color: var(--danger); }
+.cf-dist-clear,
+.cf-dist-zoomout { flex: 0 0 auto; }
+.cf-dist-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-2) 0 0; }
+.cf-dist-section { display: flex; flex-direction: column; gap: var(--sp-2); }
+.cf-dist-subtitle { display: flex; align-items: baseline; gap: var(--sp-3); font-size: 12px; color: var(--text-2); }
+.cf-dist-hint { font-size: 11px; color: var(--text-faint); }
+
+/* —— 时间直方图：点柱按该桶覆盖的时段过滤 ——
+   padding-inline 给首尾刻度标签留位（标签是绝对定位 + translateX(-50%)，否则会被卡片边界裁掉） */
+.cf-dist-bars { display: flex; align-items: flex-end; gap: 2px; height: 104px; padding: 0 26px 18px; }
+.cf-dist-bar { position: relative; flex: 1 1 0; min-width: 2px; height: 100%; }
+.cf-dist-bar.clickable { cursor: pointer; }
+.cf-dist-bar-inner { position: relative; width: 100%; height: 100%; }
+.cf-dist-bar-fill {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  border-radius: 3px 3px 0 0; background: var(--primary); opacity: 0.7;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.cf-dist-bar-err {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  border-radius: 3px 3px 0 0; background: var(--danger); opacity: 0.85;
+}
+.cf-dist-bar.clickable:hover .cf-dist-bar-fill,
+.cf-dist-bar.clickable:hover .cf-dist-bar-err { opacity: 1; }
+.cf-dist-bar.clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
+.cf-dist-bar-label {
+  position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
+  font-size: 10px; color: var(--text-faint); white-space: nowrap; font-family: var(--mono);
+}
+
+/* —— 类型分布：点条目按类型过滤（再点取消）—— */
+.cf-dist-types { display: flex; flex-direction: column; gap: 2px; }
+.cf-dist-type {
+  display: grid; grid-template-columns: minmax(110px, 190px) 1fr 104px;
+  align-items: center; gap: var(--sp-3);
+  padding: 3px var(--sp-2);
+  border: 1px solid transparent; border-radius: var(--radius-xs);
+  background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.cf-dist-type:hover { background: var(--bg-hover); }
+.cf-dist-type.active { border-color: var(--primary); background: var(--primary-weak); }
+.cf-dist-type-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cf-dist-type-track { height: 8px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
+.cf-dist-type-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--primary); opacity: 0.75; }
+.cf-dist-type.active .cf-dist-type-fill { opacity: 1; }
+.cf-dist-type-count { font-size: 11px; color: var(--text-dim); text-align: right; font-family: var(--mono); }
+.cf-dist-type-rest { padding: 2px var(--sp-2); font-size: 11px; color: var(--text-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-dist-bar-fill, .cf-dist-type { transition: none; }
+}

@@ -7,6 +7,7 @@ import { readClipboardText, writeClipboardText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
 import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
+import { CfDistribution } from './CfDistribution';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
 
@@ -234,6 +235,10 @@ export function CfPanel() {
   const [streamInterval, setStreamInterval] = useState(5);  // 轮询间隔（秒）
   const [lastTick, setLastTick] = useState('');             // 最近一次轮询时刻（心跳可见化）
   const [needBaseline, setNeedBaseline] = useState(false);   // 恢复了后台流但缺基线：等 cfg 就绪补查一次
+  // —— 日志分布图（CfDistribution）相关 ——
+  const [typePick, setTypePick] = useState<string[]>([]);    // 类型分布里勾选的类型（前端过滤，多选）
+  // 时间范围钻取栈（点分布柱进一层；「返回上一级」弹一层）。存的是进入前的完整时间配置。
+  const [rangeStack, setRangeStack] = useState<Array<{ preset: TimePreset; start: string; end: string }>>([]);
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -595,6 +600,46 @@ export function CfPanel() {
     if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
   };
 
+  // —— 分布图交互 ——
+  /** 点时间分布柱：把时间范围收窄到该桶覆盖的区间（并压栈，供「返回上一级」回退）。
+   *  注意这里不是「切到自定义」而是真正写入起止值，因此列表与分布图会立即只统计该时段。 */
+  const onDistTimePick = (startMs: number, endMs: number) => {
+    setRangeStack((s) => [
+      ...s.slice(-9),
+      { preset: cfgRef.current.time_preset, start: cfgRef.current.time_start, end: cfgRef.current.time_end },
+    ]);
+    const patch = {
+      time_preset: 'custom' as TimePreset,
+      time_start: toLocalInput(startMs),
+      time_end: toLocalInput(endMs),
+    };
+    setCfg((c) => ({ ...c, ...patch }));
+    saveCfg(patch);
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
+  /** 返回上一级时间范围：弹出栈顶（进入前的时间配置）并恢复。 */
+  const popDistRange = () => {
+    if (!rangeStack.length) return;
+    const prev = rangeStack[rangeStack.length - 1];
+    const patch = { time_preset: prev.preset, time_start: prev.start, time_end: prev.end };
+    setCfg((c) => ({ ...c, ...patch }));
+    saveCfg(patch);
+    setRangeStack(rangeStack.slice(0, -1));
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
+  /** 切换类型分布里的某个类型（多选 toggle）。 */
+  const toggleTypePick = (name: string) => {
+    setTypePick((p) => (p.includes(name) ? p.filter((x) => x !== name) : [...p, name]));
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
+  const clearTypePick = () => {
+    setTypePick([]);
+    if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
   // 实时刷新中：查询过滤条件（server_url / log_type / record_model）变了就按新条件重启后端流。
   // 否则流会继续按「开启时快照」的条件轮询，新设的类型过滤就被它推来的旧行盖掉。
   const syncStreamFilter = async (serverUrl: string, logType: string, recordModel: string, pageSize: number) => {
@@ -897,7 +942,7 @@ export function CfPanel() {
 
   // 排序 + 客户端实时过滤 + 本地分页 + 匹配计数
   const view = useMemo(() => {
-    if (!result) return { rows: [] as CfLogsRow[], isFull: false, all: 0, total: 0, totalPages: 1, localPage: 1, matchTotal: 0 };
+    if (!result) return { rows: [] as CfLogsRow[], isFull: false, all: 0, total: 0, totalPages: 1, localPage: 1, matchTotal: 0, matchRows: 0, filtered: [] as CfLogsRow[] };
     const all = result.rows.slice();
     const isFull = (result.total || 0) > 0 && result.rows.length >= result.total;
     all.sort((a, b) => {
@@ -922,6 +967,11 @@ export function CfPanel() {
     const lt = (result.log_type || '').trim();
     if (lt) {
       filtered = filtered.filter((r) => logRowMatchesType(r, lt, result.record_model));
+    }
+    // 分布图「类型分布」里勾选的类型（前端过滤，与服务端 log_type 过滤叠加）。
+    // 放在关键词过滤之前：与列表口径一致（时间窗口 → 类型 → 关键词）。
+    if (typePick.length > 0) {
+      filtered = filtered.filter((r) => typePick.includes(cfLogType(r, result.log_type)));
     }
     if (q && filterOn) {
       filtered = filtered.filter((r) => {
@@ -953,8 +1003,8 @@ export function CfPanel() {
       if (localPage > totalPages) localPage = totalPages;
       display = filtered.slice((localPage - 1) * pageSize, localPage * pageSize);
     }
-    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows };
-  }, [result, sortDir, search, caseSensitive, filterOn, cfg.time_preset, cfg.time_start, cfg.time_end]);
+    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows, filtered };
+  }, [result, sortDir, search, caseSensitive, filterOn, cfg.time_preset, cfg.time_start, cfg.time_end, typePick]);
 
   const goLocalPage = (p: number) => {
     if (result) setResult({ ...result, localPage: p });
@@ -1395,6 +1445,20 @@ export function CfPanel() {
 
         {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
       </div>
+
+      {/* ===== 日志分布可视化（时间直方图 + 类型分布；点柱钻取时段，点类型加前端过滤）===== */}
+      {result && (
+        <CfDistribution
+          rows={view.filtered}
+          typeFallback={result.log_type}
+          onTimeRangePick={onDistTimePick}
+          rangeStackLen={rangeStack.length}
+          onPopRange={popDistRange}
+          typePick={typePick}
+          onToggleType={toggleTypePick}
+          onClearTypes={clearTypePick}
+        />
+      )}
 
       {/* ===== 日志搜索 / 过滤工具栏 ===== */}
       {result && (

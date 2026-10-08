@@ -97,3 +97,5 @@ todo.md
 .ui-review/
 
 .playwright-cli/
+
+.ruff_cache/
