@@ -279,6 +279,7 @@ class CfRetrofitReq(BaseModel):
 
 def _load_retrofit():
     """懒加载改造工具模块（tools/cf_locate_retrofit.py），避免常驻导入开销。"""
+    from pathlib import Path
     import importlib.util
     tools_dir = Path(__file__).resolve().parents[2] / "tools"
     mod_path = tools_dir / "cf_locate_retrofit.py"

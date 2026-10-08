@@ -503,17 +503,6 @@ class FilesMixin:
     def _strip_repo_info(html_text: str) -> bool:
         return bool(_RE_VIEW_REPO_INFO.search(html_text or ""))
 
-    def _parse_tree_files(self, html_text: str) -> List[dict]:
-        """解析文件树页面，返回 [{'path','name','type'}] 列表。"""
-        out: List[dict] = []
-        for m in _TREE_FILE_ROW.finditer(html_text or ""):
-            href, fpath, _ = m.group(1), m.group(2), m.group(3)
-            name_m = _TREE_FILE_NAME.search(href + html_text[m.end(): m.end() + 400])
-            name = re.sub(r"<[^>]+>", "", name_m.group(1)).strip() if name_m else fpath
-            typ = "file" if "filePath=" in href else "dir"
-            out.append({"path": urllib.parse.unquote(fpath), "name": name, "type": typ})
-        return out
-
     def _local_file_read(self, local_path: Path, path: str):
         """读取本地克隆中的文件内容（git show HEAD:<path>），返回文本或字节。"""
         try:
