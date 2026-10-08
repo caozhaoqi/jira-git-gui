@@ -1,9 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
-import { readClipboardText, writeClipboardText } from '../utils/clipboard';
+import { readClipboardText, writeClipboardText, copyText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
 import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
@@ -953,6 +962,22 @@ export function CfPanel() {
     }
   };
 
+  // 列表单元格「点击即复制」：云函数名与日志内容各自给出明确的成功/失败提示。
+  // 复制内容用完整值（表格里显示的是截断版，复制截断版没意义）。
+  const copyCell = useCallback(
+    (kind: 'type' | 'content', text: string) => {
+      if (!text) return;
+      void (async () => {
+        const ok = await copyText(text);
+        addToast(
+          ok ? t(kind === 'type' ? 'cf.copiedType' : 'cf.copiedContent') : t('cf.copyFailed'),
+          ok ? 'success' : 'error'
+        );
+      })();
+    },
+    [addToast, t]
+  );
+
   // 仅翻转排序方向：view 已按 sortDir 对已加载页（result.rows）排序，
   // 不再调用 ensureAllLogs 全量拉取——否则会把几十万条日志塞进渲染进程内存导致 OOM。
   const toggleSort = () => {
@@ -1124,23 +1149,15 @@ export function CfPanel() {
             </select>
           </div>
           <button
-            className="btn btn-ghost btn-sm"
+            className={'btn btn-ghost btn-sm' + (cfgOpen ? ' active' : '')}
             onClick={() => setCfgOpen((v) => !v)}
             title={t('cf.toggleConfig')}
             aria-expanded={cfgOpen}
           >
-            {/* 箭头置于文字之前并统一用 .cfd-caret：放在末尾的小三角在视觉上会被
-                误读成句读符号（「配置 ·」），前置后与面板内其它折叠控件一致 */}
-            <span className="cfd-caret" aria-hidden="true">▸</span>
+            {/* 箭头前置并统一用 .cfd-caret：放在末尾的小三角在视觉上会被误读成句读符号
+                （「配置 ·」）。caret 需要跟随展开状态翻转，否则用户看不出这里能展开。 */}
+            <span className="cfd-caret" aria-hidden="true">{cfgOpen ? '▾' : '▸'}</span>
             {t('cf.config')}
-          </button>
-          <button
-            className="btn btn-sm btn-primary"
-            onClick={() => void openCloudFunctionLogs(cfg.server_url.trim(), cfg.log_type.trim(), cfg.record_model.trim() || 'dynamic_log', cfg.token.trim())}
-            disabled={!cfg.server_url.trim()}
-            title={t('cf.openLog')}
-          >
-            ↗ {t('cf.openLogShort')}
           </button>
         </div>
 
@@ -1305,6 +1322,16 @@ export function CfPanel() {
                 title={t('cf.autoGetTokenHint')}
               >
                 {autoLogin.running ? `⏳ ${t('cf.autoGetting')}` : `🔑 ${t('cf.autoGetToken')}`}
+              </button>
+              {/* 「浏览器打开日志」收进配置体：默认折叠隐藏（cfgOpen 默认 false），
+                  只在需要时展开配置即可看到。用当前 server_url/log_type/record_model/token。 */}
+              <button
+                className="btn btn-sm"
+                onClick={() => void openCloudFunctionLogs(cfg.server_url.trim(), cfg.log_type.trim(), cfg.record_model.trim() || 'dynamic_log', cfg.token.trim())}
+                disabled={!cfg.server_url.trim()}
+                title={t('cf.openLog')}
+              >
+                ↗ {t('cf.openLogShort')}
               </button>
             </div>
           </div>
@@ -1661,6 +1688,9 @@ export function CfPanel() {
                       }
                       serverUrl={result.server_url}
                       openLogLabel={t('cf.openLog')}
+                      copyTypeLabel={t('cf.copyType')}
+                      copyContentLabel={t('cf.copyContent')}
+                      onCopy={copyCell}
                       expanded={expanded === globalIdx}
                       onToggle={() => setExpanded(expanded === globalIdx ? null : globalIdx)}
                     />
@@ -1708,6 +1738,9 @@ function FragmentRow(props: {
   rowId: string;
   serverUrl: string;
   openLogLabel: string;
+  copyTypeLabel: string;
+  copyContentLabel: string;
+  onCopy: (kind: 'type' | 'content', text: string) => void;
   expanded: boolean;
   onToggle: () => void;
 }) {
@@ -1727,15 +1760,42 @@ function FragmentRow(props: {
     rowId,
     serverUrl,
     openLogLabel,
+    copyTypeLabel,
+    copyContentLabel,
+    onCopy,
     expanded,
     onToggle,
   } = props;
+  // 单元格「点击即复制」：必须 stopPropagation，否则会连带触发行的展开/收起。
+  // 同时补 Enter/Space 键盘路径（role="button" 的可访问性要求），保持与鼠标一致。
+  const copyHandlers = (kind: 'type' | 'content', text: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: (e: ReactMouseEvent) => {
+      e.stopPropagation();
+      onCopy(kind, text);
+    },
+    onKeyDown: (e: ReactKeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        onCopy(kind, text);
+      }
+    },
+  });
   return (
     <>
       <tr id={`cf-row-${displayIndex}`} className="cf-log-row" onClick={onToggle} style={{ cursor: 'pointer' }}>
         <td>{idx}</td>
         <td className="cf-log-type" title={type}>
-          {highlightNodes(type, mType, rowOrdStart + mContent.length + mTime.length, activeMatch)}
+          <span
+            className="cf-copy"
+            title={copyTypeLabel}
+            aria-label={copyTypeLabel}
+            {...copyHandlers('type', type)}
+          >
+            {highlightNodes(type, mType, rowOrdStart + mContent.length + mTime.length, activeMatch)}
+          </span>
           <button
             type="button"
             className="cf-open-log"
@@ -1752,7 +1812,16 @@ function FragmentRow(props: {
         <td className="cf-log-time">
           {highlightNodes(time, mTime, rowOrdStart + mContent.length, activeMatch)}
         </td>
-        <td className="cf-log-content">{highlightNodes(content, mContent, rowOrdStart, activeMatch)}</td>
+        <td className="cf-log-content">
+          <span
+            className="cf-copy"
+            title={copyContentLabel}
+            aria-label={copyContentLabel}
+            {...copyHandlers('content', contentFull || content)}
+          >
+            {highlightNodes(content, mContent, rowOrdStart, activeMatch)}
+          </span>
+        </td>
       </tr>
       {expanded && (
         <tr className="cf-log-detail-row">
