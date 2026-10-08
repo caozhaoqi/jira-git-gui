@@ -857,6 +857,13 @@ export const en: Dict = {
     distClearType: 'Clear type filter',
     distZoomOut: 'Back to previous range',
     distMoreTypes: '{{n}} more types · {{c}} logs',
+    // —— advanced options (collapsed by default) ——
+    advOptions: 'Advanced',
+    advHint: 'Show advanced options: query parameters / export & live refresh / manual time',
+    advParams: 'Query parameters',
+    advExport: 'Export & live refresh',
+    advTime: 'Time range (manual)',
+    advModified: 'defaults changed',
     colType: 'Type',
     colTime: 'Time',
     colContent: 'Content',

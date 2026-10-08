@@ -860,6 +860,13 @@ export const zh: Dict = {
     distClearType: '清除类型过滤',
     distZoomOut: '返回上一级',
     distMoreTypes: '其他 {{n}} 类 · {{c}} 条',
+    // —— 高级选项（默认折叠区：查询参数 / 导出与刷新 / 手动时间）——
+    advOptions: '高级选项',
+    advHint: '展开高级选项：查询参数 / 导出与实时刷新 / 手动时间',
+    advParams: '查询参数',
+    advExport: '导出与实时刷新',
+    advTime: '时间范围（手动起止）',
+    advModified: '已改默认值',
     colType: '类型',
     colTime: '时间',
     colContent: '内容',

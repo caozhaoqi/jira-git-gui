@@ -41,7 +41,8 @@ export function CfDistribution({
   typePick, onToggleType, onClearTypes,
 }: Props) {
   const { t } = useT();
-  const [open, setOpen] = useState(true);
+  // 默认收起：面板信息密度已较高，需要看分布时点标题展开（与「高级选项」同一策略）
+  const [open, setOpen] = useState(false);
 
   const { buckets, stepMs, errTotal, types } = useMemo(() => {
     const step = pickStepMs(timeSpanMs(rows), TARGET_BARS);

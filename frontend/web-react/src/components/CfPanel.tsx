@@ -239,6 +239,25 @@ export function CfPanel() {
   const [typePick, setTypePick] = useState<string[]>([]);    // 类型分布里勾选的类型（前端过滤，多选）
   // 时间范围钻取栈（点分布柱进一层；「返回上一级」弹一层）。存的是进入前的完整时间配置。
   const [rangeStack, setRangeStack] = useState<Array<{ preset: TimePreset; start: string; end: string }>>([]);
+  // 「高级选项」折叠区（查询参数 / 导出与实时刷新 / 手动起止）：默认收起，展开状态持久化。
+  const [advOpen, setAdvOpen] = useState(() => {
+    try { return localStorage.getItem('jgg-cf-adv-open') === '1'; } catch { return false; }
+  });
+  const toggleAdv = () => {
+    const next = !advOpen;
+    try { localStorage.setItem('jgg-cf-adv-open', next ? '1' : '0'); } catch { /* ignore */ }
+    setAdvOpen(next);
+  };
+  // 高级区里有非默认值时给开关加红点（避免「改过参数却忘了」，收起时也能察觉）
+  const advDirty =
+    (cfg.record_model.trim() !== '' && cfg.record_model.trim().toLowerCase() !== 'dynamic_log') ||
+    (Number.isFinite(cfg.page_size) && cfg.page_size !== 200) ||
+    (Number.isFinite(cfg.page_index) && cfg.page_index !== 1);
+
+  // 实时刷新开启时自动展开高级区——「停止 / 间隔」控件都在里面，藏起来会让人找不到。
+  useEffect(() => {
+    if (streaming) setAdvOpen(true);
+  }, [streaming]);
 
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
@@ -1292,9 +1311,9 @@ export function CfPanel() {
         )}
       </div>
 
-      {/* ===== 查询卡片 ===== */}
+      {/* ===== 查询卡片：主线只留常用项（主筛选 / 查询 / 时间预设 / 高级开关）===== */}
       <div className="card-soft cf-query-card">
-        <div className="cf-query-row">
+        <div className="cf-query-row cf-query-main-row">
           <div className="cf-cfg-field cf-cfg-field--main">
             <label>{t('cf.logType')}</label>
             <input
@@ -1307,57 +1326,6 @@ export function CfPanel() {
               onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
             />
           </div>
-          <div className="cf-cfg-field cf-cfg-field--main">
-            <label>{t('cf.recordModel')}</label>
-            <input
-              className="input"
-              aria-label={t('cf.recordModel')}
-              list="cf-record-models"
-              placeholder="dynamic_log"
-              value={cfg.record_model}
-              onChange={(e) => setCfg({ ...cfg, record_model: e.target.value })}
-              onBlur={() => saveCfg()}
-              onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
-            />
-            <datalist id="cf-record-models">
-              <option value="dynamic_log" />
-              <option value="SyncOuterRecord" />
-              <option value="async_task_log" />
-              <option value="operation_log" />
-              <option value="api_log" />
-            </datalist>
-          </div>
-          <div className="cf-cfg-field cf-cfg-field--w100">
-            <label>{t('cf.pageSize')}</label>
-            <input
-              className="input input-sm"
-              type="number"
-              min={1}
-              max={1000}
-              value={Number.isFinite(cfg.page_size) ? cfg.page_size : ''}
-              onChange={(e) => {
-                // 不再用 `parseInt(v) || 200` 静默回退：清空/非法输入应保持可见，
-                // 交由失焦时统一钳制并明确告知，避免「输入 0 却跑了 200 条」。
-                const raw = e.target.value;
-                setCfg({ ...cfg, page_size: raw === '' ? NaN : Number(raw) });
-              }}
-              onBlur={() => { clampPageSize(); saveCfg(); }}
-            />
-          </div>
-          <div className="cf-cfg-field cf-cfg-field--w80">
-            <label>{t('cf.pageIndex')}</label>
-            <input
-              className="input input-sm"
-              type="number"
-              min={1}
-              value={Number.isFinite(cfg.page_index) ? cfg.page_index : ''}
-              onChange={(e) => {
-                const raw = e.target.value;
-                setCfg({ ...cfg, page_index: raw === '' ? NaN : Number(raw) });
-              }}
-              onBlur={() => { clampPageIndex(); saveCfg(); }}
-            />
-          </div>
           <button
             className="btn btn-primary cf-query-btn"
             onClick={queryLogs}
@@ -1365,6 +1333,104 @@ export function CfPanel() {
           >
             {loading.query ? t('cf.querying') : t('cf.query')}
           </button>
+
+          {/* 时间范围预设（常用项，留在主线；手动起止收进「高级选项」） */}
+          <div className="cf-cfg-field cf-cfg-field--w120">
+            <label>{t('cf.timeRange')}</label>
+            <select
+              className="sel"
+              value={cfg.time_preset}
+              onChange={(e) => onPresetChange(e.target.value as TimePreset)}
+              title={t('cf.timeHint')}
+            >
+              {TIME_PRESETS.map((p) => (
+                <option key={p.key} value={p.key}>{t(p.labelKey)}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 「高级选项」开关：查询参数 / 导出与实时刷新 / 手动起止 默认收起，需要时展开 */}
+          <button
+            className={'btn btn-ghost cf-adv-toggle' + (advOpen ? ' active' : '')}
+            onClick={toggleAdv}
+            aria-expanded={advOpen}
+            title={t('cf.advHint')}
+          >
+            <i className="cfd-caret">{advOpen ? '▾' : '▸'}</i> ⚙ {t('cf.advOptions')}
+            {advDirty && <span className="cf-adv-dot" aria-label={t('cf.advModified')} />}
+          </button>
+
+          {/* 实时刷新运行中：心跳外露，折叠也不会藏住运行状态 */}
+          {streaming && (
+            <span className="cf-live-heartbeat" title={t('cf.liveHint')}>
+              <i className="cf-live-dot" /> {t('cf.liveLastCheck')} {lastTick || '\u2026'}
+            </span>
+          )}
+        </div>
+
+        {advOpen && (
+          <div className="cf-adv-body">
+            <div className="cf-adv-group">
+              <div className="cf-adv-title">
+                {t('cf.advParams')}
+                {advDirty && <span className="cf-adv-badge">{t('cf.advModified')}</span>}
+              </div>
+              <div className="cf-adv-fields">
+                <div className="cf-cfg-field cf-cfg-field--main">
+                  <label>{t('cf.recordModel')}</label>
+                  <input
+                    className="input"
+                    aria-label={t('cf.recordModel')}
+                    list="cf-record-models"
+                    placeholder="dynamic_log"
+                    value={cfg.record_model}
+                    onChange={(e) => setCfg({ ...cfg, record_model: e.target.value })}
+                    onBlur={() => saveCfg()}
+                    onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
+                  />
+                  <datalist id="cf-record-models">
+                    <option value="dynamic_log" />
+                    <option value="SyncOuterRecord" />
+                    <option value="async_task_log" />
+                    <option value="operation_log" />
+                    <option value="api_log" />
+                  </datalist>
+                </div>
+                <div className="cf-cfg-field cf-cfg-field--w100">
+                  <label>{t('cf.pageSize')}</label>
+                  <input
+                    className="input input-sm"
+                    type="number"
+                    min={1}
+                    max={1000}
+                    value={Number.isFinite(cfg.page_size) ? cfg.page_size : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCfg({ ...cfg, page_size: raw === '' ? NaN : Number(raw) });
+                    }}
+                    onBlur={() => { clampPageSize(); saveCfg(); }}
+                  />
+                </div>
+                <div className="cf-cfg-field cf-cfg-field--w80">
+                  <label>{t('cf.pageIndex')}</label>
+                  <input
+                    className="input input-sm"
+                    type="number"
+                    min={1}
+                    value={Number.isFinite(cfg.page_index) ? cfg.page_index : ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setCfg({ ...cfg, page_index: raw === '' ? NaN : Number(raw) });
+                    }}
+                    onBlur={() => { clampPageIndex(); saveCfg(); }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="cf-adv-group">
+              <div className="cf-adv-title">{t('cf.advExport')}</div>
+              <div className="cf-adv-fields">
           <button
             className="btn cf-query-btn"
             onClick={exportLogs}
@@ -1399,29 +1465,12 @@ export function CfPanel() {
           >
             {streaming ? `⏹ ${t('cf.liveStop')}` : `▶ ${t('cf.liveRefresh')}`}
           </button>
-          {/* 心跳：每次轮询（即使无新日志）都会推送 ts，显示出来证明链路活着 */}
-          {streaming && (
-            <span className="cf-live-heartbeat" title={t('cf.liveHint')}>
-              <i className="cf-live-dot" /> {t('cf.liveLastCheck')} {lastTick || '…'}
-            </span>
-          )}
-        </div>
+              </div>
+            </div>
 
-        {/* ===== 时间范围过滤：预设「最近 1 小时 / 1 天…」+ 手动起止（改动起止即切自定义）。
-               过滤实时作用于结果；上方的「导出」按钮会导出当前时间段的日志并复制文件路径给 AI ===== */}
-        <div className="cf-query-row cf-time-row">
-          <div className="cf-cfg-field cf-cfg-field--w120">
-            <label>{t('cf.timeRange')}</label>
-            <select
-              className="sel"
-              value={cfg.time_preset}
-              onChange={(e) => onPresetChange(e.target.value as TimePreset)}
-            >
-              {TIME_PRESETS.map((p) => (
-                <option key={p.key} value={p.key}>{t(p.labelKey)}</option>
-              ))}
-            </select>
-          </div>
+            <div className="cf-adv-group">
+              <div className="cf-adv-title">{t('cf.advTime')}</div>
+              <div className="cf-adv-fields">
           <div className="cf-cfg-field cf-cfg-field--time">
             <label>{t('cf.timeFrom')}</label>
             <input
@@ -1440,8 +1489,10 @@ export function CfPanel() {
               onChange={(e) => onTimeInput('end', e.target.value)}
             />
           </div>
-          <span className="cf-time-hint">{t('cf.timeHint')}</span>
-        </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {status.text && <div className={`cf-query-status ${status.cls}`}>{status.text}</div>}
       </div>
