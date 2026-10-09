@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>首选项 · 系统配置（Jira / HCM / 云函数）</title>
+<style>
+  :root{
+    /* 统一设计令牌 —— 浅色主壳（services-config / hcm-meta 共用） */
+    --bg:#f4f6fb; --panel:#ffffff; --panel-2:#fafbfe; --border:#e4e8f0;
+    --text:#1f2733; --muted:#6b7689;
+    --primary:#2f6df0; --primary-d:#1f53c4; --primary-soft:#eaf1fe;
+    --danger:#e0454a; --danger-d:#cf3b40; --danger-soft:#fde8e8;
+    --ok:#18a058; --warn:#e08a00;
+    --amber-bg:#fdf0d5; --amber-fg:#9a6a00;
+    --t-system:#6b7280; --t-program:#2f6df0; --t-manual:#b45309;
+    --toast-bg:#1f2733;
+    --radius:10px; --radius-sm:8px; --radius-lg:12px;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  html.dark{
+    /* 深色覆盖 —— 与主界面（web-react global.css html.dark）同一套配色 */
+    --bg:#16191e; --panel:#1e2227; --panel-2:#252a31; --border:#32383f;
+    --text:#e6e9ee; --muted:#9aa3af;
+    --primary:#5b95ff; --primary-d:#4b86ff; --primary-soft:#1c3052;
+    --danger:#ff6b6b; --danger-d:#e05555; --danger-soft:#3a2326;
+    --ok:#3ecf8e; --warn:#f0a831;
+    --amber-bg:#3a2f1c; --amber-fg:#f0a831;
+    --t-system:#9aa3af; --t-program:#5b95ff; --t-manual:#f0a831;
+    --toast-bg:#e6e9ee;
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--font);
+    background:var(--bg);color:var(--text);font-size:14px;line-height:1.6}
+  .wrap{max-width:980px;margin:0 auto;padding:24px 16px 60px}
+  header h1{font-size:20px;margin:0 0 4px}
+  header p{margin:0;color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:8px;margin:20px 0 16px}
+  .tab{padding:8px 16px;border:1px solid var(--border);background:var(--panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--muted);font-weight:600}
+  .tab.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px}
+  .hidden{display:none}
+  table{width:100%;border-collapse:collapse;margin-top:6px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+  th{color:var(--muted);font-weight:600;background:var(--panel-2)}
+  .chip{display:inline-block;padding:1px 8px;border-radius:999px;background:var(--primary-soft);color:var(--primary);font-size:12px;font-weight:600}
+  .chip.hcm{background:var(--amber-bg);color:var(--amber-fg)}
+  .row-actions{display:flex;gap:6px}
+  button{font-family:inherit;font-size:13px;border:none;border-radius:var(--radius-sm);padding:7px 14px;cursor:pointer;font-weight:600}
+  .btn-primary{background:var(--primary);color:#fff}
+  .btn-primary:hover{background:var(--primary-d)}
+  .btn-ghost{background:var(--panel-2);color:var(--text)}
+  .btn-ghost:hover{background:var(--border)}
+  .btn-danger{background:var(--danger-soft);color:var(--danger)}
+  .btn-danger:hover{background:var(--danger-d)}
+  .btn-sm{padding:4px 10px;font-size:12px}
+  .form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:8px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field.full{grid-column:1/-1}
+  label{font-size:12px;color:var(--muted);font-weight:600}
+  input,select,textarea{font-family:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel);color:var(--text)}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(47,109,240,.15)}
+  textarea{resize:vertical;min-height:80px;font-family:var(--mono)}
+  .form-bar{display:flex;gap:10px;align-items:center;margin-top:14px}
+  .add-box{margin-top:16px;border:1px dashed var(--border);border-radius:var(--radius-lg);padding:16px;background:var(--panel-2)}
+  .add-box h3{margin:0 0 4px;font-size:15px}
+  .add-box .hint{margin:0 0 10px;color:var(--muted);font-size:12px}
+  .toast{position:fixed;left:50%;top:18px;transform:translateX(-50%);background:var(--toast-bg);color:#fff;padding:10px 18px;border-radius:var(--radius-sm);font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;max-width:90vw}
+  .toast.show{opacity:1}
+  .toast.err{background:var(--danger)}
+  .toast.ok{background:var(--ok)}
+  .empty{color:var(--muted);text-align:center;padding:26px 0;font-size:13px}
+  .meta{color:var(--muted);font-size:12px;margin:6px 0 0}
+  code{background:var(--panel-2);padding:1px 6px;border-radius:5px;font-size:12px}
+  .del{color:var(--danger);cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>首选项 · 系统配置</h1>
+    <p>手动维护 Jira、HCM 与云函数对象配置：输入服务器地址（IP / 域名）、账号、密码 / 令牌等信息，保存后自动写入本地配置并即时生效。
+      <a href="#" onclick="goBack();return false;" style="color:var(--primary);text-decoration:none">← 返回主界面</a>
+    </p>
+  </header>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="cf">云函数 / HCM 服务账号</div>
+    <div class="tab" data-tab="hcm">HCM 代理与对象配置</div>
+    <div class="tab" data-tab="jira">Jira 系统配置</div>
+  </div>
+
+  <!-- ============ Tab 1: 云函数 / HCM 服务账号 ============ -->
+  <section id="tab-cf" class="panel">
+    <div id="cf-list"></div>
+    <p class="meta" id="cf-meta"></p>
+
+    <div class="add-box">
+      <h3 id="cf-form-title">添加服务</h3>
+      <p class="hint">服务器地址填 IP 或域名（含 http:// 或 https://）。密码留空表示不修改（编辑时）。</p>
+      <input type="hidden" id="cf-edit-index" value="" />
+      <div class="form-grid">
+        <div class="field">
+          <label>名称 / 备注</label>
+          <input id="cf-name" placeholder="如：21qor-公有云 黑龙江农信社" />
+        </div>
+        <div class="field">
+          <label>类型</label>
+          <select id="cf-type">
+            <option value="云函数">云函数</option>
+            <option value="HCM">HCM 对象</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>服务器地址（IP / 域名）</label>
+          <input id="cf-server" placeholder="https://21qor.hcmcloud.cn 或 http://10.1.38.184" />
+        </div>
+        <div class="field">
+          <label>账号 / 用户名</label>
+          <input id="cf-username" placeholder="如 16602629614" />
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input id="cf-password" type="password" placeholder="留空表示不修改" autocomplete="new-password" />
+        </div>
+      </div>
+      <div class="form-bar">
+        <button class="btn-primary" id="cf-save">保存</button>
+        <button class="btn-ghost hidden" id="cf-cancel">取消编辑</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Tab 2: HCM 代理配置 ============ -->
+  <section id="tab-hcm" class="panel hidden">
+    <div class="form-grid">
+      <div class="field full">
+        <label>代理目标网关 base_url（IP / 域名）</label>
+        <input id="hcm-base" placeholder="http://73.2.3.27" />
+      </div>
+      <div class="field full">
+        <label>登录态 Token（Cookie 中的 token 值，留空表示不修改）</label>
+        <input id="hcm-token" type="password" placeholder="留空则不修改现有 token" autocomplete="new-password" />
+      </div>
+      <div class="field full">
+        <label>平台域名白名单 hosts（每行一个）</label>
+        <textarea id="hcm-hosts" placeholder="21qor.hcmcloud.cn&#10;hcm.ptacn.com"></textarea>
+      </div>
+    </div>
+    <div class="form-bar">
+      <button class="btn-primary" id="hcm-save">保存 HCM 配置</button>
+    </div>
+    <p class="meta" id="hcm-meta"></p>
+  </section>
+
+  <!-- ============ Tab 3: Jira 系统配置 ============ -->
+  <section id="tab-jira" class="panel hidden">
+    <div class="form-grid">
+      <div class="field full">
+        <label>Jira 地址（URL）</label>
+        <input id="jira-url" placeholder="https://jira.example.com" />
+      </div>
+      <div class="field">
+        <label>账号 / 用户名</label>
+        <input id="jira-username" placeholder="如 16602629614" />
+      </div>
+      <div class="field">
+        <label>认证方式</label>
+        <select id="jira-mode">
+          <option value="pat">个人访问令牌 (PAT)</option>
+          <option value="cookie">会话 Cookie</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>个人访问令牌 PAT（留空表示不修改）</label>
+        <input id="jira-pat" type="password" placeholder="留空则不修改现有令牌" autocomplete="new-password" />
+      </div>
+      <div class="field full">
+        <label>会话 Cookie（留空表示不修改）</label>
+        <textarea id="jira-cookie" placeholder="留空则不修改现有 Cookie，如 JSESSIONID=...; atlassian.xsrf.token=..."></textarea>
+      </div>
+    </div>
+    <div class="form-bar">
+      <button class="btn-primary" id="jira-save">保存 Jira 配置</button>
+    </div>
+    <p class="meta" id="jira-meta"></p>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// 返回主界面：在 Electron / Tauri 首选项「独立窗口」中，直接关闭窗口即回到主界面；
+// 普通浏览器标签页里 window.close() 被浏览器忽略，此时回退到主界面（React 应用入口）。
+function goBack(){
+  window.close();
+  if (!window.closed) location.href = "/";
+}
+function toast(msg, kind){
+  const t = $("toast"); t.textContent = msg;
+  t.className = "toast show" + (kind ? " " + kind : "");
+  setTimeout(() => { t.className = "toast"; }, 2200);
+}
+async function api(path, opts){
+  const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts));
+  let data = {}; try { data = await r.json(); } catch(e){}
+  if (!r.ok || data.ok === false) throw new Error(data.error || data.detail || ("HTTP " + r.status));
+  return data;
+}
+
+/* ---------------- Tabs ---------------- */
+document.querySelectorAll(".tab").forEach(el => {
+  el.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    el.classList.add("active");
+    const tab = el.dataset.tab;
+    $("tab-cf").classList.toggle("hidden", tab !== "cf");
+    $("tab-hcm").classList.toggle("hidden", tab !== "hcm");
+    $("tab-jira").classList.toggle("hidden", tab !== "jira");
+    if (tab === "cf") loadCf();
+    else if (tab === "hcm") loadHcm();
+    else loadJira();
+  });
+});
+
+/* ---------------- 云函数 / HCM 服务账号 ---------------- */
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function loadCf(){
+  try{
+    const d = await api("/api/services/cloud-functions");
+    const box = $("cf-list");
+    if (!d.items.length){
+      box.innerHTML = '<div class="empty">暂无服务配置，请在下方添加。</div>';
+    } else {
+      box.innerHTML = '<table><thead><tr><th>名称</th><th>类型</th><th>服务器地址</th><th>账号</th><th>密码</th><th>操作</th></tr></thead><tbody>'
+        + d.items.map(it => {
+            const chip = it.type === "HCM" ? '<span class="chip hcm">HCM</span>' : '<span class="chip">云函数</span>';
+            const pw = it.has_password ? '<span style="color:var(--ok)">已设置</span>' : '<span style="color:var(--muted)">未设置</span>';
+            return `<tr>
+              <td>${esc(it.name)}</td>
+              <td>${chip}</td>
+              <td><code>${esc(it.server_url)}</code></td>
+              <td>${esc(it.username)}</td>
+              <td>${pw}</td>
+              <td><div class="row-actions">
+                <button class="btn-ghost btn-sm" onclick="editCf(${it.index})">编辑</button>
+                <button class="btn-danger btn-sm" onclick="delCf(${it.index})">删除</button>
+              </div></td></tr>`;
+          }).join("") + '</tbody></table>';
+    }
+    $("cf-meta").textContent = "配置文件：" + (d.path || "");
+  }catch(e){ toast("加载失败：" + e.message, "err"); }
+}
+
+function editCf(idx){
+  api("/api/services/cloud-functions").then(d => {
+    const it = d.items.find(x => x.index === idx);
+    if (!it) return;
+    $("cf-edit-index").value = idx;
+    $("cf-name").value = it.name;
+    $("cf-type").value = it.type;
+    $("cf-server").value = it.server_url;
+    $("cf-username").value = it.username;
+    $("cf-password").value = "";
+    $("cf-form-title").textContent = "编辑服务 #" + idx;
+    $("cf-cancel").classList.remove("hidden");
+    window.scrollTo({top: document.querySelector(".add-box").offsetTop - 20, behavior:"smooth"});
+  }).catch(e => toast("读取失败：" + e.message, "err"));
+}
+
+function resetCfForm(){
+  $("cf-edit-index").value = "";
+  $("cf-name").value = ""; $("cf-type").value = "云函数";
+  $("cf-server").value = ""; $("cf-username").value = ""; $("cf-password").value = "";
+  $("cf-form-title").textContent = "添加服务";
+  $("cf-cancel").classList.add("hidden");
+}
+
+$("cf-cancel").addEventListener("click", resetCfForm);
+
+$("cf-save").addEventListener("click", async () => {
+  const idx = $("cf-edit-index").value;
+  const payload = {
+    name: $("cf-name").value.trim(),
+    type: $("cf-type").value,
+    server_url: $("cf-server").value.trim(),
+    username: $("cf-username").value.trim(),
+    password: $("cf-password").value,
+  };
+  if (!payload.name && !payload.server_url){ toast("名称与服务器地址至少填一项", "err"); return; }
+  try{
+    if (idx === ""){
+      await api("/api/services/cloud-functions", {method:"POST", body: JSON.stringify(payload)});
+      toast("已添加服务", "ok");
+    } else {
+      await api("/api/services/cloud-functions/" + idx, {method:"PUT", body: JSON.stringify(payload)});
+      toast("已更新服务 #" + idx, "ok");
+    }
+    resetCfForm();
+    loadCf();
+  }catch(e){ toast("保存失败：" + e.message, "err"); }
+});
+
+async function delCf(idx){
+  if (!confirm("确定删除该服务配置？")) return;
+  try{
+    await api("/api/services/cloud-functions/" + idx, {method:"DELETE"});
+    toast("已删除", "ok");
+    loadCf();
+  }catch(e){ toast("删除失败：" + e.message, "err"); }
+}
+
+/* ---------------- HCM 代理配置 ---------------- */
+async function loadHcm(){
+  try{
+    const d = await api("/api/services/hcm-config");
+    $("hcm-base").value = d.base_url || "";
+    $("hcm-token").value = "";
+    $("hcm-hosts").value = (d.hosts || []).join("\n");
+    $("hcm-meta").textContent = "配置文件：" + (d.path || "") + (d.has_token ? " ｜ Token：已设置" : " ｜ Token：未设置");
+  }catch(e){ toast("加载失败：" + e.message, "err"); }
+}
+
+$("hcm-save").addEventListener("click", async () => {
+  const payload = {
+    base_url: $("hcm-base").value.trim(),
+    token: $("hcm-token").value,
+    hosts: $("hcm-hosts").value.split("\n").map(s => s.trim()).filter(Boolean),
+  };
+  try{
+    await api("/api/services/hcm-config", {method:"POST", body: JSON.stringify(payload)});
+    toast("HCM 配置已保存并即时生效", "ok");
+    loadHcm();
+  }catch(e){ toast("保存失败：" + e.message, "err"); }
+});
+
+/* ---------------- Jira 系统配置 ---------------- */
+async function loadJira(){
+  try{
+    const d = await api("/api/services/jira-config");
+    $("jira-url").value = d.jira_url || "";
+    $("jira-username").value = d.username || "";
+    $("jira-mode").value = (d.mode === "cookie") ? "cookie" : "pat";
+    $("jira-pat").value = "";
+    $("jira-cookie").value = "";
+    const pat = d.has_pat ? "已设置" : "未设置";
+    const ck = d.has_cookie ? "已设置" : "未设置";
+    $("jira-meta").textContent = "配置文件：" + (d.path || "") + " ｜ PAT：" + pat + " ｜ Cookie：" + ck;
+  }catch(e){ toast("加载失败：" + e.message, "err"); }
+}
+
+$("jira-save").addEventListener("click", async () => {
+  const payload = {
+    jira_url: $("jira-url").value.trim(),
+    username: $("jira-username").value.trim(),
+    mode: $("jira-mode").value,
+    pat: $("jira-pat").value,
+    cookie: $("jira-cookie").value.trim(),
+  };
+  try{
+    await api("/api/services/jira-config", {method:"POST", body: JSON.stringify(payload)});
+    toast("Jira 配置已保存并即时生效", "ok");
+    loadJira();
+  }catch(e){ toast("保存失败：" + e.message, "err"); }
+});
+
+/* init */
+loadCf();
+</script>
+<script>
+  /* 主题与主界面保持一致（同源共享 localStorage：jgg-theme），并跟随主界面实时切换 */
+  (function () {
+    function applyTheme() {
+      try {
+        document.documentElement.classList.toggle('dark', localStorage.getItem('jgg-theme') === 'dark');
+      } catch (e) {}
+    }
+    applyTheme();
+    window.addEventListener('storage', function (e) { if (!e || e.key === 'jgg-theme') applyTheme(); });
+  })();
+</script>
+</body>
+</html>
