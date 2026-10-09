@@ -36,7 +36,6 @@ electron/package-lock.json
 electron/dist-electron/
 
 # Tauri
-tauri/web/
 tauri/src-tauri/target/
 tauri/src-tauri/gen/
 tauri/src-tauri/resources/backend/*
@@ -70,7 +69,7 @@ config/kibana_sites.local.json
 
 frontend/web-react/node_modules/
 
-web/
+web/assets/
 docs/HCM_OBJECT_BROWSER.md
 
 .codebuddy/
