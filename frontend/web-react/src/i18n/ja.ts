@@ -810,7 +810,7 @@ export const ja: Dict = {
     mobile: '携帯番号',
     mobilePlaceholder: '上の環境選択で自動入力',
     password: 'パスワード',
-    passwordPlaceholder: '上の環境選択で自動入力',
+    passwordPlaceholder: '空白の場合は保存済みパスワードでログイン（パスワードは送信されません）',
     token: 'Token',
     tokenPlaceholder: 'ログイン後自動入力、または手動貼付',
     proxy: 'プロキシ（空 = 直接；例：http://127.0.0.1:7890）',

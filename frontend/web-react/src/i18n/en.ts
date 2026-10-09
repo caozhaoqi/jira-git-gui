@@ -810,7 +810,7 @@ export const en: Dict = {
     mobile: 'Mobile',
     mobilePlaceholder: 'Auto-filled after selecting environment above',
     password: 'Password',
-    passwordPlaceholder: 'Auto-filled after selecting environment above',
+    passwordPlaceholder: 'Leave blank to log in with the stored password (never sent to browser)',
     token: 'Token',
     tokenPlaceholder: 'Auto-filled after login, or paste manually',
     proxy: 'Proxy (blank = direct; e.g. http://127.0.0.1:7890)',

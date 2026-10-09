@@ -813,7 +813,7 @@ export const zh: Dict = {
     mobile: '手机号',
     mobilePlaceholder: '从上方环境列表选择后自动填充',
     password: '密码',
-    passwordPlaceholder: '从上方环境列表选择后自动填充',
+    passwordPlaceholder: '留空则登录时自动使用该环境已存密码（密码不出网）',
     token: 'Token',
     tokenPlaceholder: '登录后自动填充，或手动粘贴',
     proxy: '代理地址（留空直连；例：http://127.0.0.1:7890）',

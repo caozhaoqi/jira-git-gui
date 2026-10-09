@@ -555,6 +555,8 @@ export interface CfAccount {
   server_url?: string;
   username?: string;
   password?: string;
+  /** 后端只回布尔、永不下发明文密码（密码不出网）；true = 登录时密码留空由后端就地补齐 */
+  has_password?: boolean;
 }
 export interface CfLogsRow {
   id?: string | number;
