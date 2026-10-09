@@ -124,6 +124,24 @@ function cfContentFull(row: CfLogsRow): string {
   return typeof c === 'object' ? JSON.stringify(c, null, 2) : String(c);
 }
 /**
+ * 点击「内容」列复制时实际写入剪贴板的文本。
+ * 若日志内容本身是一个含字符串 msg 字段的对象（如 {"msg":"[DRIVE] ✅ ..."}），
+ * 只复制 msg 的值而非整段 JSON；否则回退到完整内容（与表格展示口径一致）。
+ */
+function cfContentCopyText(row: CfLogsRow): string {
+  const c = row.content ?? row.message ?? row.data;
+  if (c == null) return '';
+  try {
+    const obj = typeof c === 'object' ? c : JSON.parse(String(c));
+    if (obj && typeof obj === 'object' && !Array.isArray(obj) && typeof (obj as Record<string, unknown>).msg === 'string') {
+      return (obj as Record<string, unknown>).msg as string;
+    }
+  } catch {
+    /* 非对象或 JSON.parse 失败：回退到完整内容 */
+  }
+  return cfContentFull(row);
+}
+/**
  * 类型字段兜底统一走 utils/logFields：
  * 记录自身字段（log_type / name / title …）→ 查询时填的 log_type 过滤值 → '(未知)'。
  */
@@ -1655,6 +1673,7 @@ export function CfPanel() {
                   const createTime = cfTime(row);
                   const content = cfContent(row);
                   const contentFull = cfContentFull(row);
+                  const contentCopy = cfContentCopyText(row);
                   const logTypeVal = cfLogType(row, result.log_type);
                   const globalIdx = result.rows.length - view.rows.length + i;
                   const mContent = q ? findMatches(content, q, caseSensitive) : [];
@@ -1673,6 +1692,7 @@ export function CfPanel() {
                       time={createTime}
                       content={content}
                       contentFull={contentFull}
+                      copyContentText={contentCopy}
                       mContent={mContent}
                       mTime={mTime}
                       mType={mType}
@@ -1729,6 +1749,7 @@ function FragmentRow(props: {
   time: string;
   content: string;
   contentFull: string;
+  copyContentText: string;
   mContent: Array<[number, number]>;
   mTime: Array<[number, number]>;
   mType: Array<[number, number]>;
@@ -1751,6 +1772,7 @@ function FragmentRow(props: {
     time,
     content,
     contentFull,
+    copyContentText,
     mContent,
     mTime,
     mType,
@@ -1817,7 +1839,7 @@ function FragmentRow(props: {
             className="cf-copy"
             title={copyContentLabel}
             aria-label={copyContentLabel}
-            {...copyHandlers('content', contentFull || content)}
+            {...copyHandlers('content', copyContentText)}
           >
             {highlightNodes(content, mContent, rowOrdStart, activeMatch)}
           </span>
