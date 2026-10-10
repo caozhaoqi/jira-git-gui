@@ -1,4 +1,5 @@
 import { HcmApiError } from './client';
+import { reportLocalApiNetworkError } from '../client';
 
 /**
  * 后端同源代理直连 HCM 网关（与 HcmModelDetail.directCall 同形态）。
@@ -23,11 +24,18 @@ export async function hcmDirect<T = any>(
   model = '',
   target = ''
 ): Promise<HcmDirectResult<T>> {
-  const res = await fetch(DIRECT_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ api_name: apiName, params, model, token: token.trim(), target: target.trim() }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(DIRECT_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_name: apiName, params, model, token: token.trim(), target: target.trim() }),
+    });
+  } catch (e) {
+    // 本地后端不可达：点亮全局网络横幅（HTTP 4xx/5xx 不算，走下方正常错误分支）
+    reportLocalApiNetworkError(DIRECT_ENDPOINT, e);
+    throw e;
+  }
   const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
   if (!res.ok) {
     const detail =

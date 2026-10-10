@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import type { HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { HcmMetaFileBrowser } from './HcmMetaFileBrowser';
 import { useAppStore } from '../../store/useAppStore';
@@ -107,18 +108,24 @@ export function HcmModelDetail() {
 
   // 统一走后端直连：POST /api/hcm/direct，后端直连 HCM 网关并解密返回明文。
   const directCall = useCallback(async (apiName: string, params: Record<string, any>, model = '') => {
-    const res = await fetch(DIRECT_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_name: apiName,
-        params,
-        model,
-        token: token.trim(),
-        // 跨窗口打开时透传网关 target；空则后端用默认 proxy_target（与单窗口场景一致）。
-        target: targetFromUrl,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(DIRECT_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_name: apiName,
+          params,
+          model,
+          token: token.trim(),
+          // 跨窗口打开时透传网关 target；空则后端用默认 proxy_target（与单窗口场景一致）。
+          target: targetFromUrl,
+        }),
+      });
+    } catch (e) {
+      reportLocalApiNetworkError(DIRECT_ENDPOINT, e);
+      throw e;
+    }
     const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
     if (!res.ok) {
       const detail =

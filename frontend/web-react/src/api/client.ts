@@ -54,6 +54,18 @@ function reportNetworkDown(e: ApiError): void {
   }
 }
 
+/**
+ * 供绕过 api()/apiText() 的裸 fetch 复用：本地后端（同源 /api）网络层失败时点亮全局横幅。
+ * 仅 fetch 本身抛错（连接拒绝 / 断网 / DNS 失败）才上报；
+ * HTTP 4xx/5xx 属于业务或服务端错误（有响应），不算「后端不可达」，不点亮横幅。
+ */
+export function reportLocalApiNetworkError(path: string, e: unknown): void {
+  if (!API) return;
+  if (!(path.startsWith('/api') || path.startsWith('api'))) return;
+  if (e && typeof e === 'object' && (e as any).name === 'AbortError') return;
+  reportNetworkDown(new ApiError(t('api.errNetwork'), 'network'));
+}
+
 function extractDetail(data: any): string {
   if (!data) return '';
   if (typeof data.detail === 'string') return data.detail;

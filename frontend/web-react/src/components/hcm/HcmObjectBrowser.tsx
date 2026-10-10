@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../../i18n';
 import {
   hcmEnvs,
@@ -6,7 +6,7 @@ import {
   type HcmEnv,
 } from '../../api/hcm/client';
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
-import { apiPost } from '../../api/client';
+import { apiPost, reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
@@ -150,6 +150,10 @@ export function HcmObjectBrowser() {
   const [dataProfileDebug, setDataProfileDebug] = useState(false);
   const [dataMeta, setDataMeta] = useState<Record<string, any>>({});
   const [dataAdvOpen, setDataAdvOpen] = useState(false);
+  // 结构化筛选（filter_dict）：字段键值对，多条件按 AND 组合，字段联想来自已加载对象的 meta.fields
+  const [dataStruct, setDataStruct] = useState<{ id: number; field: string; value: string }[]>([]);
+  const [dataStructOpen, setDataStructOpen] = useState(true);
+  const structIdRef = useRef(0);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
   useEffect(() => {
@@ -168,17 +172,24 @@ export function HcmObjectBrowser() {
   // 前端只负责加密/调同源端点，实际出口由后端直连网关完成。
   const directCall = useCallback(async (apiName: string, params: Record<string, any>, model = '') => {
     const tk = await ensureFreshToken();
-    const res = await fetch('/api/hcm/direct', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        api_name: apiName,
-        params,
-        model,
-        token: usePresetToken ? '' : tk.trim(),
-        target: targetUrl,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/hcm/direct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_name: apiName,
+          params,
+          model,
+          token: usePresetToken ? '' : tk.trim(),
+          target: targetUrl,
+        }),
+      });
+    } catch (e) {
+      // 本地后端不可达：点亮全局网络横幅（有响应的 4xx/5xx 走下方正常错误分支）
+      reportLocalApiNetworkError('/api/hcm/direct', e);
+      throw e;
+    }
     const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
     if (!res.ok) {
       const detail =
@@ -197,19 +208,25 @@ export function HcmObjectBrowser() {
       opts: { sqlDebug?: boolean; profileDebug?: boolean } = {}
     ): Promise<{ data: any; meta: Record<string, any> }> => {
       const tk = await ensureFreshToken();
-      const res = await fetch('/api/hcm/direct', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_name: apiName,
-          params,
-          model,
-          token: usePresetToken ? '' : tk.trim(),
-          target: targetUrl,
-          sql_debug: opts.sqlDebug,
-          profile_debug: opts.profileDebug,
-        }),
-      });
+      let res: Response;
+      try {
+        res = await fetch('/api/hcm/direct', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_name: apiName,
+            params,
+            model,
+            token: usePresetToken ? '' : tk.trim(),
+            target: targetUrl,
+            sql_debug: opts.sqlDebug,
+            profile_debug: opts.profileDebug,
+          }),
+        });
+      } catch (e) {
+        reportLocalApiNetworkError('/api/hcm/direct', e);
+        throw e;
+      }
       const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
       if (!res.ok) {
         const detail =
@@ -298,6 +315,8 @@ const loadList = useCallback(async () => {
       setDataFilter('');
       setDataJsonQuery('');
       setDataMeta({});
+      setDataStruct([]);
+      setDataStructOpen(true);
       setDataPayloadError('');
       setDataPayload(
         JSON.stringify(
@@ -330,18 +349,25 @@ const loadList = useCallback(async () => {
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录（非元数据）。
   // 支持完整请求体 JSON 编辑、SQL/Profile 调试开关、响应元信息。
   const loadData = useCallback(
-    async (obj: HcmObjectItem, pg: number = dataPage) => {
+    async (obj: HcmObjectItem, pg: number = dataPage, payloadOverride?: Record<string, any>) => {
       if (!usePresetToken && !token.trim()) {
         setDataError(t('hcm.configRequired'));
         return;
       }
       let payload: Record<string, any>;
-      try {
-        payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+      if (payloadOverride) {
+        // 调用方已合并好完整请求体（结构化筛选 / 文本搜索）直接传入：
+        // setState 是异步的，若这里仍读 dataPayload 会拿到本渲染周期内的旧闭包值。
+        payload = payloadOverride;
         setDataPayloadError('');
-      } catch (e: any) {
-        setDataPayloadError(`JSON 解析失败：${e.message || e}`);
-        return;
+      } else {
+        try {
+          payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+          setDataPayloadError('');
+        } catch (e: any) {
+          setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+          return;
+        }
       }
       // 兜底：确保 model 与当前对象一致，page_index 跟随分页
       payload.model = obj.id;
@@ -371,6 +397,50 @@ const loadList = useCallback(async () => {
     },
     [token, usePresetToken, directCallRaw, dataPayload, dataPageSize, dataPage, dataSqlDebug, dataProfileDebug, t]
   );
+
+  // 结构化筛选字段联想：来自已加载对象的元数据字段
+  const fieldsForFilter = useMemo(() => meta?.fields || [], [meta]);
+
+  // 结构化筛选（filter_dict）增删改
+  const addStructRow = useCallback(() => {
+    structIdRef.current += 1;
+    setDataStruct((rows) => [...rows, { id: structIdRef.current, field: '', value: '' }]);
+  }, []);
+  const updateStructRow = useCallback(
+    (id: number, patch: Partial<{ field: string; value: string }>) => {
+      setDataStruct((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    },
+    []
+  );
+  const removeStructRow = useCallback((id: number) => {
+    setDataStruct((rows) => rows.filter((r) => r.id !== id));
+  }, []);
+  const clearStruct = useCallback(() => setDataStruct([]), []);
+
+  // 将结构化条件合并进请求体的 filter_dict 并执行查询（多条件按 AND 等值组合）
+  const applyStructFilter = useCallback(() => {
+    if (!selected) return;
+    const dict: Record<string, string> = {};
+    for (const r of dataStruct) {
+      const f = r.field.trim();
+      if (f) dict[f] = r.value; // 值允许为空串（匹配空值）；字段为空视为未填写，跳过
+    }
+    let payload: Record<string, any>;
+    try {
+      payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+      setDataPayloadError('');
+    } catch (e: any) {
+      setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+      return;
+    }
+    payload.filter_dict = dict;
+    payload.model = selected.id;
+    if (!payload.page_size) payload.page_size = dataPageSize;
+    if (!payload.biz_type) payload.biz_type = 'list';
+    setDataPayload(JSON.stringify(payload, null, 2));
+    setDataPage(1);
+    loadData(selected, 1, payload);
+  }, [selected, dataStruct, dataPayload, dataPageSize, loadData]);
 
   // 切换到「数据」tab 时，若该对象尚未查询过则自动拉取一次
   const ensureData = useCallback(
@@ -892,13 +962,16 @@ const loadList = useCallback(async () => {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && selected) {
                           setDataPage(1);
-                          // 将简单过滤同步到请求体
+                          // 将简单过滤同步到请求体（同步传 override，避免读到旧 dataPayload 闭包）
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
                             p.filter_str = e.currentTarget.value.trim() || null;
+                            p.model = selected.id;
                             setDataPayload(JSON.stringify(p, null, 2));
-                          } catch {}
-                          loadData(selected, 1);
+                            loadData(selected, 1, p);
+                          } catch {
+                            loadData(selected, 1);
+                          }
                         }
                       }}
                       placeholder={t('hcm.dataFilterPlaceholder')}
@@ -912,9 +985,12 @@ const loadList = useCallback(async () => {
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
                             p.filter_str = dataFilter.trim() || null;
+                            p.model = selected.id;
                             setDataPayload(JSON.stringify(p, null, 2));
-                          } catch {}
-                          loadData(selected, 1);
+                            loadData(selected, 1, p);
+                          } catch {
+                            loadData(selected, 1);
+                          }
                         }
                       }}
                       disabled={!selected || dataLoading}
@@ -936,6 +1012,80 @@ const loadList = useCallback(async () => {
                     >
                       {t('hcm.advanced')}
                     </button>
+                  </div>
+
+                  {/* 结构化筛选（filter_dict）：参考对象字段，多条件 AND 组合 */}
+                  <div className="hcm-struct">
+                    <div className="hcm-struct-head">
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => setDataStructOpen((v) => !v)}
+                        disabled={!selected}
+                      >
+                        {t('hcm.structFilter')} {dataStructOpen ? '▾' : '▸'}
+                        {dataStruct.length > 0 ? ` (${dataStruct.length})` : ''}
+                      </button>
+                      <span className="hcm-struct-hint">{t('hcm.structFilterHint')}</span>
+                      <button className="btn btn-sm" onClick={addStructRow} disabled={!selected}>
+                        {t('hcm.structAdd')}
+                      </button>
+                      <button className="btn btn-sm" onClick={clearStruct} disabled={!dataStruct.length}>
+                        {t('hcm.structClear')}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        onClick={applyStructFilter}
+                        disabled={!selected || dataLoading}
+                      >
+                        {dataLoading ? t('hcm.loading') : t('hcm.structApply')}
+                      </button>
+                    </div>
+                    {dataStructOpen && (
+                      <div className="hcm-struct-body">
+                        {dataStruct.length === 0 && (
+                          <div className="hcm-struct-empty">{t('hcm.structEmpty')}</div>
+                        )}
+                        {dataStruct.map((r) => (
+                          <div className="hcm-struct-row" key={r.id}>
+                            <input
+                              className="hcm-struct-field"
+                              list="hcm-struct-fields"
+                              value={r.field}
+                              onChange={(e) => updateStructRow(r.id, { field: e.target.value })}
+                              placeholder={t('hcm.structFieldPlaceholder')}
+                              spellCheck={false}
+                            />
+                            <span className="hcm-struct-eq">=</span>
+                            <input
+                              className="hcm-struct-value"
+                              value={r.value}
+                              onChange={(e) => updateStructRow(r.id, { value: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') applyStructFilter();
+                              }}
+                              placeholder={t('hcm.structValuePlaceholder')}
+                              spellCheck={false}
+                            />
+                            <button
+                              className="btn btn-sm hcm-struct-del"
+                              onClick={() => removeStructRow(r.id)}
+                              title={t('hcm.structRemove')}
+                              aria-label={t('hcm.structRemove')}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* 字段联想数据源：来自已加载对象的 meta.fields */}
+                    <datalist id="hcm-struct-fields">
+                      {fieldsForFilter.map((f: HcmFieldMeta) => (
+                        <option key={f.key} value={f.key}>
+                          {f.name || f.key}
+                        </option>
+                      ))}
+                    </datalist>
                   </div>
 
                   {/* 高级请求体编辑（参考 HCM API 测试页：完整 JSON 输入 + SQL/Profile 开关） */}
