@@ -404,6 +404,51 @@ button {
   flex-wrap: wrap;
 }
 
+/* 前端↔本地后端连接中断横幅：复用 cookie 横幅的告警视觉，加诊断步骤清单 */
+.api-down-banner {
+  margin: 10px 16px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.api-down-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.api-down-text strong {
+  font-weight: 600;
+}
+.api-down-text > span {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.api-down-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.api-down-steps li {
+  list-style: disc;
+}
+.api-down-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* F1：文件树差异状态色点 */
 .tree-diff-dot {
   display: inline-block;

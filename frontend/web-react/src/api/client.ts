@@ -34,6 +34,26 @@ const API = (() => {
   return '';
 })();
 
+/**
+ * 前端↔本地后端连接异常的全局回调（由 App 在启动时注册）。
+ * 仅当请求的是本地后端 API（同源、且 path 以 /api 开头）并抛出
+ * network/timeout 时触发，用来点亮「后端不可达」全局横幅。
+ * 后端↔上游的网络失败由后端通过 SSE network_warning 另行上报，不在此处理。
+ */
+let networkDownHandler: ((e: ApiError) => void) | null = null;
+export function onNetworkDown(fn: (e: ApiError) => void | null): void {
+  networkDownHandler = fn;
+}
+function reportNetworkDown(e: ApiError): void {
+  if (networkDownHandler) {
+    try {
+      networkDownHandler(e);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 function extractDetail(data: any): string {
   if (!data) return '';
   if (typeof data.detail === 'string') return data.detail;
@@ -68,7 +88,11 @@ export async function api<T = any>(
     if (e && e.name === 'AbortError') {
       throw new ApiError(t('api.errTimeout'), 'timeout');
     }
-    throw new ApiError(t('api.errNetwork'), 'network');
+    const err = new ApiError(t('api.errNetwork'), 'network');
+    if ((path.startsWith('/api') || path.startsWith('api')) && API) {
+      reportNetworkDown(err);
+    }
+    throw err;
   }
 
   let text = '';
@@ -121,7 +145,11 @@ export async function apiText(path: string): Promise<string> {
     if (e && e.name === 'AbortError') {
       throw new ApiError(t('api.errTimeout'), 'timeout');
     }
-    throw new ApiError(t('api.errNetwork'), 'network');
+    const err = new ApiError(t('api.errNetwork'), 'network');
+    if ((path.startsWith('/api') || path.startsWith('api')) && API) {
+      reportNetworkDown(err);
+    }
+    throw err;
   }
   const text = await res.text().catch(() => '');
   if (!res.ok) {

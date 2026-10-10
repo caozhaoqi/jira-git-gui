@@ -10,6 +10,20 @@ export const zh: Dict = {
     errAuth: '登录已失效，请重新登录',
     errFetch: '拉取失败',
   },
+  net: {
+    // 前端↔本地后端连接中断时的全局横幅文案与诊断步骤
+    title: '无法连接本地服务（后端可能未启动）',
+    desc: '本应用前端无法访问本地后端 API（默认 http://127.0.0.1:8787）。请按以下步骤排查：',
+    step1: '确认后端已启动：在项目根目录运行 venv/bin/python -m api.server（监听 8787）',
+    step2: '确认端口未被占用：lsof -i:8787',
+    step3: '确认代理未干扰 localhost：HTTP(S)_PROXY 应将 127.0.0.1 / localhost 排除',
+    step4: '确认前端访问地址为 http://127.0.0.1:8787，而非被代理拦截的域名',
+    retry: '重试连接',
+    retrying: '正在重试…',
+    dismiss: '忽略',
+    recovered: '后端已恢复连接',
+    stillDown: '后端仍不可达，请继续排查',
+  },
   common: {
     error: '错误',
     ok: '确定',
