@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { sse } from './api/events';
-import { apiGet } from './api/client';
+import { apiGet, onNetworkDown } from './api/client';
 import { useAppStore, type TabKey } from './store/useAppStore';
 import { EtaTracker, formatEta } from './utils/eta';
 import { useT } from './i18n';
@@ -75,6 +75,9 @@ export default function App() {
   const addToast = useAppStore((s) => s.addToast);
   const setNetworkWarning = useAppStore((s) => s.setNetworkWarning);
   const networkWarning = useAppStore((s) => s.networkWarning);
+  const apiDown = useAppStore((s) => s.apiDown);
+  const setApiDown = useAppStore((s) => s.setApiDown);
+  const [retrying, setRetrying] = useState(false);
   const cookieExpired = useAppStore((s) => s.cookieExpired);
   const setCookieExpired = useAppStore((s) => s.setCookieExpired);
   const activeTab = useAppStore((s) => s.activeTab);
@@ -126,15 +129,43 @@ export default function App() {
     if (api?.setActiveTab && !embed) api.setActiveTab(activeTab);
   }, [activeTab, embed]);
 
+  // 注册前端↔后端连接中断的全局回调：任意本地 API 请求抛 network/timeout 即点亮横幅
+  useEffect(() => {
+    onNetworkDown(() => setApiDown(true));
+  }, [setApiDown]);
+
+  // 重试连接：后端恢复后让界面自愈（重拉状态/仓库 + 重连 SSE）
+  const retryConnection = async () => {
+    setRetrying(true);
+    try {
+      const s = await apiGet<StatusResp>('/api/status');
+      const ns = normalizeStatus(s);
+      setStatus(ns);
+      if (typeof ns.qps === 'number') useAppStore.getState().setQps(ns.qps);
+      setApiDown(false);
+      sse.connect();
+      apiGet<ReposResp>('/api/repos')
+        .then((r) => { if (!r.error) setRepos(r.repos || []); })
+        .catch(() => {});
+      addToast(t('net.recovered'), 'success');
+    } catch {
+      addToast(t('net.stillDown'), 'error');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   useEffect(() => {
     apiGet<StatusResp>('/api/status')
       .then((s) => {
         const ns = normalizeStatus(s);
         setStatus(ns);
         if (typeof ns.qps === 'number') useAppStore.getState().setQps(ns.qps);
+        setApiDown(false);
       })
       .catch(() => {
-        /* 后端未就绪时静默，SSE 会重连 */
+        // 后端未就绪：点亮「后端不可达」横幅（含诊断步骤），不静默
+        setApiDown(true);
       });
 
     apiGet<ReposResp>('/api/repos')
@@ -271,6 +302,35 @@ export default function App() {
                   onClick={() => setCookieExpired(null)}
                 >
                   {t('cookie.dismiss')}
+                </button>
+              </div>
+            </div>
+          )}
+          {apiDown && (
+            <div className="api-down-banner" role="alert">
+              <div className="api-down-text">
+                <strong>⚠ {t('net.title')}</strong>
+                <span>{t('net.desc')}</span>
+                <ul className="api-down-steps">
+                  <li>{t('net.step1')}</li>
+                  <li>{t('net.step2')}</li>
+                  <li>{t('net.step3')}</li>
+                  <li>{t('net.step4')}</li>
+                </ul>
+              </div>
+              <div className="api-down-actions">
+                <button
+                  className="btn btn-sm btn-primary"
+                  disabled={retrying}
+                  onClick={retryConnection}
+                >
+                  {retrying ? t('net.retrying') : t('net.retry')}
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => setApiDown(false)}
+                >
+                  {t('net.dismiss')}
                 </button>
               </div>
             </div>

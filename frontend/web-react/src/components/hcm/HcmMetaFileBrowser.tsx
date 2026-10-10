@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useT } from '../../i18n';
 import { HcmApiError } from '../../api/hcm/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 
 const DIRECT_ENDPOINT = '/api/hcm/direct';
@@ -102,11 +103,17 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
   // directCall：返回网关 result（data 字段）
   const directCall = useCallback(
     async (apiName: string, params: Record<string, any>, m = '') => {
-      const res = await fetch(DIRECT_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_name: apiName, params, model: m, token: token.trim() }),
-      });
+      let res: Response;
+      try {
+        res = await fetch(DIRECT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_name: apiName, params, model: m, token: token.trim() }),
+        });
+      } catch (e) {
+        reportLocalApiNetworkError(DIRECT_ENDPOINT, e);
+        throw e;
+      }
       const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
       if (!res.ok) {
         const detail = typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail ?? data);
@@ -125,18 +132,24 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
       m = '',
       opts: { sqlDebug?: boolean; profileDebug?: boolean } = {}
     ): Promise<{ data: any; meta: Record<string, any> }> => {
-      const res = await fetch(DIRECT_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          api_name: apiName,
-          params,
-          model: m,
-          token: token.trim(),
-          sql_debug: opts.sqlDebug,
-          profile_debug: opts.profileDebug,
-        }),
-      });
+      let res: Response;
+      try {
+        res = await fetch(DIRECT_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_name: apiName,
+            params,
+            model: m,
+            token: token.trim(),
+            sql_debug: opts.sqlDebug,
+            profile_debug: opts.profileDebug,
+          }),
+        });
+      } catch (e) {
+        reportLocalApiNetworkError(DIRECT_ENDPOINT, e);
+        throw e;
+      }
       const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
       if (!res.ok) {
         const detail = typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail ?? data);

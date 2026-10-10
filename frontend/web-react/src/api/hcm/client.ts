@@ -1,3 +1,5 @@
+import { reportLocalApiNetworkError } from '../client';
+
 export class HcmApiError extends Error {
   status?: number;
   errcode?: number;
@@ -25,7 +27,13 @@ export interface HcmEnv {
  * 已弃用并删除，避免把 crypto-js / sm-crypto（约 284KB）打进前端包。
  */
 export async function hcmEnvs(): Promise<HcmEnv[]> {
-  const res = await fetch('/api/hcm/envs', { method: 'GET' });
+  let res: Response;
+  try {
+    res = await fetch('/api/hcm/envs', { method: 'GET' });
+  } catch (e) {
+    reportLocalApiNetworkError('/api/hcm/envs', e);
+    throw e;
+  }
   if (!res.ok) throw new HcmApiError(`获取环境列表失败: HTTP ${res.status}`, res.status);
   const data = await res.json().catch(() => ({ envs: [] }));
   return (data?.envs || []) as HcmEnv[];

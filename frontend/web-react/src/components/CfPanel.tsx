@@ -505,7 +505,12 @@ export function CfPanel() {
       password: acc.password || '',
       token: '',
     });
-    addToast(`已切换到「${acc.name}」环境，账号密码已预填`, 'info');
+    addToast(
+      acc.password
+        ? `已切换到「${acc.name}」环境，账号密码已预填`
+        : `已切换到「${acc.name}」环境，账号已预填；密码不出网，登录时由后端自动注入`,
+      'info',
+    );
   };
 
   const fetchCaptcha = async () => {
@@ -541,7 +546,11 @@ export function CfPanel() {
     const mobile = cfg.username.trim();
     const password = cfg.password.trim();
     const proxy = cfg.proxy.trim();
-    if (!serverUrl || !mobile || !password) {
+    // 密码不出网：/api/cf/accounts 只回 has_password 布尔，明文密码永不下发，
+    // 选中「已存密码」的环境时密码框必然为空 —— 放行空密码，由后端按 server_url 就地补齐。
+    const envAcc = accounts.find((a) => a.name === env);
+    const storedPwd = !!envAcc?.has_password;
+    if (!serverUrl || !mobile || (!password && !storedPwd)) {
       setStatus({ text: t('cf.fillServerMobilePwd'), cls: 'error' });
       return;
     }

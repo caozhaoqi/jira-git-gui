@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useT } from '../../i18n';
 import { requestConfirm } from '../../utils/confirmStore';
 import { HcmApiError } from '../../api/hcm/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import { hcmDirect } from '../../api/hcm/direct';
 import { useAppStore } from '../../store/useAppStore';
 import { openHcmWindow } from './hcmWindow';
@@ -16,6 +17,17 @@ const LS_HISTORY = 'hcm.cfErrHistory';
 const LS_GW = 'hcm.cfErrGw';
 const HISTORY_MAX = 20;
 const BATCH_MAX = 50;
+
+// 本文件对本地后端的请求一律走 fetchLocal：网络层失败（连不上本地后端）时
+// 上报点亮全局「后端不可达」横幅；HTTP 4xx/5xx 有响应，不算网络问题，照常走原错误分支。
+async function fetchLocal(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch (e) {
+    reportLocalApiNetworkError(path, e);
+    throw e;
+  }
+}
 
 interface LocInfo {
   model?: string;
@@ -429,7 +441,7 @@ export function HcmCloudFuncErrorLocator() {
     setRetroDiff('');
     setRetroNewContent('');
     try {
-      const res = await fetch('/api/cf/retrofit', {
+      const res = await fetchLocal('/api/cf/retrofit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: retroContent, mode: retroMode, redact_sensitive: retroRedact }),
@@ -482,7 +494,7 @@ export function HcmCloudFuncErrorLocator() {
   const effectiveToken = gwTokenOverride.trim() || token; // 非预设网关需自带 token
 
   useEffect(() => {
-    fetch('/api/hcm/envs')
+    fetchLocal('/api/hcm/envs')
       .then((r) => r.json())
       .then((d) => {
         if (Array.isArray(d?.envs)) {
@@ -754,7 +766,7 @@ export function HcmCloudFuncErrorLocator() {
     setJiraBusy(true);
     setError('');
     try {
-      const res = await fetch('/api/jira/issue', {
+      const res = await fetchLocal('/api/jira/issue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -794,7 +806,7 @@ export function HcmCloudFuncErrorLocator() {
       errFix: errInfo?.fix,
     };
     try {
-      const res = await fetch('/api/cf/diagnose-context', {
+      const res = await fetchLocal('/api/cf/diagnose-context', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -856,7 +868,7 @@ export function HcmCloudFuncErrorLocator() {
     setLearnMsg('');
     setLearnDetail(null);
     try {
-      const res = await fetch('/api/cf/cases/feedback-learn', {
+      const res = await fetchLocal('/api/cf/cases/feedback-learn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apply }),
@@ -915,7 +927,7 @@ export function HcmCloudFuncErrorLocator() {
         fmt(src),
         '```',
       ].filter(Boolean).join('\n');
-      const res = await fetch('/api/cf/cases/save', {
+      const res = await fetchLocal('/api/cf/cases/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -947,7 +959,7 @@ export function HcmCloudFuncErrorLocator() {
     setFbBusy(true);
     setFbMsg('');
     try {
-      const res = await fetch('/api/cf/cases/feedback', {
+      const res = await fetchLocal('/api/cf/cases/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -985,7 +997,7 @@ export function HcmCloudFuncErrorLocator() {
     setReloginBusy(true);
     setReloginMsg('');
     try {
-      const res = await fetch('/api/cf/refresh-token', {
+      const res = await fetchLocal('/api/cf/refresh-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ server_url: gwUrl, proxy: '' }),

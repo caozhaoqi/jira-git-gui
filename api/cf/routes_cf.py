@@ -67,14 +67,47 @@ async def api_cf_captcha(server_url: str = "", proxy: str = ""):
         raise _http_error(e)
 
 
+def _resolve_stored_password(server_url: str, mobile: str = "") -> str:
+    """按 server_url(+用户名) 从配置账号里取已存密码。
+
+    密码不出网：/api/cf/accounts 只回 has_password 布尔、永不下发明文，
+    前端切环境只能预填 server_url/username，密码框必然为空。
+    登录时密码留空即走这里，在服务端就地补齐后再登录，明文全程不出后端。
+    """
+    su = (server_url or "").strip().rstrip("/")
+    if not su:
+        return ""
+    mb = (mobile or "").strip()
+    candidates = [
+        a for a in get_cf_accounts()
+        if (a.get("server_url") or "").strip().rstrip("/") == su
+    ]
+    if mb:
+        # 同网关配了多个账号时优先按用户名精确匹配
+        for a in candidates:
+            if (a.get("username") or a.get("mobile") or "").strip() == mb:
+                pw = (a.get("password") or "").strip()
+                if pw:
+                    return pw
+    for a in candidates:
+        pw = (a.get("password") or "").strip()
+        if pw:
+            return pw
+    return ""
+
+
 @router.post("/api/cf/login")
 async def api_cf_login(req: CfLoginReq):
     """手动登录单个 CF 账号（支持验证码），缓存并返回 token。"""
+    payload = {"server_url": req.server_url, "username": req.mobile, "password": req.password}
+    # 密码留空 → 用配置账号里已存的密码就地补齐（见 _resolve_stored_password）；
+    # 配置里也没有则维持空，由 cf_login_account 返回缺参提示。
+    if not (req.password or "").strip():
+        stored = _resolve_stored_password(req.server_url, req.mobile)
+        if stored:
+            payload["password"] = stored
     try:
-        r = await cf_login_account(
-            {"server_url": req.server_url, "username": req.mobile, "password": req.password},
-            proxy=req.proxy,
-        )
+        r = await cf_login_account(payload, proxy=req.proxy)
     except Exception as e:
         raise _http_error(e)
     from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, TOKEN_CACHE_LOCK
