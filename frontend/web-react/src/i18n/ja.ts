@@ -1327,6 +1327,8 @@ export const ja: Dict = {
     loadMore: 'さらに読込',
     copied: '{{n}} 行コピー', copyFailed: 'コピー失敗',
     exported: '{{n}} 行書出', exportFailed: '書出失敗',
+    exportTip: '選択した期間の全ログを書き出す（1万行ずつページング）',
+    exportCapped: '書出上限に達しました（{{n}} 行）',
     dblContext: 'ダブルクリックで文脈表示',
     context: '文脈',
     histogram: 'タイムライン',

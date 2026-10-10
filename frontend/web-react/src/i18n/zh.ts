@@ -1336,6 +1336,8 @@ export const zh: Dict = {
     copyFailed: '复制失败',
     exported: '已导出 {{n}} 条',
     exportFailed: '导出失败',
+    exportTip: '按上方所选时间段导出全部匹配日志（分页拉取，每页 1 万行）',
+    exportCapped: '已达导出上限，本次共导出 {{n}} 条',
     dblContext: '双击查看上下文',
     context: '上下文',
     histogram: '时间分布',
