@@ -146,27 +146,56 @@ export function KibanaLogStream({
     }
   }, [busy, rows.length, addToast, addBusy]);
 
+  // 导出：按当前筛选（含所选时间段 start/end）分页拉取全量匹配日志。
+  // 每页 1 万行（后端单次上限 2 万），直到短页结束；总行数设安全上限，
+  // 防止超大时间段把内存/后端打爆（Console Proxy 单次约 4s）。
+  const [exporting, setExporting] = useState(false);
   const doExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
     try {
-      const d = await apiPost<KibanaExportResp>('/api/kibana/export', {
-        ...reqRef.current, size: 20000,
-      });
-      if (d.ok === false || !d.content) {
-        addToast(d.error || t('kibana.exportFailed'), 'error');
-        return;
+      const PAGE_SIZE = 10000;
+      const MAX_ROWS = 200000;
+      const parts: string[] = [];
+      let from = 0;
+      let total = 0;
+      let filename = '';
+      let capped = false;
+      while (true) {
+        const d = await apiPost<KibanaExportResp>('/api/kibana/export', {
+          ...reqRef.current, size: PAGE_SIZE, from_: from,
+        });
+        if (d.ok === false || !d.content) {
+          if (!parts.length) {
+            addToast(d.error || t('kibana.exportFailed'), 'error');
+            return;
+          }
+          break; // 后续页出错：保留已拉到的部分
+        }
+        parts.push(d.content);
+        filename = filename || d.filename || '';
+        const n = d.count ?? 0;
+        total += n;
+        if (n < PAGE_SIZE) break;
+        from += n;
+        if (total >= MAX_ROWS) { capped = true; break; }
       }
-      const blob = new Blob([d.content], { type: 'text/plain;charset=utf-8' });
+      const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = d.filename || 'kibana-logs.log';
+      a.download = filename || 'kibana-logs.log';
       a.click();
       URL.revokeObjectURL(url);
-      addToast(t('kibana.exported', { n: d.count ?? 0 }), 'success');
+      addToast(capped ? t('kibana.exportCapped', { n: total })
+                      : t('kibana.exported', { n: total }),
+               capped ? 'warn' : 'success');
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');
+    } finally {
+      setExporting(false);
     }
-  }, [addToast, t]);
+  }, [exporting, addToast, t]);
 
   const copyAll = useCallback(async () => {
     const text = rows.map((r) => `[${r.ts}] ${r.level || ''} ${r.msg}`).join('\n');
@@ -228,7 +257,10 @@ export function KibanaLogStream({
         <button className="btn btn-ghost btn-sm" onClick={copyAll}
                 disabled={!rows.length}>{t('common.copy')}</button>
         <button className="btn btn-ghost btn-sm" onClick={doExport}
-                disabled={!rows.length}>{t('common.download')}</button>
+                disabled={!rows.length || exporting}
+                title={t('kibana.exportTip')}>
+          {exporting ? <span className="kb-spin">⬇</span> : t('common.download')}
+        </button>
         {extraActions}
       </div>
 

@@ -192,8 +192,12 @@ async def api_kibana_histogram(body: LogQuery):
 async def api_kibana_export(body: LogQuery):
     """导出当前查询结果为纯文本（前端拿到 content 后走 Blob 下载）。
 
-    上限 20000 行：Console Proxy 单次 4s 且响应体直接进内存，无限导出会把
-    后端顶死；真要全量请用 Kibana 自己的 CSV 导出。
+    - 过滤条件与 /api/kibana/logs 完全一致（含 start/end 时间段），保证
+      「看到的」与「导出的」是同一份数据切片。
+    - 单次上限 20000 行：Console Proxy 单次约 4s 且响应体直接进内存，
+      无限导出会把后端顶死。
+    - 支持 ``from_`` 分页：前端按「每页 1 万行」循环拉取直到短页，
+      即可覆盖整个所选时间段的全量日志（前端另有总行数安全上限）。
     """
     try:
         cli = get_client(body.site or None)
@@ -201,11 +205,12 @@ async def api_kibana_export(body: LogQuery):
         return {"ok": False, "error": _err(ex), "content": ""}
 
     limit = max(1, min(int(body.size or 1000), 20000))
+    from_ = max(0, int(body.from_ or 0))
 
     def _run():
         filters = _filters_from(cli, body)
         dsl = q.build_search_dsl(filters, time_field=cli.time_field,
-                                 size=limit, from_=0, order="asc")
+                                 size=limit, from_=from_, order="asc")
         resp = cli.es_search(dsl)
         rows = q.parse_hits(resp, field_prefix=cli.field_prefix,
                             msg_field=cli.msg_field, time_field=cli.time_field)
@@ -224,6 +229,12 @@ async def api_kibana_export(body: LogQuery):
     except Exception as ex:  # noqa: BLE001
         return {"ok": False, "error": f"{type(ex).__name__}: {ex}", "content": ""}
 
+    import re as _re
     import time as _time
+
+    def _safe(s: str) -> str:
+        return _re.sub(r"[^\w.-]+", "-", (s or "").strip()) or "now"
+
     stamp = _time.strftime("%Y%m%d-%H%M%S")
-    return {"ok": True, "filename": f"kibana-logs-{stamp}.log", **data}
+    rng = f"{_safe(body.start)}_{_safe(body.end)}"
+    return {"ok": True, "filename": f"kibana-logs-{rng}-{stamp}.log", **data}

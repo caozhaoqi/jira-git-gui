@@ -1329,6 +1329,8 @@ export const en: Dict = {
     copyFailed: 'Copy failed',
     exported: 'Exported {{n}} lines',
     exportFailed: 'Export failed',
+    exportTip: 'Export all matching logs for the selected time range (paged, 10k rows per request)',
+    exportCapped: 'Export limit reached, {{n}} lines exported',
     dblContext: 'Double-click for context',
     context: 'Context',
     histogram: 'Timeline',

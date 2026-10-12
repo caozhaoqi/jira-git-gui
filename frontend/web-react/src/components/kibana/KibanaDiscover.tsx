@@ -104,8 +104,8 @@ export function KibanaDiscover({ site, query, wrap, onToggleWrap, refreshSec, re
     });
   }, [hist, histInterval, onTimeRangePick]);
 
-  // 注：导出用 KibanaLogStream 内置的「Download」按钮（doExport，同走 /api/kibana/export
-  // size=20000），这里不再通过 extraActions 传第二个 —— 曾因此出现两个并排的 Download。
+  // 注：导出用 KibanaLogStream 内置的「Download」按钮（doExport，走 /api/kibana/export，
+  // 按所选时间段分页拉取全量），这里不再通过 extraActions 传第二个 —— 曾因此出现两个并排的 Download。
 
   return (
     <div className="kb-discover">
