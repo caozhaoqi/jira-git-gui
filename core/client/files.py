@@ -20,6 +20,7 @@ import httpx
 
 from core.constants import REPOS_DIR, DOWNLOAD_DIR, DEFAULT_DOWNLOAD_WORKERS
 from core.errors import UserError
+from core.logger import get_logger
 
 # 文件页解析正则
 _RE_FILE_BALANCED = re.compile(
@@ -35,6 +36,7 @@ _RE_TREE_FILE_ROW = re.compile(
 _RE_TREE_FILE_NAME = re.compile(r'<td[^>]*class="[^"]*name[^"]*"[^>]*>(.*?)</td>', re.S | re.I)
 _FILE_BROWSE_ERROR_RE = re.compile(
     r'not\s+be\s+displayed|too\s+large|binary|image|unable\s+to\s+load', re.I)
+logger = get_logger("jira-git-gui")
 
 
 class FilesMixin:
@@ -332,14 +334,16 @@ class FilesMixin:
         # 分支兜底：调用方常传空分支，这里解析一次（复用缓存，避免每次重探）。
         branch = branch or self._resolve_branch(repo_id, self.branch) or ""
         # 候选端点（按优先度排列）
-        candidates = [
-            f"{base}/secure/GIJFileBrowser.jspa.json?repoId={repo_id}",
-            f"{base}/secure/GIJFileBrowser.jspa?repoId={repo_id}",
-        ]
+        query = {"repoId": repo_id}
         if branch:
-            candidates = [c + f"&branchName={branch}" for c in candidates]
+            query["branchName"] = branch
         if path:
-            candidates = [c + "&filePath=" + path.lstrip("/") for c in candidates]
+            query["filePath"] = path.lstrip("/")
+        encoded_query = urllib.parse.urlencode(query)
+        candidates = [
+            f"{base}/secure/GIJFileBrowser.jspa.json?{encoded_query}",
+            f"{base}/secure/GIJFileBrowser.jspa?{encoded_query}",
+        ]
         last: Optional[httpx.Response] = None
         for url in candidates:
             try:
@@ -368,8 +372,12 @@ class FilesMixin:
             return None, False
         base = self.config.jira_url.rstrip("/")
         if ref:
-            url = (f"{base}/secure/GIJViewGitFileContent.jspa"
-                   f"?revision={ref}&repoId={repo_id}&path={path.lstrip('/')}")
+            query = urllib.parse.urlencode({
+                "revision": ref,
+                "repoId": repo_id,
+                "path": path.lstrip("/"),
+            })
+            url = f"{base}/secure/GIJViewGitFileContent.jspa?{query}"
             try:
                 r = self.http_get(url, headers=self.cookie_headers())
             except Exception:
@@ -382,7 +390,7 @@ class FilesMixin:
     def _fetch_raw_file(self, repo_id: str, ref: str, path: str):
         """绕过 web viewer 的大小限制，用插件 REST 原始文件端点直接取字节。
 
-        仅当 web viewer 内嵌失败（文件过大/二进制）时作为兜底。接受「原始字节」响应
+        当 web viewer 内嵌内容无法读取时作为兜底。接受「原始字节」响应
         （``text/plain`` / ``application/octet-stream`` / 未知类型），或 JSON 包内含
         ``content``/``rawFile``（base64 或文本）；其余（HTML/JSON 错误包）一律拒绝，
         绝不把错误页当文件内容写坏。返回 bytes/str 或 None。
@@ -391,20 +399,25 @@ class FilesMixin:
             return None
         base = self.config.jira_url.rstrip("/")
         safe_path = path.lstrip("/")
+        encoded_path = urllib.parse.quote(safe_path, safe="/")
         candidates = [
-            f"{base}/rest/git/1.0/repositories/{repo_id}/files/{ref}?path={safe_path}",
-            f"{base}/rest/gitplugin/1.0/repository/{repo_id}/files/{ref}?path={safe_path}",
+            f"{base}/rest/git/1.0/repositories/{repo_id}/files/{ref}?path={encoded_path}",
+            f"{base}/rest/gitplugin/1.0/repository/{repo_id}/files/{ref}?path={encoded_path}",
         ]
+        failures = []
         for url in candidates:
             try:
                 r = self.http_get(url, headers=self.cookie_headers())
-            except Exception:
+            except Exception as ex:
+                failures.append(type(ex).__name__)
                 continue
             if r.status_code != 200:
+                failures.append(f"HTTP {r.status_code}")
                 continue
             ct = (r.headers.get("Content-Type") or "").lower()
             body = r.content
             if "html" in ct:
+                failures.append("HTML response")
                 continue  # 仍是 viewer / 登录 / 错误页
             if "json" in ct:
                 try:
@@ -412,12 +425,16 @@ class FilesMixin:
                 except Exception:
                     j = None
                 if isinstance(j, dict):
-                    c = j.get("content") or j.get("rawFile") or j.get("fileContent")
+                    c = next(
+                        (j[key] for key in ("content", "rawFile", "fileContent")
+                         if j.get(key) is not None),
+                        None)
                     if isinstance(c, str):
                         try:
                             return base64.b64decode(c, validate=True)
                         except Exception:
                             return c
+                failures.append("unrecognized JSON response")
                 continue
             # text/plain / octet-stream / 未知类型 → 原始内容
             if b"\x00" in body[:4096]:
@@ -426,6 +443,9 @@ class FilesMixin:
                 return body.decode("utf-8")
             except UnicodeDecodeError:
                 return body
+        logger.warning(
+            "远端原始文件接口读取失败：%s（repo=%s ref=%s，尝试结果：%s）",
+            path, repo_id, ref, ", ".join(failures) or "无可用响应")
         return None
 
 
@@ -541,43 +561,52 @@ class FilesMixin:
                 return False, None, ("远端文件浏览被拒绝（HTTP %s），"
                                       "多半是 Cookie 已过期或会话失效，请在连接设置更新 Cookie"
                                       % r.status_code)
+            raw = self._fetch_raw_file(repo_id, ref, path)
+            if raw is not None:
+                return True, raw, ""
             return False, None, ("远端文件浏览端点不可用（HTTP %s），"
                                   "该 Jira 实例的文件接口可能未启用；可改用 PAT 模式克隆到本地后预览"
                                   % r.status_code)
         html_text = r.text
         if self._looks_like_error_envelope(html_text):
+            raw = self._fetch_raw_file(repo_id, ref, path)
+            if raw is not None:
+                return True, raw, ""
             return False, None, "文件接口返回错误包（可能无权限或文件不存在）"
         # 1) 优先解析结构化内容（<script id="git-file-content-json">）。
         data = self._extract_balanced_json(html_text)
         if data:
-            raw = data.get("rawFile") or data.get("content") or data.get("fileContent")
+            raw = next(
+                (data[key] for key in ("rawFile", "content", "fileContent")
+                 if data.get(key) is not None),
+                None)
             if raw is None and isinstance(data.get("file"), dict):
                 raw = data["file"].get("content")
-            if raw is None:
-                return False, None, "文件内容字段缺失"
-            content = raw
-            ct = data.get("contentType") or data.get("mimeType") or ""
-            if isinstance(content, str):
-                if self._is_likely_text(content.encode("utf-8", "replace"), ct):
-                    return True, content, ""
-                return True, content.encode("utf-8", "replace"), ""
-            return True, content, ""
-        # 2) 若是 GIJViewGitFileContent 渲染页，用 <pre>/<code> 兜底取正文。
+            if raw is not None:
+                content = raw
+                ct = data.get("contentType") or data.get("mimeType") or ""
+                if isinstance(content, str):
+                    if self._is_likely_text(content.encode("utf-8", "replace"), ct):
+                        return True, content, ""
+                    return True, content.encode("utf-8", "replace"), ""
+                return True, content, ""
+        # 2) GIJViewGitFileContent 页的 <pre> 是正文容器；优先于任意 <code>，
+        #    后者也可能出现在工具栏/页面元数据中。
         if used_view:
             code = self._extract_code_from_html(html_text)
-            if code and code.strip():
+            if code is not None:
                 return True, code, ""
-        # 3) 提取全部失败 → 再跑诊断正则给出具体原因。
+        # 3) 页面解析失败时仍尝试 REST 原始文件接口；有些 Jira 页面结构与 viewer
+        #    错误提示不一致，不能只靠错误文案来决定是否请求原始内容。
+        raw = self._fetch_raw_file(repo_id, ref, path)
+        if raw is not None:
+            return True, raw, ""
+        # 4) 提取全部失败 → 再跑诊断正则给出具体原因。
         # ⚠️ ``_FILE_BROWSE_ERROR_RE`` 含 "image" 等宽泛词，正常 viewer 页（带图片预览图标/
         # "image/*" 等）也会误中，所以必须放到提取失败之后才检查。提取成功就提前 return，
         # 根本不会跑到这里——这是修掉「点 .py 也报文件过大或为二进制」误报的关键。
         if self._is_likely_text(html_text.encode("utf-8", "replace"), "text/html"):
             if _FILE_BROWSE_ERROR_RE.search(html_text):
-                # web viewer 不内嵌内容（文件过大/二进制）：尝试插件 REST 原始文件端点兜底，
-                # 绕过 viewer 的大小限制直接取字节。任一端点返回原始内容即采用。
-                raw = self._fetch_raw_file(repo_id, ref, path)
-                if raw is not None:
-                    return True, raw, ""
                 return False, None, ("远端文件过大或为二进制，Cookie 模式的 web 预览无法获取其内容；"
                                      "请改用本地克隆/PAT 后合并，或在文件树用「下载选中」保存到本地")
         return False, None, "未能从文件页解析出结构化内容"
@@ -644,21 +673,19 @@ class FilesMixin:
 
         优先级：
         1) 旧版 diff code 单元格（bbb-gp-diff_code-cell-content）
-        2) 任意 <code> 块
-        3) <pre> 代码块（新版插件常见）
-        4) 兜底：整页去标签后取“像代码”的最大文本块
+        2) <pre> 代码块（新版插件常见）
+        3) 任意非空 <code> 块
         """
         import html as html_lib
 
         def clean(block: str) -> str:
+            block = re.sub(r"<br\s*/?>", "\n", block, flags=re.I)
             t = re.sub(r"<[^>]+>", "", block)
             t = html_lib.unescape(t)
             t = t.replace("\u00a0", " ")
             return t
 
         rows = _RE_CODE_BLOCK.findall(html_text)
-        if not rows:
-            rows = re.findall(r'<code[^>]*>(.*?)</code>', html_text, re.S)
         if rows:
             out = [clean(r).rstrip("\r") for r in rows]
             joined = "\n".join(out)
@@ -670,13 +697,11 @@ class FilesMixin:
             joined = "\n".join(out)
             return joined + ("\n" if joined else "")
 
-        body = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html_text, flags=re.S)
-        text = re.sub(r"<[^>]+>", "\n", body)
-        text = html_lib.unescape(text).replace("\u00a0", " ")
-        lines = [ln.rstrip() for ln in text.splitlines()]
-        markers = (";", "{", "}", "=", "function", "<?php", "import", "def ",
-                   "class ", "<", "return", "SELECT")
-        kept = [ln for ln in lines if any(m in ln for m in markers)]
-        if len(kept) >= 3:
-            return "\n".join(kept) + "\n"
+        rows = re.findall(r'<code[^>]*>(.*?)</code>', html_text, re.S)
+        if rows:
+            out = [clean(r).rstrip("\r") for r in rows]
+            joined = "\n".join(out)
+            if joined.strip():
+                return joined + "\n"
+
         return None

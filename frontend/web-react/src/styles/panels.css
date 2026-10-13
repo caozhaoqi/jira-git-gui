@@ -1274,6 +1274,22 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   border-right: 1px solid var(--border);
   overflow-y: auto;
 }
+.diff-list-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.diff-list-search,
+.diff-list-filter {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
 .diff-content-pane {
   flex: 1;
   min-width: 0;

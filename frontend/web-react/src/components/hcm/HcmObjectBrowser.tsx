@@ -12,6 +12,14 @@ import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
 import { openHcmWindow } from './hcmWindow';
+import {
+  buildHcmFilterDict,
+  metaFilterCandidates,
+  pickDefaultFilterKey,
+  queryFieldCandidates,
+  type HcmFilterCandidate,
+  type HcmFilterOperator,
+} from '../../utils/hcmObjectFilters';
 
 const LS_ENV = 'hcm.selectedEnv';
 
@@ -151,8 +159,14 @@ export function HcmObjectBrowser() {
   const [dataMeta, setDataMeta] = useState<Record<string, any>>({});
   const [dataAdvOpen, setDataAdvOpen] = useState(false);
   // 结构化筛选（filter_dict）：字段键值对，多条件按 AND 组合，字段联想来自已加载对象的 meta.fields
-  const [dataStruct, setDataStruct] = useState<{ id: number; field: string; value: string }[]>([]);
+  const [dataStruct, setDataStruct] = useState<
+    { id: number; field: string; operator: HcmFilterOperator; value: string }[]
+  >([]);
   const [dataStructOpen, setDataStructOpen] = useState(true);
+  const [quickFilterField, setQuickFilterField] = useState('');
+  // 平台侧「可筛选字段」（hcm.paas.object.query.fields，按 biz_type=list 拉取）。
+  // 作为字段下拉/联想的主来源；为空时回退到 meta.fields（见 filterCandidates）。
+  const [queryFields, setQueryFields] = useState<HcmFilterCandidate[]>([]);
   const structIdRef = useRef(0);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
@@ -299,6 +313,29 @@ const loadList = useCallback(async () => {
     setPage(1);
   }, []);
 
+  // 平台侧「可筛选字段」：hcm.paas.object.query.fields 是平台查询面板判定字段可否
+  // 筛选的真实来源（见 docs/HCM_OBJECT_BROWSER.md）。动态/自定义模型（如 U_SyncRaw*）
+  // 可能返回空，此时由 filterCandidates 回退到 meta.fields。失败同样静默回退。
+  const loadQueryFields = useCallback(
+    async (modelId: string) => {
+      if (!modelId) {
+        setQueryFields([]);
+        return;
+      }
+      try {
+        const resp = await directCall(
+          'hcm.paas.object.query.fields',
+          { model: modelId, biz_type: 'list' },
+          modelId
+        );
+        setQueryFields(queryFieldCandidates(resp));
+      } catch {
+        setQueryFields([]);
+      }
+    },
+    [directCall]
+  );
+
   const loadMeta = useCallback(
     async (obj: HcmObjectItem, kind: MetaKind = metaKind) => {
       setSelected(obj);
@@ -313,6 +350,8 @@ const loadList = useCallback(async () => {
       setDataError('');
       setDataPage(1);
       setDataFilter('');
+      setQuickFilterField('');
+      setQueryFields([]);
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -342,8 +381,10 @@ const loadList = useCallback(async () => {
       } finally {
         setMetaLoading(false);
       }
+      // 独立拉「可筛选字段」，不入 meta 主流程（失败静默回退到 meta.fields）
+      void loadQueryFields(obj.id);
     },
-    [directCall, metaKind]
+    [directCall, metaKind, loadQueryFields]
   );
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录（非元数据）。
@@ -398,16 +439,29 @@ const loadList = useCallback(async () => {
     [token, usePresetToken, directCallRaw, dataPayload, dataPageSize, dataPage, dataSqlDebug, dataProfileDebug, t]
   );
 
-  // 结构化筛选字段联想：来自已加载对象的元数据字段
-  const fieldsForFilter = useMemo(() => meta?.fields || [], [meta]);
+  // 按当前模型的元数据构造字段候选：优先展示显式允许筛选的字段；
+  // 某些自定义模型未标记 is_filter 时，回退为该模型全部字段供 field-targeted filter_dict 使用。
+  // 筛选字段候选：优先平台 query.fields 声明的可筛选字段；为空（动态/自定义模型）
+  // 回退到模型元数据全部字段。两者都给出字段键，供快速筛选下拉 + 结构化筛选联想。
+  const filterCandidates = useMemo<HcmFilterCandidate[]>(
+    () => (queryFields.length ? queryFields : metaFilterCandidates(meta?.fields || [])),
+    [queryFields, meta]
+  );
+  const resolvedQuickFilterField = useMemo(() => {
+    if (filterCandidates.some((c) => c.key === quickFilterField)) return quickFilterField;
+    return pickDefaultFilterKey(filterCandidates);
+  }, [filterCandidates, quickFilterField]);
 
   // 结构化筛选（filter_dict）增删改
   const addStructRow = useCallback(() => {
     structIdRef.current += 1;
-    setDataStruct((rows) => [...rows, { id: structIdRef.current, field: '', value: '' }]);
+    setDataStruct((rows) => [
+      ...rows,
+      { id: structIdRef.current, field: '', operator: 'eq', value: '' },
+    ]);
   }, []);
   const updateStructRow = useCallback(
-    (id: number, patch: Partial<{ field: string; value: string }>) => {
+    (id: number, patch: Partial<{ field: string; operator: HcmFilterOperator; value: string }>) => {
       setDataStruct((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     },
     []
@@ -417,13 +471,14 @@ const loadList = useCallback(async () => {
   }, []);
   const clearStruct = useCallback(() => setDataStruct([]), []);
 
-  // 将结构化条件合并进请求体的 filter_dict 并执行查询（多条件按 AND 等值组合）
+  // 将结构化条件合并进请求体的 filter_dict 并执行查询（多条件按 AND 组合）。
+  // contains 转成 HCM 支持的 { like: "%value%" }，不依赖各模型是否配置 filter_str 模糊搜索。
   const applyStructFilter = useCallback(() => {
     if (!selected) return;
-    const dict: Record<string, string> = {};
-    for (const r of dataStruct) {
-      const f = r.field.trim();
-      if (f) dict[f] = r.value; // 值允许为空串（匹配空值）；字段为空视为未填写，跳过
+    const dict = buildHcmFilterDict(dataStruct);
+    if (dataStruct.some((row) => row.field.trim() && row.operator === 'contains' && !row.value.trim())) {
+      setDataPayloadError('包含匹配请填写非空值');
+      return;
     }
     let payload: Record<string, any>;
     try {
@@ -434,7 +489,11 @@ const loadList = useCallback(async () => {
       return;
     }
     payload.filter_dict = dict;
+    // structured filter owns filter_dict; clear old generic search to prevent hidden AND conditions.
+    payload.filter_str = null;
+    payload.query_str = null;
     payload.model = selected.id;
+    setDataFilter('');
     if (!payload.page_size) payload.page_size = dataPageSize;
     if (!payload.biz_type) payload.biz_type = 'list';
     setDataPayload(JSON.stringify(payload, null, 2));
@@ -955,6 +1014,20 @@ const loadList = useCallback(async () => {
               {rightTab === 'data' && (
                 <div className="hcm-data">
                   <div className="hcm-fields-toolbar">
+                    <select
+                      className="hcm-struct-op"
+                      value={resolvedQuickFilterField}
+                      onChange={(e) => setQuickFilterField(e.target.value)}
+                      aria-label={t('hcm.quickFilterField')}
+                      disabled={filterCandidates.length === 0}
+                      title={t('hcm.quickFilterField')}
+                    >
+                      {filterCandidates.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label ? `${c.label} (${c.key})` : c.key}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       className="hcm-search"
                       value={dataFilter}
@@ -965,8 +1038,16 @@ const loadList = useCallback(async () => {
                           // 将简单过滤同步到请求体（同步传 override，避免读到旧 dataPayload 闭包）
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
-                            p.filter_str = e.currentTarget.value.trim() || null;
+                            const value = e.currentTarget.value.trim();
+                            p.filter_str = null;
+                            p.filter_dict = value && resolvedQuickFilterField
+                              ? buildHcmFilterDict([
+                                  { field: resolvedQuickFilterField, value, operator: 'contains' },
+                                ])
+                              : {};
+                            p.query_str = null;
                             p.model = selected.id;
+                            setDataStruct([]);
                             setDataPayload(JSON.stringify(p, null, 2));
                             loadData(selected, 1, p);
                           } catch {
@@ -984,8 +1065,16 @@ const loadList = useCallback(async () => {
                           setDataPage(1);
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
-                            p.filter_str = dataFilter.trim() || null;
+                            const value = dataFilter.trim();
+                            p.filter_str = resolvedQuickFilterField ? null : value || null;
+                            p.filter_dict = value && resolvedQuickFilterField
+                              ? buildHcmFilterDict([
+                                  { field: resolvedQuickFilterField, value, operator: 'contains' },
+                                ])
+                              : {};
+                            p.query_str = null;
                             p.model = selected.id;
+                            setDataStruct([]);
                             setDataPayload(JSON.stringify(p, null, 2));
                             loadData(selected, 1, p);
                           } catch {
@@ -1055,7 +1144,15 @@ const loadList = useCallback(async () => {
                               placeholder={t('hcm.structFieldPlaceholder')}
                               spellCheck={false}
                             />
-                            <span className="hcm-struct-eq">=</span>
+                            <select
+                              className="hcm-struct-op"
+                              value={r.operator}
+                              onChange={(e) => updateStructRow(r.id, { operator: e.target.value as HcmFilterOperator })}
+                              aria-label={t('hcm.structOperator')}
+                            >
+                              <option value="eq">{t('hcm.structExact')}</option>
+                              <option value="contains">{t('hcm.structContains')}</option>
+                            </select>
                             <input
                               className="hcm-struct-value"
                               value={r.value}
@@ -1078,11 +1175,11 @@ const loadList = useCallback(async () => {
                         ))}
                       </div>
                     )}
-                    {/* 字段联想数据源：来自已加载对象的 meta.fields */}
+                    {/* 字段联想数据源：平台 query.fields 可筛选字段，回退 meta.fields */}
                     <datalist id="hcm-struct-fields">
-                      {fieldsForFilter.map((f: HcmFieldMeta) => (
-                        <option key={f.key} value={f.key}>
-                          {f.name || f.key}
+                      {filterCandidates.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label || c.key}
                         </option>
                       ))}
                     </datalist>
