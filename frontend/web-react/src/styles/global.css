@@ -2281,7 +2281,8 @@ input[type='radio']:disabled {
 .hcm-adv-checks { flex-direction: row; gap: 16px; align-items: center; color: var(--text); }
 .hcm-adv-checks input { width: auto; }
 .hcm-struct { border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
-.hcm-struct-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }.hcm-struct-hint { font-size: 12px; color: var(--muted); }
+.hcm-struct-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
+.hcm-struct-hint { font-size: 12px; color: var(--muted); min-width: 0; flex: 1 1 220px; }
 .hcm-struct-body { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px; }
 .hcm-struct-empty { font-size: 12px; color: var(--muted); padding: 2px 0 4px; }
 .hcm-struct-row { display: flex; align-items: center; gap: 8px; }
@@ -2293,19 +2294,28 @@ input[type='radio']:disabled {
 .hcm-meta-duration { color: var(--muted); }
 .hcm-meta-link { margin-left: 12px; color: var(--primary); text-decoration: none; font-size: 12px; }
 .hcm-meta-link:hover { text-decoration: underline; }
-.hcm-fields-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.hcm-fields-toolbar .hcm-search { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-fields-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.hcm-fields-toolbar .hcm-search { flex: 1 1 180px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-fields-toolbar > select { min-width: 0; max-width: 100%; }
 .hcm-copy-btn { margin-left: auto; }
 
 /* 同步台帐专用筛选面板 */
 .hcm-sync { border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
 .hcm-sync-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
 .hcm-sync-title { font-weight: 600; font-size: 13px; }
+/* 折叠开关：复用 .btn 形状但去掉内边线/圆角视觉差异，让它和原「台帐筛选」标题观感一致 */
+.hcm-sync-toggle { font-weight: 600; font-size: 13px; padding: 2px 8px; background: transparent; border: 1px solid transparent; color: inherit; }
+.hcm-sync-toggle:hover { background: var(--bg-head, rgba(127,127,127,0.08)); }
 .hcm-sync-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 14px; padding: 0 12px 10px; }
 .hcm-sync-item { display: flex; align-items: center; gap: 8px; }
 .hcm-sync-label { flex: 0 0 76px; font-size: 12px; color: var(--muted); text-align: right; }
 .hcm-sync-item input, .hcm-sync-item select { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-sync-hint { font-size: 12px; color: var(--muted); padding: 0 12px 10px; }
+/* 台帐导出工具条（格式 / 是否含原始报文 / 导出按钮 / 进度） */
+.hcm-sync-export { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 12px 10px; }
+.hcm-sync-export select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-sync-raw { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.hcm-sync-export-status { font-size: 12px; color: var(--muted); }
 
 /* 搜索定位到的当前行（回车跳转高亮） */
 .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.18); }

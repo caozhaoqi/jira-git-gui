@@ -1,16 +1,26 @@
 // Regression tests for model-aware HCM filter_dict construction.
 import {
   buildHcmFilterDict,
+  buildSyncLedgerCsv,
   buildSyncLedgerFilterDict,
+  buildSyncLedgerJson,
+  csvEscape,
   defaultHcmTextFilterField,
   entityTypeLabel,
+  exportFileName,
+  fetchAllRows,
   isSyncLedgerModel,
   metaFilterCandidates,
   parseGroupCount,
+  parseTotalCount,
   pickDefaultFilterKey,
   selectHcmFilterFields,
   staticSyncSelectOptions,
+  syncLedgerExportColumns,
   syncLedgerFieldsFor,
+  toCsvText,
+  SYNC_COPY_MAX_ROWS,
+  SYNC_EXPORT_MAX_ROWS,
 } from '../frontend/web-react/src/utils/hcmObjectFilters.ts';
 
 let failed = 0;
@@ -157,6 +167,155 @@ check(
     .join(',') === 'DEPT',
 );
 check('non-array response yields empty', parseGroupCount(null, 'u_entity_type').length === 0);
+
+// --------------------------------------------------------------------------- //
+//  台帐导出：列规划 / CSV / JSON / 跨页拉全
+// --------------------------------------------------------------------------- //
+console.log('parseTotalCount (hcm.model.count count_by [*])');
+check('reads count__* from flat list', parseTotalCount({ list: [{ 'count__*': 675, '*': 675 }] }) === 675);
+check('reads count from nested result', parseTotalCount({ result: { list: [{ 'count__*': 93895 }] } }) === 93895);
+check('falls back to * when count__* missing', parseTotalCount({ list: [{ '*': 42 }] }) === 42);
+check('empty / bad responses yield 0', parseTotalCount(null) === 0 && parseTotalCount({ list: [] }) === 0);
+
+console.log('syncLedgerExportColumns');
+const exportMeta = [
+  { key: 'id', name: 'id', type: 'integer', is_list: false, is_info: false },
+  { key: 'company_id', name: '企业ID', type: 'integer', is_list: false, is_info: false },
+  { key: 'u_raw_json', name: '原始报文', type: 'JSON', is_list: true, is_info: true },
+  { key: 'u_entity_type', name: '实体类型', type: 'string', is_list: true, is_info: true },
+  { key: 'u_source_name', name: '源名称', type: 'string', is_list: true, is_info: true },
+];
+const exportRows = [
+  { u_raw_json: { a: 1 }, u_entity_type: 'EMPLOYEE', u_source_name: '张波', id: 1 },
+  { u_raw_json: { a: 2 }, u_entity_type: 'EMPLOYEE', u_source_name: '张科', id: 2 },
+];
+const cols = syncLedgerExportColumns(exportMeta, exportRows);
+check(
+  'business columns come first in meta order, then id',
+  cols.map((c) => c.key).join(',') === 'u_raw_json,u_entity_type,u_source_name,id',
+);
+check('uses the Chinese field label as header', cols.find((c) => c.key === 'u_source_name')?.label === '源名称');
+check(
+  'exclude drops the huge raw-payload column',
+  syncLedgerExportColumns(exportMeta, exportRows, { exclude: ['u_raw_json'] })
+    .map((c) => c.key)
+    .join(',') === 'u_entity_type,u_source_name,id',
+);
+check(
+  'framework columns absent from rows are not invented',
+  !syncLedgerExportColumns(exportMeta, exportRows).some((c) => c.key === 'company_id'),
+);
+
+console.log('csvEscape / toCsvText');
+check('plain values pass through', csvEscape('张波') === '张波' && csvEscape(12) === '12');
+check('null / undefined become empty cells', csvEscape(null) === '' && csvEscape(undefined) === '');
+check('commas and quotes are quoted + doubled', csvEscape('a,b') === '"a,b"' && csvEscape('say "hi"') === '"say ""hi"""');
+check('embedded newlines stay inside one quoted cell', csvEscape('l1\nl2') === '"l1\nl2"');
+check('objects are JSON-encoded', csvEscape({ a: 1 }) === '"{""a"":1}"');
+check('rows join with CRLF', toCsvText(['a', 'b'], [[1, 2], [3, 4]]) === 'a,b\r\n1,2\r\n3,4');
+
+console.log('buildSyncLedgerCsv / buildSyncLedgerJson');
+const csv = buildSyncLedgerCsv(exportMeta, exportRows, { exclude: ['u_raw_json'] });
+check('CSV starts with UTF-8 BOM for Excel', csv.startsWith('\ufeff'));
+check('CSV header uses labels and excludes raw payload', csv.replace(/^\ufeff/, '').split('\r\n')[0] === '实体类型,源名称,id');
+check('CSV keeps one line per row', csv.trim().split('\r\n').length === 3);
+check('CSV carries the data', csv.includes('张波') && csv.includes('EMPLOYEE'));
+// 复制到剪贴板走 bom:false——BOM 会被粘成一个乱码字符
+const csvNoBom = buildSyncLedgerCsv(exportMeta, exportRows, { exclude: ['u_raw_json'], bom: false });
+check('bom:false omits the BOM (clipboard path)', !csvNoBom.startsWith('\ufeff') && csvNoBom.startsWith('实体类型'));
+check(
+  'bom:false keeps the same content as the file version',
+  csvNoBom === csv.replace(/^\ufeff/, ''),
+);
+
+const jsonText = buildSyncLedgerJson({
+  model: 'U_SyncRawGdyy',
+  filter: { u_entity_type: 'EMPLOYEE', u_source_name: { like: '张' } },
+  total: 675,
+  rows: exportRows,
+  exportedAt: new Date('2026-09-23T05:47:00Z'),
+});
+const parsedJson = JSON.parse(jsonText);
+check('JSON export records the filter that produced it', parsedJson.filter_dict.u_source_name.like === '张');
+check('JSON export records total + row_count', parsedJson.total === 675 && parsedJson.row_count === 2);
+check('JSON export keeps the rows verbatim', parsedJson.rows[0].u_source_name === '张波');
+check('JSON export stamps the model', parsedJson.model === 'U_SyncRawGdyy');
+const jsonTrimmed = JSON.parse(
+  buildSyncLedgerJson({ model: 'M', filter: {}, total: 2, rows: exportRows, exclude: ['u_raw_json'] }),
+);
+check(
+  'JSON exclude drops the raw-payload column too (same switch as CSV)',
+  jsonTrimmed.rows.every((r) => !('u_raw_json' in r)) && jsonTrimmed.excluded_fields.join(',') === 'u_raw_json',
+);
+check('JSON exclude does not mutate the source rows', 'u_raw_json' in exportRows[0]);
+
+console.log('exportFileName');
+check(
+  'stamps model + local time',
+  exportFileName('U_SyncRawGdyy', 'csv', new Date(2026, 8, 23, 13, 47, 5)) === 'U_SyncRawGdyy_20260923_134705.csv',
+);
+check('sanitizes unsafe model chars', exportFileName('a/b c', 'json', new Date(2026, 0, 2, 3, 4, 5)) === 'a_b_c_20260102_030405.json');
+
+console.log('导出/复制上限常量');
+check('copy cap is smaller than export cap', SYNC_COPY_MAX_ROWS < SYNC_EXPORT_MAX_ROWS);
+
+console.log('fetchAllRows');
+/** 构造一个假的分页后端：rows 为全量数据，serverCap 模拟服务端把 page_size 收敛到更小值。 */
+function fakePager(rows, { serverCap = Infinity, reportCount = true, repeatPage = false } = {}) {
+  const calls = [];
+  const fetchPage = async (pageIndex, pageSize) => {
+    calls.push({ pageIndex, pageSize });
+    const size = Math.min(pageSize, serverCap);
+    const start = (pageIndex - 1) * size;
+    const list = repeatPage && pageIndex === 2 ? rows.slice(0, size) : rows.slice(start, start + size);
+    return { list, count: reportCount ? rows.length : undefined };
+  };
+  return { fetchPage, calls };
+}
+const mkRows = (n, offset = 0) => Array.from({ length: n }, (_, i) => ({ id: offset + i + 1 }));
+
+const pagerA = fakePager(mkRows(250));
+const allA = await fetchAllRows(pagerA.fetchPage, { pageSize: 100 });
+check('pulls every page until the last partial page', allA.rows.length === 250);
+check('reports server total', allA.total === 250);
+check('reports page count', allA.pages === 3);
+check('not flagged as truncated', allA.truncated === false);
+check('asks for increasing page_index', pagerA.calls.map((c) => c.pageIndex).join(',') === '1,2,3');
+
+const pagerExact = fakePager(mkRows(200));
+const allExact = await fetchAllRows(pagerExact.fetchPage, { pageSize: 100 });
+check('stops on exact multiple of page size without an extra request', allExact.rows.length === 200 && allExact.pages === 2);
+
+// 服务端把 page_size 收敛到 100：不能因为「首屏 100 < 请求 500」就误判成末页而截断
+const pagerCap = fakePager(mkRows(250), { serverCap: 100 });
+const allCap = await fetchAllRows(pagerCap.fetchPage, { pageSize: 500 });
+check('server-side page_size cap does not truncate the export', allCap.rows.length === 250);
+check('adapts the step to the capped size', pagerCap.calls[1].pageSize === 100);
+
+const pagerNoCount = fakePager(mkRows(250), { reportCount: false });
+const allNoCount = await fetchAllRows(pagerNoCount.fetchPage, { pageSize: 100 });
+check('works without a server count (stops on empty page)', allNoCount.rows.length === 250 && allNoCount.total === 250);
+
+const pagerEmpty = fakePager([]);
+const allEmpty = await fetchAllRows(pagerEmpty.fetchPage, { pageSize: 100 });
+check('empty result set yields no rows', allEmpty.rows.length === 0 && allEmpty.total === 0);
+
+const pagerMax = fakePager(mkRows(5000));
+const allMax = await fetchAllRows(pagerMax.fetchPage, { pageSize: 100, maxRows: 250 });
+check('maxRows caps the export', allMax.rows.length === 250 && allMax.truncated === true);
+check('maxRows keeps the first rows', allMax.rows[0].id === 1 && allMax.rows[249].id === 250);
+
+const pagerRepeat = fakePager(mkRows(1000), { reportCount: false, repeatPage: true });
+const allRepeat = await fetchAllRows(pagerRepeat.fetchPage, { pageSize: 100 });
+check('repeated identical page does not loop forever', allRepeat.pages === 2);
+
+const progress = [];
+const pagerProg = fakePager(mkRows(250));
+await fetchAllRows(pagerProg.fetchPage, {
+  pageSize: 100,
+  onProgress: (loaded, total) => progress.push(`${loaded}/${total}`),
+});
+check('reports progress with the total as denominator', progress.join(',') === '100/250,200/250,250/250');
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 条失败`);
 process.exit(failed === 0 ? 0 : 1);

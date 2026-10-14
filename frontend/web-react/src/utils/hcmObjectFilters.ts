@@ -134,6 +134,229 @@ export interface HcmFilterField {
   [key: string]: any;
 }
 
+// --------------------------------------------------------------------------- //
+//  台帐结果导出（跨页拉全 → CSV / JSON）
+// --------------------------------------------------------------------------- //
+
+/** 导出分页拉取时的单页行数。实测网关对 page_size 无硬上限（2000 行 ≈ 2.5MB / 1.5s）。 */
+export const SYNC_EXPORT_PAGE_SIZE = 1000;
+/** 单次导出的最大行数保护（避免误点全表导出把内存打爆）。 */
+export const SYNC_EXPORT_MAX_ROWS = 200000;
+/** 单次「复制到剪贴板」的最大行数——剪贴板是一整串文本，太大会卡住渲染进程。 */
+export const SYNC_COPY_MAX_ROWS = 20000;
+/** 命中行数超过该值时，导出前先让用户确认（全表约 9.4 万行、约 1 分钟）。 */
+export const SYNC_EXPORT_CONFIRM_ROWS = 5000;
+
+export interface SyncLedgerExportColumn {
+  key: string;
+  label: string;
+}
+
+/**
+ * 解析 `hcm.model.count` 的命中总数。
+ * 请求：{ model, filter_dict, count_by:['*'] } → 响应 data.list[0] = { 'count__*': n, '*': n }
+ */
+export function parseTotalCount(resp: unknown): number {
+  const list = digList(resp);
+  if (!list.length) return 0;
+  const item = list[0] as Record<string, unknown>;
+  const n = Number(item?.['count__*'] ?? item?.['*'] ?? item?.['count'] ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * 规划导出列：先按元数据顺序取「业务列」（is_list/is_info 为真，即台帐的 u_* 字段），
+ * 再补数据里出现的其它键（如 id）。exclude 用于剔除体积巨大的原始报文列。
+ */
+export function syncLedgerExportColumns(
+  fields: HcmFilterField[],
+  rows: Record<string, any>[],
+  opts: { exclude?: string[] } = {},
+): SyncLedgerExportColumn[] {
+  const exclude = new Set(opts.exclude || []);
+  const sample = rows.slice(0, 50).filter((r) => r && typeof r === 'object');
+  const present = new Set<string>();
+  for (const r of sample) for (const k of Object.keys(r)) present.add(k);
+
+  const labelOf = new Map<string, string>();
+  for (const f of fields) {
+    if (f?.key && f.name) labelOf.set(f.key, String(f.name));
+  }
+
+  const out: SyncLedgerExportColumn[] = [];
+  const seen = new Set<string>();
+  const push = (key: string) => {
+    if (!key || seen.has(key) || exclude.has(key)) return;
+    seen.add(key);
+    out.push({ key, label: labelOf.get(key) || key });
+  };
+  // 1) 业务列（元数据顺序）
+  for (const f of fields) {
+    if (f?.key && (f.is_list === true || f.is_info === true) && present.has(f.key)) push(f.key);
+  }
+  // 2) 其余出现在数据里的列（保持行内首次出现顺序，如 id）
+  for (const r of sample) for (const k of Object.keys(r)) push(k);
+  return out;
+}
+
+/** 单元格取值 → 字符串（对象/数组转 JSON，null/undefined 转空串）。 */
+export function csvCellValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+/** 单元格转义：含分隔符/引号/换行时用双引号包裹并翻倍内部引号（RFC 4180）。 */
+export function csvEscape(value: unknown): string {
+  const s = csvCellValue(value);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/** 二维数据 → CSV 文本（CRLF 行分隔，兼容 Excel）。 */
+export function toCsvText(headers: string[], rows: unknown[][]): string {
+  const lines = [headers.map(csvEscape).join(',')];
+  for (const row of rows) lines.push(row.map(csvEscape).join(','));
+  return lines.join('\r\n');
+}
+
+/** 生成导出文件名：<模型>_<本地时间戳>.<ext>（模型名里的非法字符替换为下划线）。 */
+export function exportFileName(model: string, ext: string, date: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${date.getFullYear()}${p(date.getMonth() + 1)}${p(date.getDate())}` +
+    `_${p(date.getHours())}${p(date.getMinutes())}${p(date.getSeconds())}`;
+  const safe = String(model || 'hcm').replace(/[^A-Za-z0-9_.-]+/g, '_');
+  return `${safe}_${stamp}.${ext}`;
+}
+
+/**
+ * 台帐导出 CSV。
+ * bom=true（默认）时前置 UTF-8 BOM，Excel 直接打开不乱码；复制到剪贴板时应传 false，
+ * 否则 BOM 会作为一个乱码字符粘在最前面。
+ */
+export function buildSyncLedgerCsv(
+  fields: HcmFilterField[],
+  rows: Record<string, any>[],
+  opts: { exclude?: string[]; bom?: boolean } = {},
+): string {
+  const cols = syncLedgerExportColumns(fields, rows, opts);
+  const headers = cols.map((c) => c.label);
+  const body = rows.map((r) =>
+    cols.map((c) => (r && typeof r === 'object' ? (r as Record<string, any>)[c.key] : '')),
+  );
+  const csv = toCsvText(headers, body);
+  return (opts.bom ?? true) ? `\ufeff${csv}` : csv;
+}
+
+/** 台帐导出 JSON（附带模型/筛选条件/导出行数，便于回溯这批数据是怎么筛出来的）。 */
+export function buildSyncLedgerJson(params: {
+  model: string;
+  filter: Record<string, unknown>;
+  total: number;
+  rows: Record<string, any>[];
+  exportedAt?: Date;
+  /** 需要剔除的列（如体积巨大的 u_raw_json），与 CSV 导出保持同一套开关语义。 */
+  exclude?: string[];
+}): string {
+  const { model, filter, total, rows, exportedAt } = params;
+  const exclude = (params.exclude || []).filter(Boolean);
+  const outRows = exclude.length
+    ? rows.map((r) => {
+        if (!r || typeof r !== 'object') return r;
+        const copy: Record<string, any> = { ...r };
+        for (const k of exclude) delete copy[k];
+        return copy;
+      })
+    : rows;
+  return JSON.stringify(
+    {
+      model,
+      exported_at: (exportedAt || new Date()).toISOString(),
+      filter_dict: filter,
+      total,
+      row_count: outRows.length,
+      excluded_fields: exclude,
+      rows: outRows,
+    },
+    null,
+    2,
+  );
+}
+
+export interface FetchAllRowsOptions {
+  pageSize?: number;
+  maxRows?: number;
+  maxPages?: number;
+  onProgress?: (loaded: number, total: number) => void;
+}
+
+export interface FetchAllRowsResult {
+  rows: any[];
+  /** 服务端给出的命中总数（拿不到时回退为实际拉取行数）。 */
+  total: number;
+  pages: number;
+  /** 是否因为 maxRows/maxPages 提前截断。 */
+  truncated: boolean;
+}
+
+/**
+ * 按页拉全某次查询的全部行（`hcm.model.list` 单页上限内的循环）。
+ *
+ * 停止条件（任一满足）：返回空页 / 已拉满 total / 该页不足一页 / 触达 maxRows、maxPages。
+ * 服务端若把 page_size 收敛到更小值（首屏返回行数 < 请求值），后续按实际值当步长，
+ * 避免被误判成「最后一页」而静默截断。
+ */
+export async function fetchAllRows(
+  fetchPage: (
+    pageIndex: number,
+    pageSize: number,
+  ) => Promise<{ list?: any[] | null; count?: number | null; total?: number | null } | null | undefined>,
+  opts: FetchAllRowsOptions = {},
+): Promise<FetchAllRowsResult> {
+  const maxRows = opts.maxRows ?? SYNC_EXPORT_MAX_ROWS;
+  const maxPages = opts.maxPages ?? 1000;
+  const requested = Math.max(1, opts.pageSize ?? SYNC_EXPORT_PAGE_SIZE);
+  let effective = requested;
+  const rows: any[] = [];
+  let total = 0;
+  let pages = 0;
+  let truncated = false;
+  let prevSignature = '';
+
+  for (let pageIndex = 1; pageIndex <= maxPages; pageIndex += 1) {
+    const resp = await fetchPage(pageIndex, effective);
+    const list = Array.isArray(resp?.list) ? (resp!.list as any[]) : [];
+    pages = pageIndex;
+    if (pageIndex === 1) {
+      const t = Number(resp?.count ?? resp?.total ?? NaN);
+      if (Number.isFinite(t) && t >= 0) total = t;
+    }
+    if (!list.length) break;
+    if (pageIndex === 1 && list.length < effective) effective = list.length;
+    rows.push(...list);
+    opts.onProgress?.(rows.length, total);
+    if (rows.length >= maxRows) {
+      truncated = true;
+      rows.length = maxRows;
+      break;
+    }
+    if (total > 0 && rows.length >= total) break;
+    if (list.length < effective) break;
+    // 防御：相邻两页「行数相同且首行 id 相同」视为服务端重复返回同一页，立即停止避免死循环。
+    const sig = `${list.length}:${String(list[0]?.id ?? '')}`;
+    if (sig === prevSignature) break;
+    prevSignature = sig;
+  }
+  if (!total) total = rows.length;
+  return { rows, total, pages, truncated };
+}
+
 /** 筛选字段的统一候选形态（字段键 + 展示名 + 少量用于默认值/排序推断的提示位）。 */
 export interface HcmFilterCandidate {
   key: string;

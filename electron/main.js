@@ -328,6 +328,28 @@ const ALL_TABS = [
 // 用 let 让 buildAppMenu 闭包在点击时读取最新值（菜单只构建一次）。
 let currentMainTab = 'repo';
 
+// 调试菜单：对「当前聚焦窗口」操作（多开窗口时各自独立），没有聚焦窗口时退回主窗口。
+// 这样在日志/差异对比等独立窗口里也能直接开它自己的开发者工具。
+function debugTargetWindow() {
+  return BrowserWindow.getFocusedWindow() || mainWindow || null;
+}
+
+// 切换开发者工具（类似 Chrome 的 F12）：已开则关，未开则停靠到窗口右侧。
+function toggleDevTools() {
+  const win = debugTargetWindow();
+  if (!win) return;
+  const wc = win.webContents;
+  if (wc.isDevToolsOpened()) wc.closeDevTools();
+  else wc.openDevTools({ mode: 'right' });
+}
+
+// 开发者工具独立窗口（不占用主窗口宽度，便于对照查看）
+function openDevToolsDetached() {
+  const win = debugTargetWindow();
+  if (!win) return;
+  win.webContents.openDevTools({ mode: 'detach' });
+}
+
 function buildAppMenu() {
   const isMac = process.platform === 'darwin';
   const template = [];
@@ -391,16 +413,35 @@ function buildAppMenu() {
     ],
   });
 
-  // 视图
+  // 视图（开发者工具已挪到下面的「调试」菜单，避免同名入口两处重复）
   template.push({
     label: '视图',
     submenu: [
       { role: 'reload' },
-      { role: 'toggleDevTools' },
       { type: 'separator' },
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
       { type: 'separator' },
       { role: 'togglefullscreen' },
+    ],
+  });
+
+  // 调试：开发者工具（F12 同款）+ 强制重载，现场排查前端问题用。
+  // 快捷键按平台习惯：macOS 用 Cmd+Opt+I（Chrome for Mac 的做法），其余平台用 F12。
+  template.push({
+    label: '调试',
+    submenu: [
+      {
+        label: '开发者工具（F12）',
+        accelerator: isMac ? 'Cmd+Alt+I' : 'F12',
+        click: toggleDevTools,
+      },
+      {
+        label: '开发者工具（独立窗口）',
+        accelerator: isMac ? 'Cmd+Alt+Shift+I' : 'Shift+F12',
+        click: openDevToolsDetached,
+      },
+      { type: 'separator' },
+      { label: '强制重新加载（忽略缓存）', role: 'forceReload' },
     ],
   });
 
@@ -689,7 +730,8 @@ function createWindow() {
     height: initH,
     minWidth: 900,
     minHeight: 600,
-    title: 'Jira Git GUI',
+    // 标题栏不显示应用名（用户要求去掉）：置空即可，macOS 只留红绿灯按钮。
+    title: '',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -697,6 +739,10 @@ function createWindow() {
       sandbox: false,
     }
   });
+
+  // 页面 <title>（index.html 里的「Jira Git 通用拉取工具」）默认会覆盖窗口标题，
+  // 必须拦下 page-title-updated，否则上面置空的标题会被改回来。
+  mainWindow.on('page-title-updated', (e) => e.preventDefault());
 
   log(`加载 ${BACKEND_URL}/`);
   mainWindow.loadURL(`${BACKEND_URL}/`);

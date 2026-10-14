@@ -8,20 +8,31 @@ import {
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { apiPost, reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
+import { saveTextFile } from '../../utils/download';
+import { requestConfirm } from '../../utils/confirmStore';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
 import { openHcmWindow } from './hcmWindow';
 import {
   buildHcmFilterDict,
+  buildSyncLedgerCsv,
   buildSyncLedgerFilterDict,
+  buildSyncLedgerJson,
   entityTypeLabel,
+  exportFileName,
+  fetchAllRows,
   isSyncLedgerModel,
   metaFilterCandidates,
   parseGroupCount,
+  parseTotalCount,
   pickDefaultFilterKey,
   staticSyncSelectOptions,
   syncLedgerFieldsFor,
+  SYNC_COPY_MAX_ROWS,
+  SYNC_EXPORT_CONFIRM_ROWS,
+  SYNC_EXPORT_MAX_ROWS,
+  SYNC_EXPORT_PAGE_SIZE,
   type HcmFilterCandidate,
   type HcmFilterOperator,
   type SyncLedgerFilterField,
@@ -175,6 +186,14 @@ export function HcmObjectBrowser() {
   const [syncSelectOptions, setSyncSelectOptions] = useState<
     Record<string, { value: string; count: number }[]>
   >({});
+  // 台帐导出：格式、是否带原始报文列、进行中的动作（'' | 'export' | 'copy'）与进度文案
+  const [syncExportFormat, setSyncExportFormat] = useState<'csv' | 'json'>('csv');
+  const [syncExportRaw, setSyncExportRaw] = useState(false);
+  const [syncBusy, setSyncBusy] = useState<'' | 'export' | 'copy'>('');
+  const [syncExportStatus, setSyncExportStatus] = useState('');
+  const syncExporting = syncBusy !== '';
+  // 台帐面板默认折叠：U_SyncRaw* 数据体量大、面板占屏高；首次进 U_SyncRawGdyy 之类的对象时不要一上来就铺满。
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const structIdRef = useRef(0);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
@@ -362,6 +381,8 @@ const loadList = useCallback(async () => {
       setQuickFilterField('');
       setSyncFilter({});
       setSyncSelectOptions({});
+      setSyncExportStatus('');
+      setSyncBusy('');
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -552,6 +573,156 @@ const loadList = useCallback(async () => {
     },
     [dataResult, dataLoading, loadData]
   );
+
+  // 台帐「当前筛选结果」采集：把命中的**全部行**（跨页拉全，非当前页）取回来。
+  // 导出与复制共用这一步，保证两者拿到的是同一批数据。
+  // 流程：先 count 拿命中总数 → 行数过大先确认 → 逐页拉全并刷新进度。
+  // 返回 null 表示用户取消或没有数据（状态文案已写好）。
+  const collectSyncResult = useCallback(
+    async (
+      actionLabel: string,
+      onProgress: (text: string) => void
+    ): Promise<{ rows: any[]; total: number; truncated: boolean; dict: Record<string, any> } | null> => {
+      if (!selected) return null;
+      const dict = buildSyncLedgerFilterDict(syncFilter, syncFields);
+      let base: Record<string, any> = {};
+      try {
+        base = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+      } catch {
+        base = {}; // 高级请求体 JSON 写坏时不阻塞，退化为只带筛选条件
+      }
+      const mkPayload = (pageIndex: number, pageSize: number) => ({
+        ...base,
+        model: selected.id,
+        filter_dict: dict,
+        filter_str: null,
+        query_str: null,
+        biz_type: 'list',
+        page_index: pageIndex,
+        page_size: pageSize,
+      });
+
+      onProgress('正在统计命中行数…');
+      // 1) 命中总数（count 很轻，用于确认与进度分母）
+      let matched = 0;
+      try {
+        const c = await directCall(
+          'hcm.model.count',
+          { model: selected.id, filter_dict: dict, count_by: ['*'] },
+          selected.id
+        );
+        matched = parseTotalCount(c);
+      } catch {
+        matched = 0; // count 失败不致命：后面按实际拉取行数走
+      }
+      if (matched > SYNC_EXPORT_CONFIRM_ROWS) {
+        const ok = await requestConfirm({
+          title: actionLabel,
+          message: `当前条件命中 ${matched} 行，需要逐页拉取、可能耗时较久，是否继续？`,
+        });
+        if (!ok) {
+          onProgress(`已取消${actionLabel}`);
+          return null;
+        }
+      }
+
+      // 2) 逐页拉全
+      const { rows, total, truncated } = await fetchAllRows(
+        async (pageIndex, pageSize) => {
+          const { data } = await directCallRaw(
+            'hcm.model.list',
+            mkPayload(pageIndex, pageSize),
+            selected.id
+          );
+          return data;
+        },
+        {
+          pageSize: SYNC_EXPORT_PAGE_SIZE,
+          maxRows: SYNC_EXPORT_MAX_ROWS,
+          onProgress: (loaded, t) => onProgress(`正在拉取 ${loaded}${t ? ` / ${t}` : ''} 行…`),
+        }
+      );
+      if (!rows.length) {
+        onProgress('当前条件下没有数据');
+        return null;
+      }
+      return { rows, total, truncated, dict };
+    },
+    [selected, syncFilter, syncFields, dataPayload, directCall, directCallRaw]
+  );
+
+  // 按当前「导出格式 / 含原始报文」开关把结果渲染成文本（默认剔除体积巨大的「原始报文」列）
+  const renderSyncResult = useCallback(
+    (collected: { rows: any[]; total: number; dict: Record<string, any> }, opts: { withBom: boolean }) => {
+      const exclude = syncExportRaw ? [] : ['u_raw_json'];
+      if (syncExportFormat === 'json') {
+        return buildSyncLedgerJson({
+          model: selected?.id || '',
+          filter: collected.dict,
+          total: collected.total,
+          rows: collected.rows,
+          exclude,
+        });
+      }
+      const csv = buildSyncLedgerCsv(meta?.fields || [], collected.rows, {
+        exclude,
+        bom: opts.withBom,
+      });
+      return csv;
+    },
+    [syncExportRaw, syncExportFormat, selected, meta]
+  );
+
+  // 导出当前筛选结果：拉全后落盘为 CSV / JSON（前端直接保存，无需后端写盘）
+  const exportSyncResult = useCallback(async () => {
+    if (!selected || syncBusy) return;
+    setSyncBusy('export');
+    try {
+      const collected = await collectSyncResult('导出当前筛选结果', setSyncExportStatus);
+      if (!collected) return;
+      const text = renderSyncResult(collected, { withBom: true });
+      const ext = syncExportFormat === 'json' ? 'json' : 'csv';
+      const mime =
+        syncExportFormat === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
+      saveTextFile(text, exportFileName(selected.id, ext), mime);
+      setSyncExportStatus(
+        `已导出 ${collected.rows.length} 行` +
+          (collected.truncated
+            ? `（超过单次上限 ${SYNC_EXPORT_MAX_ROWS} 行，已截断，请先加筛选条件）`
+            : '')
+      );
+    } catch (e: any) {
+      setSyncExportStatus(`导出失败：${e?.message || e}`);
+    } finally {
+      setSyncBusy('');
+    }
+  }, [selected, syncBusy, syncExportFormat, collectSyncResult, renderSyncResult]);
+
+  // 复制当前筛选结果：与导出同一批数据、同一格式，只是落到剪贴板而非文件。
+  // 剪贴板是单串文本，超大数据会卡住渲染进程，故单独设一个更小的上限并明确告知。
+  const copySyncResult = useCallback(async () => {
+    if (!selected || syncBusy) return;
+    setSyncBusy('copy');
+    try {
+      const collected = await collectSyncResult('复制当前筛选结果', setSyncExportStatus);
+      if (!collected) return;
+      let rows = collected.rows;
+      let note = '';
+      if (rows.length > SYNC_COPY_MAX_ROWS) {
+        rows = rows.slice(0, SYNC_COPY_MAX_ROWS);
+        note = `（仅复制前 ${SYNC_COPY_MAX_ROWS} 行，完整结果请用「导出当前筛选结果」）`;
+      }
+      const text = renderSyncResult({ ...collected, rows }, { withBom: false });
+      await writeClipboardText(text);
+      setSyncExportStatus(
+        `已复制 ${rows.length} 行（${syncExportFormat.toUpperCase()} 文本）到剪贴板${note}`
+      );
+    } catch (e: any) {
+      setSyncExportStatus(`复制失败：${e?.message || e}`);
+    } finally {
+      setSyncBusy('');
+    }
+  }, [selected, syncBusy, syncExportFormat, collectSyncResult, renderSyncResult]);
 
   // 保存数据 JSON：交给后端写盘（logs/hcm_data/），拿到绝对路径并复制到剪贴板
   const saveDataJson = useCallback(async () => {
@@ -1147,15 +1318,24 @@ const loadList = useCallback(async () => {
                     </button>
                   </div>
 
-                  {/* 同步台帐专用筛选：按业务含义命名的字段（实体类型/数据名/HCM ID…） */}
+                  {/* 同步台帐专用筛选：按业务含义命名的字段（实体类型/数据名/HCM ID…）。默认折叠。 */}
                   {isSyncLedger && (
                     <div className="hcm-sync">
                       <div className="hcm-sync-head">
-                        <span className="hcm-sync-title">台帐筛选</span>
+                        <button
+                          className="btn btn-sm hcm-sync-toggle"
+                          onClick={() => setSyncPanelOpen((v) => !v)}
+                          title={syncPanelOpen ? '折叠台帐筛选' : '展开台帐筛选'}
+                          aria-expanded={syncPanelOpen}
+                        >
+                          台帐筛选 {syncPanelOpen ? '▾' : '▸'}
+                          {Object.keys(syncFilter).length > 0 ? ` · 已设 ${Object.keys(syncFilter).length} 项` : ''}
+                        </button>
                         <button
                           className="btn btn-sm btn-primary"
                           onClick={applySyncFilter}
-                          disabled={!selected || dataLoading}
+                          disabled={!selected || dataLoading || Object.keys(syncFilter).length === 0}
+                          title={Object.keys(syncFilter).length === 0 ? '请先展开面板并设置筛选条件' : '按当前条件查询'}
                         >
                           {dataLoading ? t('hcm.loading') : '按条件查询'}
                         </button>
@@ -1167,52 +1347,94 @@ const loadList = useCallback(async () => {
                           清空
                         </button>
                       </div>
-                      <div className="hcm-sync-grid">
-                        {syncFields.map((f) => {
-                          const dyn = syncSelectOptions[f.key] || [];
-                          const opts: { value: string; label: string; count?: number }[] =
-                            f.kind !== 'select'
-                              ? []
-                              : dyn.length
-                                ? dyn.map((o) => ({
-                                    value: o.value,
-                                    label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
-                                    count: o.count,
-                                  }))
-                                : staticSyncSelectOptions(f.key).map((o) => ({ value: o.value, label: o.label }));
-                          const value = syncFilter[f.key] || '';
-                          const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
-                          return (
-                            <label className="hcm-sync-item" key={f.key}>
-                              <span className="hcm-sync-label">{f.label}</span>
-                              {f.kind === 'select' && opts.length > 0 ? (
-                                <select value={value} onChange={(e) => setVal(e.target.value)}>
-                                  <option value="">全部</option>
-                                  {opts.map((o) => (
-                                    <option key={o.value} value={o.value}>
-                                      {o.label}
-                                      {typeof o.count === 'number' ? ` · ${o.count}` : ''}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input
-                                  value={value}
-                                  onChange={(e) => setVal(e.target.value)}
-                                  placeholder={f.placeholder}
-                                  spellCheck={false}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') applySyncFilter();
-                                  }}
-                                />
-                              )}
+                      {syncPanelOpen && (
+                        <>
+                          <div className="hcm-sync-grid">
+                            {syncFields.map((f) => {
+                              const dyn = syncSelectOptions[f.key] || [];
+                              const opts: { value: string; label: string; count?: number }[] =
+                                f.kind !== 'select'
+                                  ? []
+                                  : dyn.length
+                                    ? dyn.map((o) => ({
+                                        value: o.value,
+                                        label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
+                                        count: o.count,
+                                      }))
+                                    : staticSyncSelectOptions(f.key).map((o) => ({ value: o.value, label: o.label }));
+                              const value = syncFilter[f.key] || '';
+                              const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
+                              return (
+                                <label className="hcm-sync-item" key={f.key}>
+                                  <span className="hcm-sync-label">{f.label}</span>
+                                  {f.kind === 'select' && opts.length > 0 ? (
+                                    <select value={value} onChange={(e) => setVal(e.target.value)}>
+                                      <option value="">全部</option>
+                                      {opts.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                          {o.label}
+                                          {typeof o.count === 'number' ? ` · ${o.count}` : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      value={value}
+                                      onChange={(e) => setVal(e.target.value)}
+                                      placeholder={f.placeholder}
+                                      spellCheck={false}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') applySyncFilter();
+                                      }}
+                                    />
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {/* 导出：把「当前筛选条件」命中的全部行（跨页拉全）落盘为 CSV / JSON */}
+                          <div className="hcm-sync-export">
+                            <select
+                              value={syncExportFormat}
+                              onChange={(e) => setSyncExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
+                              title="导出格式"
+                              disabled={syncExporting}
+                            >
+                              <option value="csv">CSV</option>
+                              <option value="json">JSON</option>
+                            </select>
+                            <label className="hcm-sync-raw" title="勾选后导出会带上「原始报文」等超大 JSON 列（默认剔除）">
+                              <input
+                                type="checkbox"
+                                checked={syncExportRaw}
+                                onChange={(e) => setSyncExportRaw(e.target.checked)}
+                                disabled={syncExporting}
+                              />
+                              含原始报文
                             </label>
-                          );
-                        })}
-                      </div>
-                      <div className="hcm-sync-hint">
-                        按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
-                      </div>
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={exportSyncResult}
+                              disabled={!selected || syncExporting}
+                              title="把当前筛选条件命中的全部行导出为文件（非仅当前页）"
+                            >
+                              {syncBusy === 'export' ? '导出中…' : '导出当前筛选结果'}
+                            </button>
+                            <button
+                              className="btn btn-sm"
+                              onClick={copySyncResult}
+                              disabled={!selected || syncExporting}
+                              title="把当前筛选条件命中的全部行按所选格式复制到剪贴板"
+                            >
+                              {syncBusy === 'copy' ? '复制中…' : '复制结果'}
+                            </button>
+                            {syncExportStatus && <span className="hcm-sync-export-status">{syncExportStatus}</span>}
+                          </div>
+                          <div className="hcm-sync-hint">
+                            按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
