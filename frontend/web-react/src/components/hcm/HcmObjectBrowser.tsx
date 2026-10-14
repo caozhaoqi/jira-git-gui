@@ -6,10 +6,9 @@ import {
   type HcmEnv,
 } from '../../api/hcm/client';
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
-import { apiPost, reportLocalApiNetworkError } from '../../api/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
 import { saveTextFile } from '../../utils/download';
-import { requestConfirm } from '../../utils/confirmStore';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
@@ -30,7 +29,6 @@ import {
   staticSyncSelectOptions,
   syncLedgerFieldsFor,
   SYNC_COPY_MAX_ROWS,
-  SYNC_EXPORT_CONFIRM_ROWS,
   SYNC_EXPORT_MAX_ROWS,
   SYNC_EXPORT_PAGE_SIZE,
   type HcmFilterCandidate,
@@ -167,7 +165,6 @@ export function HcmObjectBrowser() {
   const [dataPageSize, setDataPageSize] = useState(20);
   const [dataFilter, setDataFilter] = useState('');
   const [dataJsonQuery, setDataJsonQuery] = useState('');
-  const [saveStatus, setSaveStatus] = useState('');
   // 高级数据请求：完整请求体 JSON 编辑、SQL/Profile 调试开关、响应元信息
   const [dataPayload, setDataPayload] = useState('');
   const [dataPayloadError, setDataPayloadError] = useState('');
@@ -179,19 +176,21 @@ export function HcmObjectBrowser() {
   const [dataStruct, setDataStruct] = useState<
     { id: number; field: string; operator: HcmFilterOperator; value: string }[]
   >([]);
-  const [dataStructOpen, setDataStructOpen] = useState(true);
+  // 默认折叠：U_SyncRaw* 之外的对象（普通业务模型）也用不上结构化筛选时，先把行收起；用户要点 ▸ 才会展开条件行。
+  const [dataStructOpen, setDataStructOpen] = useState(false);
   const [quickFilterField, setQuickFilterField] = useState('');
   // 同步台帐（U_SyncRaw*）专用筛选：字段值 + select 字段的动态选项（来自 hcm.model.count group_by）
   const [syncFilter, setSyncFilter] = useState<Record<string, string>>({});
   const [syncSelectOptions, setSyncSelectOptions] = useState<
     Record<string, { value: string; count: number }[]>
   >({});
-  // 台帐导出：格式、是否带原始报文列、进行中的动作（'' | 'export' | 'copy'）与进度文案
-  const [syncExportFormat, setSyncExportFormat] = useState<'csv' | 'json'>('csv');
-  const [syncExportRaw, setSyncExportRaw] = useState(false);
-  const [syncBusy, setSyncBusy] = useState<'' | 'export' | 'copy'>('');
-  const [syncExportStatus, setSyncExportStatus] = useState('');
-  const syncExporting = syncBusy !== '';
+  // 复制/导出：当前 Data 标签页下「当前筛选结果」外层工具条的状态
+  // （不区分台帐/通用模型——以最新 dataPayload 为基准）。
+  const [dataExportFormat, setDataExportFormat] = useState<'csv' | 'json'>('csv');
+  const [dataExportRaw, setDataExportRaw] = useState(false);
+  const [dataExportBusy, setDataExportBusy] = useState<'' | 'export' | 'copy'>('');
+  const [dataExportStatus, setDataExportStatus] = useState('');
+  const dataExporting = dataExportBusy !== '';
   // 台帐面板默认折叠：U_SyncRaw* 数据体量大、面板占屏高；首次进 U_SyncRawGdyy 之类的对象时不要一上来就铺满。
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const structIdRef = useRef(0);
@@ -381,8 +380,8 @@ const loadList = useCallback(async () => {
       setQuickFilterField('');
       setSyncFilter({});
       setSyncSelectOptions({});
-      setSyncExportStatus('');
-      setSyncBusy('');
+      setDataExportStatus('');
+      setDataExportBusy('');
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -574,64 +573,46 @@ const loadList = useCallback(async () => {
     [dataResult, dataLoading, loadData]
   );
 
-  // 台帐「当前筛选结果」采集：把命中的**全部行**（跨页拉全，非当前页）取回来。
-  // 导出与复制共用这一步，保证两者拿到的是同一批数据。
-  // 流程：先 count 拿命中总数 → 行数过大先确认 → 逐页拉全并刷新进度。
-  // 返回 null 表示用户取消或没有数据（状态文案已写好）。
-  const collectSyncResult = useCallback(
+  // 「复制 / 导出当前筛选结果」采集：把命中的**全部行**（跨页拉全，非当前页）取回来。
+  // 复制与导出共用这一步，保证两者拿到的是同一批数据。
+  // 基准 payload 用最新一次 loadData 的 `dataPayload`（点过 Apply / Query Data / 按条件查询都会刷新它），
+  // 所以不论是台帐筛选、结构化筛选、还是快速筛选——导出内容与「当前数据视图」完全一致。
+  const collectCurrentResult = useCallback(
     async (
-      actionLabel: string,
       onProgress: (text: string) => void
-    ): Promise<{ rows: any[]; total: number; truncated: boolean; dict: Record<string, any> } | null> => {
+    ): Promise<{ rows: any[]; total: number; truncated: boolean; base: Record<string, any> } | null> => {
       if (!selected) return null;
-      const dict = buildSyncLedgerFilterDict(syncFilter, syncFields);
-      let base: Record<string, any> = {};
+      let base: Record<string, any>;
       try {
         base = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+        setDataPayloadError('');
       } catch {
-        base = {}; // 高级请求体 JSON 写坏时不阻塞，退化为只带筛选条件
+        base = {}; // 高级请求体 JSON 写坏时不阻塞，退化为「只看当前 panel 勾选的筛选」
       }
-      const mkPayload = (pageIndex: number, pageSize: number) => ({
-        ...base,
-        model: selected.id,
-        filter_dict: dict,
-        filter_str: null,
-        query_str: null,
-        biz_type: 'list',
-        page_index: pageIndex,
-        page_size: pageSize,
-      });
+      base.model = selected.id;
+      if (!base.biz_type) base.biz_type = 'list';
 
       onProgress('正在统计命中行数…');
-      // 1) 命中总数（count 很轻，用于确认与进度分母）
+      // 1) 命中总数（count 很轻，作为状态文案提示）
       let matched = 0;
       try {
         const c = await directCall(
           'hcm.model.count',
-          { model: selected.id, filter_dict: dict, count_by: ['*'] },
+          { model: selected.id, filter_dict: base.filter_dict || {}, count_by: ['*'] },
           selected.id
         );
         matched = parseTotalCount(c);
       } catch {
         matched = 0; // count 失败不致命：后面按实际拉取行数走
       }
-      if (matched > SYNC_EXPORT_CONFIRM_ROWS) {
-        const ok = await requestConfirm({
-          title: actionLabel,
-          message: `当前条件命中 ${matched} 行，需要逐页拉取、可能耗时较久，是否继续？`,
-        });
-        if (!ok) {
-          onProgress(`已取消${actionLabel}`);
-          return null;
-        }
-      }
+      if (matched > 0) onProgress(`命中 ${matched} 行，正在拉取…`);
 
       // 2) 逐页拉全
       const { rows, total, truncated } = await fetchAllRows(
         async (pageIndex, pageSize) => {
           const { data } = await directCallRaw(
             'hcm.model.list',
-            mkPayload(pageIndex, pageSize),
+            { ...base, page_index: pageIndex, page_size: pageSize },
             selected.id
           );
           return data;
@@ -639,72 +620,74 @@ const loadList = useCallback(async () => {
         {
           pageSize: SYNC_EXPORT_PAGE_SIZE,
           maxRows: SYNC_EXPORT_MAX_ROWS,
-          onProgress: (loaded, t) => onProgress(`正在拉取 ${loaded}${t ? ` / ${t}` : ''} 行…`),
+          onProgress: (loaded, t) =>
+            onProgress(`正在拉取 ${loaded}${t ? ` / ${t}` : ''} 行…`),
         }
       );
       if (!rows.length) {
         onProgress('当前条件下没有数据');
         return null;
       }
-      return { rows, total, truncated, dict };
+      return { rows, total, truncated, base };
     },
-    [selected, syncFilter, syncFields, dataPayload, directCall, directCallRaw]
+    [selected, dataPayload, directCall, directCallRaw]
   );
 
-  // 按当前「导出格式 / 含原始报文」开关把结果渲染成文本（默认剔除体积巨大的「原始报文」列）
-  const renderSyncResult = useCallback(
-    (collected: { rows: any[]; total: number; dict: Record<string, any> }, opts: { withBom: boolean }) => {
-      const exclude = syncExportRaw ? [] : ['u_raw_json'];
-      if (syncExportFormat === 'json') {
+  // 把采集结果渲染成 CSV / JSON 文本。台帐模型默认剔除「原始报文」大列；
+  // 其他模型没有这个列，「含原始报文」勾选就只是占位（不影响内容）。
+  const renderCurrentResult = useCallback(
+    (
+      collected: { rows: any[]; total: number; base: Record<string, any> },
+      opts: { withBom: boolean }
+    ): string => {
+      const fields = meta?.fields || [];
+      const exclude = dataExportRaw ? [] : isSyncLedger ? ['u_raw_json'] : [];
+      if (dataExportFormat === 'json') {
         return buildSyncLedgerJson({
           model: selected?.id || '',
-          filter: collected.dict,
+          filter: collected.base.filter_dict || {},
           total: collected.total,
           rows: collected.rows,
           exclude,
         });
       }
-      const csv = buildSyncLedgerCsv(meta?.fields || [], collected.rows, {
-        exclude,
-        bom: opts.withBom,
-      });
-      return csv;
+      return buildSyncLedgerCsv(fields, collected.rows, { exclude, bom: opts.withBom });
     },
-    [syncExportRaw, syncExportFormat, selected, meta]
+    [dataExportFormat, dataExportRaw, isSyncLedger, meta, selected]
   );
 
   // 导出当前筛选结果：拉全后落盘为 CSV / JSON（前端直接保存，无需后端写盘）
-  const exportSyncResult = useCallback(async () => {
-    if (!selected || syncBusy) return;
-    setSyncBusy('export');
+  const exportCurrentResult = useCallback(async () => {
+    if (!selected || dataExportBusy) return;
+    setDataExportBusy('export');
     try {
-      const collected = await collectSyncResult('导出当前筛选结果', setSyncExportStatus);
+      const collected = await collectCurrentResult(setDataExportStatus);
       if (!collected) return;
-      const text = renderSyncResult(collected, { withBom: true });
-      const ext = syncExportFormat === 'json' ? 'json' : 'csv';
+      const text = renderCurrentResult(collected, { withBom: true });
+      const ext = dataExportFormat === 'json' ? 'json' : 'csv';
       const mime =
-        syncExportFormat === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
+        dataExportFormat === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
       saveTextFile(text, exportFileName(selected.id, ext), mime);
-      setSyncExportStatus(
+      setDataExportStatus(
         `已导出 ${collected.rows.length} 行` +
           (collected.truncated
             ? `（超过单次上限 ${SYNC_EXPORT_MAX_ROWS} 行，已截断，请先加筛选条件）`
             : '')
       );
     } catch (e: any) {
-      setSyncExportStatus(`导出失败：${e?.message || e}`);
+      setDataExportStatus(`导出失败：${e?.message || e}`);
     } finally {
-      setSyncBusy('');
+      setDataExportBusy('');
     }
-  }, [selected, syncBusy, syncExportFormat, collectSyncResult, renderSyncResult]);
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
 
   // 复制当前筛选结果：与导出同一批数据、同一格式，只是落到剪贴板而非文件。
   // 剪贴板是单串文本，超大数据会卡住渲染进程，故单独设一个更小的上限并明确告知。
-  const copySyncResult = useCallback(async () => {
-    if (!selected || syncBusy) return;
-    setSyncBusy('copy');
+  const copyCurrentResult = useCallback(async () => {
+    if (!selected || dataExportBusy) return;
+    setDataExportBusy('copy');
     try {
-      const collected = await collectSyncResult('复制当前筛选结果', setSyncExportStatus);
+      const collected = await collectCurrentResult(setDataExportStatus);
       if (!collected) return;
       let rows = collected.rows;
       let note = '';
@@ -712,44 +695,17 @@ const loadList = useCallback(async () => {
         rows = rows.slice(0, SYNC_COPY_MAX_ROWS);
         note = `（仅复制前 ${SYNC_COPY_MAX_ROWS} 行，完整结果请用「导出当前筛选结果」）`;
       }
-      const text = renderSyncResult({ ...collected, rows }, { withBom: false });
+      const text = renderCurrentResult({ ...collected, rows }, { withBom: false });
       await writeClipboardText(text);
-      setSyncExportStatus(
-        `已复制 ${rows.length} 行（${syncExportFormat.toUpperCase()} 文本）到剪贴板${note}`
+      setDataExportStatus(
+        `已复制 ${rows.length} 行（${dataExportFormat.toUpperCase()} 文本）到剪贴板${note}`
       );
     } catch (e: any) {
-      setSyncExportStatus(`复制失败：${e?.message || e}`);
+      setDataExportStatus(`复制失败：${e?.message || e}`);
     } finally {
-      setSyncBusy('');
+      setDataExportBusy('');
     }
-  }, [selected, syncBusy, syncExportFormat, collectSyncResult, renderSyncResult]);
-
-  // 保存数据 JSON：交给后端写盘（logs/hcm_data/），拿到绝对路径并复制到剪贴板
-  const saveDataJson = useCallback(async () => {
-    if (!dataResult) return;
-    const content = JSON.stringify(dataResult, null, 2);
-    setSaveStatus(t('hcm.loading'));
-    try {
-      const res = await apiPost<{ path?: string; filename?: string; size?: number }>(
-        '/api/hcm/data/save',
-        { model: selected?.id || '', content }
-      );
-      if (res.path) {
-        let copied = false;
-        try {
-          await writeClipboardText(res.path);
-          copied = true;
-        } catch {
-          /* 剪贴板不可用时仍返回路径 */
-        }
-        setSaveStatus(`${t('hcm.savedPath')}: ${res.path}${copied ? '（已复制到剪贴板）' : ''}`);
-      } else {
-        throw new Error('未返回文件路径');
-      }
-    } catch (e: any) {
-      setSaveStatus(`保存失败：${e?.message || e}`);
-    }
-  }, [dataResult, selected, t]);
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
 
   // 支持从 URL 参数 ?hcm-model=<id> 打开时自动定位到该模型（用于双击新窗口场景）
   useEffect(() => {
@@ -1225,9 +1181,51 @@ const loadList = useCallback(async () => {
                 </pre>
               )}
 
-              {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 保存 */}
+              {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 复制 / 导出 */}
               {rightTab === 'data' && (
                 <div className="hcm-data">
+                  {/* 复制 / 导出外层工具条：对当前 Data 视图下的任意筛选条件（快速 / 结构化 / 台帐）
+                      都生效，操作对象是「当前筛选条件命中的全部行」，状态用 dataExportStatus 提示。 */}
+                  <div className="hcm-data-export">
+                    <select
+                      value={dataExportFormat}
+                      onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
+                      title="导出格式"
+                      disabled={dataExporting}
+                      aria-label="导出格式"
+                    >
+                      <option value="csv">CSV</option>
+                      <option value="json">JSON</option>
+                    </select>
+                    {isSyncLedger && (
+                      <label className="hcm-sync-raw" title="勾选后导出会带上「原始报文」等超大 JSON 列（默认剔除）">
+                        <input
+                          type="checkbox"
+                          checked={dataExportRaw}
+                          onChange={(e) => setDataExportRaw(e.target.checked)}
+                          disabled={dataExporting}
+                        />
+                        含原始报文
+                      </label>
+                    )}
+                    <button
+                      className="btn btn-sm"
+                      onClick={copyCurrentResult}
+                      disabled={!selected || dataExporting}
+                      title="把当前筛选条件命中的全部行按所选格式复制到剪贴板"
+                    >
+                      {dataExportBusy === 'copy' ? '复制中…' : '复制结果'}
+                    </button>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={exportCurrentResult}
+                      disabled={!selected || dataExporting}
+                      title="把当前筛选条件命中的全部行导出为文件（非仅当前页）"
+                    >
+                      {dataExportBusy === 'export' ? '导出中…' : '导出当前筛选结果'}
+                    </button>
+                    {dataExportStatus && <span className="hcm-data-export-status">{dataExportStatus}</span>}
+                  </div>
                   <div className="hcm-fields-toolbar">
                     <select
                       className="hcm-struct-op"
@@ -1300,14 +1298,6 @@ const loadList = useCallback(async () => {
                       disabled={!selected || dataLoading}
                     >
                       {dataLoading ? t('hcm.loading') : t('hcm.queryData')}
-                    </button>
-                    <button
-                      className="btn btn-sm hcm-copy-btn"
-                      onClick={saveDataJson}
-                      disabled={!dataResult}
-                      title={t('hcm.saveJson')}
-                    >
-                      {t('hcm.saveJson')}
                     </button>
                     <button
                       className={dataAdvOpen ? 'btn btn-sm btn-active' : 'btn btn-sm'}
@@ -1391,44 +1381,6 @@ const loadList = useCallback(async () => {
                                 </label>
                               );
                             })}
-                          </div>
-                          {/* 导出：把「当前筛选条件」命中的全部行（跨页拉全）落盘为 CSV / JSON */}
-                          <div className="hcm-sync-export">
-                            <select
-                              value={syncExportFormat}
-                              onChange={(e) => setSyncExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
-                              title="导出格式"
-                              disabled={syncExporting}
-                            >
-                              <option value="csv">CSV</option>
-                              <option value="json">JSON</option>
-                            </select>
-                            <label className="hcm-sync-raw" title="勾选后导出会带上「原始报文」等超大 JSON 列（默认剔除）">
-                              <input
-                                type="checkbox"
-                                checked={syncExportRaw}
-                                onChange={(e) => setSyncExportRaw(e.target.checked)}
-                                disabled={syncExporting}
-                              />
-                              含原始报文
-                            </label>
-                            <button
-                              className="btn btn-sm btn-primary"
-                              onClick={exportSyncResult}
-                              disabled={!selected || syncExporting}
-                              title="把当前筛选条件命中的全部行导出为文件（非仅当前页）"
-                            >
-                              {syncBusy === 'export' ? '导出中…' : '导出当前筛选结果'}
-                            </button>
-                            <button
-                              className="btn btn-sm"
-                              onClick={copySyncResult}
-                              disabled={!selected || syncExporting}
-                              title="把当前筛选条件命中的全部行按所选格式复制到剪贴板"
-                            >
-                              {syncBusy === 'copy' ? '复制中…' : '复制结果'}
-                            </button>
-                            {syncExportStatus && <span className="hcm-sync-export-status">{syncExportStatus}</span>}
                           </div>
                           <div className="hcm-sync-hint">
                             按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
@@ -1553,12 +1505,6 @@ const loadList = useCallback(async () => {
                           {t('hcm.profileDebug')}
                         </label>
                       </div>
-                    </div>
-                  )}
-
-                  {saveStatus && (
-                    <div className="hcm-detail-sub hcm-mono" style={{ fontSize: 11, wordBreak: 'break-all', padding: '0 12px 6px' }}>
-                      {saveStatus}
                     </div>
                   )}
 
