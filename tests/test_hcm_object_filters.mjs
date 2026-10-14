@@ -1,11 +1,16 @@
 // Regression tests for model-aware HCM filter_dict construction.
 import {
   buildHcmFilterDict,
+  buildSyncLedgerFilterDict,
   defaultHcmTextFilterField,
+  entityTypeLabel,
+  isSyncLedgerModel,
   metaFilterCandidates,
+  parseGroupCount,
   pickDefaultFilterKey,
-  queryFieldCandidates,
   selectHcmFilterFields,
+  staticSyncSelectOptions,
+  syncLedgerFieldsFor,
 } from '../frontend/web-react/src/utils/hcmObjectFilters.ts';
 
 let failed = 0;
@@ -74,25 +79,84 @@ check(
   pickDefaultFilterKey([{ key: 'id', type: 'string' }, { key: 'secret', type: 'string', is_encrypted: true }]) === 'id',
 );
 
-console.log('queryFieldCandidates');
-const qresp = [
-  {
-    key: 'common_used',
-    name: '常用',
-    info_fields: [{ key: 'name', label: '姓名', component: 'hc-input-text' }],
-    list_fields: [{ key: 'employee_no', label: '工号', component: 'hc-input-text', data_type: 'string' }],
-  },
-  { key: 'base', name: '基本信息', info_fields: [{ key: 'id', label: 'ID', component: 'hc-input-number' }] },
+// 同步台帐类模型：框架列（model_name 常为空）不能当默认；应落到业务字段 u_source_name
+console.log('metaFilterCandidates / business-first default (sync staging shape)');
+const syncFields = [
+  { key: 'id', type: 'integer', is_list: false, is_info: false },
+  { key: 'company_id', type: 'integer', is_list: false, is_info: false },
+  { key: 'model_name', type: 'string', is_list: false, is_info: false },
+  { key: 'data_object_text1', type: 'text', is_list: false, is_info: false },
+  { key: 'u_interface_name', type: 'string', is_list: true, is_info: true },
+  { key: 'u_source_name', type: 'string', is_list: true, is_info: true },
 ];
-const qcands = queryFieldCandidates(qresp);
-check('flattens grouped query.fields response', qcands.map((c) => c.key).join(',') === 'name,employee_no,id');
-check('flatten keeps labels', qcands[0].label === '姓名' && qcands[1].label === '工号');
-check('picks a text candidate as default', pickDefaultFilterKey(qcands) === 'name');
-check('dedupes repeated keys', queryFieldCandidates([{ key: 'x' }, { key: 'x', label: 'dup' }]).length === 1);
-check('accepts flat field arrays', queryFieldCandidates([{ key: 'a', name: 'A' }, { no_key: 1 }]).length === 1);
-check('unwraps object wrapper (data/list/fields...)', queryFieldCandidates({ data: [{ key: 'a', label: 'A' }] }).map((c) => c.key).join(',') === 'a');
-check('non-array response yields empty', queryFieldCandidates(null).length === 0);
-check('group objects are not mistaken for fields', queryFieldCandidates([{ key: 'g', name: '组', info_fields: [{ key: 'f' }] }]).some((c) => c.key === 'g') === false);
+const syncCands = metaFilterCandidates(syncFields);
+check('does not default to empty framework column model_name', pickDefaultFilterKey(syncCands) === 'u_source_name');
+check(
+  'business fields are ordered before framework columns',
+  syncCands.findIndex((c) => c.key === 'u_source_name') < syncCands.findIndex((c) => c.key === 'model_name'),
+);
+check('marks is_list/is_info as business', syncCands.find((c) => c.key === 'u_source_name')?.is_business === true);
+check('framework column is not business', syncCands.find((c) => c.key === 'model_name')?.is_business === false);
+check(
+  'prefers name-like business field for core models',
+  pickDefaultFilterKey(
+    metaFilterCandidates([
+      { key: 'id', type: 'integer' },
+      { key: 'number', type: 'string', is_list: true },
+      { key: 'name', type: 'string', is_list: true },
+    ]),
+  ) === 'name',
+);
+
+console.log('sync ledger (U_SyncRaw*) filters');
+const ledgerFields = [
+  { key: 'id', type: 'integer' },
+  { key: 'model_name', type: 'string' },
+  { key: 'u_entity_type', type: 'string' },
+  { key: 'u_source_name', type: 'string' },
+  { key: 'u_hcm_id', type: 'string' },
+  { key: 'u_interface_code', type: 'string' },
+];
+check('detects sync ledger model by u_entity_type + u_source_name', isSyncLedgerModel(ledgerFields) === true);
+check('non-sync model is not detected', isSyncLedgerModel([{ key: 'name' }, { key: 'number' }]) === false);
+check(
+  'only planned fields that exist are offered, in plan order',
+  syncLedgerFieldsFor(ledgerFields).map((f) => f.key).join(',') ===
+    'u_entity_type,u_source_name,u_hcm_id,u_interface_code',
+);
+check(
+  'select fields are exact, text fields are contains',
+  JSON.stringify(buildSyncLedgerFilterDict({ u_entity_type: 'EMPLOYEE', u_source_name: '张' }, syncLedgerFieldsFor(ledgerFields))) ===
+    JSON.stringify({ u_entity_type: 'EMPLOYEE', u_source_name: { like: '张' } }),
+);
+check(
+  'empty values are skipped',
+  Object.keys(buildSyncLedgerFilterDict({ u_source_name: '  ', u_hcm_id: '' }, syncLedgerFieldsFor(ledgerFields))).length === 0,
+);
+check(
+  'entity type labels are humanized',
+  entityTypeLabel('EMPLOYEE') === '人员' && entityTypeLabel('POSITION') === '岗位' && entityTypeLabel('WEIRD') === 'WEIRD',
+);
+check('is_deleted has static options', staticSyncSelectOptions('u_is_deleted').length === 2);
+
+console.log('parseGroupCount (hcm.model.count group_by)');
+const gc = parseGroupCount(
+  { result: { list: [
+    { 'count__*': 6758, u_entity_type: 'EMPLOYEE', '*': 6758 },
+    { 'count__*': 1741, u_entity_type: 'POSITION' },
+    { 'count__*': 1, u_entity_type: 'ORG' },
+  ] } },
+  'u_entity_type',
+);
+check('parses {result:{list}} and sorts by count desc', gc.map((x) => x.value).join(',') === 'EMPLOYEE,POSITION,ORG');
+check('keeps counts', gc[0].count === 6758);
+check(
+  'handles double-nested result and skips null values',
+  parseGroupCount({ result: { result: { list: [{ 'count__*': 3, u_entity_type: 'DEPT' }, { u_entity_type: null }] } } }, 'u_entity_type')
+    .map((x) => x.value)
+    .join(',') === 'DEPT',
+);
+check('non-array response yields empty', parseGroupCount(null, 'u_entity_type').length === 0);
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 条失败`);
 process.exit(failed === 0 ? 0 : 1);

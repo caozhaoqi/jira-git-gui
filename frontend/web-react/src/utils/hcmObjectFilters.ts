@@ -6,6 +6,124 @@ export interface HcmObjectFilterRow {
   operator?: HcmFilterOperator;
 }
 
+// --------------------------------------------------------------------------- //
+//  同步台帐（U_SyncRaw*）专用筛选字段规划
+//  这些表的业务列是 u_* 前缀；按业务含义命名，避免用户面对裸字段名。
+// --------------------------------------------------------------------------- //
+
+export type SyncLedgerFieldKind = 'select' | 'text';
+
+export interface SyncLedgerFilterField {
+  key: string;
+  label: string;
+  kind: SyncLedgerFieldKind;
+  placeholder?: string;
+}
+
+/** 台帐筛选字段规划（仅渲染当前模型 meta 里真实存在的字段）。 */
+export const SYNC_LEDGER_FIELDS: SyncLedgerFilterField[] = [
+  { key: 'u_entity_type', label: '实体类型', kind: 'select' },
+  { key: 'u_source_name', label: '数据名', kind: 'text', placeholder: '如 张三 / 北京轨道运营' },
+  { key: 'u_hcm_id', label: 'HCM ID', kind: 'text', placeholder: 'HCM 系统内写入的 id' },
+  { key: 'u_source_code', label: '源编码', kind: 'text', placeholder: '工号 / 组织编码' },
+  { key: 'u_hcm_code', label: 'HCM 编码', kind: 'text', placeholder: 'HCM 侧编码' },
+  { key: 'u_source_parent_code', label: '上级编码', kind: 'text', placeholder: '上级组织编码' },
+  { key: 'u_interface_code', label: '接口', kind: 'select' },
+  { key: 'u_is_deleted', label: '是否删除', kind: 'select' },
+  { key: 'u_sync_batch', label: '同步批次', kind: 'text' },
+  { key: 'u_error_msg', label: '错误信息', kind: 'text', placeholder: '按错误信息包含匹配' },
+];
+
+/** 该模型是否同步台帐（具备 u_entity_type + u_source_name 业务列）。 */
+export function isSyncLedgerModel(fields: HcmFilterField[]): boolean {
+  const keys = new Set(fields.map((f) => f.key));
+  return keys.has('u_entity_type') && keys.has('u_source_name');
+}
+
+/** 只保留模型里真实存在的台帐筛选字段，保持规划顺序。 */
+export function syncLedgerFieldsFor(fields: HcmFilterField[]): SyncLedgerFilterField[] {
+  const keys = new Set(fields.map((f) => f.key));
+  return SYNC_LEDGER_FIELDS.filter((f) => keys.has(f.key));
+}
+
+/** 少数 select 字段的静态选项（动态取值拿不到时的兜底，如是否删除）。 */
+export function staticSyncSelectOptions(key: string): { value: string; label: string }[] {
+  if (key === 'u_is_deleted') {
+    return [
+      { value: '0', label: '未删除 (0)' },
+      { value: '1', label: '已删除 (1)' },
+    ];
+  }
+  return [];
+}
+
+/** 实体类型中文标签（best-effort，未知类型原样返回）。 */
+export function entityTypeLabel(value: string): string {
+  const MAP: Record<string, string> = {
+    ORG: '组织',
+    DEPT: '部门',
+    POSITION: '岗位',
+    EMPLOYEE: '人员',
+    POS_REL: '岗位关系',
+    DEPT_REL: '部门关系',
+    ORG_REL: '组织关系',
+    ORG_LEGAL: '法人组织',
+    ORG_CONTACT: '组织联系人',
+    EMP_ORG: '人员任职',
+    EMP_OUTER: '外部人员',
+    EMP_EDU: '教育经历',
+    EMP_FAMILY: '家庭成员',
+  };
+  return MAP[value] || value;
+}
+
+/** 从任意层级的响应里挖出 list 数组（兼容 {list} / {result:{list}} / 双层包裹）。 */
+function digList(resp: unknown): any[] {
+  if (!resp || typeof resp !== 'object') return [];
+  const o = resp as Record<string, unknown>;
+  if (Array.isArray(o.list)) return o.list as any[];
+  if (o.result && typeof o.result === 'object') return digList(o.result);
+  return [];
+}
+
+/**
+ * 解析 `hcm.model.count` 的 group_by 结果 → [{value,count}]（按 count 降序）。
+ * 请求示例：{ model, filter_dict:{}, group_by:['u_entity_type'], count_by:['*'] }
+ * 返回项形如：{ count__*: 6758, u_entity_type: 'EMPLOYEE', '*': 6758 }
+ */
+export function parseGroupCount(resp: unknown, field: string): { value: string; count: number }[] {
+  const list = digList(resp);
+  const out: { value: string; count: number }[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const raw = (item as Record<string, unknown>)[field];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const value = String(raw);
+    if (seen.has(value)) continue;
+    seen.add(value);
+    const c = Number(
+      (item as Record<string, unknown>)['count__*'] ?? (item as Record<string, unknown>)['*'] ?? 0,
+    );
+    out.push({ value, count: Number.isFinite(c) ? c : 0 });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
+/** 组装台帐筛选 filter_dict：select 走精确等于，text 走包含（服务端自行补 %）。 */
+export function buildSyncLedgerFilterDict(
+  values: Record<string, string>,
+  fields: SyncLedgerFilterField[],
+): Record<string, string | { like: string }> {
+  const dict: Record<string, string | { like: string }> = {};
+  for (const f of fields) {
+    const v = (values[f.key] ?? '').trim();
+    if (!v) continue;
+    dict[f.key] = f.kind === 'select' ? v : { like: v };
+  }
+  return dict;
+}
+
 export interface HcmFilterField {
   key: string;
   name?: string | null;
@@ -23,6 +141,8 @@ export interface HcmFilterCandidate {
   is_blur?: boolean;
   is_text?: boolean;
   is_encrypted?: boolean;
+  /** 业务字段（meta 里 is_list/is_info 为真），相对 id/company_id/model_name/data_object_* 等框架列。 */
+  is_business?: boolean;
 }
 
 /** Prefer the model's explicit filter fields; legacy/custom models fall back to all fields. */
@@ -37,12 +157,24 @@ function isTextFieldType(type: unknown): boolean {
   return s === 'string' || s === 'text';
 }
 
-/** 统一默认字段选择：优先 模糊+文本+非加密 且非 id；否则文本；否则任一非加密非 id；最后兜底。 */
+/** 约定俗成的「名称类」字段：默认筛选优先挑它，用户输入关键字命中率最高。 */
+const NAME_LIKE_KEYS = ['name', 'u_source_name', 'full_name', 'source_name', 'title'];
+
+/**
+ * 统一默认字段选择。优先级（跳过加密字段与 id）：
+ *   1) 模糊+文本  → 2) 名称类字段（name/u_source_name…）
+ *   → 3) 业务字段中的 name 结尾文本 → 4) 业务文本 → 5) 任意文本 → 6) 任意 → 7) 兜底。
+ * 关键点：不要默认落到框架列（如 model_name 常为空）——那会让「输关键字→0 行」。
+ */
 export function pickDefaultFilterKey(cands: HcmFilterCandidate[]): string {
+  const ok = (c: HcmFilterCandidate) => !c.is_encrypted && c.key !== 'id';
   return (
-    cands.find((c) => c.is_blur && c.is_text && !c.is_encrypted && c.key !== 'id')?.key ||
-    cands.find((c) => c.is_text && !c.is_encrypted && c.key !== 'id')?.key ||
-    cands.find((c) => !c.is_encrypted && c.key !== 'id')?.key ||
+    cands.find((c) => c.is_blur && c.is_text && ok(c))?.key ||
+    cands.find((c) => ok(c) && NAME_LIKE_KEYS.includes(c.key))?.key ||
+    cands.find((c) => ok(c) && c.is_business && c.is_text && /name$/i.test(c.key))?.key ||
+    cands.find((c) => ok(c) && c.is_business && c.is_text)?.key ||
+    cands.find((c) => ok(c) && c.is_text)?.key ||
+    cands.find((c) => ok(c))?.key ||
     cands[0]?.key ||
     ''
   );
@@ -50,61 +182,27 @@ export function pickDefaultFilterKey(cands: HcmFilterCandidate[]): string {
 
 /**
  * 以模型自身元数据（hcm.model.meta 的 fields）派生可筛选字段候选。
- * 仅作为 hcm.paas.object.query.fields 为空时的兜底来源（动态/自定义模型常见）。
+ * 这是字段下拉/联想的唯一来源：hcm.model.meta 返回的就是该模型自己的字段
+ * （key/name/type/is_filter/is_blur/is_list/is_info…）。
+ *
+ * ⚠️ 不要用 hcm.paas.object.query.fields 替代它——那个接口返回的是「对象清单」
+ * (hcm.paas.object) 的字段（class_/model_category/name/description/i18n），
+ * 并非某个数据模型的字段；曾误用导致下拉只剩这几个对象字段。
+ *
+ * 排序：业务字段（is_list/is_info）排在前，框架列（id/company_id/model_name/
+ * data_object_* 等）靠后，避免下拉里前 20 项都是无意义的框架列。
  */
 export function metaFilterCandidates(fields: HcmFilterField[]): HcmFilterCandidate[] {
-  return selectHcmFilterFields(fields).map((f) => ({
+  const cands = selectHcmFilterFields(fields).map((f) => ({
     key: f.key,
     label: f.name ?? undefined,
     is_blur: f.is_blur === true,
     is_text: isTextFieldType(f.type),
     is_encrypted: f.is_encrypt === true,
+    is_business: f.is_list === true || f.is_info === true,
   }));
-}
-
-/**
- * 扁平化 hcm.paas.object.query.fields 的响应。
- *
- * 该接口返回「分组」数组：{ key, name, info_fields[], list_fields[], model_fields[] }，
- * 每个字段项为 { key, label, component, data_type, is_encrypt, ... }。同时兼容两种返回：
- *   1) 分组数组（info/list/model `*_fields` 子数组）；
- *   2) 平铺字段数组（每项直接是 { key, label?, name? }）。
- * 按 key 去重，忽略没有 key 的项；分组对象本身不会被误当字段。
- */
-export function queryFieldCandidates(resp: unknown): HcmFilterCandidate[] {
-  let arr: any[] = [];
-  if (Array.isArray(resp)) {
-    arr = resp;
-  } else if (resp && typeof resp === 'object') {
-    // 兼容网关可能的外层包裹（{ data/list/fields/groups/result: [...] }）
-    const wrap = resp as Record<string, unknown>;
-    const hit = ['list', 'fields', 'groups', 'data', 'result'].find((k) => Array.isArray(wrap[k]));
-    arr = (hit ? (wrap[hit] as any[]) : []);
-  }
-  const out: HcmFilterCandidate[] = [];
-  const seen = new Set<string>();
-  const push = (raw: any) => {
-    if (!raw || typeof raw.key !== 'string' || !raw.key) return;
-    if (seen.has(raw.key)) return;
-    seen.add(raw.key);
-    const comp = String(raw.component || '').toLowerCase();
-    out.push({
-      key: raw.key,
-      label: raw.label || raw.name || undefined,
-      is_text: comp.includes('input') || comp.includes('text') || isTextFieldType(raw.data_type) || isTextFieldType(raw.type),
-      is_encrypted: raw.is_encrypt === true,
-    });
-  };
-  for (const item of arr) {
-    if (!item || typeof item !== 'object') continue;
-    const groupArrays = Object.keys(item).filter((k) => k.endsWith('_fields') && Array.isArray((item as any)[k]));
-    if (groupArrays.length) {
-      for (const k of groupArrays) (item as any)[k].forEach(push);
-    } else {
-      push(item);
-    }
-  }
-  return out;
+  // 稳定排序（ES2019+）：仅把业务字段前置，组内保持元数据原序。
+  return [...cands].sort((a, b) => Number(b.is_business === true) - Number(a.is_business === true));
 }
 
 /**

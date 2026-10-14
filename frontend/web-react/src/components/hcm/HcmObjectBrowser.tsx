@@ -14,11 +14,17 @@ import { isTokenLikelyExpired } from '../../api/hcm/errDict';
 import { openHcmWindow } from './hcmWindow';
 import {
   buildHcmFilterDict,
+  buildSyncLedgerFilterDict,
+  entityTypeLabel,
+  isSyncLedgerModel,
   metaFilterCandidates,
+  parseGroupCount,
   pickDefaultFilterKey,
-  queryFieldCandidates,
+  staticSyncSelectOptions,
+  syncLedgerFieldsFor,
   type HcmFilterCandidate,
   type HcmFilterOperator,
+  type SyncLedgerFilterField,
 } from '../../utils/hcmObjectFilters';
 
 const LS_ENV = 'hcm.selectedEnv';
@@ -164,9 +170,11 @@ export function HcmObjectBrowser() {
   >([]);
   const [dataStructOpen, setDataStructOpen] = useState(true);
   const [quickFilterField, setQuickFilterField] = useState('');
-  // 平台侧「可筛选字段」（hcm.paas.object.query.fields，按 biz_type=list 拉取）。
-  // 作为字段下拉/联想的主来源；为空时回退到 meta.fields（见 filterCandidates）。
-  const [queryFields, setQueryFields] = useState<HcmFilterCandidate[]>([]);
+  // 同步台帐（U_SyncRaw*）专用筛选：字段值 + select 字段的动态选项（来自 hcm.model.count group_by）
+  const [syncFilter, setSyncFilter] = useState<Record<string, string>>({});
+  const [syncSelectOptions, setSyncSelectOptions] = useState<
+    Record<string, { value: string; count: number }[]>
+  >({});
   const structIdRef = useRef(0);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
@@ -313,25 +321,26 @@ const loadList = useCallback(async () => {
     setPage(1);
   }, []);
 
-  // 平台侧「可筛选字段」：hcm.paas.object.query.fields 是平台查询面板判定字段可否
-  // 筛选的真实来源（见 docs/HCM_OBJECT_BROWSER.md）。动态/自定义模型（如 U_SyncRaw*）
-  // 可能返回空，此时由 filterCandidates 回退到 meta.fields。失败同样静默回退。
-  const loadQueryFields = useCallback(
+  // 拉取台帐 select 字段的候选值（实体类型 / 接口）：hcm.model.count + group_by + count_by。
+  // 失败静默（下拉回退为可输入的文本框）。仅对同步台帐模型调用。
+  const loadSyncOptions = useCallback(
     async (modelId: string) => {
-      if (!modelId) {
-        setQueryFields([]);
-        return;
-      }
-      try {
-        const resp = await directCall(
-          'hcm.paas.object.query.fields',
-          { model: modelId, biz_type: 'list' },
-          modelId
-        );
-        setQueryFields(queryFieldCandidates(resp));
-      } catch {
-        setQueryFields([]);
-      }
+      const wanted = ['u_entity_type', 'u_interface_code'];
+      const entries = await Promise.all(
+        wanted.map(async (f) => {
+          try {
+            const resp = await directCall(
+              'hcm.model.count',
+              { model: modelId, filter_dict: {}, group_by: [f], count_by: ['*'] },
+              modelId
+            );
+            return [f, parseGroupCount(resp, f)] as const;
+          } catch {
+            return [f, [] as { value: string; count: number }[]] as const;
+          }
+        })
+      );
+      setSyncSelectOptions(Object.fromEntries(entries));
     },
     [directCall]
   );
@@ -351,7 +360,8 @@ const loadList = useCallback(async () => {
       setDataPage(1);
       setDataFilter('');
       setQuickFilterField('');
-      setQueryFields([]);
+      setSyncFilter({});
+      setSyncSelectOptions({});
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -376,15 +386,15 @@ const loadList = useCallback(async () => {
         // 统一走后端直连：同源 /api/hcm/direct，后端直连网关并解密返回明文元数据。
         const m = await directCall('hcm.model.meta', { model: obj.id, meta_key: kind === 'all' ? '' : kind }, obj.id);
         setMeta(m);
+        // 台帐模型：异步拉实体类型/接口候选值（不阻塞 meta 主流程）
+        if (isSyncLedgerModel(m?.fields || [])) void loadSyncOptions(obj.id);
       } catch (e: any) {
         setMetaError(e instanceof HcmApiError ? e.message : String(e?.message || e));
       } finally {
         setMetaLoading(false);
       }
-      // 独立拉「可筛选字段」，不入 meta 主流程（失败静默回退到 meta.fields）
-      void loadQueryFields(obj.id);
     },
-    [directCall, metaKind, loadQueryFields]
+    [directCall, metaKind, loadSyncOptions]
   );
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录（非元数据）。
@@ -441,16 +451,24 @@ const loadList = useCallback(async () => {
 
   // 按当前模型的元数据构造字段候选：优先展示显式允许筛选的字段；
   // 某些自定义模型未标记 is_filter 时，回退为该模型全部字段供 field-targeted filter_dict 使用。
-  // 筛选字段候选：优先平台 query.fields 声明的可筛选字段；为空（动态/自定义模型）
-  // 回退到模型元数据全部字段。两者都给出字段键，供快速筛选下拉 + 结构化筛选联想。
+  // 筛选字段候选：来自当前对象的元数据字段（hcm.model.meta.fields）——
+  // 优先标记 is_filter 的字段，未标记时回退为该模型全部字段。
+  // 供快速筛选下拉 + 结构化筛选联想共用。
   const filterCandidates = useMemo<HcmFilterCandidate[]>(
-    () => (queryFields.length ? queryFields : metaFilterCandidates(meta?.fields || [])),
-    [queryFields, meta]
+    () => metaFilterCandidates(meta?.fields || []),
+    [meta]
   );
   const resolvedQuickFilterField = useMemo(() => {
     if (filterCandidates.some((c) => c.key === quickFilterField)) return quickFilterField;
     return pickDefaultFilterKey(filterCandidates);
   }, [filterCandidates, quickFilterField]);
+
+  // 同步台帐（U_SyncRaw*）专用筛选：仅当模型具备 u_entity_type + u_source_name 时启用
+  const syncFields = useMemo<SyncLedgerFilterField[]>(
+    () => syncLedgerFieldsFor(meta?.fields || []),
+    [meta]
+  );
+  const isSyncLedger = syncFields.length > 0;
 
   // 结构化筛选（filter_dict）增删改
   const addStructRow = useCallback(() => {
@@ -500,6 +518,32 @@ const loadList = useCallback(async () => {
     setDataPage(1);
     loadData(selected, 1, payload);
   }, [selected, dataStruct, dataPayload, dataPageSize, loadData]);
+
+  // 台帐筛选：按规划字段组装 filter_dict（select=精确，text=包含）并查询。
+  // 与通用筛选互斥——应用台帐筛选时清空快速筛选与结构化筛选，避免叠加隐藏条件。
+  const applySyncFilter = useCallback(() => {
+    if (!selected) return;
+    const dict = buildSyncLedgerFilterDict(syncFilter, syncFields);
+    let payload: Record<string, any>;
+    try {
+      payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+      setDataPayloadError('');
+    } catch (e: any) {
+      setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+      return;
+    }
+    payload.filter_dict = dict;
+    payload.filter_str = null;
+    payload.query_str = null;
+    payload.model = selected.id;
+    setDataFilter('');
+    setDataStruct([]);
+    if (!payload.page_size) payload.page_size = dataPageSize;
+    if (!payload.biz_type) payload.biz_type = 'list';
+    setDataPayload(JSON.stringify(payload, null, 2));
+    setDataPage(1);
+    loadData(selected, 1, payload);
+  }, [selected, syncFilter, syncFields, dataPayload, dataPageSize, loadData]);
 
   // 切换到「数据」tab 时，若该对象尚未查询过则自动拉取一次
   const ensureData = useCallback(
@@ -1103,6 +1147,75 @@ const loadList = useCallback(async () => {
                     </button>
                   </div>
 
+                  {/* 同步台帐专用筛选：按业务含义命名的字段（实体类型/数据名/HCM ID…） */}
+                  {isSyncLedger && (
+                    <div className="hcm-sync">
+                      <div className="hcm-sync-head">
+                        <span className="hcm-sync-title">台帐筛选</span>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={applySyncFilter}
+                          disabled={!selected || dataLoading}
+                        >
+                          {dataLoading ? t('hcm.loading') : '按条件查询'}
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => setSyncFilter({})}
+                          disabled={Object.keys(syncFilter).length === 0}
+                        >
+                          清空
+                        </button>
+                      </div>
+                      <div className="hcm-sync-grid">
+                        {syncFields.map((f) => {
+                          const dyn = syncSelectOptions[f.key] || [];
+                          const opts: { value: string; label: string; count?: number }[] =
+                            f.kind !== 'select'
+                              ? []
+                              : dyn.length
+                                ? dyn.map((o) => ({
+                                    value: o.value,
+                                    label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
+                                    count: o.count,
+                                  }))
+                                : staticSyncSelectOptions(f.key).map((o) => ({ value: o.value, label: o.label }));
+                          const value = syncFilter[f.key] || '';
+                          const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
+                          return (
+                            <label className="hcm-sync-item" key={f.key}>
+                              <span className="hcm-sync-label">{f.label}</span>
+                              {f.kind === 'select' && opts.length > 0 ? (
+                                <select value={value} onChange={(e) => setVal(e.target.value)}>
+                                  <option value="">全部</option>
+                                  {opts.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                      {typeof o.count === 'number' ? ` · ${o.count}` : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  value={value}
+                                  onChange={(e) => setVal(e.target.value)}
+                                  placeholder={f.placeholder}
+                                  spellCheck={false}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') applySyncFilter();
+                                  }}
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="hcm-sync-hint">
+                        按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
+                      </div>
+                    </div>
+                  )}
+
                   {/* 结构化筛选（filter_dict）：参考对象字段，多条件 AND 组合 */}
                   <div className="hcm-struct">
                     <div className="hcm-struct-head">
@@ -1175,7 +1288,7 @@ const loadList = useCallback(async () => {
                         ))}
                       </div>
                     )}
-                    {/* 字段联想数据源：平台 query.fields 可筛选字段，回退 meta.fields */}
+                    {/* 字段联想数据源：当前对象的 meta.fields（优先 is_filter，回退全部） */}
                     <datalist id="hcm-struct-fields">
                       {filterCandidates.map((c) => (
                         <option key={c.key} value={c.key}>
