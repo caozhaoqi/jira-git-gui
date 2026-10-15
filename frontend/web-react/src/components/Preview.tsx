@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet } from '../api/client';
 import type { FileResp } from '../api/types';
+import { raiseJiraAuthAlert } from '../utils/appAlerts';
 import { useT } from '../i18n';
 
 function formatContent(path: string, content: string): { text: string; isJson: boolean } {
@@ -45,6 +46,8 @@ export function Preview() {
     apiGet<FileResp>(url)
       .then((res) => {
         if (cancelled) return;
+        // 会话失效：预览面板内的错误文案之外，再亮全局横幅（同一根因，统一提醒）
+        if (res.auth_failed) raiseJiraAuthAlert(res.auth_detail);
         if (res.error) {
           setTitle(t('repo.preview'));
           setContent(res.error);

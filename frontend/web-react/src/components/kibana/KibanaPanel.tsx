@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import { KibanaContext, DEFAULT_QUERY, type KibanaQuery } from './context';
 import { KibanaFilters, TIME_PRESETS, openSiteManagerWindow } from './KibanaFilters';
+import { clearKibanaSiteAlert, raiseKibanaSiteAlert } from '../../utils/appAlerts';
 import { KibanaExplorer } from './KibanaExplorer';
 import { KibanaDiscover } from './KibanaDiscover';
 import { apiGet } from '../../api/client';
@@ -84,12 +85,29 @@ export function KibanaPanel() {
   const reloadSites = useCallback(async () => {
     try {
       const d = await apiGet<any>('/api/kibana/sites');
+      // ⚠️ 该接口失败时返回 HTTP 200 + {ok:false, error}，apiGet 不会抛错。
+      // 此前直接读 d.sites || []，于是「站点读不到」被静默吞成「一个站点都没有」，
+      // 用户只看到下拉框写着「（无站点）」——既不知道是失败，也不知道去哪配。
+      if (d.ok === false) {
+        const msg = d.error || '';
+        pushLog(t('kibana.loadSitesFail') + msg, 'error');
+        raiseKibanaSiteAlert(msg, () => openSiteManagerWindow(t('kibana.manageSites')));
+        return;
+      }
       const list = d.sites || [];
       setSites(list);
       const cur = d.current || (list[0] && list[0].name) || '';
       setSite((prev) => (prev || cur));
+      // 一个站点都没配：同样给出可操作提醒（而不是让用户对着空下拉框发呆）
+      if (list.length === 0) {
+        raiseKibanaSiteAlert('', () => openSiteManagerWindow(t('kibana.manageSites')));
+      } else {
+        clearKibanaSiteAlert();
+      }
     } catch (ex: any) {
-      pushLog(t('kibana.loadSitesFail') + ex.message, 'error');
+      const msg = ex?.message || String(ex);
+      pushLog(t('kibana.loadSitesFail') + msg, 'error');
+      raiseKibanaSiteAlert(msg, () => openSiteManagerWindow(t('kibana.manageSites')));
     }
   }, [pushLog, t]);
 

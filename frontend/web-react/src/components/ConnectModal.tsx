@@ -3,6 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type { ConnectBody, ConnectResp, StatusResp } from '../api/types';
 import { useT } from '../i18n';
+import { clearJiraAuthAlert, raiseJiraAuthAlert, setJiraConfigAlert } from '../utils/appAlerts';
 import { useModalA11y } from '../utils/useModalA11y';
 
 export function ConnectModal({ onClose }: { onClose: () => void }) {
@@ -90,8 +91,17 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
   async function apply() {
     setSaving(true);
     try {
-      await apiPost<ConnectResp>('/api/connect', body());
-      addToast(t('connect.configUpdated'), 'success');
+      const res = await apiPost<ConnectResp>('/api/connect', body());
+      // 保存即视为用户主动处理过配置问题：先清掉「未配置 Cookie」提醒
+      setJiraConfigAlert(false);
+      if (res.cookieWarning) {
+        // Cookie 保存了但校验不通过 → 立刻亮出会话失效横幅（不等下一次发现仓库）
+        raiseJiraAuthAlert(res.cookieWarning);
+        addToast(res.cookieWarning, 'error');
+      } else {
+        clearJiraAuthAlert();
+        addToast(t('connect.configUpdated'), 'success');
+      }
       apiGet<StatusResp>('/api/status').then(setStatus).catch(() => {});
       pushLog(t('connect.updated'));
       onClose();

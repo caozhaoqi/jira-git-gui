@@ -440,6 +440,8 @@ export const zh: Dict = {
   cookie: {
     expiredTitle: '远端会话已失效',
     expiredDetail: 'Jira 返回登录页或浏览页不可用，文件树 / 预览 / 差异对比将无法正常工作。请重新粘贴 Cookie，或改用 PAT 克隆到本地浏览。',
+    missingTitle: '尚未配置 Jira Cookie',
+    missingDetail: '远端仓库发现需要 Jira Cookie。请在连接设置中粘贴有效 Cookie；若当前只使用 PAT 克隆本地仓库，可关闭此提醒。',
     reLogin: '重新粘贴 Cookie',
     cloneLocal: '改用 PAT 克隆到本地',
     dismiss: '知道了',
@@ -557,6 +559,8 @@ export const zh: Dict = {
   k8s: {
     noKubeconfig: '未配置 kubeconfig',
     noEnv: '（无环境）',
+    envMissingTitle: '尚未配置 K8s 环境',
+    envMissingDetail: 'K8s 面板需要至少一个环境（kubeconfig）。请点「管理环境」导入 kubeconfig；若暂不使用 K8s，可忽略此提醒。',
     envKind: {
       prod: '生产',
       test: '测试',
@@ -906,6 +910,7 @@ export const zh: Dict = {
     retry: '重试',
     tokenHandFillGuide: '手填 Token 已失效或格式异常。建议：清空 Token 框改用「自动获取」缓存的会话 Cookie，或点「登录获取 Token」重新登录。',
     selectEnv: '选择环境…（从本地配置自动填充）',
+    defaultConfig: '默认配置（首个本地环境）',
     custom: '✏️ 自定义',
     toggleConfig: '展开 / 收起连接配置',
     config: '配置',
@@ -1379,6 +1384,8 @@ export const zh: Dict = {
     manageSites: '管理站点',
     reloadSites: '刷新站点列表',
     loadSitesFail: '加载 Kibana 站点失败：',
+    siteMissingTitle: '尚未配置 Kibana 站点',
+    siteMissingDetail: 'Kibana 日志面板需要至少一个站点（地址 + 索引）。请点「管理站点」新增；若暂不使用 Kibana，可忽略此提醒。',
     autoRefresh: '自动刷新',
     off: '关闭',
     refreshNow: '立即刷新',

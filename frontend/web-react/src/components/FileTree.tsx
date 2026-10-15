@@ -8,6 +8,7 @@ import type {
   SearchResp,
   SearchHit,
 } from '../api/types';
+import { raiseJiraAuthAlert } from '../utils/appAlerts';
 import { useT } from '../i18n';
 
 type SortKey = 'name' | 'type' | 'size' | 'mtime';
@@ -97,6 +98,9 @@ export function FileTree() {
         ? `/api/tree?path=&local_dir=${encodeURIComponent(ld)}`
         : '/api/tree?path=';
       const res = await apiGet<TreeResp>(url);
+      // 会话失效（Cookie 过期 / 跳转登录页）：除本地面板内的错误框外，
+      // 再亮一次全局横幅——用户在别处（差异页/预览）也立刻知道要重贴 Cookie。
+      if (res.auth_failed) raiseJiraAuthAlert(res.auth_detail);
       if (res.error) {
         setRootEntries([]);
         setTreeError(res.error);
@@ -202,6 +206,7 @@ export function FileTree() {
         (ld ? `&local_dir=${encodeURIComponent(ld)}` : '');
       const res = await apiGet<TreeResolveResp>(url);
 
+      if (res.auth_failed) raiseJiraAuthAlert(res.auth_detail);
       if (res.error) {
         // 请求级失败（Cookie 失效 / 浏览页不可用）也塞进 treeError，
         // 好让下面的错误框给出「克隆到本地」这个逃生口。

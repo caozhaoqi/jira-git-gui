@@ -434,6 +434,8 @@ export const ja: Dict = {
   cookie: {
     expiredTitle: 'リモートセッションの有効期限切れ',
     expiredDetail: 'Jira がログインページを返したか、参照ページが利用できません。ファイルツリー / プレビュー / 差分は動作しません。Cookie を再貼り付けするか、PAT クローンに切り替えてください。',
+    missingTitle: 'Jira Cookie が設定されていません',
+    missingDetail: 'リモートリポジトリの検出には Jira Cookie が必要です。接続設定で有効な Cookie を貼り付けてください。PAT でローカルにクローンするだけの場合、この通知は閉じられます。',
     reLogin: 'Cookie を再貼り付け',
     cloneLocal: 'PAT クローンに切替',
     dismiss: '了解',
@@ -551,6 +553,8 @@ export const ja: Dict = {
   k8s: {
     noKubeconfig: 'kubeconfig 未設定',
     noEnv: '（環境なし）',
+    envMissingTitle: 'K8s 環境が未設定です',
+    envMissingDetail: 'K8s パネルには少なくとも 1 つの環境（kubeconfig）が必要です。「環境管理」から取り込んでください。K8s を使わない場合は無視して構いません。',
     envKind: {
       prod: '本番',
       test: 'テスト',
@@ -901,6 +905,7 @@ export const ja: Dict = {
     retry: '再試行',
     tokenHandFillGuide: '手動入力した Token は期限切れまたは形式不正です。推奨：Token 欄を空にして自動取得したセッション Cookie を使うか、「ログインして Token 取得」で再ログインしてください。',
     selectEnv: '環境を選択…（ローカル設定から自動入力）',
+    defaultConfig: 'デフォルト設定（ローカル設定の先頭環境）',
     custom: '✏️ カスタム',
     toggleConfig: '接続設定の展開 / 折りたたみ',
     config: '設定',
@@ -1371,6 +1376,8 @@ export const ja: Dict = {
     manageSites: 'サイト管理',
     reloadSites: 'サイト一覧を更新',
     loadSitesFail: 'Kibana サイト読込失敗：',
+    siteMissingTitle: 'Kibana サイトが未設定です',
+    siteMissingDetail: 'Kibana ログパネルには少なくとも 1 つのサイト（URL + インデックス）が必要です。「サイト管理」から追加してください。Kibana を使わない場合は無視して構いません。',
     autoRefresh: '自動更新',
     off: 'オフ',
     refreshNow: '今すぐ更新',

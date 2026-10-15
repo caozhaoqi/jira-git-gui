@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { requestConfirm } from '../utils/confirmStore';
+import { clearK8sEnvAlert, raiseK8sEnvAlert } from '../utils/appAlerts';
 import type { K8sEnvsResp, K8sEnv } from '../api/types';
 
 // --- 类型 ---
@@ -120,6 +121,7 @@ interface UnifiedDiagnosisResult {
 export function UnifiedDiagnosisPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const setTab = useAppStore((s) => s.setTab);
 
   const [errorText, setErrorText] = useState('');
   const [k8sEnvs, setK8sEnvs] = useState<K8sEnv[]>([]);
@@ -140,10 +142,19 @@ export function UnifiedDiagnosisPanel() {
       setK8sEnvs(list);
       const cur = d.current || (list[0] && list[0].name) || '';
       setK8sEnv(cur);
+      // 与 K8s 面板同一条提醒：诊断的 K8s 那一半同样依赖环境配置，
+      // 这里只写日志的话，用户在本页看不到任何提示（管理入口在 K8s 页）。
+      if (list.length === 0) {
+        raiseK8sEnvAlert('', () => setTab('k8s'));
+      } else {
+        clearK8sEnvAlert();
+      }
     } catch (ex: any) {
-      pushLog(`加载 K8s 环境失败：${ex.message}`, 'error');
+      const msg = ex?.message || String(ex);
+      pushLog(`加载 K8s 环境失败：${msg}`, 'error');
+      raiseK8sEnvAlert(msg, () => setTab('k8s'));
     }
-  }, [pushLog]);
+  }, [pushLog, setTab]);
 
   // 加载 CF 账号列表（获取 server_url）
   const loadCfAccounts = useCallback(async () => {

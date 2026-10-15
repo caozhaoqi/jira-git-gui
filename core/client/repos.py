@@ -91,7 +91,12 @@ class ReposMixin:
         """实际执行发现（限流已放宽，供 discover_repos 调用）。"""
         # 本次扫描是否出现过「登录态失效」信号（跳转登录页 / 401 / 403）。
         # 每次扫描前重置，供最后的 0 结果提示区分「Cookie 过期」与「接口不可用」。
+        # _last_auth_detail 记录具体失效证据（跳转的登录页 URL / REST 401 端点），
+        # 经 /api/repos 的 auth_detail 直达前端横幅——否则用户只看到一句
+        # 「远端会话已失效」，无法判断到底是跳了登录页还是哪个接口 401。
         self._last_auth_failed = False
+        self._last_auth_detail = ""
+        self._last_auth_signals = []
         # 调试用原始响应 dump：此前每次发现都新建 discover_raw_<ts>.txt 且从不清理，
         # 实测累积 537 个文件 / 113MB。改为「固定文件名覆盖写」（始终保留最近一次，
         # 排查问题时仍然可用），并顺手清理历史遗留的带时间戳文件。
@@ -120,6 +125,8 @@ class ReposMixin:
                 raw_fp.close()
         if raw_path.exists():
             logger.info("仓库发现原始接口响应已写入：%s", raw_path)
+        self._last_auth_detail = self._format_auth_detail(
+            getattr(self, "_last_auth_signals", []))
         merged: Dict[str, RepoInfo] = {}
         if rest:
             for rid, ri in rest.items():
@@ -193,8 +200,35 @@ class ReposMixin:
             logger.warning("仓库列表缓存读取失败（忽略，重新发现）：%s", e)
             return None
 
+    @staticmethod
+    def _format_auth_detail(signals: list) -> str:
+        """把认证失败证据整理成可直接展示给用户的简明状态说明。"""
+        parts = []
+        html_signals = [signal for signal in signals if signal[0] == "HTML"]
+        if html_signals:
+            _, status, reason, _ = html_signals[0]
+            if reason == "login":
+                parts.append(f"HTML 仓库页跳转到登录页（HTTP {status}）")
+            else:
+                parts.append(f"HTML 仓库页请求失败（HTTP {status}）")
+
+        rest_signals = [signal for signal in signals if signal[0] == "REST"]
+        by_status: Dict[tuple, list] = {}
+        for _, status, reason, endpoint in rest_signals:
+            by_status.setdefault((status, reason), []).append(endpoint)
+        for (status, reason), endpoints in by_status.items():
+            unique_endpoints = list(dict.fromkeys(endpoints))
+            endpoint_hint = unique_endpoints[0]
+            if len(unique_endpoints) > 1:
+                endpoint_hint += f" 等 {len(unique_endpoints)} 个端点"
+            cause = "跳转到登录页" if reason == "login" else f"返回 HTTP {status}"
+            parts.append(
+                f"REST {cause}（{len(endpoints)} 次请求；接口：{endpoint_hint}）")
+        return "；".join(parts)
+
     def _discover_repos_html(self, raw_fp=None, max_pages: int = HTML_MAX_PAGES) -> Dict[str, RepoInfo]:
         """翻页遍历 AllRepositories HTML 页面，返回 repoId -> RepoInfo（含 branchName）。"""
+        self._last_auth_signals = getattr(self, "_last_auth_signals", [])
         out: Dict[str, RepoInfo] = {}
         base_url = self.config.jira_url.rstrip("/") + ALL_REPOS_PAGE
         try:
@@ -203,9 +237,12 @@ class ReposMixin:
                 r = self.http_get(url, headers=self.cookie_headers())
                 tag = f"HTML AllRepositories [page {page_idx}]"
                 self._dump_raw(raw_fp, tag, url, r)
-                if r.status_code != 200 or "login" in str(r.url):
+                login_redirect = "login" in str(r.url).lower()
+                if r.status_code != 200 or login_redirect:
                     # 标记登录态失效，供最终提示区分「Cookie 过期」与「接口不可用」
                     self._last_auth_failed = True
+                    self._last_auth_signals.append((
+                        "HTML", r.status_code, "login" if login_redirect else "status", ""))
                     logger.warning("[发现-HTML] page=%d 状态码=%s 或跳转登录页（%s），停止翻页",
                                    page_idx, r.status_code, r.url)
                     break
@@ -242,6 +279,7 @@ class ReposMixin:
 
     def _discover_repos_rest(self, raw_fp=None) -> Dict[str, RepoInfo]:
         """翻页遍历 git 插件 REST 仓库列表，返回 repoId -> RepoInfo（权威全量）。"""
+        self._last_auth_signals = getattr(self, "_last_auth_signals", [])
         out: Dict[str, RepoInfo] = {}
         saw_dead = False
         saw_auth = False   # 401/403 或跳转登录页：授权失效，Cookie 更新后可恢复
@@ -270,6 +308,9 @@ class ReposMixin:
                             if r.status_code in _AUTH_ERROR_STATUS or login_like:
                                 saw_auth = True
                                 self._last_auth_failed = True
+                                self._last_auth_signals.append((
+                                    "REST", r.status_code,
+                                    "login" if login_like else "status", ep))
                             elif r.status_code in _REST_DEAD_STATUS:
                                 saw_dead = True
                             logger.warning("[发现-REST] %s [%s] %s：状态=%s%s",

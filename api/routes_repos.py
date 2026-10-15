@@ -34,6 +34,43 @@ router = APIRouter()
 
 
 # --------------------------------------------------------------------------- #
+#  「远端会话失效」的统一标记
+# --------------------------------------------------------------------------- #
+# 浏览类接口（文件树 / 路径直达 / 文件内容）失败时，前端此前只能看到一句错误文案，
+# 无法判断「是不是 Cookie 过期了」，也就弹不出那条「远端会话已失效」横幅
+# （横幅此前只靠 SSE 广播，SSE 断线/漏收时用户就什么提示都没有）。
+# 这里统一在响应里带上结构化标记，前端据响应本身即可弹同一条横幅。
+# 判定口径与 core/client/browse.py::check_cookie_health 保持一致（同一批错误文案），
+# 且**只认会话特征词**——路径不存在等普通错误绝不能误报成会话失效，
+# 否则会把用户引去重贴 Cookie，而真正的问题在别处。
+_AUTH_ERR_MARKERS = ("登录页", "Cookie 已失效", "Cookie 过期", "401", "403")
+
+
+def _auth_payload(err: str) -> dict:
+    """把「像会话失效」的错误文案转成前端告警标记；普通错误返回空 dict。"""
+    e = (err or "").strip()
+    if not e:
+        return {}
+    if any(m in e for m in _AUTH_ERR_MARKERS):
+        return {"auth_failed": True, "auth_detail": e}
+    return {}
+
+
+def _broadcast_auth_if_needed(err: str) -> None:
+    """会话失效时顺手推 SSE（前端在线时横幅立即出现；离线由响应标记兜底）。"""
+    if not _auth_payload(err):
+        return
+    try:
+        broadcast("cookie_expired", {
+            "status": "auth",
+            "detail": err,
+            "repo_id": client.repo_id,
+        })
+    except Exception:
+        pass  # 广播失败不影响接口返回
+
+
+# --------------------------------------------------------------------------- #
 #  路径直达（/api/tree/resolve）用的纯函数
 # --------------------------------------------------------------------------- #
 # 远端浏览每一层都要拉一次 GIJBrowseGit.jspa（实测单次可达 10s 量级）。
@@ -199,12 +236,18 @@ async def api_discover_repos(refresh: bool = False):
     """发现全部仓库（Cookie 模式）。
 
     ``refresh=true`` 强制重新发现（绕过 10 分钟缓存）；默认命中缓存秒开。
+
+    ⚠️ 登录态失效时 **不抛异常**：discover_repos 对「跳转登录页 / 401 / 403」的
+    处理是回空列表（见 core/client/repos.py 的 _last_auth_failed）。若这里原样
+    回 200 + 空列表，前端只会渲染一句「请选择仓库」，用户根本不知道是 Cookie
+    过期——排查时得翻后端日志才能对上一个 401。
+    因此这里显式带上 auth_failed / auth_detail，并广播 cookie_expired SSE 让红色横幅立刻弹出。
     """
     if not client.config.cookie:
-        return {"repos": [], "error": "未配置 Cookie"}
+        return {"repos": [], "error": "未配置 Cookie", "config_missing": "cookie"}
     try:
         repos = await asyncio.to_thread(client.discover_repos, refresh)
-        return {
+        resp = {
             "repos": [
                 {
                     "repo_id": r.repo_id,
@@ -215,6 +258,23 @@ async def api_discover_repos(refresh: bool = False):
                 for r in repos
             ]
         }
+        auth_failed = bool(getattr(client, "_last_auth_failed", False))
+        auth_detail = (getattr(client, "_last_auth_detail", "") or "").strip()
+        # 只在「确实发现 0 个」时告警：扫到仓库但其中一次请求 401 时
+        # REST 全量仍可能成功，不能拿一次 401 否定整次成功的结果。
+        if auth_failed and not repos:
+            resp["auth_failed"] = True
+            resp["auth_detail"] = auth_detail
+            try:
+                broadcast("cookie_expired", {
+                    "status": "auth",
+                    "detail": auth_detail
+                    or "Jira 会话已过期（跳转登录页 / 401），请在「连接设置」更新 Cookie",
+                    "repo_id": client.repo_id or "",
+                })
+            except Exception:
+                pass  # 广播失败不影响接口返回
+        return resp
     except Exception as ex:
         logger.error("发现仓库异常: %s", ex, exc_info=True)
         return {"repos": [], "error": str(ex)}
@@ -273,18 +333,11 @@ async def api_tree(path: str = "", local_dir: str = "", refresh: bool = False):
             client.list_level_ex, client.repo_id, client.branch, path, refresh)
         # 浏览失败且原因为 Cookie 失效 / 会话过期：实时推 SSE 告警（用户在已选仓库期间
         # Cookie 过期也会立刻看到红色横幅，不必等到下次切仓库才探测）。
-        if tree_err and ("登录页" in tree_err or "Cookie" in tree_err):
-            try:
-                broadcast("cookie_expired", {
-                    "status": "auth",
-                    "detail": tree_err,
-                    "repo_id": client.repo_id,
-                })
-            except Exception:
-                pass
+        _broadcast_auth_if_needed(tree_err or "")
         return {
             "error": tree_err or None,
             "entries": [_tree_entry_dict(e) for e in entries],
+            **_auth_payload(tree_err or ""),
         }
     except Exception as ex:
         raise HTTPException(500, str(ex))
@@ -351,6 +404,7 @@ async def api_tree_resolve(path: str = "", local_dir: str = "",
         target_type, broken_at = _validate_tree_chain(segs, levels)
 
     target_path = "/".join(segs)
+    _broadcast_auth_if_needed(error or "")
     return {
         "path": target_path,
         "target": {"path": target_path, "type": target_type},
@@ -361,6 +415,7 @@ async def api_tree_resolve(path: str = "", local_dir: str = "",
         ],
         "error": error or None,
         "elapsed_ms": int((time.time() - started) * 1000),
+        **_auth_payload(error or ""),
     }
 
 
@@ -382,7 +437,8 @@ async def api_file(path: str, local_dir: str = ""):
             return {"error": str(ex)}
     content, err = await asyncio.to_thread(client.get_file, path)
     if err:
-        return {"error": err}
+        _broadcast_auth_if_needed(err)
+        return {"error": err, **_auth_payload(err)}
     # content 可能是 str 或 bytes
     if isinstance(content, bytes):
         return {"error": "二进制文件，请在文件树勾选后下载查看"}
@@ -540,7 +596,9 @@ async def api_commits(issue_key: str = "", local_mode: bool = False):
                 client.get_commits, issue_key, client.repo_id, client.branch)
             return {"commits": [commit_to_dict(c) for c in commits]}
         except Exception as ex:
-            return {"error": str(ex)}
+            # 远端提交列表同样会因 Cookie 失效而失败：带上会话标记，前端弹同一条横幅
+            _broadcast_auth_if_needed(str(ex))
+            return {"error": str(ex), **_auth_payload(str(ex))}
 
 
 @router.get("/api/file-at-commit")
@@ -552,7 +610,8 @@ async def api_file_at_commit(commit_id: str, path: str):
         content, err = await asyncio.to_thread(
             client.get_file_at_commit, client.repo_id, commit_id, path)
         if err:
-            return {"error": err}
+            _broadcast_auth_if_needed(err)
+            return {"error": err, **_auth_payload(err)}
         if isinstance(content, bytes):
             return {"error": "二进制文件，不支持预览"}
         return {"content": content}

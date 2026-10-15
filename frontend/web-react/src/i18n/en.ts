@@ -434,6 +434,8 @@ export const en: Dict = {
   cookie: {
     expiredTitle: 'Remote session expired',
     expiredDetail: 'Jira returned a login page or the browse page is unavailable; the file tree / preview / diff will not work. Re-paste the Cookie, or switch to PAT clone for local browsing.',
+    missingTitle: 'Jira Cookie is not configured',
+    missingDetail: 'Remote repository discovery requires a Jira Cookie. Paste a valid Cookie in Connection Settings; dismiss this reminder if you only use PAT to clone repositories locally.',
     reLogin: 'Re-paste Cookie',
     cloneLocal: 'Switch to PAT clone',
     dismiss: 'Got it',
@@ -551,6 +553,8 @@ export const en: Dict = {
   k8s: {
     noKubeconfig: 'No kubeconfig configured',
     noEnv: '(no environment)',
+    envMissingTitle: 'No Kubernetes environment configured',
+    envMissingDetail: 'The K8s panel needs at least one environment (kubeconfig). Click "Manage environments" to import one; ignore this if you do not use K8s.',
     envKind: {
       prod: 'PROD',
       test: 'TEST',
@@ -901,6 +905,7 @@ export const en: Dict = {
     retry: 'Retry',
     tokenHandFillGuide: 'The manually-entered Token is expired or malformed. Suggestion: clear the Token box to use the auto-fetched session cookie, or click "Login to get Token" to re-login.',
     selectEnv: 'Select environment… (auto-filled from local config)',
+    defaultConfig: 'Default configuration (first local environment)',
     custom: '✏️ Custom',
     toggleConfig: 'Expand / collapse connection config',
     config: 'Config',
@@ -1371,6 +1376,8 @@ export const en: Dict = {
     manageSites: 'Manage Sites',
     reloadSites: 'Reload sites',
     loadSitesFail: 'Failed to load Kibana sites: ',
+    siteMissingTitle: 'No Kibana site configured',
+    siteMissingDetail: 'The Kibana log panel needs at least one site (URL + index). Click "Manage Sites" to add one; ignore this if you do not use Kibana.',
     autoRefresh: 'Auto refresh',
     off: 'Off',
     refreshNow: 'Refresh now',

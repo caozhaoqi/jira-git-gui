@@ -28,7 +28,13 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
 
     结果在内存中缓存（force=True 时失效重读），避免自动登录/按需重登时反复读盘。
 
-    返回: [{"name", "server_url", "username", "password"}, ...]
+    **默认环境**：支持两种写法，任选其一（都不写则前端按「上次用过 → 列表第一个」兜底）：
+      - 顶层 ``"default": "环境名"``（推荐，只改一处）
+      - 某个账号上 ``"default": true``
+    两种同时存在时以顶层 ``default`` 为准。解析结果落在每个账号的 ``default`` 布尔上，
+    使调用方无需再关心用的是哪种写法。
+
+    返回: [{"name", "server_url", "username", "password", "default": bool}, ...]
     """
     global _CF_ACCOUNTS_CACHE
     if not force and _CF_ACCOUNTS_CACHE is not None:
@@ -60,6 +66,10 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
     except Exception:
         _CF_ACCOUNTS_CACHE = []
         return []
+    # 顶层 "default": "环境名" —— 与逐账号 default 二选一，顶层优先
+    default_name = ""
+    if isinstance(data, dict):
+        default_name = str(data.get("default") or "").strip()
     raw = data.get("accounts", []) if isinstance(data, dict) else data
     if not isinstance(raw, list):
         return []
@@ -68,12 +78,23 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
         if not isinstance(item, dict):
             continue
         url = (item.get("server_url") or "").strip()
+        name = (item.get("name") or url or "未命名").strip()
+        # 逐账号 default: true；顶层 default 命中同名时也置真
+        is_default = bool(item.get("default")) or (bool(default_name) and name == default_name)
         out.append({
-            "name": (item.get("name") or url or "未命名").strip(),
+            "name": name,
             "server_url": url,
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),
+            "default": is_default,
         })
+    # 顶层 default 写了但没有任何账号匹配：日志提示一次（配置写错时不然会静默回落到第一个）
+    if default_name and not any(a["default"] for a in out):
+        try:
+            print(f"[config] cf_accounts 的 default={default_name!r} 未匹配到任何账号，"
+                  f"将回退到「上次使用 / 列表第一个」", file=sys.stderr)
+        except Exception:  # noqa: BLE001
+            pass
     _CF_ACCOUNTS_CACHE = out
     return out
 

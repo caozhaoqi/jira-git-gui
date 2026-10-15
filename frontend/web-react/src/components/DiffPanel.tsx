@@ -28,6 +28,7 @@ import type {
   DiffCommitsResp,
 } from '../api/types';
 import { useT } from '../i18n';
+import { applyRepoAlerts, raiseJiraAuthAlert } from '../utils/appAlerts';
 import { requestConfirm } from '../utils/confirmStore';
 
 const DIFF_ICONS: Record<DiffStatus, string> = {
@@ -154,6 +155,7 @@ export function DiffPanel() {
   const loadRepos = useCallback(async () => {
     try {
       const res = await apiGet<ReposResp>('/api/repos');
+      applyRepoAlerts(res);
       const list = res.repos || [];
       setRepos(list);
       if (!compareRepoRef.current && selectedRepo?.repo_id) {
@@ -286,6 +288,7 @@ export function DiffPanel() {
       const cd = compareDirRef.current.trim();
       const url = `/api/diff/commits?limit=30${cd ? `&path=${encodeURIComponent(cd)}` : ''}`;
       const res = await apiGet<DiffCommitsResp>(url);
+      if (res.auth_failed) raiseJiraAuthAlert(res.auth_detail);
       if (res.error) {
         addToast(res.error, 'error');
         setCommits([]);
@@ -510,6 +513,7 @@ export function DiffPanel() {
       const hist = await apiGet<FileAtCommitResp>(
         `/api/file-at-commit?${new URLSearchParams({ commit_id: commitId, path }).toString()}`,
       );
+      if (hist.auth_failed) raiseJiraAuthAlert(hist.auth_detail);
       if (hist.error) {
         setHistory({ commitId, commitMsg, path, changeType, content: '', localContent: '', err: hist.error });
         return;
