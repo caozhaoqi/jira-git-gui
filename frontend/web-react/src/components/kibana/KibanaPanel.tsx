@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import { KibanaContext, DEFAULT_QUERY, type KibanaQuery } from './context';
-import { KibanaFilters, openSiteManagerWindow } from './KibanaFilters';
+import { KibanaFilters, TIME_PRESETS, openSiteManagerWindow } from './KibanaFilters';
 import { KibanaExplorer } from './KibanaExplorer';
 import { KibanaDiscover } from './KibanaDiscover';
 import { apiGet } from '../../api/client';
@@ -15,10 +15,10 @@ const SUBTABS: { key: SubTab; labelKey: string }[] = [
 
 const REFRESH_OPTS = [0, 5, 10, 15, 30, 60, 120, 300];
 
-// 偏好持久化：自动刷新间隔 / 换行 / 子页签（此前刷新页面即丢，审计 P2 项）
+// 偏好持久化：自动刷新间隔 / 换行 / 子页签 / 筛选条折叠（此前刷新页面即丢，审计 P2 项）
 const PREF_KEY = 'kibana.panelPrefs';
 
-function loadPrefs(): { refreshSec: number; wrap: boolean; sub: SubTab } {
+function loadPrefs(): { refreshSec: number; wrap: boolean; sub: SubTab; filtersOpen: boolean } {
   try {
     const raw = localStorage.getItem(PREF_KEY);
     if (raw) {
@@ -27,10 +27,25 @@ function loadPrefs(): { refreshSec: number; wrap: boolean; sub: SubTab } {
         refreshSec: REFRESH_OPTS.includes(p.refreshSec) ? p.refreshSec : 0,
         wrap: p.wrap !== false,
         sub: p.sub === 'discover' ? 'discover' : 'explorer',
+        filtersOpen: p.filtersOpen !== false,
       };
     }
   } catch { /* ignore */ }
-  return { refreshSec: 0, wrap: true, sub: 'explorer' };
+  return { refreshSec: 0, wrap: true, sub: 'explorer', filtersOpen: true };
+}
+
+/** 折叠态下把已生效筛选压成一行摘要（时间范围 + 各维度 + 关键词 + 级别）。 */
+function summarizeQuery(t: (k: string) => string, q: KibanaQuery): string {
+  const parts: string[] = [];
+  const preset = TIME_PRESETS.find((p) => p.key === q.start);
+  if (q.start) parts.push(preset ? t(preset.labelKey) : t('kibana.time.custom'));
+  if (q.container) parts.push(`${t('kibana.container')}: ${q.container}`);
+  if (q.app) parts.push(`${t('kibana.app')}: ${q.app}`);
+  if (q.host) parts.push(`${t('kibana.host')}: ${q.host}`);
+  if (q.keyword) parts.push(`${t('kibana.keyword')}: ${q.keyword}`);
+  if (q.excludeKeyword) parts.push(`-${t('kibana.keyword')}: ${q.excludeKeyword}`);
+  if (q.levels?.length) parts.push(`${t('kibana.levels')}: ${q.levels.join(',')}`);
+  return parts.length ? parts.join(' · ') : t('kibana.filterNone');
 }
 
 export function KibanaPanel() {
@@ -47,6 +62,7 @@ export function KibanaPanel() {
   const [sub, setSub] = useState<SubTab>(prefs.sub);
   const [wrap, setWrap] = useState(prefs.wrap);
   const [refreshSec, setRefreshSec] = useState(prefs.refreshSec);
+  const [filtersOpen, setFiltersOpen] = useState(prefs.filtersOpen);
   const [reloadKey, setReloadKey] = useState(0);
   // 子面板并发请求数：>0 时「查询」按钮转圈（计数制，布尔会互相覆盖）
   const [busyCount, setBusyCount] = useState(0);
@@ -61,9 +77,9 @@ export function KibanaPanel() {
 
   // 偏好持久化
   useEffect(() => {
-    try { localStorage.setItem(PREF_KEY, JSON.stringify({ refreshSec, wrap, sub })); }
+    try { localStorage.setItem(PREF_KEY, JSON.stringify({ refreshSec, wrap, sub, filtersOpen })); }
     catch { /* ignore */ }
-  }, [refreshSec, wrap, sub]);
+  }, [refreshSec, wrap, sub, filtersOpen]);
 
   const reloadSites = useCallback(async () => {
     try {
@@ -140,6 +156,9 @@ export function KibanaPanel() {
 
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(query), [draft, query]);
 
+  // 折叠态摘要（t 的 key 是 MessageKey 字面量联合，传给 string 形参需断言一次）
+  const filterSummary = summarizeQuery(t as (k: string) => string, query);
+
   const ctx = {
     sites, site, setSite,
     reloadSites,
@@ -183,13 +202,37 @@ export function KibanaPanel() {
           </label>
         </div>
 
-        <KibanaFilters
-          site={site}
-          value={draft}
-          onChange={changeDraft}
-          onApply={apply}
-          dirty={dirty}
-        />
+        {/* 筛选条折叠开关（类似云函数的「高级选项」）：收起后只留摘要，
+            折叠也不会藏住「条件已修改未应用」的状态 */}
+        <div className="kb-filters-wrap">
+          <div className="kb-filters-head">
+            <button className="btn btn-ghost btn-sm kb-filter-toggle"
+                    onClick={() => setFiltersOpen((v) => !v)}
+                    aria-expanded={filtersOpen}
+                    title={t('kibana.filter')}>
+              <i className="cfd-caret">{filtersOpen ? '▾' : '▸'}</i> {t('kibana.filter')}
+              {dirty && (
+                <span className="kb-dirty-dot" title={t('kibana.unapplied')}
+                      aria-label={t('kibana.unapplied')} />
+              )}
+            </button>
+            {!filtersOpen && (
+              <span className="kb-filter-summary" title={filterSummary}>
+                {filterSummary}
+                {dirty && ` · ${t('kibana.filterModified')}`}
+              </span>
+            )}
+          </div>
+          {filtersOpen && (
+            <KibanaFilters
+              site={site}
+              value={draft}
+              onChange={changeDraft}
+              onApply={apply}
+              dirty={dirty}
+            />
+          )}
+        </div>
 
         <div className="kibana-subtabs">
           {SUBTABS.map((st) => (
