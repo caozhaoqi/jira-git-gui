@@ -1106,6 +1106,7 @@ export const en: Dict = {
     noRepo: 'Select a repo on the left first',
     empty: 'No browsable files in this repo',
     treeError: 'Failed to load file tree',
+    cloneHint: 'After cloning locally, the tree reads local git directly instead of relying on the Jira browser page',
     searchStatus: '{{n}} match(es) in loaded dirs',
     searchMatches: '{{n}} match(es) total',
     jsonFmt: ' (JSON formatted)',

@@ -1106,6 +1106,7 @@ export const ja: Dict = {
     noRepo: '左からリポジトリを選択してください',
     empty: 'このリポジトリに閲覧可能なファイルなし',
     treeError: 'ファイルツリーの読み込みに失敗',
+    cloneHint: 'ローカルにクローン後はファイルツリーはローカル git を直接読み、Jira ブラウザページに依存しません',
     searchStatus: '読込済みディレクトリで {{n}} 件一致',
     searchMatches: '合計 {{n}} 件一致',
     jsonFmt: ' (JSON 整形済)',

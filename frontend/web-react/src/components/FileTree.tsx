@@ -540,7 +540,7 @@ export function FileTree() {
                 className="btn btn-sm btn-primary"
                 onClick={cloneRepo}
                 disabled={cloning || !selectedRepo}
-                title="克隆到本地后文件树直接读本地 git，不再依赖 Jira 浏览页"
+                title={t('file.cloneHint')}
               >
                 {cloning ? t('common.loading') : t('repo.clone')}
               </button>

@@ -1111,6 +1111,7 @@ export const zh: Dict = {
     noRepo: '请先在左侧选择仓库',
     empty: '该仓库无可浏览文件',
     treeError: '文件树加载失败',
+    cloneHint: '克隆到本地后文件树直接读本地 git，不再依赖 Jira 浏览页',
     searchStatus: '已加载目录中匹配 {{n}} 项',
     searchMatches: '共 {{n}} 处匹配',
     jsonFmt: ' (JSON 已格式化)',
