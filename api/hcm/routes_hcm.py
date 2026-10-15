@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter
 from api.common import app, _PROJECT_ROOT
-from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_save_data
+from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_save_data, hcm_temp_download
 
 router = APIRouter()
 
@@ -53,6 +53,24 @@ class HcmSaveDataReq(BaseModel):
 async def api_hcm_data_save(req: HcmSaveDataReq) -> dict:
     """将 HCM 对象数据 JSON 写入本地文件，返回绝对路径（前端复制该路径到剪贴板）。"""
     return hcm_save_data(req)
+
+
+class HcmTempDownloadReq(BaseModel):
+    """下载 HCM 网关临时文件（接口日志 / SQL Profile）。
+
+    网关的 /document/temp/download 需要 cookie:token 登录态且在另一个 origin，
+    浏览器直接跳转会 404 / 「请登录后操作」，故由后端带 token 代取后回传字节流。
+    """
+    index: str = ""
+    name: str = ""
+    token: str = ""
+    target: str = ""
+
+
+@router.post("/api/hcm/temp-download")
+async def api_hcm_temp_download(req: HcmTempDownloadReq) -> Response:
+    """代理下载 HCM 网关临时文件（日志 / profile），前端拿到 Blob 后自行落盘。"""
+    return await hcm_temp_download(req)
 
 
 # # --------------------------------------------------------------------------- #

@@ -21,7 +21,12 @@ import {
   toCsvText,
   SYNC_COPY_MAX_ROWS,
   SYNC_EXPORT_MAX_ROWS,
+  SYNC_LEDGER_FIELDS,
 } from '../frontend/web-react/src/utils/hcmObjectFilters.ts';
+// 三份字典只做类型 import，run 时可被 Node 的类型擦除直接加载（零运行时依赖）。
+const { zh } = await import('../frontend/web-react/src/i18n/zh.ts');
+const { en } = await import('../frontend/web-react/src/i18n/en.ts');
+const { ja } = await import('../frontend/web-react/src/i18n/ja.ts');
 
 let failed = 0;
 function check(name, condition) {
@@ -148,6 +153,11 @@ check(
   entityTypeLabel('EMPLOYEE') === '人员' && entityTypeLabel('POSITION') === '岗位' && entityTypeLabel('WEIRD') === 'WEIRD',
 );
 check('is_deleted has static options', staticSyncSelectOptions('u_is_deleted').length === 2);
+check(
+  'static options carry an i18n labelKey (component falls back to the Chinese label)',
+  staticSyncSelectOptions('u_is_deleted').every((o) => typeof o.labelKey === 'string' && o.labelKey.startsWith('hcm.')),
+);
+check('unknown select fields have no static options', staticSyncSelectOptions('u_interface_code').length === 0);
 
 console.log('parseGroupCount (hcm.model.count group_by)');
 const gc = parseGroupCount(
@@ -316,6 +326,59 @@ await fetchAllRows(pagerProg.fetchPage, {
   onProgress: (loaded, total) => progress.push(`${loaded}/${total}`),
 });
 check('reports progress with the total as denominator', progress.join(',') === '100/250,200/250,250/250');
+
+// 台帐筛选面板的 i18n 覆盖：HcmObjectBrowser 按 `hcm.syncFields.<key>` / `hcm.syncPlaceholders.<key>`
+// 取展示名与占位符（utils 层必须零运行时依赖，故 key 在组件层拼）。这里锁定
+// 「SYNC_LEDGER_FIELDS 里每个字段在三份字典里都有展示名」——防止新增台帐字段只翻了中文。
+console.log('台帐筛选字段 i18n 覆盖（zh / en / ja）');
+const LOCALE_DICTS = { zh, en, ja };
+const dictAt = (dict, path) => path.split('.').reduce((n, k) => (n && typeof n === 'object' ? n[k] : undefined), dict);
+for (const f of SYNC_LEDGER_FIELDS) {
+  for (const [locale, dict] of Object.entries(LOCALE_DICTS)) {
+    const label = dictAt(dict, `hcm.syncFields.${f.key}`);
+    check(
+      `[${locale}] hcm.syncFields.${f.key} is a non-empty string`,
+      typeof label === 'string' && label.trim().length > 0,
+    );
+    const ph = dictAt(dict, `hcm.syncPlaceholders.${f.key}`);
+    if (f.placeholder) {
+      check(
+        `[${locale}] hcm.syncPlaceholders.${f.key} is a non-empty string`,
+        typeof ph === 'string' && ph.trim().length > 0,
+      );
+    } else {
+      check(`[${locale}] hcm.syncPlaceholders.${f.key} absent (no placeholder planned)`, ph === undefined);
+    }
+  }
+}
+// 静态 select 选项（未删除/已删除）的 labelKey 三语都要有值
+for (const opt of staticSyncSelectOptions('u_is_deleted')) {
+  for (const [locale, dict] of Object.entries(LOCALE_DICTS)) {
+    const v = dictAt(dict, opt.labelKey);
+    check(`[${locale}] ${opt.labelKey} is a non-empty string`, typeof v === 'string' && v.trim().length > 0);
+  }
+}
+// 台帐面板 / 导出工具条的状态文案占位符必须齐全（组件按 {{v}} 插值，缺了会原样吐出 {{v}}）
+const PLACEHOLDER_KEYS = [
+  ['hcm.payloadParseFailed', ['msg']],
+  ['hcm.fetchingRows', ['n']],
+  ['hcm.fetchingProgress', ['loaded', 'total']],
+  ['hcm.exportedRows', ['n']],
+  ['hcm.exportTruncated', ['n']],
+  ['hcm.exportFailed', ['msg']],
+  ['hcm.copyTruncated', ['n', 'btn']],
+  ['hcm.copiedRows', ['n', 'fmt', 'note']],
+  ['hcm.copyFailed', ['msg']],
+  ['hcm.downloadedFile', ['name', 'kb']],
+  ['hcm.downloadFailed', ['msg']],
+];
+for (const [key, vars] of PLACEHOLDER_KEYS) {
+  for (const [locale, dict] of Object.entries(LOCALE_DICTS)) {
+    const tpl = dictAt(dict, key);
+    const missing = vars.filter((v) => !new RegExp(`\\{\\{\\s*${v}\\s*\\}\\}`).test(tpl || ''));
+    check(`[${locale}] ${key} has all placeholders ${vars.join('/')}`, typeof tpl === 'string' && missing.length === 0);
+  }
+}
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 条失败`);
 process.exit(failed === 0 ? 0 : 1);

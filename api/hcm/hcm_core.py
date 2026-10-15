@@ -298,3 +298,73 @@ def hcm_save_data(req) -> "dict":
     size = fpath.stat().st_size
     logger.info("[HCM] 对象数据已保存: %s (%d bytes)", fpath, size)
     return {"ok": True, "path": str(fpath), "filename": fname, "size": size}
+
+
+async def hcm_temp_download(req) -> "Response":
+    """下载 HCM 网关的临时文件（接口日志 / SQL Profile）。
+
+    为什么必须走后端代理：网关的 ``/document/temp/download?index=...``
+    ① 挂在 **HCM 网关** 上，不是本机后端——前端 ``<a href="/document/temp/download...">``
+    会打到本机 origin → 404；
+    ② 网关靠 **cookie ``token``** 认登录态，跨 origin 直接跳转浏览器不会带上该 cookie，
+    会返回「请登录后操作」。
+
+    所以这里由后端带着 token 代取，把字节流回给前端保存（前端拿到 Blob 再落盘）。
+    """
+    from fastapi.responses import Response
+    from urllib.parse import quote
+
+    index = (getattr(req, "index", "") or "").strip()
+    if not index:
+        raise HTTPException(400, "缺少 index")
+    # 与网关侧一致的防目录穿越校验（网关自己也会再校一次）
+    if "/" in index or ".." in index:
+        raise HTTPException(400, "非法的 index")
+
+    target = (getattr(req, "target", "") or "").strip() or _HCM_PROXY_TARGET
+    if not target:
+        raise HTTPException(500, "下载目标未配置（请求需传 target，或在 hcm_whitelist 配置 proxy_target.base_url）")
+    token = (getattr(req, "token", "") or "").strip() or _HCM_PRESET_TOKEN
+
+    name = (getattr(req, "name", "") or "").strip() or index
+    url = (
+        f"{target.rstrip('/')}/document/temp/download"
+        f"?index={quote(index)}&name={quote(name)}"
+    )
+
+    # 复用 CF 共享的 SSL 上下文（开启旧式重协商），HTTP 目标同样适用。
+    from api.cf.cf_tokens import _cf_ssl_context
+
+    logger.info("[HCM] 临时文件下载 → %s token=%s", url, "preset" if not getattr(req, "token", "").strip() else "provided")
+    try:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=True, verify=_cf_ssl_context()) as client:
+            resp = await client.get(url, cookies={"token": token} if token else {})
+    except httpx.ConnectError as e:
+        raise HTTPException(502, f"无法连接 HCM 服务器 {target}: {e}")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "下载 HCM 临时文件超时")
+
+    ctype = (resp.headers.get("content-type") or "").lower()
+    # 网关失败时会返回 JSON 错误体（如「请登录后操作」「文件不存在」），不能当文件下发。
+    if resp.status_code >= 400 or "json" in ctype:
+        text = resp.content.decode("utf-8", "replace")
+        msg = text[:500]
+        try:
+            j = json.loads(text)
+            msg = j.get("errmsg") or j.get("description") or j.get("message") or msg
+        except Exception:
+            pass
+        logger.warning("[HCM] 临时文件下载失败 index=%s http=%s msg=%s", index, resp.status_code, msg)
+        raise HTTPException(
+            resp.status_code if resp.status_code >= 400 else 400,
+            f"HCM 下载失败: {msg}",
+        )
+
+    logger.info("[HCM] 临时文件下载成功 index=%s len=%dB", index, len(resp.content))
+    # 文件名可能是中文：按 RFC 5987 同时给出 filename*（前端自行命名时该头仅作兜底）。
+    disposition = f"attachment; filename*=UTF-8''{quote(name)}"
+    return Response(
+        content=resp.content,
+        media_type=ctype or "application/octet-stream",
+        headers={"Content-Disposition": disposition},
+    )

@@ -2259,6 +2259,9 @@ input[type='radio']:disabled {
 .hcm-empty { text-align: center; color: var(--muted); padding: 24px 8px; }
 .hcm-loading { text-align: center; color: var(--muted); padding: 14px; font-size: 13px; }
 .hcm-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px; border-top: 1px solid var(--border); font-size: 13px; }
+/* 页脚左右分栏：左侧记录数/耗时/接口日志下载，右侧翻页（省掉单独一行元信息） */
+.hcm-pager--split { justify-content: space-between; }
+.hcm-pager-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .hcm-detail { padding: 0; }
 .hcm-detail-empty { margin: auto; }
 .hcm-detail-head { padding: 12px 14px 8px; border-bottom: 1px solid var(--border); }
@@ -2269,14 +2272,39 @@ input[type='radio']:disabled {
 .hcm-json { flex: 1; overflow: auto; min-height: 0; margin: 0; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; }
 .hcm-data { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 /* Data 标签页顶部的「复制 / 导出」外层工具条——对任意筛选条件（快速 / 结构化 / 台帐）都生效。
-   与台帐内嵌的 .hcm-sync-export 分离，避免与子面板样式耦合。 */
+   与早期台帐内嵌的 .hcm-sync-export 分离，避免与子面板样式耦合（后者已删除）。 */
 .hcm-data-export { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
 .hcm-data-export > select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-data-export-status { font-size: 12px; color: var(--muted); margin-left: 4px; }
 .hcm-data-pagesize { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; font-size: 12px; color: var(--muted); }
 .hcm-data-pagesize input { width: 64px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 12px; }
 
+/* 「筛选开关条」：三个可折叠筛选区块（台帐 / 结构化 / 高级）+ 数据 JSON 搜索压到同一行，
+   展开体依次渲染在下方；收起时不占高度，把纵向空间尽量留给数据内容。 */
+.hcm-filterbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
+.hcm-filterbar .hcm-json-search { flex: 1 1 170px; min-width: 0; }
+/* 折叠开关 chip：默认描边弱化，active 时主色描边 + 主色弱底（▸/▾ + 已设条件数在文案里） */
+.hcm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.hcm-chip:hover:not(:disabled) { border-color: var(--primary); }
+.hcm-chip.active { color: var(--primary); background: var(--primary-weak); border-color: var(--primary); font-weight: 600; }
+.hcm-chip:disabled { opacity: .5; cursor: not-allowed; }
+/* 三个可折叠区块共用的展开体：台帐筛选 / 结构化筛选 / 高级请求体（各自 body 自带头部 chip，这里只管内容） */
+.hcm-panel-body { display: flex; flex-direction: column; gap: 6px; padding: 6px 12px 10px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
+.hcm-panel-hint { font-size: 12px; color: var(--muted); }
+.hcm-panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 快速筛选输入框：比纯搜索框基线宽一点，避免带默认字段下拉的输入框被压得过窄 */
+.hcm-fields-toolbar .hcm-quick-filter { flex: 1 1 220px; min-width: 0; }
+/* 工具条内的细分隔条（快速筛选区 与 复制/导出区） */
+.hcm-toolbar-sep { width: 1px; align-self: stretch; margin: 2px 0; background: var(--border); }
+/* 记录数 / 耗时 / 接口日志下载状态（页脚左侧） */
+.hcm-data-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+/* token 失效 / 规则校验失败的提示行（左侧对象列表与 Data 页共用） */
+.hcm-error-hint { font-size: 12px; color: var(--danger-strong); padding: 2px 12px 6px; }
+
 /* ===== HCM 高级增强 ===== */
+/* 旧的「高级筛选」面板（左侧对象列表）：flex column 容器，勿改。
+   ⚠️ Data 标签页那三个可折叠区块（台帐 / 结构化 / 高级请求体）头部已统一收进 .hcm-filterbar
+   的 chip，展开体统一用 .hcm-panel-body —— 不要再给它们单独造 head/section 类。 */
 .hcm-adv { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
 .hcm-adv-row { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .hcm-adv-row input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
@@ -2285,42 +2313,32 @@ input[type='radio']:disabled {
 .hcm-adv-vertical textarea.hcm-json-input { width: 100%; min-height: 140px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.45; resize: vertical; }
 .hcm-adv-checks { flex-direction: row; gap: 16px; align-items: center; color: var(--text); }
 .hcm-adv-checks input { width: auto; }
-.hcm-struct { border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
-.hcm-struct-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
-.hcm-struct-hint { font-size: 12px; color: var(--muted); min-width: 0; flex: 1 1 220px; }
-.hcm-struct-body { display: flex; flex-direction: column; gap: 6px; padding: 0 12px 10px; }
+/* 结构化筛选（filter_dict）条件行：字段 + 匹配方式 + 值 + 删除。
+   窄面板下必须允许换行，否则长字段名/长值会把右侧面板撑破。 */
 .hcm-struct-empty { font-size: 12px; color: var(--muted); padding: 2px 0 4px; }
-.hcm-struct-row { display: flex; align-items: center; gap: 8px; }
-.hcm-struct-field { flex: 0 1 240px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
-.hcm-struct-op { flex: 0 0 auto; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
-.hcm-struct-value { flex: 1; min-width: 120px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
-.hcm-struct-eq { color: var(--muted); font-weight: 600; }
+.hcm-struct-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hcm-struct-field { flex: 0 1 240px; min-width: 0; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-struct-op { flex: 0 0 auto; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+.hcm-struct-value { flex: 1 1 160px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-struct-del { flex: 0 0 auto; padding: 2px 9px; line-height: 1.2; }
 .hcm-meta-duration { color: var(--muted); }
 .hcm-meta-link { margin-left: 12px; color: var(--primary); text-decoration: none; font-size: 12px; }
 .hcm-meta-link:hover { text-decoration: underline; }
+/* 链接外观的按钮（如「下载接口日志」）：网关临时文件必须走后端代理，不能再用 <a href>。 */
+.hcm-link-btn { background: none; border: none; padding: 0; font: inherit; font-size: 12px; cursor: pointer; }
+.hcm-link-btn:disabled { opacity: .6; cursor: progress; text-decoration: none; }
 .hcm-fields-toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .hcm-fields-toolbar .hcm-search { flex: 1 1 180px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-fields-toolbar > select { min-width: 0; max-width: 100%; }
 .hcm-copy-btn { margin-left: auto; }
 
-/* 同步台帐专用筛选面板 */
-.hcm-sync { border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
-.hcm-sync-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; flex-wrap: wrap; }
-.hcm-sync-title { font-weight: 600; font-size: 13px; }
-/* 折叠开关：复用 .btn 形状但去掉内边线/圆角视觉差异，让它和原「台帐筛选」标题观感一致 */
-.hcm-sync-toggle { font-weight: 600; font-size: 13px; padding: 2px 8px; background: transparent; border: 1px solid transparent; color: inherit; }
-.hcm-sync-toggle:hover { background: var(--bg-head, rgba(127,127,127,0.08)); }
-.hcm-sync-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 14px; padding: 0 12px 10px; }
-.hcm-sync-item { display: flex; align-items: center; gap: 8px; }
+/* 同步台帐专用筛选字段网格（.hcm-panel-body 已提供内边距，这里不再重复） */
+.hcm-sync-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px 14px; }
+.hcm-sync-item { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .hcm-sync-label { flex: 0 0 76px; font-size: 12px; color: var(--muted); text-align: right; }
 .hcm-sync-item input, .hcm-sync-item select { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
-.hcm-sync-hint { font-size: 12px; color: var(--muted); padding: 0 12px 10px; }
-/* 台帐导出工具条（格式 / 是否含原始报文 / 导出按钮 / 进度） */
-.hcm-sync-export { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 12px 10px; }
-.hcm-sync-export select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
+/* 「含原始报文」勾选（位于外层 .hcm-data-export 工具条内） */
 .hcm-sync-raw { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
-.hcm-sync-export-status { font-size: 12px; color: var(--muted); }
 
 /* 搜索定位到的当前行（回车跳转高亮） */
 .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.18); }
@@ -2329,9 +2347,7 @@ html.dark .hcm-table tr.hcm-row-active > td { background: rgba(255,138,61,0.28);
 /* 元数据显示维度切换分隔（list/info/view/all） */
 .hcm-kind-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 2px; }
 
-/* 保存 JSON 后的文件路径反馈 */
-.hcm-saved-path { padding: 6px 12px 0; font-size: 12px; color: var(--muted); }
-.hcm-saved-path .hcm-mono { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* 「保存 JSON」按钮已删除（与复制/导出功能重复），此处样式一并移除。 */
 
 /* JSON 高亮搜索命中标记（自适应浅/深主题） */
 .hcm-json mark { background: var(--hl-bg); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
@@ -2357,6 +2373,12 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-detail-title { font-size: 18px; font-weight: 600; color: var(--text); }
 .hcm-detail-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .hcm-detail-sub2 { font-size: 13px; color: var(--muted); margin-top: 4px; }
+/* 头部 Token 输入（label + span + password input） */
+.hcm-detail-token { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.hcm-detail-token input { flex: 1; min-width: 0; max-width: 420px; padding: 5px 8px; font-size: 13px; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; }
+/* 「保存 JSON」成功后的文件路径反馈 */
+.hcm-saved-path { padding: 6px 16px 0; font-size: 12px; color: var(--muted); }
+.hcm-saved-path .hcm-mono { color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .hcm-detail-body { flex: 1; overflow: auto; min-height: 0; display: flex; flex-direction: column; }
 /* 合并窗口内嵌的「元数据文件」tab：让 HcmMetaFileBrowser 占满并内部滚动 */
 .hcm-detail-files { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -2482,6 +2504,10 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 /* 错误码词典 / 批量体检 / 最近错误历史本 */
 .hcm-cf-err-dict { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-left: 3px solid #3b82f6; border-radius: 8px; padding: 12px; background: rgba(59,130,246,.06); }
 .hcm-cf-err-section-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--text); margin: 4px 0 6px; }
+/* 案例库 & 反馈闭环（写入侧）：与词典/批量体检同一套卡片观感 */
+.hcm-cf-err-learn { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-left: 3px solid #3b82f6; border-radius: 8px; padding: 12px; background: rgba(59,130,246,.06); }
+.hcm-cf-err-learn-msg { font-size: 12px; color: var(--text-dim); }
+.hcm-cf-err-learn-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
 .hcm-cf-err-batch, .hcm-cf-err-history { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
 .hcm-input-wide { min-width: 260px; flex: 1; }
 .hcm-cf-err-batch-summary { font-size: 12px; color: var(--muted); }

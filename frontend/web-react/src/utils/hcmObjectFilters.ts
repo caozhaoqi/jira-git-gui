@@ -15,12 +15,20 @@ export type SyncLedgerFieldKind = 'select' | 'text';
 
 export interface SyncLedgerFilterField {
   key: string;
+  /** 中文兜底名；实际展示名由组件层按 `hcm.syncFields.<key>` 走 i18n（本模块必须零运行时依赖）。 */
   label: string;
   kind: SyncLedgerFieldKind;
+  /** 中文兜底占位符；实际值由组件层按 `hcm.syncPlaceholders.<key>` 走 i18n。 */
   placeholder?: string;
 }
 
-/** 台帐筛选字段规划（仅渲染当前模型 meta 里真实存在的字段）。 */
+/**
+ * 台帐筛选字段规划（仅渲染当前模型 meta 里真实存在的字段）。
+ *
+ * ⚠️ 新增字段时，除这里之外还必须往三份 i18n 字典补
+ * `hcm.syncFields.<key>`（展示名）与 `hcm.syncPlaceholders.<key>`（占位符，可省），
+ * 否则非中文语言下会退回本表的中文（tests/test_hcm_object_filters.mjs 有回归校验）。
+ */
 export const SYNC_LEDGER_FIELDS: SyncLedgerFilterField[] = [
   { key: 'u_entity_type', label: '实体类型', kind: 'select' },
   { key: 'u_source_name', label: '数据名', kind: 'text', placeholder: '如 张三 / 北京轨道运营' },
@@ -46,12 +54,19 @@ export function syncLedgerFieldsFor(fields: HcmFilterField[]): SyncLedgerFilterF
   return SYNC_LEDGER_FIELDS.filter((f) => keys.has(f.key));
 }
 
+/** 台帐 select 字段的动态选项 / 静态兜底选项。label 是中文兜底，labelKey 指向 i18n 字典。 */
+export interface SyncSelectOption {
+  value: string;
+  label: string;
+  labelKey?: string;
+}
+
 /** 少数 select 字段的静态选项（动态取值拿不到时的兜底，如是否删除）。 */
-export function staticSyncSelectOptions(key: string): { value: string; label: string }[] {
+export function staticSyncSelectOptions(key: string): SyncSelectOption[] {
   if (key === 'u_is_deleted') {
     return [
-      { value: '0', label: '未删除 (0)' },
-      { value: '1', label: '已删除 (1)' },
+      { value: '0', label: '未删除 (0)', labelKey: 'hcm.syncDelNo' },
+      { value: '1', label: '已删除 (1)', labelKey: 'hcm.syncDelYes' },
     ];
   }
   return [];
