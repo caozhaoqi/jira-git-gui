@@ -2259,30 +2259,55 @@ input[type='radio']:disabled {
 .hcm-empty { text-align: center; color: var(--muted); padding: 24px 8px; }
 .hcm-loading { text-align: center; color: var(--muted); padding: 14px; font-size: 13px; }
 .hcm-pager { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px; border-top: 1px solid var(--border); font-size: 13px; }
-/* 页脚左右分栏：左侧记录数/耗时/接口日志下载，右侧翻页（省掉单独一行元信息） */
-.hcm-pager--split { justify-content: space-between; }
-.hcm-pager-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* 页脚左右分栏：左侧记录数/耗时/接口日志下载，右侧翻页（省掉单独一行元信息）。
+   内边距与工具条对齐（12px），左右 gap 收紧到 8px。
+   ⚠️ 必须 flex-wrap：右侧翻页组是 nowrap 的，窄面板（detail 最小 360px）放不下时
+   要整组换到下一行，否则会横向溢出被裁掉（曾出现 "Per pa" 截断）。 */
+.hcm-pager--split { justify-content: space-between; padding: 6px 12px; gap: 8px; flex-wrap: wrap; }
+/* 翻页区：‹ 页码 › | 每页 N —— 整体 nowrap，防止「每页」行被挤到第二行落单 */
+.hcm-pager-nav { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.hcm-pager-btn { min-height: var(--ctl-xs); width: 26px; padding: 0; font-size: 14px; line-height: 1; color: var(--text-dim); border-radius: var(--radius-xs); }
+.hcm-pager-btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); background: var(--bg-panel); }
+.hcm-pager-page { min-width: 58px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+.hcm-pager-sep { width: 1px; align-self: stretch; margin: 3px 2px; background: var(--border); }
 .hcm-detail { padding: 0; }
 .hcm-detail-empty { margin: auto; }
 .hcm-detail-head { padding: 12px 14px 8px; border-bottom: 1px solid var(--border); }
 .hcm-detail-title { font-size: 15px; font-weight: 600; }
 .hcm-detail-sub { margin-top: 2px; }
-.hcm-subtabs { display: flex; gap: 6px; padding: 8px 12px 0; }
+.hcm-subtabs { display: flex; gap: 6px; align-items: center; padding: 8px 12px 0; flex-wrap: wrap; }
+/* 元数据切维分段控件：list/info/view/all 四颗按钮共用一条外框（灰底轨道），
+   active 项浮成白 pill。避免与左侧视图 tab 一样一人一颗边框按钮，一排 8 个钮太吵 */
+.hcm-kind-group { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.hcm-kind-group .btn { min-height: var(--ctl-xs); padding: 0 10px; border: none; background: transparent; box-shadow: none; color: var(--text-dim); }
+.hcm-kind-group .btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); border: none; box-shadow: none; }
+.hcm-kind-group .btn:active:not(:disabled) { transform: none; }
+.hcm-kind-group .btn-active { background: var(--bg-panel); border: none; box-shadow: var(--shadow-sm); color: var(--primary); font-weight: 600; }
+.hcm-kind-group .btn:disabled { background: transparent; border: none; }
 .hcm-fields { flex: 1; overflow: auto; min-height: 0; padding: 8px 12px 12px; }
 .hcm-json { flex: 1; overflow: auto; min-height: 0; margin: 0; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre; }
 .hcm-data { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-/* Data 标签页顶部的「复制 / 导出」外层工具条——对任意筛选条件（快速 / 结构化 / 台帐）都生效。
-   与早期台帐内嵌的 .hcm-sync-export 分离，避免与子面板样式耦合（后者已删除）。 */
-.hcm-data-export { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
-.hcm-data-export > select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
-.hcm-data-export-status { font-size: 12px; color: var(--muted); margin-left: 4px; }
-.hcm-data-pagesize { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; font-size: 12px; color: var(--muted); }
+/* Data 标签页顶部工具条——对任意筛选条件（快速 / 结构化 / 台帐）都生效。
+   与早期台帐内嵌的 .hcm-sync-export 分离，避免与子面板样式耦合（后者已删除）。
+   内部按「查询组 | 导出组」分成两簇（.hcm-export-group），右簇贴右；
+   本身不带下边框——和下方的 .hcm-filterbar 同色相连，合成一整块控制区，
+   只在整块底部留一条分隔线（否则三条灰带叠三条边框，条纹噪声很重）。 */
+.hcm-data-export { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg-head, var(--bg-panel)); }
+.hcm-data-export > select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; min-width: 0; max-width: 260px; }
+.hcm-export-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.hcm-export-actions { margin-left: auto; }
+/* 查询组的字段下拉/关键字输入：输入框吃掉组内剩余空间，窄面板可压缩 */
+.hcm-export-group .hcm-quick-filter { flex: 1 1 200px; min-width: 0; }
+/* 复制/导出过程中的状态文案：单独占一行并省略号截断，不挤占按钮 */
+.hcm-data-export-status { flex: 1 1 100%; min-width: 0; margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.hcm-data-pagesize { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .hcm-data-pagesize input { width: 64px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 12px; }
 
 /* 「筛选开关条」：三个可折叠筛选区块（台帐 / 结构化 / 高级）+ 数据 JSON 搜索压到同一行，
    展开体依次渲染在下方；收起时不占高度，把纵向空间尽量留给数据内容。 */
 .hcm-filterbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--bg-head, var(--bg-panel)); }
-.hcm-filterbar .hcm-json-search { flex: 1 1 170px; min-width: 0; }
+/* JSON 搜索固定上限宽度贴右：不再 flex 拉满整行， chips 与搜索各占其位 */
+.hcm-filterbar .hcm-json-search { flex: 0 1 240px; min-width: 0; }
 /* 折叠开关 chip：默认描边弱化，active 时主色描边 + 主色弱底（▸/▾ + 已设条件数在文案里） */
 .hcm-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; white-space: nowrap; }
 .hcm-chip:hover:not(:disabled) { border-color: var(--primary); }
@@ -2296,8 +2321,9 @@ input[type='radio']:disabled {
 .hcm-fields-toolbar .hcm-quick-filter { flex: 1 1 220px; min-width: 0; }
 /* 工具条内的细分隔条（快速筛选区 与 复制/导出区） */
 .hcm-toolbar-sep { width: 1px; align-self: stretch; margin: 2px 0; background: var(--border); }
-/* 记录数 / 耗时 / 接口日志下载状态（页脚左侧） */
-.hcm-data-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+/* 记录数 / 耗时 / 接口日志下载状态（页脚左侧）。min-width:0 允许作为 flex item 被压缩，
+   内部各片段 nowrap，窄面板整组换行而不是逐字断行 */
+.hcm-data-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); min-width: 0; }
 /* token 失效 / 规则校验失败的提示行（左侧对象列表与 Data 页共用） */
 .hcm-error-hint { font-size: 12px; color: var(--danger-strong); padding: 2px 12px 6px; }
 
@@ -2321,8 +2347,10 @@ input[type='radio']:disabled {
 .hcm-struct-op { flex: 0 0 auto; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-struct-value { flex: 1 1 160px; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-struct-del { flex: 0 0 auto; padding: 2px 9px; line-height: 1.2; }
-.hcm-meta-duration { color: var(--muted); }
-.hcm-meta-link { margin-left: 12px; color: var(--primary); text-decoration: none; font-size: 12px; }
+.hcm-meta-duration { color: var(--muted); white-space: nowrap; }
+/* 页脚内的接口日志/Profile 下载链接：.hcm-data-meta 是 flex+gap，margin 归零避免双倍间距 */
+.hcm-meta-count { white-space: nowrap; }
+.hcm-meta-link { margin-left: 0; color: var(--primary); text-decoration: none; font-size: 12px; white-space: nowrap; }
 .hcm-meta-link:hover { text-decoration: underline; }
 /* 链接外观的按钮（如「下载接口日志」）：网关临时文件必须走后端代理，不能再用 <a href>。 */
 .hcm-link-btn { background: none; border: none; padding: 0; font: inherit; font-size: 12px; cursor: pointer; }

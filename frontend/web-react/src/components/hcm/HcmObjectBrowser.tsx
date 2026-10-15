@@ -1160,40 +1160,43 @@ const loadList = useCallback(async () => {
                 >
                   {t('hcm.tabData')}
                 </button>
-                {/* 元数据显示维度：list / info / view / all（查询所有 JSON 节点） */}
-                <span className="hcm-kind-sep" />
-                <button
-                  className={metaKind === 'list' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'list')}
-                  disabled={!selected}
-                  title={t('hcm.kindListHint')}
-                >
-                  list
-                </button>
-                <button
-                  className={metaKind === 'info' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'info')}
-                  disabled={!selected}
-                  title={t('hcm.kindInfoHint')}
-                >
-                  info
-                </button>
-                <button
-                  className={metaKind === 'view' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'view')}
-                  disabled={!selected}
-                  title={t('hcm.kindViewHint')}
-                >
-                  view
-                </button>
-                <button
-                  className={metaKind === 'all' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'all')}
-                  disabled={!selected}
-                  title={t('hcm.kindAllHint')}
-                >
-                  all
-                </button>
+                {/* 元数据显示维度：list / info / view / all（查询所有 JSON 节点）。
+                    四个切维按钮收进一个分段控件（.hcm-kind-group），只保留一个边框，
+                    不再和左侧视图 tab 一样一人一颗按钮，减少一排 8 个钮的噪声 */}
+                <span className="hcm-kind-group">
+                  <button
+                    className={metaKind === 'list' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'list')}
+                    disabled={!selected}
+                    title={t('hcm.kindListHint')}
+                  >
+                    list
+                  </button>
+                  <button
+                    className={metaKind === 'info' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'info')}
+                    disabled={!selected}
+                    title={t('hcm.kindInfoHint')}
+                  >
+                    info
+                  </button>
+                  <button
+                    className={metaKind === 'view' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'view')}
+                    disabled={!selected}
+                    title={t('hcm.kindViewHint')}
+                  >
+                    view
+                  </button>
+                  <button
+                    className={metaKind === 'all' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'all')}
+                    disabled={!selected}
+                    title={t('hcm.kindAllHint')}
+                  >
+                    all
+                  </button>
+                </span>
                 {rightTab === 'json' && (
                   <button className="btn btn-sm hcm-copy-btn" onClick={copyJson}>
                     {copied ? `✓ ${t('hcm.copied')}` : t('hcm.copyJson')}
@@ -1283,9 +1286,11 @@ const loadList = useCallback(async () => {
               {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 复制 / 导出 */}
               {rightTab === 'data' && (
                 <div className="hcm-data">
-                  {/* 顶部工具条：把「快速筛选（字段+值+查询）」与「复制/导出」合并成一行，
-                      给下方数据内容让出高度。导出仍对当前筛选条件命中的**全部行**生效。 */}
+                  {/* 顶部工具条：左组「快速筛选（字段+值+查询）」，右组「复制/导出」，
+                      两组各自成簇、右组贴右，避免 8 个控件平铺在一行里互相打架。
+                      导出仍对当前筛选条件命中的**全部行**生效。 */}
                   <div className="hcm-data-export">
+                    <div className="hcm-export-group">
                     <select
                       className="hcm-struct-op"
                       value={resolvedQuickFilterField}
@@ -1358,7 +1363,9 @@ const loadList = useCallback(async () => {
                     >
                       {dataLoading ? t('hcm.loading') : t('hcm.queryData')}
                     </button>
+                    </div>
                     <span className="hcm-toolbar-sep" />
+                    <div className="hcm-export-group hcm-export-actions">
                     <select
                       value={dataExportFormat}
                       onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
@@ -1396,7 +1403,10 @@ const loadList = useCallback(async () => {
                     >
                       {dataExportBusy === 'export' ? t('hcm.exporting') : t('hcm.exportResult')}
                     </button>
-                    {dataExportStatus && <span className="hcm-data-export-status">{dataExportStatus}</span>}
+                    </div>
+                    {dataExportStatus && (
+                      <span className="hcm-data-export-status">{dataExportStatus}</span>
+                    )}
                   </div>
 
                   {/* 筛选开关条：三个可折叠筛选区块（台帐 / 结构化 / 高级）+ 数据 JSON 搜索
@@ -1451,6 +1461,7 @@ const loadList = useCallback(async () => {
                   {/* 台帐筛选体（仅同步台帐模型）：字段网格 + 查询/清空 */}
                   {isSyncLedger && syncPanelOpen && (
                     <div className="hcm-panel-body">
+                      <div className="hcm-panel-hint">{t('hcm.syncHint')}</div>
                       <div className="hcm-sync-grid">
                         {syncFields.map((f) => {
                           const dyn = syncSelectOptions[f.key] || [];
@@ -1518,7 +1529,6 @@ const loadList = useCallback(async () => {
                           {t('hcm.structClear')}
                         </button>
                       </div>
-                      <div className="hcm-panel-hint">{t('hcm.syncHint')}</div>
                     </div>
                   )}
 
@@ -1649,7 +1659,11 @@ const loadList = useCallback(async () => {
                       {/* 页脚：左侧状态（条数/耗时/接口日志下载），右侧翻页 —— 省掉单独一行元信息 */}
                       <div className="hcm-pager hcm-pager--split">
                         <span className="hcm-data-meta hcm-mono">
-                          {t('hcm.dataCount')}: {dataTotal}
+                          {/* 计数包一层 span：flex 容器里的裸文本节点是匿名 item，
+                              窄面板会被压成 min-content 逐字换行（Records: / 5498 / · …） */}
+                          <span className="hcm-meta-count">
+                            {t('hcm.dataCount')}: {dataTotal}
+                          </span>
                           {typeof dataMeta.duration_ms === 'number' && (
                             <span className="hcm-meta-duration">
                               {' '}
@@ -1680,7 +1694,7 @@ const loadList = useCallback(async () => {
                         </span>
                         <div className="hcm-pager-nav">
                           <button
-                            className="btn btn-sm"
+                            className="btn btn-sm hcm-pager-btn"
                             aria-label={t('hcm.prevPage')}
                             title={t('hcm.prevPage')}
                             disabled={dataPage <= 1}
@@ -1692,11 +1706,11 @@ const loadList = useCallback(async () => {
                           >
                             ‹
                           </button>
-                          <span>
+                          <span className="hcm-pager-page">
                             {dataPage} / {Math.max(1, Math.ceil(dataTotal / dataPageSize))}
                           </span>
                           <button
-                            className="btn btn-sm"
+                            className="btn btn-sm hcm-pager-btn"
                             aria-label={t('hcm.nextPage')}
                             title={t('hcm.nextPage')}
                             disabled={dataPage >= Math.ceil(dataTotal / dataPageSize)}
@@ -1708,6 +1722,7 @@ const loadList = useCallback(async () => {
                           >
                             ›
                           </button>
+                          <span className="hcm-pager-sep" />
                           <label className="hcm-data-pagesize">
                             <span>{t('hcm.dataPageSize')}</span>
                             <input
