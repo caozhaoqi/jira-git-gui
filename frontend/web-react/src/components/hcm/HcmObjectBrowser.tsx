@@ -8,7 +8,7 @@ import {
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
-import { saveTextFile } from '../../utils/download';
+import { saveBlob, saveTextFile } from '../../utils/download';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
@@ -101,10 +101,10 @@ export function HcmObjectBrowser() {
     if (!usePresetToken && isTokenLikelyExpired(tk) && targetUrl) {
       const r = await refreshHcmToken(targetUrl);
       if (r.ok && r.token) tk = r.token;
-      else throw new HcmApiError(r.error || 'Token 已过期，自动重登失败，请重新登录', 401);
+      else throw new HcmApiError(r.error || t('hcm.tokenReloginFailed'), 401);
     }
     return tk;
-  }, [refreshHcmToken, targetUrl, usePresetToken]);
+  }, [refreshHcmToken, targetUrl, usePresetToken, t]);
 
   const loadEnvs = useCallback(async () => {
     try {
@@ -131,6 +131,9 @@ export function HcmObjectBrowser() {
 
   // 高级筛选（客户端，基于已加载列表）
   const [advOpen, setAdvOpen] = useState(false);
+  // 连接设置（环境/令牌）默认折叠：已选过环境就只显示一行摘要；
+  // 没选环境（首次使用/换了机器）时保持展开，避免必填项被藏起来
+  const [configOpen, setConfigOpen] = useState(false);
   const [fClass, setFClass] = useState('');
   const [fCategory, setFCategory] = useState('');
 
@@ -191,6 +194,9 @@ export function HcmObjectBrowser() {
   const [dataExportBusy, setDataExportBusy] = useState<'' | 'export' | 'copy'>('');
   const [dataExportStatus, setDataExportStatus] = useState('');
   const dataExporting = dataExportBusy !== '';
+  // 网关临时文件（接口日志 / SQL Profile）下载状态
+  const [dataLogBusy, setDataLogBusy] = useState(false);
+  const [dataLogStatus, setDataLogStatus] = useState('');
   // 台帐面板默认折叠：U_SyncRaw* 数据体量大、面板占屏高；首次进 U_SyncRawGdyy 之类的对象时不要一上来就铺满。
   const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const structIdRef = useRef(0);
@@ -382,6 +388,7 @@ const loadList = useCallback(async () => {
       setSyncSelectOptions({});
       setDataExportStatus('');
       setDataExportBusy('');
+      setDataLogStatus('');
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -436,7 +443,7 @@ const loadList = useCallback(async () => {
           payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
           setDataPayloadError('');
         } catch (e: any) {
-          setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+          setDataPayloadError(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
           return;
         }
       }
@@ -490,6 +497,36 @@ const loadList = useCallback(async () => {
   );
   const isSyncLedger = syncFields.length > 0;
 
+  // 台帐筛选字段的展示名 / 占位符 / select 选项文案走 i18n。
+  // 寻址规则（utils 层必须零运行时依赖，所以 key 在这里按字段键拼，字典里取不到就退回中文兜底）：
+  //   展示名  → hcm.syncFields.<fieldKey>
+  //   占位符  → hcm.syncPlaceholders.<fieldKey>
+  //   静态选项 → labelKey（如 u_is_deleted 的 未删除/已删除）
+  // t() 找不到键时会原样返回 key，用这一点判定「缺翻译」并回退。
+  const syncFieldLabel = useCallback(
+    (f: SyncLedgerFilterField): string => {
+      const s = t(`hcm.syncFields.${f.key}`);
+      return s === `hcm.syncFields.${f.key}` ? f.label : s;
+    },
+    [t]
+  );
+  const syncFieldPlaceholder = useCallback(
+    (f: SyncLedgerFilterField): string => {
+      const key = `hcm.syncPlaceholders.${f.key}`;
+      const s = t(key);
+      return s === key ? f.placeholder || '' : s;
+    },
+    [t]
+  );
+  const selectOptionLabel = useCallback(
+    (opt: { label: string; labelKey?: string }): string => {
+      if (!opt.labelKey) return opt.label;
+      const s = t(opt.labelKey);
+      return s === opt.labelKey ? opt.label : s;
+    },
+    [t]
+  );
+
   // 结构化筛选（filter_dict）增删改
   const addStructRow = useCallback(() => {
     structIdRef.current += 1;
@@ -515,7 +552,7 @@ const loadList = useCallback(async () => {
     if (!selected) return;
     const dict = buildHcmFilterDict(dataStruct);
     if (dataStruct.some((row) => row.field.trim() && row.operator === 'contains' && !row.value.trim())) {
-      setDataPayloadError('包含匹配请填写非空值');
+      setDataPayloadError(t('hcm.containsNeedValue'));
       return;
     }
     let payload: Record<string, any>;
@@ -523,7 +560,7 @@ const loadList = useCallback(async () => {
       payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
       setDataPayloadError('');
     } catch (e: any) {
-      setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+      setDataPayloadError(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
       return;
     }
     payload.filter_dict = dict;
@@ -537,7 +574,7 @@ const loadList = useCallback(async () => {
     setDataPayload(JSON.stringify(payload, null, 2));
     setDataPage(1);
     loadData(selected, 1, payload);
-  }, [selected, dataStruct, dataPayload, dataPageSize, loadData]);
+  }, [selected, dataStruct, dataPayload, dataPageSize, loadData, t]);
 
   // 台帐筛选：按规划字段组装 filter_dict（select=精确，text=包含）并查询。
   // 与通用筛选互斥——应用台帐筛选时清空快速筛选与结构化筛选，避免叠加隐藏条件。
@@ -549,7 +586,7 @@ const loadList = useCallback(async () => {
       payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
       setDataPayloadError('');
     } catch (e: any) {
-      setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+      setDataPayloadError(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
       return;
     }
     payload.filter_dict = dict;
@@ -563,7 +600,7 @@ const loadList = useCallback(async () => {
     setDataPayload(JSON.stringify(payload, null, 2));
     setDataPage(1);
     loadData(selected, 1, payload);
-  }, [selected, syncFilter, syncFields, dataPayload, dataPageSize, loadData]);
+  }, [selected, syncFilter, syncFields, dataPayload, dataPageSize, loadData, t]);
 
   // 切换到「数据」tab 时，若该对象尚未查询过则自动拉取一次
   const ensureData = useCallback(
@@ -592,7 +629,7 @@ const loadList = useCallback(async () => {
       base.model = selected.id;
       if (!base.biz_type) base.biz_type = 'list';
 
-      onProgress('正在统计命中行数…');
+      onProgress(t('hcm.countingRows'));
       // 1) 命中总数（count 很轻，作为状态文案提示）
       let matched = 0;
       try {
@@ -605,7 +642,7 @@ const loadList = useCallback(async () => {
       } catch {
         matched = 0; // count 失败不致命：后面按实际拉取行数走
       }
-      if (matched > 0) onProgress(`命中 ${matched} 行，正在拉取…`);
+      if (matched > 0) onProgress(t('hcm.fetchingRows', { n: matched }));
 
       // 2) 逐页拉全
       const { rows, total, truncated } = await fetchAllRows(
@@ -620,17 +657,22 @@ const loadList = useCallback(async () => {
         {
           pageSize: SYNC_EXPORT_PAGE_SIZE,
           maxRows: SYNC_EXPORT_MAX_ROWS,
-          onProgress: (loaded, t) =>
-            onProgress(`正在拉取 ${loaded}${t ? ` / ${t}` : ''} 行…`),
+          // fetchAllRows 拿不到服务端总数时 total 传 0，此时只显示已拉取行数
+          onProgress: (loaded, total) =>
+            onProgress(
+              total > 0
+                ? t('hcm.fetchingProgress', { loaded, total })
+                : t('hcm.fetchingProgress', { loaded, total: '—' })
+            ),
         }
       );
       if (!rows.length) {
-        onProgress('当前条件下没有数据');
+        onProgress(t('hcm.filterNoData'));
         return null;
       }
       return { rows, total, truncated, base };
     },
-    [selected, dataPayload, directCall, directCallRaw]
+    [selected, dataPayload, directCall, directCallRaw, t]
   );
 
   // 把采集结果渲染成 CSV / JSON 文本。台帐模型默认剔除「原始报文」大列；
@@ -669,17 +711,17 @@ const loadList = useCallback(async () => {
         dataExportFormat === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
       saveTextFile(text, exportFileName(selected.id, ext), mime);
       setDataExportStatus(
-        `已导出 ${collected.rows.length} 行` +
+        t('hcm.exportedRows', { n: collected.rows.length }) +
           (collected.truncated
-            ? `（超过单次上限 ${SYNC_EXPORT_MAX_ROWS} 行，已截断，请先加筛选条件）`
+            ? t('hcm.exportTruncated', { n: SYNC_EXPORT_MAX_ROWS })
             : '')
       );
     } catch (e: any) {
-      setDataExportStatus(`导出失败：${e?.message || e}`);
+      setDataExportStatus(t('hcm.exportFailed', { msg: e?.message || String(e) }));
     } finally {
       setDataExportBusy('');
     }
-  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult, t]);
 
   // 复制当前筛选结果：与导出同一批数据、同一格式，只是落到剪贴板而非文件。
   // 剪贴板是单串文本，超大数据会卡住渲染进程，故单独设一个更小的上限并明确告知。
@@ -693,19 +735,79 @@ const loadList = useCallback(async () => {
       let note = '';
       if (rows.length > SYNC_COPY_MAX_ROWS) {
         rows = rows.slice(0, SYNC_COPY_MAX_ROWS);
-        note = `（仅复制前 ${SYNC_COPY_MAX_ROWS} 行，完整结果请用「导出当前筛选结果」）`;
+        note = t('hcm.copyTruncated', {
+          n: SYNC_COPY_MAX_ROWS,
+          btn: t('hcm.exportResult'),
+        });
       }
       const text = renderCurrentResult({ ...collected, rows }, { withBom: false });
       await writeClipboardText(text);
       setDataExportStatus(
-        `已复制 ${rows.length} 行（${dataExportFormat.toUpperCase()} 文本）到剪贴板${note}`
+        t('hcm.copiedRows', {
+          n: rows.length,
+          fmt: dataExportFormat.toUpperCase(),
+          note,
+        })
       );
     } catch (e: any) {
-      setDataExportStatus(`复制失败：${e?.message || e}`);
+      setDataExportStatus(t('hcm.copyFailed', { msg: e?.message || String(e) }));
     } finally {
       setDataExportBusy('');
     }
-  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult, t]);
+
+  // 下载网关临时文件（接口日志 / SQL Profile）。
+  // 为什么不能直接 `<a href="/document/temp/download?...">`：
+  //   ① 该路由挂在 HCM **网关** 上，本机 origin 没有它 → 404；
+  //   ② 网关靠 cookie:token 认登录态，跨 origin 跳转不会带 cookie → 「请登录后操作」。
+  // 因此统一走后端 /api/hcm/temp-download 代理（后端带 token 代取），前端拿 Blob 落盘。
+  const downloadTempFile = useCallback(
+    async (index: string, name: string) => {
+      if (!index || dataLogBusy) return;
+      setDataLogBusy(true);
+      setDataLogStatus(t('hcm.downloading'));
+      try {
+        const tk = await ensureFreshToken();
+        let res: Response;
+        try {
+          res = await fetch('/api/hcm/temp-download', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              index,
+              name,
+              token: usePresetToken ? '' : tk.trim(),
+              target: targetUrl,
+            }),
+          });
+        } catch (e) {
+          reportLocalApiNetworkError('/api/hcm/temp-download', e);
+          throw e;
+        }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+          const detail =
+            typeof data?.detail === 'string' ? data.detail : JSON.stringify(data?.detail ?? data);
+          throw new HcmApiError(detail || `HTTP ${res.status}`, res.status);
+        }
+        const blob = await res.blob();
+        // 文件名：优先用传入的 name，其次按 index 拼（无扩展名时补 .log）
+        const fname = name || (index.includes('.') ? index : `${index}.log`);
+        saveBlob(blob, fname);
+        setDataLogStatus(
+          t('hcm.downloadedFile', {
+            name: fname,
+            kb: Math.max(1, Math.round(blob.size / 1024)),
+          })
+        );
+      } catch (e: any) {
+        setDataLogStatus(t('hcm.downloadFailed', { msg: e?.message || String(e) }));
+      } finally {
+        setDataLogBusy(false);
+      }
+    },
+    [dataLogBusy, ensureFreshToken, targetUrl, usePresetToken, t]
+  );
 
   // 支持从 URL 参数 ?hcm-model=<id> 打开时自动定位到该模型（用于双击新窗口场景）
   useEffect(() => {
@@ -823,70 +925,98 @@ const loadList = useCallback(async () => {
 
   return (
     <div className="hcm-browser">
-      {/* 配置条 */}
-      <div className="hcm-config">
-        <label className="hcm-config-readonly">
-          <span>{t('hcm.baseUrl')}</span>
-          <input
-            value={baseUrl}
-            readOnly
-            title="所有连接统一走后端直连 /api/hcm/direct（由后端直连 HCM 网关并解密，无需代理）"
-            spellCheck={false}
-          />
-        </label>
-        <label>
-          <span>{t('hcm.serverEnv')}</span>
-          <select
-            value={selectedEnv}
-            onChange={(e) => setSelectedEnv(e.target.value)}
-            title={envsError || t('hcm.serverEnvHint')}
+      {/* 连接条：默认一行摘要（环境 + 刷新 + 设置开关 + 错误定位）。
+          完整表单（代理地址/服务器/Token/显示/配置Token）折叠在内——
+          环境与令牌是低频设置，常驻会和查询主操作抢注意力
+         （曾经整条 7 个控件 + 2 个紫色主按钮杵在首屏） */}
+      <div className="hcm-connect">
+        <div className="hcm-connect-main">
+          <span className="hcm-connect-env" title={envsError || t('hcm.serverEnvHint')}>
+            <i className={`hcm-connect-dot${currentEnv ? ' on' : ''}`} aria-hidden="true" />
+            <span className="hcm-connect-name">
+              {currentEnv ? currentEnv.name : t('hcm.serverEnvSelect')}
+            </span>
+            {currentEnv && <span className="hcm-connect-url">{currentEnv.server_url}</span>}
+            {usePresetToken && currentEnv?.has_preset_token && (
+              <span className="hcm-connect-badge">{t('hcm.presetOn')}</span>
+            )}
+          </span>
+          <button className="btn btn-sm" onClick={loadList} disabled={loading}>
+            {loading ? t('hcm.loading') : t('hcm.refresh')}
+          </button>
+          <button
+            className={`btn btn-sm hcm-connect-toggle${configOpen ? ' is-open' : ''}`}
+            onClick={() => setConfigOpen((v) => !v)}
+            aria-expanded={configOpen}
           >
-            <option value="">{t('hcm.serverEnvSelect')}</option>
-            {envs.map((ev) => (
-              <option key={ev.key} value={ev.key}>
-                {ev.name}（{ev.server_url}）{ev.has_preset_token ? '●' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>{t('hcm.token')}</span>
-          <input
-            type={showToken ? 'text' : 'password'}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder={t('hcm.tokenPlaceholder')}
-            spellCheck={false}
-            disabled={usePresetToken}
-          />
-        </label>
-        <button className="btn btn-sm" onClick={() => setShowToken((v) => !v)} disabled={usePresetToken}>
-          {showToken ? t('hcm.hide') : t('hcm.show')}
-        </button>
-        <button
-          className={`btn btn-sm ${usePresetToken ? 'btn-primary' : ''}`}
-          onClick={() => setUsePresetToken((v) => !v)}
-          title={t('hcm.usePresetHint')}
-          disabled={!currentEnv?.has_preset_token}
-        >
-          {usePresetToken ? t('hcm.presetOn') : t('hcm.presetOff')}
-        </button>
-        <button className="btn btn-sm btn-primary" onClick={loadList} disabled={loading}>
-          {loading ? t('hcm.loading') : t('hcm.refresh')}
-        </button>
-        {/* 云函数错误定位：常驻入口，避免只能靠拼 URL 打开 */}
-        <span className="hcm-kind-sep" />
-        <button
-          className="btn btn-sm"
-          onClick={() =>
-            openHcmWindow('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900', {
-              'hcm-target': targetUrl,
-            })
-          }
-          title={t('hcm.cfErrLauncherHint')}
-        >
-          {t('hcm.cfErrLauncher')}
-        </button>
+            <span className="hcm-connect-chevron" aria-hidden="true" />
+            {t('hcm.connectEnvToken')}
+          </button>
+          <span className="spacer" />
+          {/* 云函数错误定位：常驻入口，避免只能靠拼 URL 打开 */}
+          <button
+            className="btn btn-sm btn-ghost"
+            onClick={() =>
+              openHcmWindow('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900', {
+                'hcm-target': targetUrl,
+              })
+            }
+            title={t('hcm.cfErrLauncherHint')}
+          >
+            {t('hcm.cfErrLauncher')}
+          </button>
+        </div>
+        {configOpen && (
+          <div className="hcm-config hcm-connect-body">
+            <label className="hcm-config-readonly">
+              <span>{t('hcm.baseUrl')}</span>
+              <input
+                value={baseUrl}
+                readOnly
+                title={t('hcm.directHint')}
+                spellCheck={false}
+              />
+            </label>
+            <label>
+              <span>{t('hcm.serverEnv')}</span>
+              <select
+                value={selectedEnv}
+                onChange={(e) => setSelectedEnv(e.target.value)}
+                title={envsError || t('hcm.serverEnvHint')}
+              >
+                <option value="">{t('hcm.serverEnvSelect')}</option>
+                {envs.map((ev) => (
+                  <option key={ev.key} value={ev.key}>
+                    {ev.name}（{ev.server_url}）{ev.has_preset_token ? '●' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>{t('hcm.token')}</span>
+              <input
+                type={showToken ? 'text' : 'password'}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder={t('hcm.tokenPlaceholder')}
+                spellCheck={false}
+                disabled={usePresetToken}
+              />
+            </label>
+            <button className="btn btn-sm" onClick={() => setShowToken((v) => !v)} disabled={usePresetToken}>
+              {showToken ? t('hcm.hide') : t('hcm.show')}
+            </button>
+            {/* 开关态用 btn-active（浅底主色字）而不是实心紫：toggle 不是主操作 */}
+            <button
+              className={`btn btn-sm ${usePresetToken ? 'btn-active' : ''}`}
+              onClick={() => setUsePresetToken((v) => !v)}
+              title={t('hcm.usePresetHint')}
+              disabled={!currentEnv?.has_preset_token}
+            >
+              {usePresetToken ? t('hcm.presetOn') : t('hcm.presetOff')}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -916,7 +1046,7 @@ const loadList = useCallback(async () => {
               spellCheck={false}
             />
             <button
-              className={advOpen ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+              className={advOpen ? 'btn btn-sm btn-active' : 'btn btn-sm btn-ghost'}
               onClick={() => setAdvOpen((v) => !v)}
             >
               {t('hcm.advFilter')}
@@ -955,7 +1085,7 @@ const loadList = useCallback(async () => {
                 />
               </label>
               <div className="hcm-adv-actions">
-                <button className="btn btn-sm btn-primary" onClick={() => setAdvOpen(false)}>
+                <button className="btn btn-sm" onClick={() => setAdvOpen(false)}>
                   {t('hcm.advApply')}
                 </button>
                 <button className="btn btn-sm" onClick={resetFilter} disabled={!hasFilter}>
@@ -987,9 +1117,9 @@ const loadList = useCallback(async () => {
                     aria-label={it.id}
                     onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openDetailWindow(it); } }}
                   >
-                    <td>{it.name}</td>
-                    <td>{it.description || '—'}</td>
-                    <td className="hcm-mono">{it.class_}</td>
+                    <td className="hcm-cell-ellipsis" title={it.name}>{it.name}</td>
+                    <td className="hcm-cell-ellipsis" title={it.description || ''}>{it.description || '—'}</td>
+                    <td className="hcm-mono hcm-cell-ellipsis" title={it.class_}>{it.class_}</td>
                   </tr>
                 ))}
                 {!loading && shownItems.length === 0 && (
@@ -1005,7 +1135,7 @@ const loadList = useCallback(async () => {
           </div>
           <div className="hcm-pager">
             <button
-              className="btn btn-sm"
+              className="btn btn-sm hcm-pager-btn"
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
               aria-label={t('hcm.prevPage')}
@@ -1013,11 +1143,11 @@ const loadList = useCallback(async () => {
             >
               ‹
             </button>
-            <span>
+            <span className="hcm-pager-page">
               {page} / {totalPages}
             </span>
             <button
-              className="btn btn-sm"
+              className="btn btn-sm hcm-pager-btn"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
               aria-label={t('hcm.nextPage')}
@@ -1030,12 +1160,18 @@ const loadList = useCallback(async () => {
 
         {/* 右：字段 / JSON 元数据 */}
         <div className="hcm-detail">
-          {!selected && <div className="hcm-empty hcm-detail-empty">{t('hcm.pickHint')}</div>}
+          {!selected && (
+            <div className="hcm-empty-state hcm-detail-empty">
+              <div className="hcm-empty-title">{t('hcm.pickHint')}</div>
+              <div className="hcm-empty-hint">{t('hcm.dblToViewNew')}</div>
+            </div>
+          )}
           {selected && (
             <>
+              {/* 头部一行搞定：名称 + id 小徽标（此前 id 单独占一行，纯浪费纵向空间） */}
               <div className="hcm-detail-head">
                 <div className="hcm-detail-title">{selected.name}</div>
-                <div className="hcm-detail-sub hcm-mono">{selected.id}</div>
+                <code className="hcm-detail-id" title={selected.id}>{selected.id}</code>
               </div>
               <div className="hcm-subtabs">
                 <button
@@ -1057,44 +1193,47 @@ const loadList = useCallback(async () => {
                     if (selected) ensureData(selected);
                   }}
                   disabled={!selected}
-                  title="查询选中对象的记录数据并以 JSON 展示"
+                  title={t('hcm.tabDataHint')}
                 >
                   {t('hcm.tabData')}
                 </button>
-                {/* 元数据显示维度：list / info / view / all（查询所有 JSON 节点） */}
-                <span className="hcm-kind-sep" />
-                <button
-                  className={metaKind === 'list' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'list')}
-                  disabled={!selected}
-                  title="列表视图维度"
-                >
-                  list
-                </button>
-                <button
-                  className={metaKind === 'info' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'info')}
-                  disabled={!selected}
-                  title="详情视图维度"
-                >
-                  info
-                </button>
-                <button
-                  className={metaKind === 'view' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'view')}
-                  disabled={!selected}
-                  title="表单视图维度"
-                >
-                  view
-                </button>
-                <button
-                  className={metaKind === 'all' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                  onClick={() => selected && loadMeta(selected, 'all')}
-                  disabled={!selected}
-                  title="全部 JSON 节点"
-                >
-                  all
-                </button>
+                {/* 元数据显示维度：list / info / view / all（查询所有 JSON 节点）。
+                    四个切维按钮收进一个分段控件（.hcm-kind-group），只保留一个边框，
+                    不再和左侧视图 tab 一样一人一颗按钮，减少一排 8 个钮的噪声 */}
+                <span className="hcm-kind-group">
+                  <button
+                    className={metaKind === 'list' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'list')}
+                    disabled={!selected}
+                    title={t('hcm.kindListHint')}
+                  >
+                    list
+                  </button>
+                  <button
+                    className={metaKind === 'info' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'info')}
+                    disabled={!selected}
+                    title={t('hcm.kindInfoHint')}
+                  >
+                    info
+                  </button>
+                  <button
+                    className={metaKind === 'view' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'view')}
+                    disabled={!selected}
+                    title={t('hcm.kindViewHint')}
+                  >
+                    view
+                  </button>
+                  <button
+                    className={metaKind === 'all' ? 'btn btn-sm btn-active' : 'btn btn-sm'}
+                    onClick={() => selected && loadMeta(selected, 'all')}
+                    disabled={!selected}
+                    title={t('hcm.kindAllHint')}
+                  >
+                    all
+                  </button>
+                </span>
                 {rightTab === 'json' && (
                   <button className="btn btn-sm hcm-copy-btn" onClick={copyJson}>
                     {copied ? `✓ ${t('hcm.copied')}` : t('hcm.copyJson')}
@@ -1184,49 +1323,11 @@ const loadList = useCallback(async () => {
               {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 复制 / 导出 */}
               {rightTab === 'data' && (
                 <div className="hcm-data">
-                  {/* 复制 / 导出外层工具条：对当前 Data 视图下的任意筛选条件（快速 / 结构化 / 台帐）
-                      都生效，操作对象是「当前筛选条件命中的全部行」，状态用 dataExportStatus 提示。 */}
+                  {/* 顶部工具条：左组「快速筛选（字段+值+查询）」，右组「复制/导出」，
+                      两组各自成簇、右组贴右，避免 8 个控件平铺在一行里互相打架。
+                      导出仍对当前筛选条件命中的**全部行**生效。 */}
                   <div className="hcm-data-export">
-                    <select
-                      value={dataExportFormat}
-                      onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
-                      title="导出格式"
-                      disabled={dataExporting}
-                      aria-label="导出格式"
-                    >
-                      <option value="csv">CSV</option>
-                      <option value="json">JSON</option>
-                    </select>
-                    {isSyncLedger && (
-                      <label className="hcm-sync-raw" title="勾选后导出会带上「原始报文」等超大 JSON 列（默认剔除）">
-                        <input
-                          type="checkbox"
-                          checked={dataExportRaw}
-                          onChange={(e) => setDataExportRaw(e.target.checked)}
-                          disabled={dataExporting}
-                        />
-                        含原始报文
-                      </label>
-                    )}
-                    <button
-                      className="btn btn-sm"
-                      onClick={copyCurrentResult}
-                      disabled={!selected || dataExporting}
-                      title="把当前筛选条件命中的全部行按所选格式复制到剪贴板"
-                    >
-                      {dataExportBusy === 'copy' ? '复制中…' : '复制结果'}
-                    </button>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={exportCurrentResult}
-                      disabled={!selected || dataExporting}
-                      title="把当前筛选条件命中的全部行导出为文件（非仅当前页）"
-                    >
-                      {dataExportBusy === 'export' ? '导出中…' : '导出当前筛选结果'}
-                    </button>
-                    {dataExportStatus && <span className="hcm-data-export-status">{dataExportStatus}</span>}
-                  </div>
-                  <div className="hcm-fields-toolbar">
+                    <div className="hcm-export-group">
                     <select
                       className="hcm-struct-op"
                       value={resolvedQuickFilterField}
@@ -1242,7 +1343,7 @@ const loadList = useCallback(async () => {
                       ))}
                     </select>
                     <input
-                      className="hcm-search"
+                      className="hcm-search hcm-quick-filter"
                       value={dataFilter}
                       onChange={(e) => setDataFilter(e.target.value)}
                       onKeyDown={(e) => {
@@ -1272,7 +1373,7 @@ const loadList = useCallback(async () => {
                       spellCheck={false}
                     />
                     <button
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-sm btn-primary hcm-query-btn"
                       onClick={() => {
                         if (selected) {
                           setDataPage(1);
@@ -1299,182 +1400,241 @@ const loadList = useCallback(async () => {
                     >
                       {dataLoading ? t('hcm.loading') : t('hcm.queryData')}
                     </button>
-                    <button
-                      className={dataAdvOpen ? 'btn btn-sm btn-active' : 'btn btn-sm'}
-                      onClick={() => setDataAdvOpen((v) => !v)}
-                      disabled={!selected}
-                    >
-                      {t('hcm.advanced')}
-                    </button>
+                    </div>
+                    {dataExportStatus && (
+                      <span className="hcm-data-export-status">{dataExportStatus}</span>
+                    )}
                   </div>
 
-                  {/* 同步台帐专用筛选：按业务含义命名的字段（实体类型/数据名/HCM ID…）。默认折叠。 */}
-                  {isSyncLedger && (
-                    <div className="hcm-sync">
-                      <div className="hcm-sync-head">
+                  {/* 筛选开关条：三个可折叠筛选区块（台帐 / 结构化 / 高级）+ 数据 JSON 搜索
+                      全部压到同一行；展开体依次渲染在下方，收起时完全不占高度，
+                      把纵向空间尽量留给数据内容（此前三个区块各自占一整行头部）。 */}
+                  <div className="hcm-filterbar">
+                    {isSyncLedger && (
+                      <button
+                        className={`hcm-chip${syncPanelOpen ? ' active' : ''}`}
+                        onClick={() => setSyncPanelOpen((v) => !v)}
+                        aria-expanded={syncPanelOpen}
+                        title={syncPanelOpen ? t('hcm.syncCollapse') : t('hcm.syncExpand')}
+                      >
+                        {syncPanelOpen ? '▾' : '▸'} {t('hcm.syncFilter')}
+                        {Object.keys(syncFilter).length > 0 ? ` · ${Object.keys(syncFilter).length}` : ''}
+                      </button>
+                    )}
+                    <button
+                      className={`hcm-chip${dataStructOpen ? ' active' : ''}`}
+                      onClick={() => setDataStructOpen((v) => !v)}
+                      disabled={!selected}
+                      aria-expanded={dataStructOpen}
+                      title={t('hcm.structFilterHint')}
+                    >
+                      {dataStructOpen ? '▾' : '▸'} {t('hcm.structFilter')}
+                      {dataStruct.length > 0 ? ` · ${dataStruct.length}` : ''}
+                    </button>
+                    <button
+                      className={`hcm-chip${dataAdvOpen ? ' active' : ''}`}
+                      onClick={() => setDataAdvOpen((v) => !v)}
+                      disabled={!selected}
+                      aria-expanded={dataAdvOpen}
+                      title={t('hcm.requestBodyHint')}
+                    >
+                      {dataAdvOpen ? '▾' : '▸'} {t('hcm.advanced')}
+                    </button>
+                    <div className="spacer" />
+                    {/* 导出操作组：与筛选 chip 同处一行、贴右。导出作用于「当前筛选命中的全部行」，
+                        放在筛选条同一行语义上也是连贯的（看到的就是导出的）。 */}
+                    <div className="hcm-export-group hcm-export-actions">
+                      <select
+                        value={dataExportFormat}
+                        onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
+                        title={t('hcm.exportFormat')}
+                        disabled={dataExporting}
+                        aria-label={t('hcm.exportFormat')}
+                      >
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                      </select>
+                      {isSyncLedger && (
+                        <label className="hcm-sync-raw" title={t('hcm.exportRawHint')}>
+                          <input
+                            type="checkbox"
+                            checked={dataExportRaw}
+                            onChange={(e) => setDataExportRaw(e.target.checked)}
+                            disabled={dataExporting}
+                          />
+                          {t('hcm.exportRaw')}
+                        </label>
+                      )}
+                      <button
+                        className="btn btn-sm"
+                        onClick={copyCurrentResult}
+                        disabled={!selected || dataExporting}
+                        title={t('hcm.copyResultHint')}
+                      >
+                        {dataExportBusy === 'copy' ? t('hcm.copying') : t('hcm.copyResult')}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={exportCurrentResult}
+                        disabled={!selected || dataExporting}
+                        title={t('hcm.exportResultHint')}
+                      >
+                        {dataExportBusy === 'export' ? t('hcm.exporting') : t('hcm.exportResult')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 台帐筛选体（仅同步台帐模型）：字段网格 + 查询/清空 */}
+                  {isSyncLedger && syncPanelOpen && (
+                    <div className="hcm-panel-body">
+                      <div className="hcm-panel-hint" title={t('hcm.syncHint')}>{t('hcm.syncHint')}</div>
+                      <div className="hcm-sync-grid">
+                        {syncFields.map((f) => {
+                          const dyn = syncSelectOptions[f.key] || [];
+                          const opts: { value: string; label: string; count?: number }[] =
+                            f.kind !== 'select'
+                              ? []
+                              : dyn.length
+                                ? dyn.map((o) => ({
+                                    value: o.value,
+                                    label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
+                                    count: o.count,
+                                  }))
+                                : staticSyncSelectOptions(f.key).map((o) => ({
+                                    value: o.value,
+                                    label: selectOptionLabel(o),
+                                  }));
+                          const value = syncFilter[f.key] || '';
+                          const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
+                          return (
+                            <label className="hcm-sync-item" key={f.key}>
+                              <span className="hcm-sync-label">{syncFieldLabel(f)}</span>
+                              {f.kind === 'select' && opts.length > 0 ? (
+                                <select value={value} onChange={(e) => setVal(e.target.value)}>
+                                  <option value="">{t('hcm.metaAll')}</option>
+                                  {opts.map((o) => (
+                                    <option key={o.value} value={o.value}>
+                                      {o.label}
+                                      {typeof o.count === 'number' ? ` · ${o.count}` : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  value={value}
+                                  onChange={(e) => setVal(e.target.value)}
+                                  placeholder={syncFieldPlaceholder(f)}
+                                  spellCheck={false}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') applySyncFilter();
+                                  }}
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                      <div className="hcm-panel-actions">
                         <button
-                          className="btn btn-sm hcm-sync-toggle"
-                          onClick={() => setSyncPanelOpen((v) => !v)}
-                          title={syncPanelOpen ? '折叠台帐筛选' : '展开台帐筛选'}
-                          aria-expanded={syncPanelOpen}
-                        >
-                          台帐筛选 {syncPanelOpen ? '▾' : '▸'}
-                          {Object.keys(syncFilter).length > 0 ? ` · 已设 ${Object.keys(syncFilter).length} 项` : ''}
-                        </button>
-                        <button
-                          className="btn btn-sm btn-primary"
+                          className="btn btn-sm"
                           onClick={applySyncFilter}
                           disabled={!selected || dataLoading || Object.keys(syncFilter).length === 0}
-                          title={Object.keys(syncFilter).length === 0 ? '请先展开面板并设置筛选条件' : '按当前条件查询'}
+                          title={
+                            Object.keys(syncFilter).length === 0
+                              ? t('hcm.syncNeedCond')
+                              : t('hcm.structApply')
+                          }
                         >
-                          {dataLoading ? t('hcm.loading') : '按条件查询'}
+                          {dataLoading ? t('hcm.loading') : t('hcm.structApply')}
                         </button>
                         <button
                           className="btn btn-sm"
                           onClick={() => setSyncFilter({})}
                           disabled={Object.keys(syncFilter).length === 0}
                         >
-                          清空
+                          {t('hcm.structClear')}
                         </button>
                       </div>
-                      {syncPanelOpen && (
-                        <>
-                          <div className="hcm-sync-grid">
-                            {syncFields.map((f) => {
-                              const dyn = syncSelectOptions[f.key] || [];
-                              const opts: { value: string; label: string; count?: number }[] =
-                                f.kind !== 'select'
-                                  ? []
-                                  : dyn.length
-                                    ? dyn.map((o) => ({
-                                        value: o.value,
-                                        label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
-                                        count: o.count,
-                                      }))
-                                    : staticSyncSelectOptions(f.key).map((o) => ({ value: o.value, label: o.label }));
-                              const value = syncFilter[f.key] || '';
-                              const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
-                              return (
-                                <label className="hcm-sync-item" key={f.key}>
-                                  <span className="hcm-sync-label">{f.label}</span>
-                                  {f.kind === 'select' && opts.length > 0 ? (
-                                    <select value={value} onChange={(e) => setVal(e.target.value)}>
-                                      <option value="">全部</option>
-                                      {opts.map((o) => (
-                                        <option key={o.value} value={o.value}>
-                                          {o.label}
-                                          {typeof o.count === 'number' ? ` · ${o.count}` : ''}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    <input
-                                      value={value}
-                                      onChange={(e) => setVal(e.target.value)}
-                                      placeholder={f.placeholder}
-                                      spellCheck={false}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') applySyncFilter();
-                                      }}
-                                    />
-                                  )}
-                                </label>
-                              );
-                            })}
-                          </div>
-                          <div className="hcm-sync-hint">
-                            按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
-                          </div>
-                        </>
-                      )}
                     </div>
                   )}
 
-                  {/* 结构化筛选（filter_dict）：参考对象字段，多条件 AND 组合 */}
-                  <div className="hcm-struct">
-                    <div className="hcm-struct-head">
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => setDataStructOpen((v) => !v)}
-                        disabled={!selected}
-                      >
-                        {t('hcm.structFilter')} {dataStructOpen ? '▾' : '▸'}
-                        {dataStruct.length > 0 ? ` (${dataStruct.length})` : ''}
-                      </button>
-                      <span className="hcm-struct-hint">{t('hcm.structFilterHint')}</span>
-                      <button className="btn btn-sm" onClick={addStructRow} disabled={!selected}>
-                        {t('hcm.structAdd')}
-                      </button>
-                      <button className="btn btn-sm" onClick={clearStruct} disabled={!dataStruct.length}>
-                        {t('hcm.structClear')}
-                      </button>
-                      <button
-                        className="btn btn-sm btn-primary"
-                        onClick={applyStructFilter}
-                        disabled={!selected || dataLoading}
-                      >
-                        {dataLoading ? t('hcm.loading') : t('hcm.structApply')}
-                      </button>
-                    </div>
-                    {dataStructOpen && (
-                      <div className="hcm-struct-body">
-                        {dataStruct.length === 0 && (
-                          <div className="hcm-struct-empty">{t('hcm.structEmpty')}</div>
-                        )}
-                        {dataStruct.map((r) => (
-                          <div className="hcm-struct-row" key={r.id}>
-                            <input
-                              className="hcm-struct-field"
-                              list="hcm-struct-fields"
-                              value={r.field}
-                              onChange={(e) => updateStructRow(r.id, { field: e.target.value })}
-                              placeholder={t('hcm.structFieldPlaceholder')}
-                              spellCheck={false}
-                            />
-                            <select
-                              className="hcm-struct-op"
-                              value={r.operator}
-                              onChange={(e) => updateStructRow(r.id, { operator: e.target.value as HcmFilterOperator })}
-                              aria-label={t('hcm.structOperator')}
-                            >
-                              <option value="eq">{t('hcm.structExact')}</option>
-                              <option value="contains">{t('hcm.structContains')}</option>
-                            </select>
-                            <input
-                              className="hcm-struct-value"
-                              value={r.value}
-                              onChange={(e) => updateStructRow(r.id, { value: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') applyStructFilter();
-                              }}
-                              placeholder={t('hcm.structValuePlaceholder')}
-                              spellCheck={false}
-                            />
-                            <button
-                              className="btn btn-sm hcm-struct-del"
-                              onClick={() => removeStructRow(r.id)}
-                              title={t('hcm.structRemove')}
-                              aria-label={t('hcm.structRemove')}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* 字段联想数据源：当前对象的 meta.fields（优先 is_filter，回退全部） */}
-                    <datalist id="hcm-struct-fields">
-                      {filterCandidates.map((c) => (
-                        <option key={c.key} value={c.key}>
-                          {c.label || c.key}
-                        </option>
+                  {/* 结构化筛选体（filter_dict）：参考对象字段，多条件 AND 组合 */}
+                  {dataStructOpen && (
+                    <div className="hcm-panel-body">
+                      <div className="hcm-panel-hint" title={t('hcm.structFilterHint')}>{t('hcm.structFilterHint')}</div>
+                      {dataStruct.length === 0 && (
+                        <div className="hcm-struct-empty">{t('hcm.structEmpty')}</div>
+                      )}
+                      {dataStruct.map((r) => (
+                        <div className="hcm-struct-row" key={r.id}>
+                          <input
+                            className="hcm-struct-field"
+                            list="hcm-struct-fields"
+                            value={r.field}
+                            onChange={(e) => updateStructRow(r.id, { field: e.target.value })}
+                            placeholder={t('hcm.structFieldPlaceholder')}
+                            spellCheck={false}
+                          />
+                          <select
+                            className="hcm-struct-op"
+                            value={r.operator}
+                            onChange={(e) => updateStructRow(r.id, { operator: e.target.value as HcmFilterOperator })}
+                            aria-label={t('hcm.structOperator')}
+                          >
+                            <option value="eq">{t('hcm.structExact')}</option>
+                            <option value="contains">{t('hcm.structContains')}</option>
+                          </select>
+                          <input
+                            className="hcm-struct-value"
+                            value={r.value}
+                            onChange={(e) => updateStructRow(r.id, { value: e.target.value })}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') applyStructFilter();
+                            }}
+                            placeholder={t('hcm.structValuePlaceholder')}
+                            spellCheck={false}
+                          />
+                          <button
+                            className="btn btn-sm hcm-struct-del"
+                            onClick={() => removeStructRow(r.id)}
+                            title={t('hcm.structRemove')}
+                            aria-label={t('hcm.structRemove')}
+                          >
+                            ×
+                          </button>
+                        </div>
                       ))}
-                    </datalist>
-                  </div>
+                      <div className="hcm-panel-actions">
+                        <button className="btn btn-sm" onClick={addStructRow} disabled={!selected}>
+                          {t('hcm.structAdd')}
+                        </button>
+                        <button className="btn btn-sm" onClick={clearStruct} disabled={!dataStruct.length}>
+                          {t('hcm.structClear')}
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={applyStructFilter}
+                          disabled={!selected || dataLoading}
+                        >
+                          {dataLoading ? t('hcm.loading') : t('hcm.structApply')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {/* 字段联想数据源：当前对象的 meta.fields（优先 is_filter，回退全部）。
+                      始终挂载，供结构化筛选的字段输入框 list 引用。 */}
+                  <datalist id="hcm-struct-fields">
+                    {filterCandidates.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.label || c.key}
+                      </option>
+                    ))}
+                  </datalist>
 
-                  {/* 高级请求体编辑（参考 HCM API 测试页：完整 JSON 输入 + SQL/Profile 开关） */}
+                  {/* 高级请求体体：直接编辑 hcm.model.list 请求 JSON + 调试开关 */}
                   {dataAdvOpen && (
-                    <div className="hcm-adv">
+                    <div className="hcm-panel-body">
+                      <div className="hcm-panel-hint" title={t('hcm.requestBodyHint')}>{t('hcm.requestBodyHint')}</div>
                       <label className="hcm-adv-row hcm-adv-vertical">
                         <span>{t('hcm.requestBody')}</span>
                         <textarea
@@ -1508,56 +1668,29 @@ const loadList = useCallback(async () => {
                     </div>
                   )}
 
-                  {/* 数据 JSON 内搜索 */}
-                  <div className="hcm-fields-toolbar">
-                    <input
-                      className="hcm-search"
-                      value={dataJsonQuery}
-                      onChange={(e) => setDataJsonQuery(e.target.value)}
-                      placeholder={t('hcm.dataJsonSearch')}
-                      spellCheck={false}
-                    />
-                    {dataJsonQuery.trim() && (
-                      <span className="hcm-count">
-                        {t('hcm.dataMatch')}: {dataView.matched}
-                      </span>
-                    )}
-                  </div>
-
                   {dataLoading && <div className="hcm-loading">{t('hcm.loading')}…</div>}
                   {dataError && <div className="hcm-error">{dataError}</div>}
 
                   {!dataLoading && !dataError && dataResult && (
                     <>
-                      <div className="hcm-detail-sub hcm-mono">
-                        {t('hcm.dataCount')}: {dataTotal}
-                        {typeof dataMeta.duration_ms === 'number' && (
-                          <span className="hcm-meta-duration">
-                            {' '}
-                            · {t('hcm.duration')}: {(dataMeta.duration_ms / 1000).toFixed(3)}s
+                      {/* 视图内查找：只作用于下面这段已加载的 JSON（高亮 + 命中数）。
+                          与上方「字段 + 关键字 + 查询」的服务端查询是两回事，
+                          贴着内容放，避免两个搜索框在相邻两行里分不清 */}
+                      <div className="hcm-json-find">
+                        <input
+                          className="hcm-search hcm-json-search"
+                          value={dataJsonQuery}
+                          onChange={(e) => setDataJsonQuery(e.target.value)}
+                          placeholder={t('hcm.dataJsonSearch')}
+                          spellCheck={false}
+                        />
+                        {dataJsonQuery.trim() && (
+                          <span className="hcm-count">
+                            {t('hcm.dataMatch')}: {dataView.matched}
                           </span>
                         )}
-                        {dataMeta.profile_index && (
-                          <a
-                            className="hcm-meta-link"
-                            href={`/document/temp/download?index=${dataMeta.profile_index}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {t('hcm.downloadProfile')}
-                          </a>
-                        )}
-                        {dataMeta.log_index && (
-                          <a
-                            className="hcm-meta-link"
-                            href={`/document/temp/download?index=${dataMeta.log_index}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {t('hcm.downloadLog')}
-                          </a>
-                        )}
                       </div>
+                      {/* 数据正文：flex:1 + 滚动，占满工具条/筛选条/页脚之外的全部高度 */}
                       <pre className="hcm-json">
                         {dataView.lines.map((ln, i) => (
                           <Fragment key={i}>
@@ -1566,70 +1699,111 @@ const loadList = useCallback(async () => {
                           </Fragment>
                         ))}
                       </pre>
-                      <div className="hcm-pager">
-                        <button
-                          className="btn btn-sm"
-                          aria-label={t('hcm.prevPage')}
-                          title={t('hcm.prevPage')}
-                          disabled={dataPage <= 1}
-                          onClick={() => {
-                            const p = Math.max(1, dataPage - 1);
-                            setDataPage(p);
-                            if (selected) loadData(selected, p);
-                          }}
-                        >
-                          ‹
-                        </button>
-                        <span>
-                          {dataPage} / {Math.max(1, Math.ceil(dataTotal / dataPageSize))}
+                      {/* 页脚：左侧状态（条数/耗时/接口日志下载），右侧翻页 —— 省掉单独一行元信息 */}
+                      <div className="hcm-pager hcm-pager--split">
+                        <span className="hcm-data-meta hcm-mono">
+                          {/* 计数包一层 span：flex 容器里的裸文本节点是匿名 item，
+                              窄面板会被压成 min-content 逐字换行（Records: / 5498 / · …） */}
+                          <span className="hcm-meta-count">
+                            {t('hcm.dataCount')}: {dataTotal}
+                          </span>
+                          {typeof dataMeta.duration_ms === 'number' && (
+                            <span className="hcm-meta-duration">
+                              {' '}
+                              · {t('hcm.duration')}: {(dataMeta.duration_ms / 1000).toFixed(3)}s
+                            </span>
+                          )}
+                          {dataMeta.profile_index && (
+                            <button
+                              type="button"
+                              className="hcm-meta-link hcm-link-btn"
+                              disabled={dataLogBusy}
+                              onClick={() => downloadTempFile(String(dataMeta.profile_index), '')}
+                            >
+                              {t('hcm.downloadProfile')}
+                            </button>
+                          )}
+                          {dataMeta.log_index && (
+                            <button
+                              type="button"
+                              className="hcm-meta-link hcm-link-btn"
+                              disabled={dataLogBusy}
+                              onClick={() => downloadTempFile(String(dataMeta.log_index), '')}
+                            >
+                              {t('hcm.downloadLog')}
+                            </button>
+                          )}
+                          {dataLogStatus && <span className="hcm-meta-duration"> · {dataLogStatus}</span>}
                         </span>
-                        <button
-                          className="btn btn-sm"
-                          aria-label={t('hcm.nextPage')}
-                          title={t('hcm.nextPage')}
-                          disabled={dataPage >= Math.ceil(dataTotal / dataPageSize)}
-                          onClick={() => {
-                            const p = dataPage + 1;
-                            setDataPage(p);
-                            if (selected) loadData(selected, p);
-                          }}
-                        >
-                          ›
-                        </button>
-                        <label className="hcm-data-pagesize">
-                          <span>{t('hcm.dataPageSize')}</span>
-                          <input
-                            className="input input-sm"
-                            type="number"
-                            min={1}
-                            max={1000}
-                            value={Number.isFinite(dataPageSize) ? dataPageSize : ''}
-                            onChange={(e) => {
-                              // 不用 `parseInt(v) || 20` 静默回退：让非法值可见，
-                              // 失焦时统一钳制并提示（max 也不再形同虚设）
-                              const raw = e.target.value;
-                              setDataPageSize(raw === '' ? NaN : Number(raw));
+                        <div className="hcm-pager-nav">
+                          <button
+                            className="btn btn-sm hcm-pager-btn"
+                            aria-label={t('hcm.prevPage')}
+                            title={t('hcm.prevPage')}
+                            disabled={dataPage <= 1}
+                            onClick={() => {
+                              const p = Math.max(1, dataPage - 1);
+                              setDataPage(p);
+                              if (selected) loadData(selected, p);
                             }}
-                            onBlur={() => {
-                              const n = Math.trunc(Number(dataPageSize));
-                              const v = !Number.isFinite(n) || n < 1 ? 20 : Math.min(1000, n);
-                              if (v !== dataPageSize) {
-                                setDataPageSize(v);
-                                addToast(t('hcm.dataPageSizeClamped', { v }), 'warn');
-                              }
-                              if (selected) {
-                                setDataPage(1);
-                                loadData(selected, 1);
-                              }
+                          >
+                            ‹
+                          </button>
+                          <span className="hcm-pager-page">
+                            {dataPage} / {Math.max(1, Math.ceil(dataTotal / dataPageSize))}
+                          </span>
+                          <button
+                            className="btn btn-sm hcm-pager-btn"
+                            aria-label={t('hcm.nextPage')}
+                            title={t('hcm.nextPage')}
+                            disabled={dataPage >= Math.ceil(dataTotal / dataPageSize)}
+                            onClick={() => {
+                              const p = dataPage + 1;
+                              setDataPage(p);
+                              if (selected) loadData(selected, p);
                             }}
-                          />
-                        </label>
+                          >
+                            ›
+                          </button>
+                          <span className="hcm-pager-sep" />
+                          <label className="hcm-data-pagesize">
+                            <span>{t('hcm.dataPageSize')}</span>
+                            <input
+                              className="input input-sm"
+                              type="number"
+                              min={1}
+                              max={1000}
+                              value={Number.isFinite(dataPageSize) ? dataPageSize : ''}
+                              onChange={(e) => {
+                                // 不用 `parseInt(v) || 20` 静默回退：让非法值可见，
+                                // 失焦时统一钳制并提示（max 也不再形同虚设）
+                                const raw = e.target.value;
+                                setDataPageSize(raw === '' ? NaN : Number(raw));
+                              }}
+                              onBlur={() => {
+                                const n = Math.trunc(Number(dataPageSize));
+                                const v = !Number.isFinite(n) || n < 1 ? 20 : Math.min(1000, n);
+                                if (v !== dataPageSize) {
+                                  setDataPageSize(v);
+                                  addToast(t('hcm.dataPageSizeClamped', { v }), 'warn');
+                                }
+                                if (selected) {
+                                  setDataPage(1);
+                                  loadData(selected, 1);
+                                }
+                              }}
+                            />
+                          </label>
+                        </div>
                       </div>
                     </>
                   )}
 
                   {!dataLoading && !dataError && !dataResult && (
-                    <div className="hcm-empty">{t('hcm.pickHint')}</div>
+                    <div className="hcm-empty-state">
+                      <div className="hcm-empty-title">{t('hcm.pickHint')}</div>
+                      <div className="hcm-empty-hint">{t('hcm.dblToViewNew')}</div>
+                    </div>
                   )}
                 </div>
               )}

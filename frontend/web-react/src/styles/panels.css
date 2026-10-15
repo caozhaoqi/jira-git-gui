@@ -3305,6 +3305,121 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-zoomout:hover { background: var(--surface-2, rgba(99, 102, 241, 0.1)); }
 
+/* ── Kibana 筛选折叠开关 + 下载对话框 ─────────────────────────────────── */
+.kb-filters-wrap { background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+.kb-filters-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+}
+.kb-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  /* 折叠态要能看到当前筛选，摘要需能压缩 */
+  flex-wrap: wrap;
+}
+.kb-filter-toggle .cfd-caret { font-style: normal; }
+.kb-filter-summary {
+  font-size: 12px;
+  color: var(--text-dim);
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-dirty-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--warn, #f59e0b);
+  flex: none;
+}
+
+/* 下载对话框 */
+.kb-dl-modal { width: 420px; max-width: 92vw; }
+.kb-dl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.kb-dl-tip { margin: 0; font-size: 12px; color: var(--text-dim); }
+.kb-dl-field { display: flex; align-items: center; gap: 10px; }
+.kb-dl-label { flex: 0 0 72px; font-size: 13px; color: var(--text-dim); }
+.kb-dl-field .sel, .kb-dl-field .input { flex: 1 1 auto; min-width: 0; }
+.kb-dl-time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 82px;
+}
+.kb-dl-rows { max-width: 160px; flex: 0 0 auto; }
+.kb-dl-loading { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.kb-dl-progress { font-size: 12px; color: var(--primary); }
+
+/* ── Kibana 实时查找条（live filter，同 CF 日志）────────────────────────── */
+.kb-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.kb-search-input { flex: 1 1 240px; min-width: 180px; }
+.kb-search-case {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.kb-search-count { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+/* 「关键词高亮」来源提示：高亮来自主筛选关键词而非查找框时显示 */
+.kb-hl-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  padding: 1px 8px;
+  font-size: 12px;
+  color: var(--primary);
+  background: var(--primary-weak);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: help;
+}
+.kb-match-nav { display: inline-flex; align-items: center; gap: 4px; }
+.kb-match-nav .btn { padding: 2px 9px; line-height: 1.2; }
+.kb-match-pos {
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 44px;
+  text-align: center;
+  user-select: none;
+}
+/* 命中高亮：普通命中 / 当前命中 / 当前命中所在行（与 CF 一致的视觉） */
+.kb-hl { background: var(--hl-bg); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
+.kb-hl.active {
+  background: var(--hl-cf-active);
+  color: var(--hl-text);
+  box-shadow: 0 0 0 1px var(--hl-cf-ring);
+}
+.kb-line:has(.kb-hl.active) { background: var(--hl-cf-row); }
+
 .kb-bar.clickable { cursor: pointer; }
 .kb-bar.clickable:hover .kb-bar-fill { filter: brightness(1.25); }
 .kb-bar.clickable:hover .kb-bar-label { color: var(--primary); }
