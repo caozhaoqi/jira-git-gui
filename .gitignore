@@ -80,6 +80,8 @@ frontend/web-react/dist/
 frontend/web-react/build/
 frontend/web-react/.tsbuildinfo
 *.tsbuildinfo
+# Vite 加载 vite.config.ts 时落下的临时配置副本（正常会自动删，进程被杀时会残留）
+frontend/web-react/vite.config.ts.timestamp-*
 # 旧前端子目录（已迁移到 web-react，不再维护）
 frontend/web-legacy/
 

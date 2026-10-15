@@ -14,6 +14,7 @@
 """
 import sys
 import types
+import urllib.parse
 import unittest
 
 sys.path.insert(0, ".")
@@ -28,6 +29,14 @@ class _Resp:
     def __init__(self, status, text):
         self.status_code = status
         self.text = text
+
+
+class _RawResp:
+    def __init__(self, status, content, content_type="text/plain"):
+        self.status_code = status
+        self.content = content
+        self.headers = {"Content-Type": content_type}
+        self.text = content.decode("utf-8", errors="replace")
 
 
 class _FakeClient(FilesMixin, BrowseMixin):
@@ -122,6 +131,59 @@ class TestFileContentRevision(unittest.TestCase):
         self.assertIsNone(err, err)
         self.assertIn("def main()", content)
         self.assertNotIn("文件过大或为二进制", content or "")
+
+    def test_pre_content_wins_over_unrelated_code_element(self):
+        page = _Resp(
+            200,
+            '<html><body><code>toolbar metadata</code>'
+            '<pre class="code">def main():\n    return 42\n</pre></body></html>')
+        c = _FakeClient(lambda url: page)
+        content, err = c.get_file("utils.py")
+        self.assertIsNone(err, err)
+        self.assertIn("def main()", content)
+        self.assertNotIn("toolbar metadata", content)
+
+    def test_empty_pre_is_a_valid_empty_file(self):
+        page = _Resp(200, '<html><body><pre class="code"></pre></body></html>')
+        c = _FakeClient(lambda url: page)
+        content, err = c.get_file("empty.py")
+        self.assertIsNone(err, err)
+        self.assertEqual(content, "")
+
+    def test_empty_raw_file_in_json_is_valid(self):
+        page = _Resp(
+            200,
+            '<html><script id="git-file-content-json">'
+            '{"rawFile":"","contentType":"text/x-python"}'
+            '</script></html>')
+        c = _FakeClient(lambda url: page)
+        content, err = c.get_file("empty.py")
+        self.assertIsNone(err, err)
+        self.assertEqual(content, "")
+
+    def test_raw_fallback_handles_unrecognized_view_and_encoded_path(self):
+        raw_content = b"def main():\n    return 42\n"
+        page = _Resp(200, "<html><body>unrecognized viewer layout</body></html>")
+        c = _FakeClient(lambda url: page)
+
+        def _http_get(url, headers=None, timeout=30):
+            c.hits.append(url)
+            if "GIJViewGitFileContent.jspa" in url:
+                return page
+            if "/rest/git/1.0/repositories/" in url:
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                self.assertEqual(query["path"], ["src/a #&b.py"])
+                return _RawResp(200, raw_content)
+            return _Resp(404, "not found")
+
+        c.http_get = _http_get
+        content, err = c.get_file("src/a #&b.py")
+        self.assertIsNone(err, err)
+        self.assertEqual(content, raw_content.decode("utf-8"))
+        view_url = next(url for url in c.hits if "GIJViewGitFileContent.jspa" in url)
+        self.assertEqual(
+            urllib.parse.parse_qs(urllib.parse.urlparse(view_url).query)["path"],
+            ["src/a #&b.py"])
 
 
 if __name__ == "__main__":

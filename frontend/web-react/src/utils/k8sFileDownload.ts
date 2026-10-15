@@ -394,18 +394,8 @@ class CancelledError extends Error {
   }
 }
 
-/** 触发浏览器保存 Blob 到本地 */
-export function saveBlob(blob: Blob, filename: string) {
-  const a = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // 立刻 revoke 在部分浏览器会打断下载，延后释放
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
+/** 触发浏览器保存 Blob 到本地（通用实现见 utils/download.ts，此处转出以兼容既有引用）。 */
+export { saveBlob } from './download';
 
 /** 从容器内路径提取文件名 */
 export function baseNameOf(p: string): string {

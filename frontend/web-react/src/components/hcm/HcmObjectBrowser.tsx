@@ -6,12 +6,35 @@ import {
   type HcmEnv,
 } from '../../api/hcm/client';
 import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
-import { apiPost, reportLocalApiNetworkError } from '../../api/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
+import { saveTextFile } from '../../utils/download';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
 import { openHcmWindow } from './hcmWindow';
+import {
+  buildHcmFilterDict,
+  buildSyncLedgerCsv,
+  buildSyncLedgerFilterDict,
+  buildSyncLedgerJson,
+  entityTypeLabel,
+  exportFileName,
+  fetchAllRows,
+  isSyncLedgerModel,
+  metaFilterCandidates,
+  parseGroupCount,
+  parseTotalCount,
+  pickDefaultFilterKey,
+  staticSyncSelectOptions,
+  syncLedgerFieldsFor,
+  SYNC_COPY_MAX_ROWS,
+  SYNC_EXPORT_MAX_ROWS,
+  SYNC_EXPORT_PAGE_SIZE,
+  type HcmFilterCandidate,
+  type HcmFilterOperator,
+  type SyncLedgerFilterField,
+} from '../../utils/hcmObjectFilters';
 
 const LS_ENV = 'hcm.selectedEnv';
 
@@ -142,7 +165,6 @@ export function HcmObjectBrowser() {
   const [dataPageSize, setDataPageSize] = useState(20);
   const [dataFilter, setDataFilter] = useState('');
   const [dataJsonQuery, setDataJsonQuery] = useState('');
-  const [saveStatus, setSaveStatus] = useState('');
   // 高级数据请求：完整请求体 JSON 编辑、SQL/Profile 调试开关、响应元信息
   const [dataPayload, setDataPayload] = useState('');
   const [dataPayloadError, setDataPayloadError] = useState('');
@@ -151,8 +173,26 @@ export function HcmObjectBrowser() {
   const [dataMeta, setDataMeta] = useState<Record<string, any>>({});
   const [dataAdvOpen, setDataAdvOpen] = useState(false);
   // 结构化筛选（filter_dict）：字段键值对，多条件按 AND 组合，字段联想来自已加载对象的 meta.fields
-  const [dataStruct, setDataStruct] = useState<{ id: number; field: string; value: string }[]>([]);
-  const [dataStructOpen, setDataStructOpen] = useState(true);
+  const [dataStruct, setDataStruct] = useState<
+    { id: number; field: string; operator: HcmFilterOperator; value: string }[]
+  >([]);
+  // 默认折叠：U_SyncRaw* 之外的对象（普通业务模型）也用不上结构化筛选时，先把行收起；用户要点 ▸ 才会展开条件行。
+  const [dataStructOpen, setDataStructOpen] = useState(false);
+  const [quickFilterField, setQuickFilterField] = useState('');
+  // 同步台帐（U_SyncRaw*）专用筛选：字段值 + select 字段的动态选项（来自 hcm.model.count group_by）
+  const [syncFilter, setSyncFilter] = useState<Record<string, string>>({});
+  const [syncSelectOptions, setSyncSelectOptions] = useState<
+    Record<string, { value: string; count: number }[]>
+  >({});
+  // 复制/导出：当前 Data 标签页下「当前筛选结果」外层工具条的状态
+  // （不区分台帐/通用模型——以最新 dataPayload 为基准）。
+  const [dataExportFormat, setDataExportFormat] = useState<'csv' | 'json'>('csv');
+  const [dataExportRaw, setDataExportRaw] = useState(false);
+  const [dataExportBusy, setDataExportBusy] = useState<'' | 'export' | 'copy'>('');
+  const [dataExportStatus, setDataExportStatus] = useState('');
+  const dataExporting = dataExportBusy !== '';
+  // 台帐面板默认折叠：U_SyncRaw* 数据体量大、面板占屏高；首次进 U_SyncRawGdyy 之类的对象时不要一上来就铺满。
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false);
   const structIdRef = useRef(0);
 
   // 挂载时拉取可选服务器环境列表（含直连网关地址）
@@ -299,6 +339,30 @@ const loadList = useCallback(async () => {
     setPage(1);
   }, []);
 
+  // 拉取台帐 select 字段的候选值（实体类型 / 接口）：hcm.model.count + group_by + count_by。
+  // 失败静默（下拉回退为可输入的文本框）。仅对同步台帐模型调用。
+  const loadSyncOptions = useCallback(
+    async (modelId: string) => {
+      const wanted = ['u_entity_type', 'u_interface_code'];
+      const entries = await Promise.all(
+        wanted.map(async (f) => {
+          try {
+            const resp = await directCall(
+              'hcm.model.count',
+              { model: modelId, filter_dict: {}, group_by: [f], count_by: ['*'] },
+              modelId
+            );
+            return [f, parseGroupCount(resp, f)] as const;
+          } catch {
+            return [f, [] as { value: string; count: number }[]] as const;
+          }
+        })
+      );
+      setSyncSelectOptions(Object.fromEntries(entries));
+    },
+    [directCall]
+  );
+
   const loadMeta = useCallback(
     async (obj: HcmObjectItem, kind: MetaKind = metaKind) => {
       setSelected(obj);
@@ -313,6 +377,11 @@ const loadList = useCallback(async () => {
       setDataError('');
       setDataPage(1);
       setDataFilter('');
+      setQuickFilterField('');
+      setSyncFilter({});
+      setSyncSelectOptions({});
+      setDataExportStatus('');
+      setDataExportBusy('');
       setDataJsonQuery('');
       setDataMeta({});
       setDataStruct([]);
@@ -337,13 +406,15 @@ const loadList = useCallback(async () => {
         // 统一走后端直连：同源 /api/hcm/direct，后端直连网关并解密返回明文元数据。
         const m = await directCall('hcm.model.meta', { model: obj.id, meta_key: kind === 'all' ? '' : kind }, obj.id);
         setMeta(m);
+        // 台帐模型：异步拉实体类型/接口候选值（不阻塞 meta 主流程）
+        if (isSyncLedgerModel(m?.fields || [])) void loadSyncOptions(obj.id);
       } catch (e: any) {
         setMetaError(e instanceof HcmApiError ? e.message : String(e?.message || e));
       } finally {
         setMetaLoading(false);
       }
     },
-    [directCall, metaKind]
+    [directCall, metaKind, loadSyncOptions]
   );
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录（非元数据）。
@@ -398,16 +469,37 @@ const loadList = useCallback(async () => {
     [token, usePresetToken, directCallRaw, dataPayload, dataPageSize, dataPage, dataSqlDebug, dataProfileDebug, t]
   );
 
-  // 结构化筛选字段联想：来自已加载对象的元数据字段
-  const fieldsForFilter = useMemo(() => meta?.fields || [], [meta]);
+  // 按当前模型的元数据构造字段候选：优先展示显式允许筛选的字段；
+  // 某些自定义模型未标记 is_filter 时，回退为该模型全部字段供 field-targeted filter_dict 使用。
+  // 筛选字段候选：来自当前对象的元数据字段（hcm.model.meta.fields）——
+  // 优先标记 is_filter 的字段，未标记时回退为该模型全部字段。
+  // 供快速筛选下拉 + 结构化筛选联想共用。
+  const filterCandidates = useMemo<HcmFilterCandidate[]>(
+    () => metaFilterCandidates(meta?.fields || []),
+    [meta]
+  );
+  const resolvedQuickFilterField = useMemo(() => {
+    if (filterCandidates.some((c) => c.key === quickFilterField)) return quickFilterField;
+    return pickDefaultFilterKey(filterCandidates);
+  }, [filterCandidates, quickFilterField]);
+
+  // 同步台帐（U_SyncRaw*）专用筛选：仅当模型具备 u_entity_type + u_source_name 时启用
+  const syncFields = useMemo<SyncLedgerFilterField[]>(
+    () => syncLedgerFieldsFor(meta?.fields || []),
+    [meta]
+  );
+  const isSyncLedger = syncFields.length > 0;
 
   // 结构化筛选（filter_dict）增删改
   const addStructRow = useCallback(() => {
     structIdRef.current += 1;
-    setDataStruct((rows) => [...rows, { id: structIdRef.current, field: '', value: '' }]);
+    setDataStruct((rows) => [
+      ...rows,
+      { id: structIdRef.current, field: '', operator: 'eq', value: '' },
+    ]);
   }, []);
   const updateStructRow = useCallback(
-    (id: number, patch: Partial<{ field: string; value: string }>) => {
+    (id: number, patch: Partial<{ field: string; operator: HcmFilterOperator; value: string }>) => {
       setDataStruct((rows) => rows.map((r) => (r.id === id ? { ...r, ...patch } : r)));
     },
     []
@@ -417,13 +509,14 @@ const loadList = useCallback(async () => {
   }, []);
   const clearStruct = useCallback(() => setDataStruct([]), []);
 
-  // 将结构化条件合并进请求体的 filter_dict 并执行查询（多条件按 AND 等值组合）
+  // 将结构化条件合并进请求体的 filter_dict 并执行查询（多条件按 AND 组合）。
+  // contains 转成 HCM 支持的 { like: "%value%" }，不依赖各模型是否配置 filter_str 模糊搜索。
   const applyStructFilter = useCallback(() => {
     if (!selected) return;
-    const dict: Record<string, string> = {};
-    for (const r of dataStruct) {
-      const f = r.field.trim();
-      if (f) dict[f] = r.value; // 值允许为空串（匹配空值）；字段为空视为未填写，跳过
+    const dict = buildHcmFilterDict(dataStruct);
+    if (dataStruct.some((row) => row.field.trim() && row.operator === 'contains' && !row.value.trim())) {
+      setDataPayloadError('包含匹配请填写非空值');
+      return;
     }
     let payload: Record<string, any>;
     try {
@@ -434,13 +527,43 @@ const loadList = useCallback(async () => {
       return;
     }
     payload.filter_dict = dict;
+    // structured filter owns filter_dict; clear old generic search to prevent hidden AND conditions.
+    payload.filter_str = null;
+    payload.query_str = null;
     payload.model = selected.id;
+    setDataFilter('');
     if (!payload.page_size) payload.page_size = dataPageSize;
     if (!payload.biz_type) payload.biz_type = 'list';
     setDataPayload(JSON.stringify(payload, null, 2));
     setDataPage(1);
     loadData(selected, 1, payload);
   }, [selected, dataStruct, dataPayload, dataPageSize, loadData]);
+
+  // 台帐筛选：按规划字段组装 filter_dict（select=精确，text=包含）并查询。
+  // 与通用筛选互斥——应用台帐筛选时清空快速筛选与结构化筛选，避免叠加隐藏条件。
+  const applySyncFilter = useCallback(() => {
+    if (!selected) return;
+    const dict = buildSyncLedgerFilterDict(syncFilter, syncFields);
+    let payload: Record<string, any>;
+    try {
+      payload = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+      setDataPayloadError('');
+    } catch (e: any) {
+      setDataPayloadError(`JSON 解析失败：${e.message || e}`);
+      return;
+    }
+    payload.filter_dict = dict;
+    payload.filter_str = null;
+    payload.query_str = null;
+    payload.model = selected.id;
+    setDataFilter('');
+    setDataStruct([]);
+    if (!payload.page_size) payload.page_size = dataPageSize;
+    if (!payload.biz_type) payload.biz_type = 'list';
+    setDataPayload(JSON.stringify(payload, null, 2));
+    setDataPage(1);
+    loadData(selected, 1, payload);
+  }, [selected, syncFilter, syncFields, dataPayload, dataPageSize, loadData]);
 
   // 切换到「数据」tab 时，若该对象尚未查询过则自动拉取一次
   const ensureData = useCallback(
@@ -450,32 +573,139 @@ const loadList = useCallback(async () => {
     [dataResult, dataLoading, loadData]
   );
 
-  // 保存数据 JSON：交给后端写盘（logs/hcm_data/），拿到绝对路径并复制到剪贴板
-  const saveDataJson = useCallback(async () => {
-    if (!dataResult) return;
-    const content = JSON.stringify(dataResult, null, 2);
-    setSaveStatus(t('hcm.loading'));
-    try {
-      const res = await apiPost<{ path?: string; filename?: string; size?: number }>(
-        '/api/hcm/data/save',
-        { model: selected?.id || '', content }
-      );
-      if (res.path) {
-        let copied = false;
-        try {
-          await writeClipboardText(res.path);
-          copied = true;
-        } catch {
-          /* 剪贴板不可用时仍返回路径 */
-        }
-        setSaveStatus(`${t('hcm.savedPath')}: ${res.path}${copied ? '（已复制到剪贴板）' : ''}`);
-      } else {
-        throw new Error('未返回文件路径');
+  // 「复制 / 导出当前筛选结果」采集：把命中的**全部行**（跨页拉全，非当前页）取回来。
+  // 复制与导出共用这一步，保证两者拿到的是同一批数据。
+  // 基准 payload 用最新一次 loadData 的 `dataPayload`（点过 Apply / Query Data / 按条件查询都会刷新它），
+  // 所以不论是台帐筛选、结构化筛选、还是快速筛选——导出内容与「当前数据视图」完全一致。
+  const collectCurrentResult = useCallback(
+    async (
+      onProgress: (text: string) => void
+    ): Promise<{ rows: any[]; total: number; truncated: boolean; base: Record<string, any> } | null> => {
+      if (!selected) return null;
+      let base: Record<string, any>;
+      try {
+        base = dataPayload.trim() ? JSON.parse(dataPayload) : {};
+        setDataPayloadError('');
+      } catch {
+        base = {}; // 高级请求体 JSON 写坏时不阻塞，退化为「只看当前 panel 勾选的筛选」
       }
+      base.model = selected.id;
+      if (!base.biz_type) base.biz_type = 'list';
+
+      onProgress('正在统计命中行数…');
+      // 1) 命中总数（count 很轻，作为状态文案提示）
+      let matched = 0;
+      try {
+        const c = await directCall(
+          'hcm.model.count',
+          { model: selected.id, filter_dict: base.filter_dict || {}, count_by: ['*'] },
+          selected.id
+        );
+        matched = parseTotalCount(c);
+      } catch {
+        matched = 0; // count 失败不致命：后面按实际拉取行数走
+      }
+      if (matched > 0) onProgress(`命中 ${matched} 行，正在拉取…`);
+
+      // 2) 逐页拉全
+      const { rows, total, truncated } = await fetchAllRows(
+        async (pageIndex, pageSize) => {
+          const { data } = await directCallRaw(
+            'hcm.model.list',
+            { ...base, page_index: pageIndex, page_size: pageSize },
+            selected.id
+          );
+          return data;
+        },
+        {
+          pageSize: SYNC_EXPORT_PAGE_SIZE,
+          maxRows: SYNC_EXPORT_MAX_ROWS,
+          onProgress: (loaded, t) =>
+            onProgress(`正在拉取 ${loaded}${t ? ` / ${t}` : ''} 行…`),
+        }
+      );
+      if (!rows.length) {
+        onProgress('当前条件下没有数据');
+        return null;
+      }
+      return { rows, total, truncated, base };
+    },
+    [selected, dataPayload, directCall, directCallRaw]
+  );
+
+  // 把采集结果渲染成 CSV / JSON 文本。台帐模型默认剔除「原始报文」大列；
+  // 其他模型没有这个列，「含原始报文」勾选就只是占位（不影响内容）。
+  const renderCurrentResult = useCallback(
+    (
+      collected: { rows: any[]; total: number; base: Record<string, any> },
+      opts: { withBom: boolean }
+    ): string => {
+      const fields = meta?.fields || [];
+      const exclude = dataExportRaw ? [] : isSyncLedger ? ['u_raw_json'] : [];
+      if (dataExportFormat === 'json') {
+        return buildSyncLedgerJson({
+          model: selected?.id || '',
+          filter: collected.base.filter_dict || {},
+          total: collected.total,
+          rows: collected.rows,
+          exclude,
+        });
+      }
+      return buildSyncLedgerCsv(fields, collected.rows, { exclude, bom: opts.withBom });
+    },
+    [dataExportFormat, dataExportRaw, isSyncLedger, meta, selected]
+  );
+
+  // 导出当前筛选结果：拉全后落盘为 CSV / JSON（前端直接保存，无需后端写盘）
+  const exportCurrentResult = useCallback(async () => {
+    if (!selected || dataExportBusy) return;
+    setDataExportBusy('export');
+    try {
+      const collected = await collectCurrentResult(setDataExportStatus);
+      if (!collected) return;
+      const text = renderCurrentResult(collected, { withBom: true });
+      const ext = dataExportFormat === 'json' ? 'json' : 'csv';
+      const mime =
+        dataExportFormat === 'json' ? 'application/json;charset=utf-8' : 'text/csv;charset=utf-8';
+      saveTextFile(text, exportFileName(selected.id, ext), mime);
+      setDataExportStatus(
+        `已导出 ${collected.rows.length} 行` +
+          (collected.truncated
+            ? `（超过单次上限 ${SYNC_EXPORT_MAX_ROWS} 行，已截断，请先加筛选条件）`
+            : '')
+      );
     } catch (e: any) {
-      setSaveStatus(`保存失败：${e?.message || e}`);
+      setDataExportStatus(`导出失败：${e?.message || e}`);
+    } finally {
+      setDataExportBusy('');
     }
-  }, [dataResult, selected, t]);
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
+
+  // 复制当前筛选结果：与导出同一批数据、同一格式，只是落到剪贴板而非文件。
+  // 剪贴板是单串文本，超大数据会卡住渲染进程，故单独设一个更小的上限并明确告知。
+  const copyCurrentResult = useCallback(async () => {
+    if (!selected || dataExportBusy) return;
+    setDataExportBusy('copy');
+    try {
+      const collected = await collectCurrentResult(setDataExportStatus);
+      if (!collected) return;
+      let rows = collected.rows;
+      let note = '';
+      if (rows.length > SYNC_COPY_MAX_ROWS) {
+        rows = rows.slice(0, SYNC_COPY_MAX_ROWS);
+        note = `（仅复制前 ${SYNC_COPY_MAX_ROWS} 行，完整结果请用「导出当前筛选结果」）`;
+      }
+      const text = renderCurrentResult({ ...collected, rows }, { withBom: false });
+      await writeClipboardText(text);
+      setDataExportStatus(
+        `已复制 ${rows.length} 行（${dataExportFormat.toUpperCase()} 文本）到剪贴板${note}`
+      );
+    } catch (e: any) {
+      setDataExportStatus(`复制失败：${e?.message || e}`);
+    } finally {
+      setDataExportBusy('');
+    }
+  }, [selected, dataExportBusy, dataExportFormat, collectCurrentResult, renderCurrentResult]);
 
   // 支持从 URL 参数 ?hcm-model=<id> 打开时自动定位到该模型（用于双击新窗口场景）
   useEffect(() => {
@@ -951,10 +1181,66 @@ const loadList = useCallback(async () => {
                 </pre>
               )}
 
-              {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 保存 */}
+              {/* 选中对象「数据」查询：拉取记录并以 JSON 展示 + 复制 / 导出 */}
               {rightTab === 'data' && (
                 <div className="hcm-data">
+                  {/* 复制 / 导出外层工具条：对当前 Data 视图下的任意筛选条件（快速 / 结构化 / 台帐）
+                      都生效，操作对象是「当前筛选条件命中的全部行」，状态用 dataExportStatus 提示。 */}
+                  <div className="hcm-data-export">
+                    <select
+                      value={dataExportFormat}
+                      onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
+                      title="导出格式"
+                      disabled={dataExporting}
+                      aria-label="导出格式"
+                    >
+                      <option value="csv">CSV</option>
+                      <option value="json">JSON</option>
+                    </select>
+                    {isSyncLedger && (
+                      <label className="hcm-sync-raw" title="勾选后导出会带上「原始报文」等超大 JSON 列（默认剔除）">
+                        <input
+                          type="checkbox"
+                          checked={dataExportRaw}
+                          onChange={(e) => setDataExportRaw(e.target.checked)}
+                          disabled={dataExporting}
+                        />
+                        含原始报文
+                      </label>
+                    )}
+                    <button
+                      className="btn btn-sm"
+                      onClick={copyCurrentResult}
+                      disabled={!selected || dataExporting}
+                      title="把当前筛选条件命中的全部行按所选格式复制到剪贴板"
+                    >
+                      {dataExportBusy === 'copy' ? '复制中…' : '复制结果'}
+                    </button>
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={exportCurrentResult}
+                      disabled={!selected || dataExporting}
+                      title="把当前筛选条件命中的全部行导出为文件（非仅当前页）"
+                    >
+                      {dataExportBusy === 'export' ? '导出中…' : '导出当前筛选结果'}
+                    </button>
+                    {dataExportStatus && <span className="hcm-data-export-status">{dataExportStatus}</span>}
+                  </div>
                   <div className="hcm-fields-toolbar">
+                    <select
+                      className="hcm-struct-op"
+                      value={resolvedQuickFilterField}
+                      onChange={(e) => setQuickFilterField(e.target.value)}
+                      aria-label={t('hcm.quickFilterField')}
+                      disabled={filterCandidates.length === 0}
+                      title={t('hcm.quickFilterField')}
+                    >
+                      {filterCandidates.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label ? `${c.label} (${c.key})` : c.key}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       className="hcm-search"
                       value={dataFilter}
@@ -965,8 +1251,16 @@ const loadList = useCallback(async () => {
                           // 将简单过滤同步到请求体（同步传 override，避免读到旧 dataPayload 闭包）
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
-                            p.filter_str = e.currentTarget.value.trim() || null;
+                            const value = e.currentTarget.value.trim();
+                            p.filter_str = null;
+                            p.filter_dict = value && resolvedQuickFilterField
+                              ? buildHcmFilterDict([
+                                  { field: resolvedQuickFilterField, value, operator: 'contains' },
+                                ])
+                              : {};
+                            p.query_str = null;
                             p.model = selected.id;
+                            setDataStruct([]);
                             setDataPayload(JSON.stringify(p, null, 2));
                             loadData(selected, 1, p);
                           } catch {
@@ -984,8 +1278,16 @@ const loadList = useCallback(async () => {
                           setDataPage(1);
                           try {
                             const p = dataPayload.trim() ? JSON.parse(dataPayload) : {};
-                            p.filter_str = dataFilter.trim() || null;
+                            const value = dataFilter.trim();
+                            p.filter_str = resolvedQuickFilterField ? null : value || null;
+                            p.filter_dict = value && resolvedQuickFilterField
+                              ? buildHcmFilterDict([
+                                  { field: resolvedQuickFilterField, value, operator: 'contains' },
+                                ])
+                              : {};
+                            p.query_str = null;
                             p.model = selected.id;
+                            setDataStruct([]);
                             setDataPayload(JSON.stringify(p, null, 2));
                             loadData(selected, 1, p);
                           } catch {
@@ -998,14 +1300,6 @@ const loadList = useCallback(async () => {
                       {dataLoading ? t('hcm.loading') : t('hcm.queryData')}
                     </button>
                     <button
-                      className="btn btn-sm hcm-copy-btn"
-                      onClick={saveDataJson}
-                      disabled={!dataResult}
-                      title={t('hcm.saveJson')}
-                    >
-                      {t('hcm.saveJson')}
-                    </button>
-                    <button
                       className={dataAdvOpen ? 'btn btn-sm btn-active' : 'btn btn-sm'}
                       onClick={() => setDataAdvOpen((v) => !v)}
                       disabled={!selected}
@@ -1013,6 +1307,88 @@ const loadList = useCallback(async () => {
                       {t('hcm.advanced')}
                     </button>
                   </div>
+
+                  {/* 同步台帐专用筛选：按业务含义命名的字段（实体类型/数据名/HCM ID…）。默认折叠。 */}
+                  {isSyncLedger && (
+                    <div className="hcm-sync">
+                      <div className="hcm-sync-head">
+                        <button
+                          className="btn btn-sm hcm-sync-toggle"
+                          onClick={() => setSyncPanelOpen((v) => !v)}
+                          title={syncPanelOpen ? '折叠台帐筛选' : '展开台帐筛选'}
+                          aria-expanded={syncPanelOpen}
+                        >
+                          台帐筛选 {syncPanelOpen ? '▾' : '▸'}
+                          {Object.keys(syncFilter).length > 0 ? ` · 已设 ${Object.keys(syncFilter).length} 项` : ''}
+                        </button>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={applySyncFilter}
+                          disabled={!selected || dataLoading || Object.keys(syncFilter).length === 0}
+                          title={Object.keys(syncFilter).length === 0 ? '请先展开面板并设置筛选条件' : '按当前条件查询'}
+                        >
+                          {dataLoading ? t('hcm.loading') : '按条件查询'}
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() => setSyncFilter({})}
+                          disabled={Object.keys(syncFilter).length === 0}
+                        >
+                          清空
+                        </button>
+                      </div>
+                      {syncPanelOpen && (
+                        <>
+                          <div className="hcm-sync-grid">
+                            {syncFields.map((f) => {
+                              const dyn = syncSelectOptions[f.key] || [];
+                              const opts: { value: string; label: string; count?: number }[] =
+                                f.kind !== 'select'
+                                  ? []
+                                  : dyn.length
+                                    ? dyn.map((o) => ({
+                                        value: o.value,
+                                        label: f.key === 'u_entity_type' ? entityTypeLabel(o.value) : o.value,
+                                        count: o.count,
+                                      }))
+                                    : staticSyncSelectOptions(f.key).map((o) => ({ value: o.value, label: o.label }));
+                              const value = syncFilter[f.key] || '';
+                              const setVal = (v: string) => setSyncFilter((s) => ({ ...s, [f.key]: v }));
+                              return (
+                                <label className="hcm-sync-item" key={f.key}>
+                                  <span className="hcm-sync-label">{f.label}</span>
+                                  {f.kind === 'select' && opts.length > 0 ? (
+                                    <select value={value} onChange={(e) => setVal(e.target.value)}>
+                                      <option value="">全部</option>
+                                      {opts.map((o) => (
+                                        <option key={o.value} value={o.value}>
+                                          {o.label}
+                                          {typeof o.count === 'number' ? ` · ${o.count}` : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      value={value}
+                                      onChange={(e) => setVal(e.target.value)}
+                                      placeholder={f.placeholder}
+                                      spellCheck={false}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') applySyncFilter();
+                                      }}
+                                    />
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <div className="hcm-sync-hint">
+                            按业务含义命名的台帐筛选；「实体类型 / 接口」选项取自当前数据实际取值。文本条件为包含匹配，多个条件按 AND 组合。
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   {/* 结构化筛选（filter_dict）：参考对象字段，多条件 AND 组合 */}
                   <div className="hcm-struct">
@@ -1055,7 +1431,15 @@ const loadList = useCallback(async () => {
                               placeholder={t('hcm.structFieldPlaceholder')}
                               spellCheck={false}
                             />
-                            <span className="hcm-struct-eq">=</span>
+                            <select
+                              className="hcm-struct-op"
+                              value={r.operator}
+                              onChange={(e) => updateStructRow(r.id, { operator: e.target.value as HcmFilterOperator })}
+                              aria-label={t('hcm.structOperator')}
+                            >
+                              <option value="eq">{t('hcm.structExact')}</option>
+                              <option value="contains">{t('hcm.structContains')}</option>
+                            </select>
                             <input
                               className="hcm-struct-value"
                               value={r.value}
@@ -1078,11 +1462,11 @@ const loadList = useCallback(async () => {
                         ))}
                       </div>
                     )}
-                    {/* 字段联想数据源：来自已加载对象的 meta.fields */}
+                    {/* 字段联想数据源：当前对象的 meta.fields（优先 is_filter，回退全部） */}
                     <datalist id="hcm-struct-fields">
-                      {fieldsForFilter.map((f: HcmFieldMeta) => (
-                        <option key={f.key} value={f.key}>
-                          {f.name || f.key}
+                      {filterCandidates.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label || c.key}
                         </option>
                       ))}
                     </datalist>
@@ -1121,12 +1505,6 @@ const loadList = useCallback(async () => {
                           {t('hcm.profileDebug')}
                         </label>
                       </div>
-                    </div>
-                  )}
-
-                  {saveStatus && (
-                    <div className="hcm-detail-sub hcm-mono" style={{ fontSize: 11, wordBreak: 'break-all', padding: '0 12px 6px' }}>
-                      {saveStatus}
                     </div>
                   )}
 

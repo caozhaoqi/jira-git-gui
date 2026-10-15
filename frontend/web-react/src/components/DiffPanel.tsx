@@ -69,6 +69,8 @@ export function DiffPanel() {
   const [ignoreLineEndings, setIgnoreLineEndings] = useState(true);
   const [showSame, setShowSame] = useState(false);
   const [mergeRemoteOnly, setMergeRemoteOnly] = useState(false);
+  const [fileSearch, setFileSearch] = useState('');
+  const [fileFilter, setFileFilter] = useState('all');
 
   const [entries, setEntries] = useState<DiffEntry[]>([]);
   const [summary, setSummary] = useState<DiffSummary | null>(null);
@@ -448,12 +450,25 @@ export function DiffPanel() {
   }, [localDir, compareRepo, compareDir, fastScan, ignoreLineEndings, repos, loadCommits, loadManifest, setProgress, pushLog, addToast, t]);
 
   const visibleEntries = useMemo(() => {
+    const search = fileSearch.trim().toLocaleLowerCase();
     return entries.filter((e) => {
-      if (e.status === 'same') return showSame;
-      if (e.status === 'whitespace_only') return !ignoreLineEndings;
+      if (e.status === 'same' && !showSame) return false;
+      if (e.status === 'whitespace_only' && ignoreLineEndings && fileFilter !== 'whitespace_only') return false;
       return true;
+    }).filter((e) => {
+      if (search && !e.path.toLocaleLowerCase().includes(search)) return false;
+      switch (fileFilter) {
+        case 'unsynced': return !e.merged;
+        case 'merged': return !!e.merged;
+        case 'modified':
+        case 'local_only':
+        case 'remote_only':
+        case 'whitespace_only':
+          return e.status === fileFilter;
+        default: return true;
+      }
     });
-  }, [entries, showSame, ignoreLineEndings]);
+  }, [entries, showSame, ignoreLineEndings, fileSearch, fileFilter]);
 
   // 与 mergeAll 的取数口径保持一致：用于在按钮上标注「将合并 N 个」并决定是否可点
   const mergeTargetCount = useMemo(() => {
@@ -939,18 +954,38 @@ export function DiffPanel() {
 
       <div className="diff-body">
         <div className="diff-list-pane">
+          {entries.length > 0 && (
+            <div className="diff-list-toolbar">
+              <input
+                className="input diff-list-search"
+                type="search"
+                value={fileSearch}
+                onChange={(e) => setFileSearch(e.target.value)}
+                placeholder={t('diff.filterByPath')}
+                aria-label={t('diff.filterByPath')}
+              />
+              <select
+                className="select diff-list-filter"
+                value={fileFilter}
+                onChange={(e) => setFileFilter(e.target.value)}
+                aria-label={t('diff.filterFiles')}
+              >
+                <option value="all">{t('diff.filterAll')}</option>
+                <option value="unsynced">{t('diff.filterUnsynced')}</option>
+                <option value="merged">{t('diff.filterMerged')}</option>
+                <option value="modified">{t('diff.filterModified')}</option>
+                <option value="local_only">{t('diff.filterLocalOnly')}</option>
+                <option value="remote_only">{t('diff.filterRemoteOnly')}</option>
+                <option value="whitespace_only">{t('diff.filterWhitespace')}</option>
+              </select>
+            </div>
+          )}
           {/* 未选仓库时上方已有统一的前置条件提示（diff.pickRepo），
               这里不再重复一遍「请先选择仓库」，否则一屏出现三条互相矛盾的引导。 */}
           {!compareRepo ? null : entries.length === 0 ? (
             <div className="empty-hint">{t('diff.noDiffFiles')}</div>
           ) : visibleEntries.length === 0 ? (
-            <div className="empty-hint">
-              {entries.every((e) => e.status === 'same')
-                ? t('diff.allSame')
-                : entries.every((e) => e.status === 'same' || e.status === 'whitespace_only')
-                  ? t('diff.noEffectiveDiff')
-                  : t('diff.identical')}
-            </div>
+            <div className="empty-hint">{t('diff.filterNoResults')}</div>
           ) : (
             visibleEntries.map((e) => (
               <div
