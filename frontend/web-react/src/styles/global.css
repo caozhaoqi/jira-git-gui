@@ -1722,31 +1722,44 @@ select:focus-visible {
   padding: 10px 12px;
   flex-wrap: wrap;
 }
+/* K8s 概览统计块：数字在上、标签在下，数字等宽对齐（tabular-nums）——
+   统计块本身不抢注意力，只在出现非零异常（med/high）时才用状态色点亮。 */
 .k8s-stat {
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
   text-align: center;
   min-width: 72px;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
+.k8s-stat:hover { border-color: var(--border-strong); }
 .k8s-stat .n {
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--text);
+  font-family: var(--font-display);
 }
 .k8s-stat .l {
   font-size: 11px;
   color: var(--text-dim);
+  margin-top: 1px;
 }
 .k8s-stat.ok .n {
-  color: var(--success);
+  color: var(--success-strong);
 }
 .k8s-stat.med .n {
-  color: var(--warn);
+  color: var(--warn-strong);
 }
 .k8s-stat.high .n {
-  color: var(--danger);
+  color: var(--danger-strong);
 }
+/* 异常统计块：左侧一条状态色边，扫视时比「数字变色」更容易定位 */
+.k8s-stat.med { border-left: 3px solid var(--warn); }
+.k8s-stat.high { border-left: 3px solid var(--danger); }
+.k8s-stat.ok { border-left: 3px solid color-mix(in srgb, var(--success) 55%, transparent); }
 .k8s-table {
   width: 100%;
   border-collapse: collapse;

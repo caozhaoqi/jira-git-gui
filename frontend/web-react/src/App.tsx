@@ -3,6 +3,7 @@ import { sse } from './api/events';
 import { apiGet, onNetworkDown } from './api/client';
 import { useAppStore, type TabKey } from './store/useAppStore';
 import { EtaTracker, formatEta } from './utils/eta';
+import { applyRepoAlerts, raiseJiraAuthAlert } from './utils/appAlerts';
 import { useT } from './i18n';
 import type {
   StatusResp,
@@ -78,12 +79,14 @@ export default function App() {
   const apiDown = useAppStore((s) => s.apiDown);
   const setApiDown = useAppStore((s) => s.setApiDown);
   const [retrying, setRetrying] = useState(false);
-  const cookieExpired = useAppStore((s) => s.cookieExpired);
-  const setCookieExpired = useAppStore((s) => s.setCookieExpired);
+  const alerts = useAppStore((s) => s.alerts);
   const activeTab = useAppStore((s) => s.activeTab);
   const setTab = useAppStore((s) => s.setTab);
   const { t } = useT();
-  const [connectOpen, setConnectOpen] = useState(false);
+  // 连接设置弹窗开关放 store：顶栏、告警横幅、连接弹窗自身都要能打开它
+  const connectOpen = useAppStore((s) => s.connectOpen);
+  const openConnect = useAppStore((s) => s.openConnect);
+  const closeConnect = useAppStore((s) => s.closeConnect);
   // 访问过的标签页集合：首次切到某标签页就加入并永久保持挂载（仅隐藏），
   // 因此来回切换不会重置该面板内容。清空只发生在整个 App 卸载（程序关闭）。
   const [visited, setVisited] = useState<Set<TabKey>>(
@@ -145,7 +148,10 @@ export default function App() {
       setApiDown(false);
       sse.connect();
       apiGet<ReposResp>('/api/repos')
-        .then((r) => { if (!r.error) setRepos(r.repos || []); })
+        .then((r) => {
+          if (!r.error) setRepos(r.repos || []);
+          applyRepoAlerts(r);
+        })
         .catch(() => {});
       addToast(t('net.recovered'), 'success');
     } catch {
@@ -170,6 +176,8 @@ export default function App() {
 
     apiGet<ReposResp>('/api/repos')
       .then((r) => {
+        // 配置/会话信号统一映射（与手动刷新、差异页共用同一套告警构造）
+        applyRepoAlerts(r);
         if (r.error) {
           pushLog(`发现仓库错误：${r.error}`, 'warning');
         } else {
@@ -258,8 +266,8 @@ export default function App() {
       }),
       sse.on('cookie_expired', (d: SSECookieExpired) => {
         // F3：远端会话失效（Cookie 过期 / 浏览页不可用）。横幅常驻直到用户处理，
-        // 不自动消失；后端可能重复广播，setCookieExpired 幂等覆盖即可。
-        setCookieExpired(d);
+        // 不自动消失；后端可能重复广播，setAlert 幂等覆盖即可。
+        raiseJiraAuthAlert(d.detail);
         pushLog(`远端会话告警：${d.detail || d.status}`, 'error');
       }),
     ];
@@ -268,7 +276,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <TopBar onOpenConnect={() => setConnectOpen(true)} />
+      <TopBar onOpenConnect={openConnect} />
       <div className="app-body">
         {!embed && <Tabs />}
         <main className="workspace">
@@ -278,34 +286,29 @@ export default function App() {
               ⚠ {networkWarning}
             </div>
           )}
-          {cookieExpired && (
-            <div className="cookie-expired-banner" role="alert">
-              <div className="cookie-expired-text">
-                <strong>⚠ {t('cookie.expiredTitle')}</strong>
-                <span>{cookieExpired.detail || t('cookie.expiredDetail')}</span>
+          {/* 全局状态告警：凭据失效 / 配置缺失这类「会让功能整体不可用」的前置条件，
+              统一由这里渲染成持久、可操作的横幅（文案与按钮由 utils/appAlerts 定义）。 */}
+          {alerts.map((a) => (
+            <div className="app-alert" role="alert" key={a.id}>
+              <div className="app-alert-text">
+                <strong>⚠ {t(a.titleKey)}</strong>
+                <span>{a.detail || (a.detailKey ? t(a.detailKey) : '')}</span>
               </div>
-              <div className="cookie-expired-actions">
-                <button
-                  className="btn btn-sm btn-primary"
-                  onClick={() => { setConnectOpen(true); setCookieExpired(null); }}
-                >
-                  {t('cookie.reLogin')}
-                </button>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => { setTab('repo'); setCookieExpired(null); }}
-                >
-                  {t('cookie.cloneLocal')}
-                </button>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => setCookieExpired(null)}
-                >
-                  {t('cookie.dismiss')}
-                </button>
-              </div>
+              {!!a.actions?.length && (
+                <div className="app-alert-actions">
+                  {a.actions.map((act) => (
+                    <button
+                      key={act.labelKey}
+                      className={`btn btn-sm ${act.primary ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={act.onClick}
+                    >
+                      {t(act.labelKey)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          ))}
           {apiDown && (
             <div className="api-down-banner" role="alert">
               <div className="api-down-text">
@@ -358,7 +361,7 @@ export default function App() {
       </div>
       <ToastStack />
       <ProgressBar />
-      {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
+      {connectOpen && <ConnectModal onClose={closeConnect} />}
       <ConfirmHost />
     </div>
   );

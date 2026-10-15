@@ -3,6 +3,7 @@ import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type { Repo, ReposResp, StatusResp } from '../api/types';
 import { normalizeStatus } from '../api/types';
+import { applyRepoAlerts } from '../utils/appAlerts';
 import { useT } from '../i18n';
 
 export function RepoList() {
@@ -28,8 +29,13 @@ export function RepoList() {
       const res = await apiGet<ReposResp>(
         force ? '/api/repos?refresh=1' : '/api/repos'
       );
+      // 配置缺失 / 会话失效 → 全局横幅（与启动、差异页共用同一套告警构造，
+      // 因此任何入口发现 Cookie 过期，用户看到的都是同一条可操作提醒）。
+      applyRepoAlerts(res);
       if (res.error) {
         pushLog(`${t('repo.title')}：${res.error}`, 'warning');
+        // 未配置 Cookie 时已有专门的配置提醒横幅，不再重复弹 toast
+        if (!res.config_missing) addToast(res.error, 'error');
         if (/cookie|登录|login|未配置/i.test(res.error)) {
           pushLog(t('repo.noPreview'), 'error');
         }

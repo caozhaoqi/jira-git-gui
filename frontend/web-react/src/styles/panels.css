@@ -304,14 +304,18 @@
   text-overflow: ellipsis;
 }
 
-/* k8s-subtabs */
+/* k8s-subtabs —— 下划线页签。激活态用主色下划线 + 弱底，
+   未激活态有可点的 hover 反馈；下划线用 ::after 画，避免高度抖动。 */
 .k8s-subtabs {
   display: flex;
   gap: 2px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 14px;
   position: relative;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.k8s-subtabs::-webkit-scrollbar { display: none; }
 
 /* k8s-subtab */
 .k8s-subtab {
@@ -323,8 +327,16 @@
   font-size: 13.5px;
   font-weight: 600;
   border-bottom: 2px solid transparent;
-  transition: all .2s ease-out;
+  transition: color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
   position: relative;
+  white-space: nowrap;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  margin-bottom: -1px;
+}
+.k8s-subtab:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 /* k8s-subpane */
@@ -923,11 +935,13 @@
   word-break: break-word;
 }
 
-/* K8s 子标签激活态 */
+/* K8s 子标签激活态：主色下划线 + 极弱主色底，视觉重量明确但不刺眼 */
 .k8s-subtab.active {
   color: var(--primary);
   border-bottom-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
 }
+.k8s-subtab.active:hover { background: color-mix(in srgb, var(--primary) 9%, transparent); }
 
 /* 大号弹窗（描述 / 文件编辑器） */
 .modal-lg {
@@ -2257,6 +2271,19 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-dl.is-done {
   border-color: var(--success, var(--primary));
+}
+/* 暂停态：此前的疏漏——K8sDownloadBar 一直在 className 里切 is-paused，
+   但这个修饰类从来没有对应规则，暂停时下载条除了进度停住之外毫无状态提示。
+   用主色弱底 + 主色描边（不是 warning 黄）：暂停是用户主动行为，不是异常。 */
+.k8s-dl.is-paused {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: var(--primary-weak, var(--row-selected));
+}
+.k8s-dl.is-paused .k8s-dl-fill {
+  background: color-mix(in srgb, var(--primary) 55%, var(--surface-3));
+}
+.k8s-dl.is-paused .k8s-dl-track {
+  background: var(--surface-2);
 }
 .k8s-dl-top {
   display: flex;

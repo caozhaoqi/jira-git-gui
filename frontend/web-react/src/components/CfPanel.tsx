@@ -19,6 +19,9 @@ import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
 import { CfDistribution } from './CfDistribution';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
+// 无历史选择时使用的稳定配置入口：映射到本地配置列表的第一项，
+// 不把账号/密码复制一份，也不改变后端配置文件。
+const DEFAULT_CF_ENV = '__default__';
 
 /** 时间范围预设：'all' = 不过滤，其余为相对当前时间，'custom' = 手动起止。 */
 type TimePreset = 'all' | '1h' | '6h' | '24h' | '7d' | 'custom';
@@ -350,7 +353,7 @@ export function CfPanel() {
     }
   }, []);
 
-  const loadAccounts = useCallback(async () => {
+  const loadAccounts = useCallback(async (): Promise<CfAccount[]> => {
     try {
       const d = await apiGet<{ accounts?: CfAccount[] }>('/api/cf/accounts');
       const list = Array.isArray(d.accounts) ? d.accounts : [];
@@ -360,8 +363,10 @@ export function CfPanel() {
       } else {
         pushLog(`[CF] 已从本地配置加载 ${list.length} 个账号：${list.map((a) => a.name).join('、')}`);
       }
+      return list;
     } catch {
       setAccounts([]);
+      return [];
     }
   }, [pushLog]);
 
@@ -419,8 +424,27 @@ export function CfPanel() {
 
   useEffect(() => {
     (async () => {
-      await loadAccounts();
+      const accountList = await loadAccounts();
       const parsedCfg = loadCfg();
+      // 首次使用没有历史 server_url 时，自动选中一个稳定的「默认配置」入口。
+      // 该入口实际复用本地配置列表第一项，用户仍可随时切换到具体环境；
+      // 有历史配置时优先恢复历史环境，不打断原有工作流。
+      const savedServer = (parsedCfg?.server_url || '').trim();
+      const matchedAccount = savedServer
+        ? accountList.find((a) => (a.server_url || '').trim() === savedServer)
+        : undefined;
+      const defaultAccount = matchedAccount || (!savedServer ? accountList[0] : undefined);
+      if (defaultAccount) {
+        setEnv(matchedAccount ? defaultAccount.name : DEFAULT_CF_ENV);
+        if (!matchedAccount) {
+          setCfg((c) => ({
+            ...c,
+            server_url: defaultAccount.server_url || '',
+            username: defaultAccount.username || '',
+            password: defaultAccount.password || '',
+          }));
+        }
+      }
       await loadTokens();
       const restored = await restoreStreamState(parsedCfg?.server_url);
       // 恢复了后台流但当前没有基线结果：标记一下，等 cfg（loadCfg 已 setCfg）就绪后补查一次，
@@ -489,7 +513,7 @@ export function CfPanel() {
       saveCfg({ token: '' });
       return;
     }
-    const acc = accounts.find((a) => a.name === key);
+    const acc = key === DEFAULT_CF_ENV ? accounts[0] : accounts.find((a) => a.name === key);
     if (!acc) return;
     setCfg((c) => ({
       ...c,
@@ -1166,7 +1190,11 @@ export function CfPanel() {
               onChange={(e) => switchEnv(e.target.value)}
               aria-label={t('cf.selectEnv')}
             >
-              <option value="">{t('cf.selectEnv')}</option>
+              {accounts.length > 0 ? (
+                <option value={DEFAULT_CF_ENV}>{t('cf.defaultConfig')}</option>
+              ) : (
+                <option value="">{t('cf.selectEnv')}</option>
+              )}
               {accounts.map((a) => (
                 <option key={a.name} value={a.name}>
                   {a.name}

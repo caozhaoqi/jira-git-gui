@@ -16,7 +16,21 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
     <header className="appbar">
       <div className="appbar-brand">
         <span className="brand-mark" aria-hidden="true">
-          🌿
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
+            {/* 圆角渐变底 */}
+            <defs>
+              <linearGradient id="brand-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+                <stop stopColor="#6d5ef2" />
+                <stop offset="1" stopColor="#4f46e5" />
+              </linearGradient>
+            </defs>
+            <rect x="1" y="1" width="22" height="22" rx="7" fill="url(#brand-grad)" />
+            {/* 分支-合并图形：一笔主线 + 两条分叉，隐喻 git 拉取/合并 */}
+            <path d="M7 8v7a3 3 0 0 0 3 3h3" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+            <circle cx="7" cy="7" r="1.9" fill="#fff" />
+            <circle cx="17" cy="7" r="1.9" fill="#fff" />
+            <path d="M7 7h4a3 3 0 0 1 3 3v3a3 3 0 0 0 3 3h1" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />
+          </svg>
         </span>
         <span className="brand-name">
           Jira&nbsp;Git <b>GUI</b>

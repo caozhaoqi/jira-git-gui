@@ -47,6 +47,14 @@ export interface Repo {
 export interface ReposResp {
   repos?: Repo[];
   error?: string;
+  /** 缺少远端仓库发现所需的 Jira Cookie 配置。 */
+  config_missing?: 'cookie';
+  /** 本次发现命中「登录态失效」信号（跳转登录页 / 401 / 403）。
+   *  discover_repos 命中这种情况时不抛异常、只回空列表，前端必须据此给出
+   *  明确告警——否则用户看到的就是一句「请选择仓库」，完全无从知道 Cookie 过期了。 */
+  auth_failed?: boolean;
+  /** auth_failed 时的具体原因（HTML 跳转地址 / REST 状态码汇总） */
+  auth_detail?: string;
 }
 
 export type TreeEntryType = 'dir' | 'file';
@@ -59,7 +67,15 @@ export interface TreeEntry {
   mtime?: number;
 }
 
-export interface TreeResp {
+/** 浏览类接口（/api/tree、/api/file、/api/commits…）在会话失效时带的统一标记。
+ *  与 /api/repos 的 auth_failed 同源：前端据此弹同一条「远端会话已失效」横幅，
+ *  不必依赖 SSE 是否送达。 */
+export interface AuthFailFields {
+  auth_failed?: boolean;
+  auth_detail?: string;
+}
+
+export interface TreeResp extends AuthFailFields {
   entries?: TreeEntry[];
   error?: string;
 }
@@ -70,7 +86,7 @@ export interface TreeLevel {
   entries: TreeEntry[];
 }
 
-export interface TreeResolveResp {
+export interface TreeResolveResp extends AuthFailFields {
   /** 归一化后的目标路径 */
   path: string;
   /** dir=目录 / file=文件 / missing=不存在 / ''=请求级失败，无法判定 */
@@ -83,7 +99,7 @@ export interface TreeResolveResp {
   elapsed_ms?: number;
 }
 
-export interface FileResp {
+export interface FileResp extends AuthFailFields {
   content?: string;
   error?: string;
 }
@@ -138,7 +154,7 @@ export interface Commit {
   repository_name?: string;
   files?: CommitFile[];
 }
-export interface FileAtCommitResp {
+export interface FileAtCommitResp extends AuthFailFields {
   content?: string;
   error?: string;
 }
@@ -258,7 +274,7 @@ export interface MergeManifestResp {
   error?: string;
 }
 /** 对比目录范围内的最近更新记录（git log 风格） */
-export interface DiffCommitsResp {
+export interface DiffCommitsResp extends AuthFailFields {
   commits?: Commit[];
   error?: string;
 }

@@ -37,25 +37,36 @@
   justify-content: center;
 }
 
+/* 页签：与 HCM 筛选 chip / K8s 子页签同一套语汇——
+   激活项主色弱底 + 主色描边，过渡只碰颜色不动布局。 */
 .svc-tab {
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-  padding: 5px 14px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  padding: 4px 14px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
-  font-size: 13px;
-  transition: all 0.15s ease;
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 
 .svc-tab:hover {
   color: var(--text);
-  background: var(--panel-2);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 .svc-tab.active {
   color: var(--primary);
-  background: var(--primary-soft);
+  background: var(--primary-weak);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+.svc-tab.active:hover {
+  background: var(--primary-weak);
   border-color: var(--primary);
 }
 
@@ -72,7 +83,9 @@
   padding: 16px;
 }
 
-/* ---- 表格 ---- */
+/* ---- 表格 ----
+   表头与其他面板（HCM / K8s / CF）统一：浅色底 + 大写小字 + 常规粗细，
+   避免每张表一套表头观感（此前是 muted 500 小写，明显更「重」）。 */
 .svc-table {
   width: 100%;
   border-collapse: collapse;
@@ -82,16 +95,25 @@
 .svc-table th,
 .svc-table td {
   text-align: left;
-  padding: 7px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft, var(--border));
   vertical-align: middle;
+  transition: background-color var(--dur-fast) var(--ease);
 }
 
 .svc-table th {
   color: var(--muted);
-  font-weight: 500;
-  font-size: 12px;
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
   white-space: nowrap;
+  background: var(--bg-head, var(--panel-2));
+  border-bottom: 1px solid var(--border);
+}
+
+.svc-table tbody tr:hover {
+  background: var(--row-hover);
 }
 
 .svc-table code {
@@ -144,9 +166,11 @@
   min-width: 0;
 }
 
+.sc-field > span,
 .svc-field > span {
   font-size: 12px;
   color: var(--muted);
+  font-weight: 500;
 }
 
 .svc-field.svc-full {
@@ -157,6 +181,19 @@
   resize: vertical;
   font-family: var(--mono, monospace);
   font-size: 12px;
+}
+
+/* 表单控件聚焦：统一主色描边 + 3px 光环（与 global.css 的其余控件一致） */
+.svc-field .input:focus-visible,
+.svc-field .sel:focus-visible,
+.svc-field textarea.input:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.svc-field .input:hover:not(:focus-visible),
+.svc-field .sel:hover:not(:focus-visible) {
+  border-color: var(--border-strong);
 }
 
 .svc-bar {

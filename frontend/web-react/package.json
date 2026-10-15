@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "check-i18n": "node scripts/check-i18n.mjs",
-    "test": "node scripts/check-i18n.mjs && node ../../tests/test_eta.mjs && node ../../tests/test_log_fields_type_filter.mjs && node ../../tests/test_hcm_object_filters.mjs && node ../../tests/test_hcm_css_classes.mjs && node ../../tests/test_kibana_export_pages.mjs && node ../../tests/test_kibana_find.mjs && node ../../tests/test_download_util.mjs && node ../../tests/test_electron_menu.mjs"
+    "test": "node scripts/check-i18n.mjs && node ../../tests/test_eta.mjs && node ../../tests/test_log_fields_type_filter.mjs && node ../../tests/test_hcm_object_filters.mjs && node ../../tests/test_hcm_css_classes.mjs && node ../../tests/test_css_classes_all.mjs && node ../../tests/test_kibana_export_pages.mjs && node ../../tests/test_kibana_find.mjs && node ../../tests/test_download_util.mjs && node ../../tests/test_electron_menu.mjs && node ../../tests/test_repo_alert_wiring.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

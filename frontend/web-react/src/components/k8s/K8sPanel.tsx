@@ -3,6 +3,7 @@ import { apiGet } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
+import { clearK8sEnvAlert, raiseK8sEnvAlert } from '../../utils/appAlerts';
 import { K8sContext, type K8sTarget } from './context';
 import { K8sSnapshot } from './K8sSnapshot';
 import { K8sYaml } from './K8sYaml';
@@ -70,9 +71,20 @@ export function K8sPanel() {
       setTargetState((t) => ({ ...t, env: cur }));
       const c = list.find((e) => e.name === cur);
       setKcText(c && c.kubeconfig ? 'kubeconfig: ' + c.kubeconfig : t('k8s.noKubeconfig'));
-      if (d.error) pushLog(`加载 K8s 环境失败：${d.error}`, 'error');
+      if (d.error) {
+        pushLog(`加载 K8s 环境失败：${d.error}`, 'error');
+        raiseK8sEnvAlert(d.error, () => setEnvModalOpen(true));
+      } else if (list.length === 0) {
+        // 一个环境都没配：下拉框只剩「（无环境）」，此前只写一行日志，
+        // 用户不知道要先去配置 kubeconfig。给同一条可操作提醒（直达环境管理）。
+        raiseK8sEnvAlert('', () => setEnvModalOpen(true));
+      } else {
+        clearK8sEnvAlert();
+      }
     } catch (ex: any) {
-      pushLog(`加载 K8s 环境失败：${ex.message}`, 'error');
+      const msg = ex?.message || String(ex);
+      pushLog(`加载 K8s 环境失败：${msg}`, 'error');
+      raiseK8sEnvAlert(msg, () => setEnvModalOpen(true));
     }
   }, [pushLog, t]);
 

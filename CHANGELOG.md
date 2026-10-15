@@ -1,6 +1,12 @@
 # CHANGELOG
 
 
+## v0.0.9
+
+- UI 更新
+- kibana、hcm object 功能更新
+
+
 ## v0.0.8
 
 - 支持云函数日志多开
