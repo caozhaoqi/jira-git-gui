@@ -7473,6 +7473,12 @@ button {
 /* 全局状态告警横幅：凭据失效 / 配置缺失（Cookie 过期、未配 Cookie、无 K8s 环境、
    无 Kibana 站点…）。文案与按钮由 utils/appAlerts.ts 统一定义，这里只管视觉。
    用 --danger 是刻意的：这些条件会让对应功能整体不可用，属于「必须看一眼」的状态。 */
+/* 告警横幅容器。用 flex 列而非普通块：普通块会和子项的 margin 发生塌陷，
+   导致量出来的高度少了顶部间距，toast 又会压上来。 */
+.app-alerts {
+  display: flex;
+  flex-direction: column;
+}
 .app-alert {
   margin: 10px 16px 0;
   padding: 10px 14px;
@@ -8138,8 +8144,10 @@ button {
    双套冲突——不要像 .btn 那样把它们强行合并成一处（那会丢掉分层意图）。
    ⚠️ 真正需要注意的相反案例是 .btn：global.css 的 .btn-sm 曾被 shell.css 的 .btn
    覆盖导致尺寸档失效，那才是需要收敛成单一权威源的重复定义。 */
+/* 兜底 58px = 原本的 top:68px 减去 10px 间距；有告警时由 App 写入真实底边，
+   使 toast 始终落在横幅下方（横幅高度随文案/语言变化，不能写死）。 */
 .toast-stack {
-  top: 68px;
+  top: calc(var(--app-alert-bottom, 58px) + 10px);
 }
 .toast {
   border-radius: var(--radius-sm);

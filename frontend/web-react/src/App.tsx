@@ -100,6 +100,8 @@ export default function App() {
   // 克隆 / 下载进度的 ETA 估算（后端给真实 total，可用 etaFromTotal）
   const cloneEta = useRef(new EtaTracker());
   const cloneEtaStarted = useRef(false);
+  // 告警横幅容器：量它的底边，让右上角 toast 让开（见下方 effect）
+  const alertBoxRef = useRef<HTMLDivElement>(null);
 
   // 注：?hcm-detail / ?hcm-meta / ?hcm-cf-err 三种「独立轻窗口」已抽到 src/Root.tsx，
   // 由 main.tsx 按 URL 选择渲染。这样主 App 不再用条件 return 提前退出而跳过后续
@@ -274,6 +276,38 @@ export default function App() {
     return () => offs.forEach((off) => off());
   }, [setStatus, setRepos, pushLog, setProgress, addToast, setNetworkWarning]);
 
+  // 持久告警横幅和右上角 toast 都锚在顶部，同时出现时 toast 会压住横幅右端
+  // （横幅高度随文案行数、按钮换行、语言切换变化，写死偏移量必然对不齐）。
+  // 把横幅的**视口底边**写进 CSS 变量，toast 据此下移。.workspace 本身不滚动
+  // （滚动的是内层 .workspace-body），所以这个值不会随滚动失效。
+  //
+  // ⚠️ 必须**每次渲染都重量一次**：横幅上方的 <ActionBar> 会随标签页出现/消失，
+  // 那会让横幅整体位移、而它自身高度不变 —— ResizeObserver 收不到这种变化，
+  // 只挂 RO 会留下一个按旧位置算出的过期值，toast 照样压上来（实测过）。
+  useEffect(() => {
+    const el = alertBoxRef.current;
+    const root = document.documentElement;
+    if (!el) {
+      root.style.removeProperty('--app-alert-bottom');
+      return;
+    }
+    root.style.setProperty('--app-alert-bottom', `${Math.round(el.getBoundingClientRect().bottom)}px`);
+  });
+
+  // 高度变化（换语言、文本换行、字体加载完）不一定伴随 React 重渲染，用 RO 兜住。
+  useEffect(() => {
+    const el = alertBoxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      document.documentElement.style.setProperty(
+        '--app-alert-bottom',
+        `${Math.round(el.getBoundingClientRect().bottom)}px`,
+      );
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [alerts.length]);
+
   return (
     <div className="app-shell">
       <TopBar onOpenConnect={openConnect} />
@@ -287,28 +321,33 @@ export default function App() {
             </div>
           )}
           {/* 全局状态告警：凭据失效 / 配置缺失这类「会让功能整体不可用」的前置条件，
-              统一由这里渲染成持久、可操作的横幅（文案与按钮由 utils/appAlerts 定义）。 */}
-          {alerts.map((a) => (
-            <div className="app-alert" role="alert" key={a.id}>
-              <div className="app-alert-text">
-                <strong>⚠ {t(a.titleKey)}</strong>
-                <span>{a.detail || (a.detailKey ? t(a.detailKey) : '')}</span>
-              </div>
-              {!!a.actions?.length && (
-                <div className="app-alert-actions">
-                  {a.actions.map((act) => (
-                    <button
-                      key={act.labelKey}
-                      className={`btn btn-sm ${act.primary ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={act.onClick}
-                    >
-                      {t(act.labelKey)}
-                    </button>
-                  ))}
+              统一由这里渲染成持久、可操作的横幅（文案与按钮由 utils/appAlerts 定义）。
+              外层容器供上面那个 effect 量高度，用于把 toast 让开（见 --app-alert-bottom）。 */}
+          {alerts.length > 0 && (
+            <div className="app-alerts" ref={alertBoxRef}>
+              {alerts.map((a) => (
+                <div className="app-alert" role="alert" key={a.id}>
+                  <div className="app-alert-text">
+                    <strong>⚠ {t(a.titleKey)}</strong>
+                    <span>{a.detail || (a.detailKey ? t(a.detailKey) : '')}</span>
+                  </div>
+                  {!!a.actions?.length && (
+                    <div className="app-alert-actions">
+                      {a.actions.map((act) => (
+                        <button
+                          key={act.labelKey}
+                          className={`btn btn-sm ${act.primary ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={act.onClick}
+                        >
+                          {t(act.labelKey)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
+          )}
           {apiDown && (
             <div className="api-down-banner" role="alert">
               <div className="api-down-text">
