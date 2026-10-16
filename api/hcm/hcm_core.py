@@ -226,6 +226,34 @@ async def hcm_direct(req) -> "dict":
                             resp.status_code, len(resp.content), raw_text[:300])
 
     if resp.status_code >= 400:
+        # 对齐网关自带调试页（hcm-core templates/api/api_ui.html + api.js）：
+        # 错误响应也要原样透传（含 traceback / log_index），供前端红色结果块 + 下载接口日志。
+        # HTTPException 只留给「非 JSON 异常页」这类无结构信息的场景。
+        try:
+            err_payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            err_payload = None
+        if isinstance(err_payload, dict):
+            meta = {
+                k: err_payload[k]
+                for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+                if k in err_payload
+            }
+            if "srv_begin" in meta and "srv_end" in meta:
+                meta["duration_ms"] = meta["srv_end"] - meta["srv_begin"]
+            return {
+                "ok": False,
+                "data": err_payload,
+                "error": {
+                    "errcode": err_payload.get("errcode"),
+                    "errmsg": err_payload.get("errmsg") or err_payload.get("message") or "",
+                    "error_code": err_payload.get("error_code"),
+                    "traceback": err_payload.get("traceback") or "",
+                    "http_status": resp.status_code,
+                },
+                "meta": meta,
+                "gateway": effective_target,
+            }
         raise HTTPException(resp.status_code, f"HCM 网关 {effective_target} 返回 HTTP {resp.status_code}: {raw_text[:1500]}")
 
     try:
@@ -250,10 +278,28 @@ async def hcm_direct(req) -> "dict":
         else:
             hint = ""
         logger.warning("[HCM直连] 网关返回业务错误 errcode=%s msg=%s", errcode, errmsg)
-        raise HTTPException(
-            200 if errcode else resp.status_code,
-            f"HCM 网关错误 {errcode or ''}: {errmsg}{hint}",
-        )
+        # 业务错误不再抛 HTTPException：对齐网关调试页行为——错误响应原样返回
+        # （红色结果块 + traceback + 「查看明细错误」+ 下载接口日志），由前端统一抛 HcmApiError。
+        meta = {
+            k: data[k]
+            for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+            if k in data
+        }
+        if "srv_begin" in meta and "srv_end" in meta:
+            meta["duration_ms"] = meta["srv_end"] - meta["srv_begin"]
+        return {
+            "ok": False,
+            "data": data,
+            "error": {
+                "errcode": errcode,
+                "errmsg": errmsg + hint,
+                "error_code": data.get("error_code"),
+                "traceback": data.get("traceback") or "",
+                "http_status": resp.status_code,
+            },
+            "meta": meta,
+            "gateway": effective_target,
+        }
 
     if has_result:
         result = data["result"]

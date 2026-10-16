@@ -3029,6 +3029,9 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   white-space: pre-wrap; word-break: break-all;
 }
 .hcm-api-resp { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+.hcm-api-resp--error .hcm-api-json {
+  border-color: var(--danger); background: var(--danger-bg); color: var(--danger);
+}
 .hcm-api-resp-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .hcm-api-gw {
   font-size: 11px; color: var(--text-faint); font-family: var(--mono);
@@ -3036,3 +3039,49 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 }
 .hcm-api-json { flex: 1 1 auto; min-height: 160px; max-height: 480px; overflow: auto; margin: 0; }
 .hcm-api-truncated { color: var(--warn); }
+
+/* ---- 对齐网关调试页（api_ui.html）：标题行 / API 文档块 / 提交行 / 耗时 / traceback ---- */
+.hcm-api-title {
+  font-size: 16px; font-weight: 600; color: var(--text);
+  padding-bottom: var(--sp-2); border-bottom: 1px solid var(--border-soft, var(--border));
+  display: flex; align-items: baseline; gap: 4px; flex-wrap: wrap;
+}
+.hcm-api-title code { font-size: 15px; color: var(--primary); }
+.hcm-api-doc {
+  position: relative; padding: 10px 12px; font-size: 12px; line-height: 1.6;
+  color: var(--text-2); background: var(--panel-2, var(--bg-2));
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  white-space: pre-wrap; word-break: break-all;
+}
+.hcm-api-doc--danger { border-color: var(--warn); }
+.hcm-api-doc-tag {
+  position: absolute; top: -8px; left: 10px; padding: 0 6px;
+  font-size: 10px; color: var(--text-faint);
+  background: var(--panel, var(--bg)); border-radius: 4px;
+}
+.hcm-api-doc--danger .hcm-api-doc-tag { color: var(--warn); }
+.hcm-api-doc-warn { color: var(--warn); font-weight: 600; }
+.hcm-api-submit-row { align-items: center; }
+.hcm-api-busy {
+  width: 14px; height: 14px; flex: 0 0 14px; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--primary);
+  animation: hcm-api-spin 0.8s linear infinite;
+}
+@keyframes hcm-api-spin { to { transform: rotate(360deg); } }
+.hcm-api-duration {
+  padding: 1px 8px; border-radius: 999px; font-size: 11px; font-family: var(--mono);
+  color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.hcm-api-duration--err { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.hcm-api-errlink { text-decoration: none; }
+.hcm-api-traceback {
+  margin: 0; padding: 12px 14px; max-height: 220px; overflow: auto;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  color: var(--text-2); background: var(--panel-2, var(--bg-2));
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  white-space: pre-wrap; word-break: break-all;
+}
+.hcm-api-traceback-tag {
+  display: block; margin-bottom: 6px; font-size: 10px;
+  color: var(--danger); font-family: var(--font-ui, inherit); font-weight: 600;
+}
