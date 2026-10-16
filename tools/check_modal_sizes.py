@@ -79,25 +79,50 @@ CASES = [
                 "</div></div>",
     },
     {
-        "name": "Kibana 站点管理弹窗",
+        # 这个弹窗**故意**铺满：它只在独立窗口（?view=kibana-sites）里渲染，
+        # `.modal.kb-sites-window { width: 100% }` 压过 `.modal.kb-site-modal` 的 860px
+        # 是有意为之（panels.css 有注释：页内小弹窗看不全编辑表单，故开独立窗口铺满）。
+        # 这里断言 100%，是为了防止有人把它「修」回 860px 而把独立窗口改坏。
+        "name": "Kibana 站点管理（独立窗口专用，故意铺满）",
         "selector": ".kb-site-modal",
-        "expect_w": 860,
-        "min_w": 800,
+        "expect_w": 1440,
+        "min_w": 1440,
         "html": '<div class="modal kb-site-modal kb-sites-window">'
                 '<div class="modal-header"><span class="kb-modal-title-icon">⚙</span>'
                 '<span class="kb-modal-title-text">站点管理</span></div>'
                 '<div class="modal-body">x</div></div>',
     },
+    {
+        "name": "K8s 资源描述弹窗 / 文件编辑弹窗（modal-lg）",
+        "selector": ".modal-lg",
+        "expect_w": 860,
+        "min_w": 800,
+        "html": '<div class="modal modal-lg">'
+                '<div class="modal-header"><h3>Describe</h3></div>'
+                '<div class="modal-body"><pre class="k8s-desc">x</pre></div></div>',
+    },
+    {
+        "name": "K8s 文件编辑弹窗·全屏模式（modal-fullscreen 仍须压过 modal-lg）",
+        "selector": ".modal-fullscreen",
+        "expect_w": 1440,
+        "min_w": 1440,
+        "html": '<div class="modal modal-lg modal-fullscreen">'
+                '<div class="modal-header"><h3>编辑文件</h3></div>'
+                '<div class="modal-body"><textarea class="k8s-file-edit-area"></textarea></div>'
+                '<div class="modal-footer">x</div></div>',
+    },
 ]
 
+# ⚠️ 用 offsetWidth/offsetHeight 而不是 getBoundingClientRect：
+# .modal 挂着 `animation: modal-in`（from: scale(0.97)），注入后立刻量会读到缩放中的
+# 尺寸（实测偏小 3%，1125 vs 1160），offset* 是布局尺寸、不受 transform 影响。
 MEASURE = """(sel) => {
   const el = document.querySelector(sel);
   if (!el) return null;
-  const r = el.getBoundingClientRect();
   const body = el.querySelector('.modal-body');
   return {
-    width: Math.round(r.width),
-    height: Math.round(r.height),
+    width: el.offsetWidth,
+    height: el.offsetHeight,
     cssWidth: getComputedStyle(el).width,
     bodyMaxH: body ? getComputedStyle(body).maxHeight : '',
     bodyScrollW: body ? body.scrollWidth : 0,
@@ -129,6 +154,9 @@ def main():
         for c in CASES:
             print(f"\n[{c['name']}]")
             page.evaluate(INJECT, c["html"])
+            # .modal 挂着 modal-in 动画（from: opacity 0 / scale 0.97），不等它跑完
+            # 截图会拍到「半透明几乎看不见」的弹窗，量出来的 rect 也会偏小。
+            page.wait_for_timeout(450)
             m = page.evaluate(MEASURE, c["selector"])
             check("弹窗已渲染", m is not None)
             if not m:
@@ -144,6 +172,7 @@ def main():
         # 上下文弹窗单独细看：高度要撑起来、长行要换行不横向溢出
         print("\n[上下文弹窗：高度与换行]")
         page.evaluate(INJECT, CASES[0]["html"])
+        page.wait_for_timeout(450)  # 等 modal-in 动画结束再截图/量尺寸
         m = page.evaluate(MEASURE, ".kb-ctx-modal")
         check("正文 max-height 已被覆盖为 none", m["bodyMaxH"] == "none",
               f"实测 {m['bodyMaxH']}（若为 540px 说明 .modal-body 的 60vh 还在生效）")

@@ -69,6 +69,18 @@
   background: var(--primary-weak);
   color: var(--primary);
 }
+/* ⚠️ 这两个变体必须留在 logviewer.css（即 `.lv-chip` 之后）：它们原先在 panels.css，
+   而 panels.css 加载**早于** logviewer.css，于是被 `.lv-chip` 按同特异度压掉，
+   `.lv-chip-ct` 的高亮从未生效过。ns 是「不强调」的基线（值与 .lv-chip 相同，
+   写出来是为了表明这是有意不强调，而不是漏配）。 */
+.lv-chip-ns {
+  background: var(--row-hover);
+  color: var(--text-dim);
+}
+.lv-chip-ct {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
 .lv-head-right {
   display: flex;
   align-items: center;

@@ -56,7 +56,8 @@ assert.deepEqual(
 );
 
 // 反向确认：Kibana 日志上下文弹窗确实用了双类写法且宽度不再是被压掉的 560px
-const panels = readFileSync(join(STYLES, 'panels.css'), 'utf8');
+// （断言前必须剥注释：注释里会引用「错误写法」，直接扫原文会自己把自己判违规）
+const panels = readFileSync(join(STYLES, 'panels.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
 assert.match(
   panels,
   /\.modal\.kb-ctx-modal\s*\{[^}]*width:\s*min\(\s*(\d+)px/,

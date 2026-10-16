@@ -943,8 +943,13 @@
 }
 .k8s-subtab.active:hover { background: color-mix(in srgb, var(--primary) 9%, transparent); }
 
-/* 大号弹窗（描述 / 文件编辑器） */
-.modal-lg {
+/* 大号弹窗（描述 / 文件编辑器）
+   ⚠️ 必须写 `.modal.modal-lg`：只写 `.modal-lg` 会被 shell.css 后加载的
+   `.modal{width:min(560px,94vw)}` 按同特异度压掉，860px 从未生效
+   —— 与下面 .modal-fullscreen 同样的坑，见其注释。
+   注意：本规则必须排在 .modal.modal-fullscreen **之前**（两者同特异度，
+   全屏模式靠源码顺序胜出）。 */
+.modal.modal-lg {
   width: min(860px, 96vw);
   max-width: 96vw;
 }
@@ -1553,15 +1558,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   color: var(--text-dim);
 }
 
-/* 日志查看器：额外 chip 变体 */
-.lv-chip-ns {
-  background: var(--row-hover);
-  color: var(--text-dim);
-}
-.lv-chip-ct {
-  background: var(--primary-weak);
-  color: var(--primary);
-}
+/* 日志查看器的 .lv-chip-* 变体已移到 logviewer.css（与 .lv-chip / .lv-chip-env 放一起）。
+   原先放在这里时被 logviewer.css 后加载的 `.lv-chip` 按同特异度压掉，
+   `.lv-chip-ct` 的高亮（primary-weak/primary）从未生效。 */
 
 /* 文件树：文件行 / 文件名 */
 .tree-row.file {
