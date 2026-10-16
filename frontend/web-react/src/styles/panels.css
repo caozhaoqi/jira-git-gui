@@ -4006,13 +4006,22 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 /* —— 时间直方图：点柱按该桶覆盖的时段过滤 ——
    padding-inline 给首尾刻度标签留位（标签是绝对定位 + translateX(-50%)，否则会被卡片边界裁掉） */
-.cf-dist-bars { display: flex; align-items: flex-end; gap: 2px; height: 104px; padding: 0 26px 18px; }
+.cf-dist-bars {
+  display: flex; align-items: flex-end; gap: 2px; height: 104px; padding: 0 26px 18px;
+  /* 底轴基线：画在柱底（容器 padding-bottom 18px 给刻度标签让位，轴线在其上方 1px），
+     否则空桶多时整块区域看不出是图表 */
+  background: linear-gradient(var(--border-strong), var(--border-strong)) no-repeat;
+  background-size: 100% 1px;
+  background-position: 0 calc(100% - 18px);
+}
 .cf-dist-bar { position: relative; flex: 1 1 0; min-width: 2px; height: 100%; }
 .cf-dist-bar.clickable { cursor: pointer; }
 .cf-dist-bar-inner {
   position: relative; width: 100%; height: 100%;
-  /* 堆叠：column-reverse 让第一段（数量最大）落在柱底；justify-end 让零头柱也贴底 */
-  display: flex; flex-direction: column-reverse; justify-content: flex-end;
+  /* 堆叠：column-reverse 的主轴起点在**底部**，justify-start 把柱锚在底、
+     第一段（数量最大）落在柱底；零头段向上生长。
+     ⚠️ 不能写 flex-end——column-reverse 的主轴终点是顶部，会把柱倒挂到顶。 */
+  display: flex; flex-direction: column-reverse; justify-content: flex-start;
 }
 /* 堆叠柱的一段 = 一个函数；背景由 JS 按函数名哈希注入 var(--cfd-cN)，主题切换在 CSS 侧完成 */
 .cf-dist-bar-seg {

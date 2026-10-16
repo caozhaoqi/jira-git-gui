@@ -67,11 +67,22 @@ export function CfDistribution({
     return mc || 1;
   }, [buckets]);
 
-  // x 轴刻度抽样（最多 8 个）
+  // x 轴刻度抽样（最多 8 个）：固定抽首个 + 每隔 step 一个 + **最后一个**，
+  // 否则右端（往往是正在写入的最新桶）没有刻度锚定，看起来像柱「溢出」到图外。
   const tickIdx = useMemo(() => {
     const step = Math.max(1, Math.ceil(buckets.length / 8));
-    return new Set(buckets.map((_, i) => i).filter((i) => i % step === 0));
+    const s = new Set(buckets.map((_, i) => i).filter((i) => i % step === 0));
+    if (buckets.length > 0) s.add(buckets.length - 1);
+    return s;
   }, [buckets]);
+
+  /**
+   * 桶高比例：**对数刻度** `log(1+n)/log(1+max)`。
+   * 日志量呈长尾——最新桶动辄几千条、历史桶个位数，线性刻度下除最新柱外
+   * 全部低于 1px，整张图看起来像「坏了」。对数刻度让个位数桶也有可见高度
+   * （真实数量看悬停提示，title 里逐函数列出）。
+   */
+  const barH = (n: number) => Math.log1p(Math.max(0, n)) / Math.log1p(maxCount);
 
   const shownTypes = types.slice(0, MAX_TYPE_BARS);
   const restCount = types.slice(MAX_TYPE_BARS).reduce((s, x) => s + x.count, 0);
@@ -151,7 +162,8 @@ export function CfDistribution({
                               key={s.name}
                               className="cf-dist-bar-seg"
                               style={{
-                                height: `${(s.count / maxCount) * 100}%`,
+                                // 桶整体高度走对数刻度；桶内各段按真实数量占比分摊
+                                height: `${(s.count / b.count) * barH(b.count) * 100}%`,
                                 background: cfTypeColorVar(s.name),
                               }}
                             />

@@ -147,6 +147,9 @@ export function CfConsistencyPanel() {
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [err, setErr] = useState('');
+  /* 网关候选：配置默认值 + 云函数账号里出现过的服务器地址（去重）。
+     输入框挂 datalist，点右侧箭头即可选，也保留手输任意地址的能力。 */
+  const [gwOptions, setGwOptions] = useState<string[]>([]);
   const detailReq = useRef(0);
 
   /* -------- 初始配置 -------- */
@@ -161,6 +164,25 @@ export function CfConsistencyPanel() {
         setAllRoots(r.roots || []);
         setRoots((prev) => (prev.length ? prev : r.roots || []));
         setLedgerRoot(r.ledger_root || '');
+        // 网关候选列表：失败不阻塞面板（只是下拉没有候选项）
+        apiGet<{ ok: boolean; items: { server_url?: string }[] }>(
+          '/api/services/cloud-functions'
+        )
+          .then((a) => {
+            if (!alive) return;
+            const norm = (u: string) => (u || '').trim().replace(/\/+$/, '');
+            const seen = new Set<string>();
+            const opts: string[] = [];
+            for (const u of [r.target, ...(a.items || []).map((i) => i.server_url || '')]) {
+              const k = norm(u);
+              if (k && !seen.has(k)) {
+                seen.add(k);
+                opts.push(k);
+              }
+            }
+            setGwOptions(opts);
+          })
+          .catch(() => { /* ignore */ });
       })
       .catch((e) => alive && setErr(e.message || String(e)));
     return () => { alive = false; };
@@ -402,7 +424,13 @@ export function CfConsistencyPanel() {
             onChange={(e) => setTarget(e.target.value)}
             placeholder={t('cfc.gatewayPlaceholder')}
             spellCheck={false}
+            list="cfc-gw-options"
           />
+          <datalist id="cfc-gw-options">
+            {gwOptions.map((u) => (
+              <option key={u} value={u} />
+            ))}
+          </datalist>
           {/* 留空时把后端实际解析到的网关回显出来，避免"我到底在扫哪台"存疑 */}
           {!target && scan?.target && (
             <span className="cfc-gw-echo">
@@ -437,7 +465,7 @@ export function CfConsistencyPanel() {
                     key={r}
                     type="button"
                     className={`cfc-root-chip${on ? ' on' : ''}`}
-                    title={r}
+                    title={`${r}\n${t('cfc.rootTip')}`}
                     aria-pressed={on}
                     onClick={() => toggleRoot(r)}
                   >

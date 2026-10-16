@@ -2580,15 +2580,17 @@ input[type='radio']:disabled {
    ⚠️ 必须写 `.hcm-data-export .hcm-export-group > select`：下拉已经不在 .hcm-data-export
    直接子级里（外面套了分组 div），用 `>` 会静默失配、宽度规则全部失效。 */
 .hcm-data-export .hcm-export-group > select { flex: 0 1 190px; min-width: 0; }
-/* 导出格式下拉只要放得下 CSV / JSON（在筛选条那行的导出组里，与上面的规则互不重叠） */
-.hcm-filterbar .hcm-export-actions > select { flex: 0 0 auto; max-width: 90px; }
+/* 导出格式下拉只要放得下 CSV / JSON（导出组已移到结果页脚，与上面的规则互不重叠） */
+.hcm-pager .hcm-export-actions > select { flex: 0 0 auto; max-width: 90px; }
 /* 组内默认一行；极窄面板（detail 最小 360px，字段下拉内容宽压不下去）作为兜底允许换行，
    此时用 .hcm-query-btn 把主按钮推到右侧，看起来像表单的提交按钮，而不是左侧落单 */
 .hcm-export-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 /* 查询组撑满整行，关键字输入吃掉剩余宽度（窄面板则退化为折行） */
 .hcm-data-export .hcm-export-group { flex: 1 1 auto; }
-/* 导出组按内容宽贴右（靠父级 spacer 推到右侧） */
-.hcm-filterbar .hcm-export-actions { flex: 0 1 auto; margin-left: auto; }
+/* 导出组在页脚里紧跟左侧状态簇（不推右，右侧留给翻页器），窄面板随 flex-wrap 换行 */
+.hcm-pager .hcm-export-actions { flex: 0 1 auto; margin-left: 12px; }
+/* 页脚里的导出状态文案保持行内紧凑（不强制独占一行） */
+.hcm-pager .hcm-data-export-status { flex: 0 1 auto; margin: 0; max-width: 220px; }
 .hcm-export-group > .hcm-query-btn { margin-left: auto; }
 .hcm-export-actions { margin-left: auto; }
 /* 查询组的字段下拉/关键字输入：输入框吃掉组内剩余空间，窄面板可压缩 */
