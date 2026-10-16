@@ -2,3 +2,16 @@ PyQt6>=6.6
 httpx>=0.27
 fastapi>=0.110
 uvicorn>=0.29
+# 以下四项为后端/冻结产物运行时必需，曾被漏声明（后果：CI 冻结出的
+# jira-git-backend.exe 一启动就 ModuleNotFoundError）：
+#   PyYAML  —— core/k8s/env.py、core/k8s/yaml.py 顶层 import（硬崩溃）
+#   paramiko —— core/k8s/ssh_exec.py（K8s SSH 执行功能，懒加载）
+#   debugpy / SQLAlchemy —— api/cfdebug/launcher.py、loader.py（CF 调试模式，懒加载）
+PyYAML>=6.0
+paramiko>=3.4
+debugpy>=1.6
+SQLAlchemy>=2.0
+# fastapi/uvicorn 的传递依赖，但被自身代码直接 import，显式声明防上游变心：
+pydantic>=2.0
+anyio>=4.0
+starlette>=0.37

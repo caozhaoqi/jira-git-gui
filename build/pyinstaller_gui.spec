@@ -44,8 +44,8 @@ exe = EXE(
     name="JiraGitGUI",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
+    strip=False,   # 与后端 spec 同理：strip/UPX 改写 PE 是「加载 DLL 失败」的已知诱因，
+    upx=False,     # 且 PyQt6 的 Qt DLL 被 UPX 压缩后更易出加载问题，全部关闭。
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -59,7 +59,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,   # 同 EXE：关闭 UPX，避免 Qt/Python DLL 加载失败与构建不可复现
     upx_exclude=[],
     name="JiraGitGUI",
 )

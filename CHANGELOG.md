@@ -3,17 +3,22 @@
 
 ## 未发布
 
-- 修复 GitHub CI/CD 打出的 Windows 安装包「后端启动失败」：现场日志
-  `[PYI-8760:ERROR] Failed to load Python DLL '..._MEI...\python311.dll'` →
-  `LoadLibrary: ?????` → `Python 退出 code=-1`，四次自动重启后 Electron 放弃。
-  - 根因：`build/pyinstaller_backend.spec` 同时开了 `upx=True` 与 `strip=True`——
-    UPX 压缩 python DLL 后 `LoadLibrary` 失败是 PyInstaller 官方文档点名的已知问题
-    （错误 193/126），strip 亦为「Failed to load Python DLL」的常见诱因；
-    且 CI runner 上若恰好有 strip/upx 工具，两个开关还会改变产物行为，让构建不可复现。
-  - 修复：spec 关闭 `upx` 与 `strip`；CI 固定 `pyinstaller==6.22.0`（不再"latest 漂移"）；
-    `release.yml` 三个 job 在「Build backend」之后新增**启动冒烟**：真的拉起
-    `jira-git-backend[.exe] --port 8791` 并探测 `/api/status`，探不到直接让工作流失败，
-    杜绝"产出一个根本起不来的 exe"。
+- 修复 GitHub CI/CD 打出来的安装包「后端起不来」：现场 `Failed to load Python DLL
+  '...\python311.dll'` → `LoadLibrary: ?????` → 退出码 -1，四次重启后 Electron 放弃。
+  两层原因、都已修：
+  - **主因（CI 三端全部中招）**：`requirements.txt` 漏声明运行时依赖——`core/k8s/env.py`
+    顶层 `import yaml`（PyYAML），冻结出的后端一启动就 `ModuleNotFoundError: No module
+    named 'yaml'`。本机 venv 碰巧装了这些包所以本地构建不报错，CI 只装 requirements.txt，
+    产物三端全坏。补齐 `PyYAML` / `paramiko` / `debugpy` / `SQLAlchemy`（后三者为懒加载依赖，
+    同时补进 spec 的 hiddenimports），并把直接 import 的 `pydantic` / `anyio` / `starlette`
+    显式声明，不再依赖 fastapi/uvicorn 的传递依赖。
+  - **隐患（Windows 特有、未纳管）**：spec 的 `upx=True` + `strip=True`。UPX 压缩后的
+    Python DLL 在 Windows 上 `LoadLibrary` 失败是 PyInstaller 官方点名的已知问题
+    （错误 193/126），与现场 `LoadLibrary` 失败症状吻合；两开关还使产物随 runner 工具
+    环境漂移、不可复现。前后端 spec 均已关闭。
+  - **新增验证**：`release.yml` 三个 job 在「Build backend」后强制拉起冻结后端并探测
+    `/api/status`，探不到直接让工作流失败；并固定 `pyinstaller==6.22.0`。本次正是靠
+    这一步在 3 分钟内抓到漏依赖问题（三端齐挂，日志直达 yaml）。
 - 启动失败弹窗新增「打开日志目录」按钮：后端启动失败 / 端口不可用 / 后端持续崩溃时，
   原来只有「确定」，日志路径看得见点不着；现在一颗按钮直接在资源管理器/访达定位并选中
   日志文件（`shell.showItemInFolder`），Windows 现场不用再手抄路径。
