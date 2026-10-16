@@ -3945,8 +3945,13 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 }
 .k8s-subtab.active:hover { background: color-mix(in srgb, var(--primary) 9%, transparent); }
 
-/* 大号弹窗（描述 / 文件编辑器） */
-.modal-lg {
+/* 大号弹窗（描述 / 文件编辑器）
+   ⚠️ 必须写 `.modal.modal-lg`：只写 `.modal-lg` 会被 shell.css 后加载的
+   `.modal{width:min(560px,94vw)}` 按同特异度压掉，860px 从未生效
+   —— 与下面 .modal-fullscreen 同样的坑，见其注释。
+   注意：本规则必须排在 .modal.modal-fullscreen **之前**（两者同特异度，
+   全屏模式靠源码顺序胜出）。 */
+.modal.modal-lg {
   width: min(860px, 96vw);
   max-width: 96vw;
 }
@@ -4449,7 +4454,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 
 /* ===== F4：合并冲突 3-way 决策面板 ===== */
-.conflict-modal { width: min(960px, 94vw); }
+/* ⚠️ 这里的弹窗变体一律要写成 `.modal.xxx-modal`（两个类），不能只写 `.xxx-modal`：
+   shell.css 里有一条**同特异度**的 `.modal { width: min(560px, 94vw) }`，而 main.tsx 的
+   CSS 引入顺序是 global → panels → shell，即 shell.css **加载在 panels.css 之后**，
+   同特异度下后者胜 —— 只写单类的话宽度会被死死按在 560px，作者写的宽度从未生效过。
+   （Kibana 日志上下文弹窗「窗口太小」就是这么来的。） */
+.modal.conflict-modal { width: min(960px, 94vw); }
 .conflict-hint { font-size: 12px; color: var(--text-dim); padding: 2px 0 8px; line-height: 1.6; }
 .conflict-list { display: flex; flex-direction: column; gap: 14px; }
 .conflict-item {
@@ -4550,15 +4560,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   color: var(--text-dim);
 }
 
-/* 日志查看器：额外 chip 变体 */
-.lv-chip-ns {
-  background: var(--row-hover);
-  color: var(--text-dim);
-}
-.lv-chip-ct {
-  background: var(--primary-weak);
-  color: var(--primary);
-}
+/* 日志查看器的 .lv-chip-* 变体已移到 logviewer.css（与 .lv-chip / .lv-chip-env 放一起）。
+   原先放在这里时被 logviewer.css 后加载的 `.lv-chip` 按同特异度压掉，
+   `.lv-chip-ct` 的高亮（primary-weak/primary）从未生效。 */
 
 /* 文件树：文件行 / 文件名 */
 .tree-row.file {
@@ -6370,8 +6374,8 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   flex: none;
 }
 
-/* 下载对话框 */
-.kb-dl-modal { width: 420px; max-width: 92vw; }
+/* 下载对话框（同上的 `.modal.` 前缀原因） */
+.modal.kb-dl-modal { width: min(460px, 92vw); max-width: 92vw; }
 .kb-dl-body {
   display: flex;
   flex-direction: column;
@@ -6493,8 +6497,8 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   .kb-apply-pulse, .kb-autoref.on .kb-autoref-dot.run, .kb-spin, .kb-countdown.run { animation: none; }
 }
 
-/* 站点管理弹窗 —— 美化版 */
-.kb-site-modal {
+/* 站点管理弹窗 —— 美化版（`.modal.` 前缀原因见上） */
+.modal.kb-site-modal {
   width: 860px;
   max-width: 94vw;
   max-height: 88vh;
@@ -6949,8 +6953,27 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-test-step .dot.ok { background: var(--success); }
 .kb-test-step .dot.bad { background: var(--danger); }
-.kb-ctx-modal { width: 900px; max-width: 94vw; max-height: 86vh; display: flex; flex-direction: column; }
-.kb-ctx-body { overflow: auto; max-height: 70vh; }
+/* Kibana 日志上下文弹窗（双击日志行打开）。
+   ⚠️ 必须带 `.modal.` 前缀：只写 `.kb-ctx-modal` 会被 shell.css 后加载的
+   `.modal{width:min(560px,94vw)}` 按同特异度压掉，900px 从未生效（「窗口太小」的根因）。
+   日志是长行文本，宽度给足；高度交给正文撑满并滚动，不用固定 vh 截断。 */
+.modal.kb-ctx-modal {
+  width: min(1160px, 94vw);
+  max-width: 94vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+/* ⚠️ 正文元素是 `modal-body kb-ctx-body`（**没有** modal 类），所以这里必须写
+   `.modal-body.kb-ctx-body`，不能写 `.modal.kb-ctx-body` —— 后者永远匹配不上，
+   高度会继续被 global.css 的 `.modal-body{max-height:60vh}` 截住（实测 540px）。
+   max-height:none 正是用来覆盖那一条的。 */
+.modal-body.kb-ctx-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
 
 @keyframes mask-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
@@ -7473,6 +7496,12 @@ button {
 /* 全局状态告警横幅：凭据失效 / 配置缺失（Cookie 过期、未配 Cookie、无 K8s 环境、
    无 Kibana 站点…）。文案与按钮由 utils/appAlerts.ts 统一定义，这里只管视觉。
    用 --danger 是刻意的：这些条件会让对应功能整体不可用，属于「必须看一眼」的状态。 */
+/* 告警横幅容器。用 flex 列而非普通块：普通块会和子项的 margin 发生塌陷，
+   导致量出来的高度少了顶部间距，toast 又会压上来。 */
+.app-alerts {
+  display: flex;
+  flex-direction: column;
+}
 .app-alert {
   margin: 10px 16px 0;
   padding: 10px 14px;
@@ -8138,8 +8167,10 @@ button {
    双套冲突——不要像 .btn 那样把它们强行合并成一处（那会丢掉分层意图）。
    ⚠️ 真正需要注意的相反案例是 .btn：global.css 的 .btn-sm 曾被 shell.css 的 .btn
    覆盖导致尺寸档失效，那才是需要收敛成单一权威源的重复定义。 */
+/* 兜底 58px = 原本的 top:68px 减去 10px 间距；有告警时由 App 写入真实底边，
+   使 toast 始终落在横幅下方（横幅高度随文案/语言变化，不能写死）。 */
 .toast-stack {
-  top: 68px;
+  top: calc(var(--app-alert-bottom, 58px) + 10px);
 }
 .toast {
   border-radius: var(--radius-sm);
@@ -8712,6 +8743,18 @@ button {
   font-family: var(--mono);
 }
 .lv-chip-env {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+/* ⚠️ 这两个变体必须留在 logviewer.css（即 `.lv-chip` 之后）：它们原先在 panels.css，
+   而 panels.css 加载**早于** logviewer.css，于是被 `.lv-chip` 按同特异度压掉，
+   `.lv-chip-ct` 的高亮从未生效过。ns 是「不强调」的基线（值与 .lv-chip 相同，
+   写出来是为了表明这是有意不强调，而不是漏配）。 */
+.lv-chip-ns {
+  background: var(--row-hover);
+  color: var(--text-dim);
+}
+.lv-chip-ct {
   background: var(--primary-weak);
   color: var(--primary);
 }

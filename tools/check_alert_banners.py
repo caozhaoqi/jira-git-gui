@@ -126,6 +126,53 @@ def main():
         check("有「改用 PAT 克隆到本地」", page3.locator('.app-alert button:has-text("改用 PAT")').count() > 0)
         page3.screenshot(path=f"{SHOT_DIR}/alert_jira_auth.png")
 
+        # ---- 场景 4：横幅 + toast 同时出现，toast 必须让开 -------------------
+        # 两者都锚在顶部，横幅一出现 toast 就会压住它的右端（含操作按钮）。
+        # 横幅高度随文案行数 / 语言切换变化，所以断言的是「实测底边」而非固定像素。
+        print("\n[4] 横幅与 toast 同时出现：toast 不得压住横幅")
+        page4 = ctx.new_page()
+        page4.on("pageerror", lambda e: errors.append(str(e)))
+        page4.route(
+            "**/api/kibana/sites",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"ok":false,"error":"连接被拒绝：无法连接 Kibana (ECONNREFUSED)","sites":[],"current":null}',
+            ),
+        )
+        # 让文件树报错，逼出一个 toast
+        page4.route(
+            "**/api/tree**",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body='{"error":"FORCED_TREE_FAIL","entries":[]}',
+            ),
+        )
+        page4.goto(f"{BASE}/web/", wait_until="domcontentloaded")
+        page4.click('.tab:has-text("Kibana")')
+        box = page4.locator(".app-alerts").first
+        box.wait_for(state="visible", timeout=10000)
+        # 亮出横幅后再切回仓库页 → 重新拉文件树 → 必然弹 toast
+        page4.click('.tab:has-text("仓库")')
+        toast = page4.locator(".toast").first
+        try:
+            toast.wait_for(state="visible", timeout=10000)
+        except Exception:
+            pass
+        check("横幅与 toast 同时存在", toast.count() > 0)
+        if toast.count() > 0:
+            ab = box.bounding_box()
+            tb = toast.bounding_box()
+            check("toast 落在横幅下方（不重叠）",
+                  tb["y"] >= ab["y"] + ab["height"] - 1,
+                  f"横幅底={ab['y'] + ab['height']:.0f} toast顶={tb['y']:.0f}")
+            check("CSS 变量记录了横幅底边",
+                  bool(page4.evaluate(
+                      "getComputedStyle(document.documentElement).getPropertyValue('--app-alert-bottom').trim()"
+                  )))
+            page4.screenshot(path=f"{SHOT_DIR}/alert_toast_offset.png")
+
         check("无 JS 运行时报错", not errors, "; ".join(errors[:3]))
         browser.close()
 
@@ -133,7 +180,7 @@ def main():
     if FAILS:
         print("失败项：" + ", ".join(FAILS))
     print(f"截图：{SHOT_DIR}/alert_kibana_light.png, alert_kibana_dark.png, "
-          f"alert_jira_config.png, alert_jira_auth.png")
+          f"alert_jira_config.png, alert_jira_auth.png, alert_toast_offset.png")
     return 1 if FAIL else 0
 
 

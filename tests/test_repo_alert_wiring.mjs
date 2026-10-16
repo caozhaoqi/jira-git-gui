@@ -111,6 +111,27 @@ assert.match(app, /apiDown && \([\s\S]{0,200}?role="alert"/,
   '本地后端不可达横幅要保持原样');
 assert.match(app, /networkWarning && \(/, '上游网络告警要保持原样');
 
+// ---------------------------------------------------------------- 布局：toast 必须让开横幅
+// 持久横幅和右上角 toast 都锚在顶部，横幅一出现 toast 就会压住它的右端（含按钮）。
+// 横幅高度随文案行数 / 按钮换行 / 语言切换变化，所以不能写死偏移量，必须实测。
+const shellCss = source('frontend/web-react/src/styles/shell.css');
+assert.match(app, /--app-alert-bottom/,
+  '要把横幅底边写进 CSS 变量（toast 据此下移）');
+assert.match(app, /new ResizeObserver\(/,
+  '横幅高度会变（换语言 / 换行），要用 ResizeObserver 持续同步，不能只在挂载时量一次');
+// 横幅上方的 ActionBar 会随标签页出现/消失 → 横幅位移但自身高度不变，RO 收不到。
+// 所以「每次渲染都重量」这一条必须单独守住（曾经只挂 RO，实测 toast 照样压上来）。
+assert.match(app, /setProperty\('--app-alert-bottom'[\s\S]{0,140}?\n  \}\);/,
+  '量横幅底边的 effect 不能带依赖数组：否则切标签页时 ActionBar 改变横幅位置，值会过期');
+assert.match(app, /ro\.observe\(el\);[\s\S]{0,60}?\}, \[alerts\.length\]\);/,
+  'ResizeObserver 只在告警增删时重建，避免每次渲染都重挂');
+assert.match(app, /className="app-alerts"[\s\S]{0,80}?ref=\{alertBoxRef\}/,
+  '横幅容器要挂 ref 才能量高度');
+assert.match(shellCss, /\.app-alerts \{[\s\S]{0,120}?display: flex;/,
+  '横幅容器必须是 flex 列：普通块会和子项 margin 塌陷，量出的高度会少一截');
+assert.match(shellCss, /\.toast-stack \{[\s\S]{0,160}?var\(--app-alert-bottom/,
+  'toast 位置必须读横幅底边，否则会重新压回横幅上');
+
 // ---------------------------------------------------------------- i18n：三语齐全
 for (const locale of ['zh', 'en', 'ja']) {
   const dict = source(`frontend/web-react/src/i18n/${locale}.ts`);
