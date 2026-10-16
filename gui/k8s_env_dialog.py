@@ -68,7 +68,9 @@ class EnvManageDialog(QDialog):
 
     def _refresh(self):
         self.listw.clear()
-        for name, label, is_cur in km.list_envs():
+        # list_envs() 返回 dict 列表（同 k8s_panel._refresh_envs 的修复）
+        for it in km.list_envs():
+            name, label, is_cur = it["name"], it["label"], it["is_current"]
             env = km.get_env(name)[1]
             txt = "%s (%s)%s  kubeconfig: %s" % (
                 label, name, "  [当前]" if is_cur else "",

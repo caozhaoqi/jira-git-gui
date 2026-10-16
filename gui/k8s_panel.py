@@ -257,7 +257,10 @@ class K8sPanel(QWidget):
         self.env_combo.blockSignals(True)
         self.env_combo.clear()
         cur = None
-        for name, label, is_cur in km.list_envs():
+        # list_envs() 返回 dict 列表（含 ssh_* 等扩展字段），旧的三元组解包会
+        # 抛 "too many values to unpack (expected 3)"（dict 迭代出的是 key 字符串）。
+        for env in km.list_envs():
+            name, label, is_cur = env["name"], env["label"], env["is_current"]
             self.env_combo.addItem("%s (%s)" % (label, name), name)
             if is_cur:
                 cur = name
