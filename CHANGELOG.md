@@ -1,6 +1,24 @@
 # CHANGELOG
 
 
+## 未发布
+
+- 修复 GitHub CI/CD 打出的 Windows 安装包「后端启动失败」：现场日志
+  `[PYI-8760:ERROR] Failed to load Python DLL '..._MEI...\python311.dll'` →
+  `LoadLibrary: ?????` → `Python 退出 code=-1`，四次自动重启后 Electron 放弃。
+  - 根因：`build/pyinstaller_backend.spec` 同时开了 `upx=True` 与 `strip=True`——
+    UPX 压缩 python DLL 后 `LoadLibrary` 失败是 PyInstaller 官方文档点名的已知问题
+    （错误 193/126），strip 亦为「Failed to load Python DLL」的常见诱因；
+    且 CI runner 上若恰好有 strip/upx 工具，两个开关还会改变产物行为，让构建不可复现。
+  - 修复：spec 关闭 `upx` 与 `strip`；CI 固定 `pyinstaller==6.22.0`（不再"latest 漂移"）；
+    `release.yml` 三个 job 在「Build backend」之后新增**启动冒烟**：真的拉起
+    `jira-git-backend[.exe] --port 8791` 并探测 `/api/status`，探不到直接让工作流失败，
+    杜绝"产出一个根本起不来的 exe"。
+- 启动失败弹窗新增「打开日志目录」按钮：后端启动失败 / 端口不可用 / 后端持续崩溃时，
+  原来只有「确定」，日志路径看得见点不着；现在一颗按钮直接在资源管理器/访达定位并选中
+  日志文件（`shell.showItemInFolder`），Windows 现场不用再手抄路径。
+
+
 ## v0.0.9
 
 - UI 更新

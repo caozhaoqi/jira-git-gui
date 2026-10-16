@@ -4,6 +4,10 @@
 #  产物：每个 OS 各出 ① 冻结后端（Web 模式用）② PyQt6 桌面应用 ③ Electron 安装包
 #  说明：PyInstaller / electron-builder 均不支持交叉编译，
 #        故后端 + GUI + Electron 必须在各自目标系统上构建（三 runner 分工）。
+#  2026-10-16：Windows CI 包出现「Failed to load Python DLL python311.dll」
+#        （spec 里 upx=True 压缩 python DLL + strip=True，且未做任何启动冒烟）。
+#        修复：spec 关闭 upx/strip；下方每个后端构建后强制拉起可执行并探测
+#        /api/status，构建产物真的能用才算发布成功。
 # ---------------------------------------------------------------------------
 name: Release
 
@@ -31,9 +35,30 @@ jobs:
         with:
           node-version: "20"
       - name: Install Python deps
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+        # pyinstaller 版本必须固定：云端 CI 现场问题（Windows 上 LoadLibrary 失败）
+        # 不允许「装到哪个版本算哪个版本」，保证构建可复现。
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Smoke test backend (launch + probe /api/status)
+        shell: bash
+        run: |
+          ./dist/jira-git-backend --port 8791 --host 127.0.0.1 > backend-smoke.log 2>&1 &
+          BACKEND_PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          echo "----- backend log -----"; cat backend-smoke.log || true
+          kill "$BACKEND_PID" 2>/dev/null || true
+          sleep 1
+          kill -9 "$BACKEND_PID" 2>/dev/null || true
+          if [ "$ok" != "1" ]; then
+            echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
+          fi
+          echo "----- /api/status -----"; cat backend-status.json
       - name: Build GUI (.app)
         run: pyinstaller build/pyinstaller_gui.spec --noconfirm
       - name: Stage backend into Electron resources
@@ -66,9 +91,27 @@ jobs:
         with:
           node-version: "20"
       - name: Install Python deps
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Smoke test backend (launch + probe /api/status)
+        shell: bash
+        run: |
+          ./dist/jira-git-backend.exe --port 8791 --host 127.0.0.1 > backend-smoke.log 2>&1 &
+          BACKEND_PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          echo "----- backend log -----"; cat backend-smoke.log || true
+          kill "$BACKEND_PID" 2>/dev/null || true
+          if command -v taskkill >/dev/null 2>&1; then taskkill //F //PID "$BACKEND_PID" >/dev/null 2>&1 || true; fi
+          if [ "$ok" != "1" ]; then
+            echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
+          fi
+          echo "----- /api/status -----"; cat backend-status.json
       - name: Build GUI (onedir)
         run: pyinstaller build/pyinstaller_gui.spec --noconfirm
       - name: Stage backend into Electron resources
@@ -107,9 +150,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1 libnss3 libgbm1 libgtk-3-0 libasound2t64 fakeroot dpkg
       - name: Install Python deps
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt pyinstaller
+        run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
+      - name: Smoke test backend (launch + probe /api/status)
+        shell: bash
+        run: |
+          ./dist/jira-git-backend --port 8791 --host 127.0.0.1 > backend-smoke.log 2>&1 &
+          BACKEND_PID=$!
+          ok=0
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          echo "----- backend log -----"; cat backend-smoke.log || true
+          kill "$BACKEND_PID" 2>/dev/null || true
+          sleep 1
+          kill -9 "$BACKEND_PID" 2>/dev/null || true
+          if [ "$ok" != "1" ]; then
+            echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
+          fi
+          echo "----- /api/status -----"; cat backend-status.json
       - name: Build GUI (onedir)
         run: pyinstaller build/pyinstaller_gui.spec --noconfirm
       - name: Stage backend into Electron resources

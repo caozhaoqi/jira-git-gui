@@ -80,8 +80,11 @@ exe = EXE(
     name="jira-git-backend",
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    upx=True,
+    strip=False,  # 2026-10-16：Windows 上 strip=True 是「Failed to load Python DLL」已知元凶之一；
+                 # 且 CI runner 无 strip 工具时该开关形同虚设，直接关掉换取确定性构建。
+    upx=False,    # 2026-10-16：upx=True 把 python3xx.dll/vcruntime UPX 压缩后 LoadLibrary 失败
+                 # （错误 193/126），PyInstaller 官方明确建议 Windows 上不要对 Python DLL 用 UPX；
+                 # 体积收益极小，风险极大，关闭。
     runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
