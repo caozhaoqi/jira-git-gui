@@ -12,6 +12,7 @@ const MAIN_TABS: TabDef[] = [
   { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
   { key: 'kibana', icon: '📈', labelKey: 'tab.kibana' },
   { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
+  { key: 'cfsync', icon: '🔄', labelKey: 'tab.cfsync' },
   { key: 'cfdebug', icon: '🐞', labelKey: 'tab.cfdebug' },
   { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
 ];

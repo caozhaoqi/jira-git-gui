@@ -91,6 +91,9 @@ frontend/web-legacy/
 
 merge_state/
 
+# 云函数部署台账（含线上历史版本源码，属运行时数据）
+cf_deploy_ledger/
+
 todo.md
 
 .tmp-pytest/
@@ -100,3 +103,5 @@ todo.md
 .playwright-cli/
 
 .ruff_cache/
+
+build

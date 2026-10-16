@@ -70,6 +70,10 @@ const openDevToolsCalls = [];
 const whenReadyCalls = [];
 const windowOptions = [];
 const titleGuardHits = [];
+// 「打开日志目录」错误对话框的捕获
+const msgBoxCalls = [];
+const showItemInFolderCalls = [];
+let msgBoxResponse = { response: 0 };
 
 function makeWebContents() {
   let opened = false;
@@ -141,7 +145,13 @@ const electronStub = {
     getFocusedWindow: () => focusedWindow,
     getAllWindows: () => [],
   }),
-  dialog: { showErrorBox: () => {}, showMessageBox: () => Promise.resolve({ response: 0 }) },
+  dialog: {
+    showErrorBox: () => {},
+    showMessageBox: (opts) => {
+      msgBoxCalls.push(opts);
+      return Promise.resolve(msgBoxResponse);
+    },
+  },
   ipcMain: { on: () => {}, handle: () => {} },
   clipboard: { writeText: () => {}, readText: () => '' },
   Menu: {
@@ -151,7 +161,14 @@ const electronStub = {
     },
     setApplicationMenu: () => {},
   },
-  shell: { openPath: () => Promise.resolve(''), openExternal: () => Promise.resolve() },
+  shell: {
+    openPath: () => Promise.resolve(''),
+    openExternal: () => Promise.resolve(),
+    showItemInFolder: (p) => {
+      showItemInFolderCalls.push(p);
+      return true;
+    },
+  },
   screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1440, height: 900 } }) },
 };
 
@@ -270,6 +287,37 @@ check(
   '拦截确实调用 preventDefault（否则 <title> 会把标题改回来）',
   titleGuardHits.every((x) => x === 1),
 );
+
+// 「打开日志目录」错误对话框：用户现场（Windows 打包版后端 PYI DLL 加载失败）
+// 弹窗只有「确定」，日志路径看得见点不着，只能把路径复制给别人。
+console.log('错误对话框「打开日志目录」');
+check('主进程里定义了 showErrorWithLogDir', typeof context.showErrorWithLogDir === 'function');
+
+// 场景 1：用户点「打开日志目录」（response=0）
+msgBoxResponse = { response: 0 };
+await context.showErrorWithLogDir('后端启动失败', new Error('后端在 30 次重试后仍未就绪（约 15 秒）'));
+const mb = msgBoxCalls.at(-1) || {};
+check('type=error，title 与 message 一致', mb.type === 'error' && mb.message === '后端启动失败');
+check('按钮为「打开日志目录 / 确定」', JSON.stringify(mb.buttons) === JSON.stringify(['打开日志目录', '确定']));
+check('「确定」兼作默认与取消（回车即关）', mb.defaultId === 1 && mb.cancelId === 1);
+check('detail 含错误信息与日志文件路径', /30 次重试/.test(mb.detail || '') && /日志文件/.test(mb.detail || ''));
+check('点「打开日志目录」→ shell.showItemInFolder 被调用', showItemInFolderCalls.length === 1);
+
+// 场景 2：用户点「确定」（response=1）→ 不开资源管理器；字符串 err 也要能显示
+msgBoxResponse = { response: 1 };
+const openedBefore = showItemInFolderCalls.length;
+await context.showErrorWithLogDir('端口不可用', '8787 被占用');
+const mb2 = msgBoxCalls.at(-1) || {};
+check('点「确定」不开资源管理器', showItemInFolderCalls.length === openedBefore);
+check('字符串 err 也进 detail', /8787 被占用/.test(mb2.detail || ''));
+
+// 场景 3：parent——运行中崩溃挂窗口模态；窗口已销毁则不挂
+const liveWin = { isDestroyed: () => false };
+await context.showErrorWithLogDir('后端持续崩溃', 'boom', liveWin);
+check('传 parent → 挂成窗口模态', msgBoxCalls.at(-1)?.parent === liveWin);
+const deadWin = { isDestroyed: () => true };
+await context.showErrorWithLogDir('后端持续崩溃', 'boom', deadWin);
+check('parent 已销毁 → 不挂 parent（回落应用级）', !('parent' in (msgBoxCalls.at(-1) || {})));
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 条失败`);
 process.exit(failed === 0 ? 0 : 1);

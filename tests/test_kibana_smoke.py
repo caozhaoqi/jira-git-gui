@@ -109,11 +109,29 @@ def test_logs_by_pod_and_context(client):
     assert d.get("ok") is True
     assert d.get("rows"), "指定 pod 无日志行"
     anchor = d["rows"][0]["ts"]
+    # ⚠️ site 必须显式传：panel 里选的站点只在前端 state，后端 get_client(None)
+    # 落到的是配置里的 current 站点，静默打错站点会返回空 rows（前端弹窗空白）。
+    site = _sites(client).get("current") or ""
     rc = client.post("/api/kibana/context",
-                     json={"anchor": anchor, "before": 5, "after": 5})
+                     json={"site": site, "anchor": anchor, "before": 5, "after": 5})
     assert rc.status_code == 200
     dc = rc.json()
     assert dc.get("ok") is True and dc.get("rows"), "context 上下文为空"
+
+
+def test_context_requires_explicit_site(client):
+    """不带 site 必须响亮报错，而不是静默打到 current 站点返回空 rows。
+
+    这条锁定曾经的现场 bug：用户在 hcm.ptacn.com 站点双击日志行看上下文，
+    弹窗没带 site → 后端落到 current（另一个站点）→ 该 pod 查无此行 →
+    ok:true 且 rows:[] → 弹窗一片空白。
+    """
+    r = client.post("/api/kibana/context",
+                    json={"anchor": "2026-10-16T00:00:00.000Z", "before": 1, "after": 1})
+    assert r.status_code == 200
+    d = r.json()
+    assert d.get("ok") is False, "缺少 site 的 context 请求被静默放行"
+    assert "site" in (d.get("error") or ""), f"报错信息未点出 site: {d.get('error')}"
 
 
 def test_histogram(client):

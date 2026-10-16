@@ -754,6 +754,10 @@ select:focus-visible {
   line-height: 1.6;
 }
 
+/* 次级说明文字（内联的“已启用/未启用”之类）。此前 ClashPanel 用了 .muted
+   却始终没有规则，等于没写——由 tests/test_css_classes_all.mjs 补捞出来。 */
+.muted { color: var(--text-faint); }
+
 /* ===== 仓库列表 ===== */
 .repo-list-pane,
 .file-tree-pane,
@@ -2466,6 +2470,16 @@ input[type='radio']:disabled {
   letter-spacing: -0.01em;
 }
 .hcm-detail-sub { margin-top: 2px; }
+/* 详情头部右侧的操作按钮组（如 K8sFiles 的 查看/编辑 切换）。
+   头部是 flex + wrap，按钮组需要 nowrap 且靠右，避免被标题挤成两行。 */
+.hcm-detail-head-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-left: auto;
+}
 /* 头部：对象名与 id 徽标同行（id 不再单独占一行，省一行高度）。
    id 徽标用次级底色 + 等宽字体——> 像代码标识符而不是另一条标题 */
 .hcm-detail-head .hcm-detail-title { display: inline-block; vertical-align: middle; }

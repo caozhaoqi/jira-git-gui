@@ -124,6 +124,14 @@ def client(monkeypatch):
         raise UserError("save disabled in test")
     monkeypatch.setattr("api.hcm.routes_hcm.hcm_save_data", fake_save_data)
 
+    # 云函数一致性：它的网关调用是 `from api.hcm.hcm_core import hcm_direct`（函数内导入），
+    # 所以上面 patch `routes_hcm.hcm_direct` 拦不住它 —— 必须 patch 本模块绑定的入口，
+    # 否则 POST /api/cf-consistency/scan 会真的打到现场网关并全量扫盘。
+    async def fail_cf_consistency_gw(*a, **kw):
+        raise RuntimeError("cf-consistency gateway disabled in test")
+    for _name in ("fetch_online_list", "fetch_online_script", "write_online_script"):
+        monkeypatch.setattr(f"api.cf.cf_consistency.{_name}", fail_cf_consistency_gw)
+
     # 服务配置写操作：本地 JSON 会被真实改写 —— 只测 GET，POST/PUT/DELETE 走 SKIP 集
     # 统一诊断：避免内部真执行（CF 已禁 + kubectl 已禁，应能自然失败，不额外 patch）
 
@@ -151,6 +159,10 @@ SKIP_WRITE_NO_BODY = {
     "POST /api/cf/logs/export": "导出日志文件",
     "POST /api/cf/diagnose-context": "诊断上下文生成（重）",
     "POST /api/cf/retrofit": "写改造结果",
+    # 空 body 是合法入参（所有字段都有默认值），所以不会走 422 分支，
+    # 而是真的去连网关 + 全量扫本地源码根；网关不可达时按语义返回 502。
+    # 路由本身由 tests/test_cf_consistency.py 覆盖（含 502 与降级路径）。
+    "POST /api/cf-consistency/scan": "全量扫描（真连网关 + 全量扫盘，重）",
 }
 
 # 无 body 但纯标志/缓存类 —— 可安全跑

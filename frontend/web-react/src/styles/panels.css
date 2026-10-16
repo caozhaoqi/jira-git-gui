@@ -2366,6 +2366,14 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .k8s-dl-chunk {
   opacity: 0.75;
 }
+/* 字节进度 / 速率 / 剩余时间：与 .k8s-dl-pct / .k8s-dl-chunk 同属统计行，
+   此前只有 pct 和 chunk 有规则，这三个用了裸类名（由 CSS 覆盖守卫补捞）。 */
+.k8s-dl-bytes { color: var(--text-dim); }
+.k8s-dl-speed { color: var(--primary); }
+.k8s-dl-eta {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
 
 /* ============================================================
    Clash 分流配置助手
@@ -2545,6 +2553,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .clash-ip-tag:hover {
   border-color: var(--primary);
   box-shadow: var(--shadow-sm);
+}
+/* 药丸里的 IP 文本：允许被压缩，避免长 IPv6 把整行撑破 */
+.clash-ip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .clash-ip-check {
   font-family: var(--font);
@@ -3994,18 +4009,25 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .cf-dist-bars { display: flex; align-items: flex-end; gap: 2px; height: 104px; padding: 0 26px 18px; }
 .cf-dist-bar { position: relative; flex: 1 1 0; min-width: 2px; height: 100%; }
 .cf-dist-bar.clickable { cursor: pointer; }
-.cf-dist-bar-inner { position: relative; width: 100%; height: 100%; }
-.cf-dist-bar-fill {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  border-radius: 3px 3px 0 0; background: var(--primary); opacity: 0.7;
-  transition: opacity var(--dur-fast) var(--ease-out);
+.cf-dist-bar-inner {
+  position: relative; width: 100%; height: 100%;
+  /* 堆叠：column-reverse 让第一段（数量最大）落在柱底；justify-end 让零头柱也贴底 */
+  display: flex; flex-direction: column-reverse; justify-content: flex-end;
 }
-.cf-dist-bar-err {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  border-radius: 3px 3px 0 0; background: var(--danger); opacity: 0.85;
+/* 堆叠柱的一段 = 一个函数；背景由 JS 按函数名哈希注入 var(--cfd-cN)，主题切换在 CSS 侧完成 */
+.cf-dist-bar-seg {
+  width: 100%; min-height: 2px; flex: 0 0 auto;
+  /* 段间细分隔：内阴影在任意主题下都能把相邻色块拉开，不依赖背景色 */
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(0 0 0 / 0.1);
 }
-.cf-dist-bar.clickable:hover .cf-dist-bar-fill,
-.cf-dist-bar.clickable:hover .cf-dist-bar-err { opacity: 1; }
+/* 顶段（column-reverse 下的最后一个子元素）收圆角，和旧版单色柱外观一致 */
+.cf-dist-bar-seg:last-child { border-radius: 3px 3px 0 0; }
+/* 桶内有疑似错误：柱底一根红色 flag（不抢函数色，错误明细看悬停） */
+.cf-dist-bar-flag {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
+  border-radius: 2px; background: var(--danger); z-index: 2;
+}
+.cf-dist-bar.clickable:hover .cf-dist-bar-seg { filter: brightness(1.14) saturate(1.05); }
 .cf-dist-bar.clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
 .cf-dist-bar-label {
   position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
@@ -4024,15 +4046,51 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-dist-type:hover { background: var(--bg-hover); }
 .cf-dist-type.active { border-color: var(--primary); background: var(--primary-weak); }
-.cf-dist-type-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cf-dist-type-name { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+/* 类型名前的色块 = 该函数在时间直方图里的颜色（同一哈希色，两处互相印证） */
+.cf-dist-type-swatch {
+  flex: 0 0 auto; width: 9px; height: 9px; border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
+}
 .cf-dist-type-track { height: 8px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
-.cf-dist-type-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--primary); opacity: 0.75; }
+.cf-dist-type-fill { display: block; height: 100%; border-radius: var(--radius-pill); opacity: 0.85; }
 .cf-dist-type.active .cf-dist-type-fill { opacity: 1; }
 .cf-dist-type-count { font-size: 11px; color: var(--text-dim); text-align: right; font-family: var(--mono); }
 .cf-dist-type-rest { padding: 2px var(--sp-2); font-size: 11px; color: var(--text-faint); }
 
+/* —— 函数色板（浅色主题）——
+   选色标准：中明度（白底/深底都读得清）、相邻编号色相拉开、饱和度高到在 8px
+   小条上也分辨得开。运行时按函数名哈希取 var(--cfd-cN)（utils/cfDist.ts）。
+   ⚠️ 改动色值必须同步 tests/test_cf_dist.mjs 里的「10 色互不相同」断言无副作用——
+   它只校验变量名不重复，不校验具体色值。 */
+:root {
+  --cfd-c1: #6366f1;  /* indigo */
+  --cfd-c2: #0ea5e9;  /* sky */
+  --cfd-c3: #14b8a6;  /* teal */
+  --cfd-c4: #65a30d;  /* lime-600（比 500 深，白底更稳） */
+  --cfd-c5: #d97706;  /* amber-600 */
+  --cfd-c6: #dc2626;  /* red-600 —— 与 --danger 同族，仅作函数色不作错误语义 */
+  --cfd-c7: #db2777;  /* pink-600 */
+  --cfd-c8: #7c3aed;  /* violet-600 */
+  --cfd-c9: #0891b2;  /* cyan-600 */
+  --cfd-c10: #475569; /* slate-600（中性，天然适合「其他」） */
+}
+/* 深色主题：整体提亮一档，避免中明度色在深底上发闷 */
+html.dark {
+  --cfd-c1: #818cf8;
+  --cfd-c2: #38bdf8;
+  --cfd-c3: #2dd4bf;
+  --cfd-c4: #a3e635;
+  --cfd-c5: #fbbf24;
+  --cfd-c6: #f87171;
+  --cfd-c7: #f472b6;
+  --cfd-c8: #a78bfa;
+  --cfd-c9: #22d3ee;
+  --cfd-c10: #94a3b8;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .cf-dist-bar-fill, .cf-dist-type { transition: none; }
+  .cf-dist-bar-seg, .cf-dist-type { transition: none; }
 }
 
 /* ===== 云函数日志：「高级选项」折叠区（默认收起，降低面板信息密度）=====
@@ -4085,3 +4143,561 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 /* 高级区一行只有 3 个字段，若让「记录模型」按 flex:1 撑满，右侧会留出大片空白。
    限定基宽并禁止伸张，三个字段靠左聚拢，视觉更紧凑。 */
 .cf-adv-fields > .cf-cfg-field--main { flex: 0 1 260px; min-width: 200px; }
+
+/* ============================================================
+   云函数「线上 ↔ 本地」一致性看板（CfConsistencyPanel）
+   ------------------------------------------------------------
+   类名前缀 .cfc-（cloud function consistency），与 .cf-（云函数调试）区分。
+   布局：工具条 / 状态 chip 条 / 左列表 + 右详情 / 底部部署台账。
+   ============================================================ */
+.cfc-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+}
+
+/* ---------- 工具条 ---------- */
+.cfc-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.cfc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cfc-field--roots {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.cfc-label {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.cfc-input,
+.cfc-search {
+  height: var(--ctl-md);
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.cfc-input { width: 220px; max-width: 100%; }
+.cfc-search { width: 100%; }
+.cfc-input:focus,
+.cfc-search:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.cfc-roots {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  /* 默认 3 个源码根，窄窗口下会折成 3 行（实测约 81px）。
+     留到 84px 刚好放得下，再多则裁掉——完整列表始终在 title 里。
+     原先写 46px，窄窗口第 3 个根会被切一半（截图上很明显）。 */
+  max-height: 84px;
+  overflow: hidden;
+}
+/* 源码根是「可选」的：点一下勾选/取消勾选，全部取消 = 用后端默认根。
+   取消后置灰但保留位置 —— 用户要能看出「我少选了哪个」。 */
+.cfc-root-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 9px 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease-out),
+              background var(--dur) var(--ease-out),
+              color var(--dur) var(--ease-out);
+}
+.cfc-root-chip:hover { border-color: var(--border-strong); }
+.cfc-root-chip.on {
+  border-color: var(--primary);
+  background: var(--primary-weak);
+  color: var(--text);
+}
+.cfc-root-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--bg-input);
+  color: transparent;
+  font-size: 9px;
+  line-height: 1;
+}
+.cfc-root-chip.on .cfc-root-check {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+/* 标签右侧的「可选」小标记 —— 让可选字段在视觉上自解释 */
+.cfc-opt {
+  margin-left: 4px;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-faint);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  line-height: 15px;
+  vertical-align: 1px;
+}
+.cfc-roots-count {
+  margin-left: 6px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.cfc-roots-reset {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.cfc-roots-reset:hover { text-decoration: underline; }
+.cfc-roots-reset:disabled {
+  color: var(--text-faint);
+  cursor: default;
+  text-decoration: none;
+}
+/* 网关留空时，回显后端实际解析到的地址 */
+.cfc-gw-echo {
+  margin-top: 3px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  word-break: break-all;
+}
+
+/* ---------- 状态汇总 chip 条 ---------- */
+.cfc-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cfc-chip {
+  --st: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
+}
+.cfc-chip b {
+  color: var(--st);
+  font-variant-numeric: tabular-nums;
+}
+.cfc-chip:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.cfc-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.cfc-chip.active {
+  border-color: var(--primary);
+  background: var(--primary-weak);
+  color: var(--text);
+}
+.cfc-chip--in_sync { --st: var(--success-strong); }
+.cfc-chip--differs { --st: var(--warn-strong); }
+.cfc-chip--dup_local { --st: var(--danger-strong); }
+.cfc-chip--only_online { --st: var(--primary); }
+.cfc-chip--only_local { --st: var(--text-dim); }
+.cfc-chip--unknown { --st: var(--muted); }
+.cfc-elapsed {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.cfc-error {
+  padding: 8px 10px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-xs);
+  background: var(--danger-bg);
+  color: var(--danger-strong);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+/* ---------- 主体：左列表 + 右详情 ---------- */
+.cfc-body {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 12px;
+  min-height: 0;
+}
+.cfc-list-col {
+  display: flex;
+  flex: 0 0 320px;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+.cfc-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.cfc-item {
+  display: grid;
+  grid-template-areas: 'badge main' 'badge sub';
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cfc-item:hover { background: var(--row-hover); }
+.cfc-item.active {
+  border-left-color: var(--primary);
+  background: var(--row-selected);
+}
+.cfc-item > .cfc-badge {
+  grid-area: badge;
+  align-self: center;
+}
+.cfc-item-main {
+  grid-area: main;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfc-item-sub {
+  grid-area: sub;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfc-more {
+  padding: 8px 4px 4px;
+  border-top: 1px dashed var(--border);
+  color: var(--text-faint);
+  font-size: 11.5px;
+  text-align: center;
+}
+
+/* 状态徽标（列表行 + 详情标题共用） */
+.cfc-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.cfc-badge--in_sync { background: var(--success-bg); color: var(--success-strong); }
+.cfc-badge--differs { background: var(--warn-bg); color: var(--warn-strong); }
+.cfc-badge--dup_local { background: var(--danger-bg); color: var(--danger-strong); }
+.cfc-badge--only_online { background: var(--primary-weak); color: var(--primary); }
+.cfc-badge--only_local { background: var(--bg-elevated); color: var(--text-dim); }
+.cfc-badge--unknown { background: var(--bg-elevated); color: var(--muted); }
+
+/* ---------- 详情 ---------- */
+.cfc-detail {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.cfc-detail-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+}
+.cfc-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cfc-detail-title code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfc-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.cfc-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.cfc-kv > div {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.cfc-kv > div > span {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+.cfc-kv > div > em {
+  min-width: 0;
+  color: var(--text-dim);
+  font-style: normal;
+  word-break: break-word;
+}
+.cfc-kv > div > em small { color: var(--text-faint); }
+.cfc-kv-warn {
+  padding-left: 8px;
+  border-left: 2px solid var(--warn);
+}
+.cfc-kv-warn > em {
+  color: var(--warn-strong);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.cfc-detail-busy {
+  padding: 8px 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ---------- 并排 diff ---------- */
+.cfc-diff-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.cfc-diff-stat {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.cfc-same {
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  background: var(--success-bg);
+  color: var(--success-strong);
+  font-size: 12.5px;
+  text-align: center;
+}
+.cfc-diff {
+  flex: 0 1 auto;
+  max-height: 62vh;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 0;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+.cfc-diff-line {
+  padding: 0 10px;
+  color: var(--text-dim);
+  white-space: pre;
+}
+.cfc-diff-file {
+  background: var(--bg-head);
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.cfc-diff-hunk {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+.cfc-diff-add {
+  background: var(--success-bg);
+  color: var(--success-strong);
+}
+.cfc-diff-del {
+  background: var(--danger-bg);
+  color: var(--danger-strong);
+}
+
+/* ---------- 部署台账 ---------- */
+.cfc-ledger {
+  flex: 0 0 auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.cfc-ledger-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.cfc-ledger-head:hover { color: var(--text); }
+.cfc-ledger-caret {
+  width: 12px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.cfc-ledger-count {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cfc-ledger-root {
+  max-width: 40%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfc-ledger-body {
+  max-height: 240px;
+  margin-top: 6px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.cfc-ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cfc-ledger-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-head);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+}
+.cfc-ledger-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  vertical-align: middle;
+}
+.cfc-ledger-table tbody tr:hover { background: var(--row-hover); }
+.cfc-ledger-table tbody tr:last-child td { border-bottom: none; }
+.cfc-ledger-table small { color: var(--text-faint); }
+.cfc-mono {
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.cfc-ok { color: var(--success-strong); font-weight: 600; }
+.cfc-bad { color: var(--danger-strong); font-weight: 600; }
+
+/* 窄面板（窗口收窄 / 右侧 detail 压到最小宽）下改为上下排布，列表限高 */
+@media (max-width: 860px) {
+  .cfc-body { flex-direction: column; }
+  .cfc-list-col { flex: 0 0 auto; min-width: 0; max-height: 38vh; }
+  .cfc-elapsed { margin-left: 0; }
+}

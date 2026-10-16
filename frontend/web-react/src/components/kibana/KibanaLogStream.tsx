@@ -396,7 +396,7 @@ export function KibanaLogStream({
         )}
       </div>
 
-      {ctxRow && <KibanaContextModal row={ctxRow} onClose={() => setCtxRow(null)} />}
+      {ctxRow && <KibanaContextModal row={ctxRow} site={req.site} onClose={() => setCtxRow(null)} />}
       {dlOpen && <KibanaDownloadModal req={req} onClose={() => setDlOpen(false)} />}
     </div>
   );
@@ -608,7 +608,7 @@ function fmtTs(iso: string): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
 }
 
-function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () => void }) {
+function KibanaContextModal({ row, site, onClose }: { row: KibanaLogRow; site?: string; onClose: () => void }) {
   const { t } = useT();
   const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [rows, setRows] = useState<KibanaLogRow[]>([]);
@@ -620,7 +620,12 @@ function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () =
     let alive = true;
     (async () => {
       try {
+        // ⚠️ site 必须带上：后端 get_client(None) 落到的是配置里的 current 站点，
+        // 而面板里选的站点只存在于前端 state（下拉框不写回后端 current）。
+        // 不带 site → 上下文打到别的站点 → 那个 pod 当然查不到 → ok:true 且 rows:[]，
+        // 弹窗一片空白（本 bug 的现场）。
         const d = await apiPost<KibanaContextResp>('/api/kibana/context', {
+          site: site || '',
           anchor: row.ts, pod: row.pod || '', container: row.container || '',
           namespace: row.namespace || '', before: 60, after: 60,
         });
@@ -635,7 +640,7 @@ function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () =
       }
     })();
     return () => { alive = false; };
-  }, [row]);
+  }, [row, site]);
 
   return (
     <div className="modal-mask" onClick={onClose}>
@@ -655,6 +660,9 @@ function KibanaContextModal({ row, onClose }: { row: KibanaLogRow; onClose: () =
         <div className="modal-body kb-ctx-body">
           {loading && <div className="empty-hint">{t('common.loading')}</div>}
           {err && <div className="kb-stream-err">{err}</div>}
+          {!loading && !err && !rows.length && (
+            <div className="empty-hint">{t('kibana.ctxEmpty')}</div>
+          )}
           {rows.map((r, i) => (
             <div key={`${r.id}-${i}`}
                  className={`kb-line wrap${i === anchorIdx ? ' anchor' : ''}`}>
