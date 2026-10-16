@@ -30,18 +30,32 @@
 """
 import asyncio
 import errno
-import fcntl
 import logging
 import os
-import pty
 import re
 import shlex
 import shutil
 import signal
 import struct
-import termios
 import threading
 import time
+
+try:
+    # pty/fcntl/termios 均为 Unix 专属模块，Windows 上 import 直接失败。
+    # 本模块被 core/k8s/__init__.py 无条件拉入，一旦裸 import 会让整个后端
+    # 在 Windows 上启动即崩（ModuleNotFoundError: No module named 'fcntl'）。
+    # 故降级为「可导入但 PTY 功能不可用」，真正起会话时给出可读错误。
+    import fcntl
+    import pty
+    import termios
+
+    PTY_SUPPORTED = True
+except ImportError:  # Windows 等无 pty 的平台
+    fcntl = None
+    pty = None
+    termios = None
+
+    PTY_SUPPORTED = False
 
 from .exec_cmd import (
     _exec_base_args,
@@ -177,6 +191,8 @@ def kubectl_available():
 
 def _set_winsize(fd, rows, cols):
     """设置 pty 窗口大小（主从端共享同一 winsize，设主端即生效）。"""
+    if not PTY_SUPPORTED:
+        return False
     try:
         fcntl.ioctl(fd, termios.TIOCSWINSZ,
                     struct.pack("HHHH", int(rows), int(cols), 0, 0))
@@ -230,6 +246,11 @@ class PtySession:
 
     def start(self):
         """fork 出 PTY 子进程并启动读线程。失败会抛异常，调用方需自行兜底。"""
+        if not PTY_SUPPORTED:
+            raise RuntimeError(
+                "K8s 交互式终端（PTY 会话）仅支持 Unix/Linux 平台；"
+                "Windows 上请改用一次性命令通道（exec_command）。"
+            )
         if self._master is not None:
             return self
         if self._loop is None:

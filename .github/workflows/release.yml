@@ -1,13 +1,20 @@
 # ---------------------------------------------------------------------------
-#  三端跨平台发布流水线
+#  双端跨平台发布流水线（Electron + Tauri）
 #  触发：推送 main 分支 / v* 标签 / 手动 workflow_dispatch
-#  产物：每个 OS 各出 ① 冻结后端（Web 模式用）② PyQt6 桌面应用 ③ Electron 安装包
-#  说明：PyInstaller / electron-builder 均不支持交叉编译，
-#        故后端 + GUI + Electron 必须在各自目标系统上构建（三 runner 分工）。
+#  产物：每个 OS 各出 ① 冻结后端（两种壳共用）② Electron 安装包 ③ Tauri 安装包
+#  说明：PyInstaller / electron-builder / cargo 均不支持交叉编译，
+#        故后端 + Electron + Tauri 必须在各自目标系统上构建（三 runner 分工）。
 #  2026-10-16：Windows CI 包出现「Failed to load Python DLL python311.dll」
 #        （spec 里 upx=True 压缩 python DLL + strip=True，且未做任何启动冒烟）。
 #        修复：spec 关闭 upx/strip；下方每个后端构建后强制拉起可执行并探测
 #        /api/status，构建产物真的能用才算发布成功。
+#  2026-10-16（第二次）：PyQt6 桌面包从 CI/CD 移除——桌面入口统一收敛到
+#        Electron 与 Tauri 两个壳（Tauri 包体积 ~20MB vs Electron ~250MB）。
+#        后端冻结产物（pyinstaller_backend.spec）两种壳都依赖，保留不变；
+#        仅删去 pyinstaller_gui.spec 的 GUI 构建步骤与对应产物上传。
+#        Tauri 构建直接用 npm 版 @tauri-apps/cli（预编译二进制，秒装），
+#        不走 `cargo install tauri-cli`（每 job 源码编译 5-10 分钟）。
+#        产物目录：tauri/src-tauri/target/release/bundle/{dmg,msi,nsis,appimage,deb}
 # ---------------------------------------------------------------------------
 name: Release
 
@@ -59,25 +66,44 @@ jobs:
             echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
           fi
           echo "----- /api/status -----"; cat backend-status.json
-      - name: Build GUI (.app)
-        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
-      - name: Stage backend into Electron resources
+      - name: Stage backend into Electron / Tauri resources
         run: |
-          mkdir -p electron/resources/backend
+          mkdir -p electron/resources/backend tauri/src-tauri/resources/backend
           cp dist/jira-git-backend electron/resources/backend/jira-git-backend
+          cp dist/jira-git-backend tauri/src-tauri/resources/backend/jira-git-backend
       - name: Build Electron (dmg)
         working-directory: electron
         run: |
           npm install
           npm run dist:mac
+      - name: Setup Rust (Tauri)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+      - name: Build Tauri (app + dmg)
+        working-directory: tauri
+        run: tauri build
+      - name: DMG fallback via hdiutil (tauri 自带 dmg 步骤失败时兜底)
+        if: runner.os == 'macOS'
+        run: |
+          BUNDLE=tauri/src-tauri/target/release/bundle
+          APP="$(find "$BUNDLE/macos" -maxdepth 1 -name '*.app' | head -1)"
+          if [ -n "$APP" ] && ! ls "$BUNDLE"/dmg/*.dmg >/dev/null 2>&1; then
+            hdiutil create -volname "JiraGitGUI" -srcfolder "$APP" -ov -format UDZO "$BUNDLE/dmg/$(basename "$APP" .app).dmg"
+          fi
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: jira-git-gui-macos
           path: |
             electron/dist-electron/*
+            tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            tauri/src-tauri/target/release/bundle/macos/*.app
             dist/jira-git-backend
-            dist/JiraGitGUI.app
 
   # ===================== Windows =====================
   build-windows:
@@ -112,26 +138,37 @@ jobs:
             echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
           fi
           echo "----- /api/status -----"; cat backend-status.json
-      - name: Build GUI (onedir)
-        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
-      - name: Stage backend into Electron resources
+      - name: Stage backend into Electron / Tauri resources
         shell: bash
         run: |
-          mkdir -p electron/resources/backend
+          mkdir -p electron/resources/backend tauri/src-tauri/resources/backend
           cp dist/jira-git-backend.exe electron/resources/backend/jira-git-backend.exe
+          cp dist/jira-git-backend.exe tauri/src-tauri/resources/backend/jira-git-backend.exe
       - name: Build Electron (nsis)
         working-directory: electron
         run: |
           npm install
           npm run dist:win
+      - name: Setup Rust (Tauri)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+      - name: Build Tauri (msi + nsis)
+        working-directory: tauri
+        run: tauri build
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: jira-git-gui-windows
           path: |
             electron/dist-electron/*
+            tauri/src-tauri/target/release/bundle/msi/*.msi
+            tauri/src-tauri/target/release/bundle/nsis/*.exe
             dist/jira-git-backend.exe
-            dist/JiraGitGUI
 
   # ===================== Linux =====================
   build-linux:
@@ -144,11 +181,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install system libs (Qt / Electron)
+      - name: Install system libs (Qt WebKit for Tauri / Electron 运行库)
         continue-on-error: true
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgl1 libnss3 libgbm1 libgtk-3-0 libasound2t64 fakeroot dpkg
+          sudo apt-get install -y \
+            libgl1 libnss3 libgbm1 libgtk-3-0 libasound2t64 fakeroot dpkg \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
       - name: Install Python deps
         run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
       - name: Build backend (onefile)
@@ -172,23 +212,34 @@ jobs:
             echo "::error::Backend smoke test failed - frozen exe did not serve /api/status"; exit 1
           fi
           echo "----- /api/status -----"; cat backend-status.json
-      - name: Build GUI (onedir)
-        run: pyinstaller build/pyinstaller_gui.spec --noconfirm
-      - name: Stage backend into Electron resources
+      - name: Stage backend into Electron / Tauri resources
         run: |
-          mkdir -p electron/resources/backend
+          mkdir -p electron/resources/backend tauri/src-tauri/resources/backend
           cp dist/jira-git-backend electron/resources/backend/jira-git-backend
-          chmod +x electron/resources/backend/jira-git-backend
+          cp dist/jira-git-backend tauri/src-tauri/resources/backend/jira-git-backend
+          chmod +x electron/resources/backend/jira-git-backend tauri/src-tauri/resources/backend/jira-git-backend
       - name: Build Electron (AppImage + deb)
         working-directory: electron
         run: |
           npm install
           npm run dist:linux
+      - name: Setup Rust (Tauri)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+      - name: Build Tauri (AppImage + deb)
+        working-directory: tauri
+        run: tauri build
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: jira-git-gui-linux
           path: |
             electron/dist-electron/*
+            tauri/src-tauri/target/release/bundle/appimage/*.AppImage
+            tauri/src-tauri/target/release/bundle/deb/*.deb
             dist/jira-git-backend
-            dist/JiraGitGUI

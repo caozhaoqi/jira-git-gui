@@ -46,7 +46,8 @@
 ./scripts/run_web.sh --electron   # 改为启动 Electron 桌面应用
 ```
 
-> 注意：`scripts/run.sh` 启动的是**遗留 PyQt6 桌面界面**（`main.py`），它不认 `--electron` 也不是浏览器版。Windows 对应 `run_web.ps1` / `run.ps1`。
+> 桌面端入口是 Electron / Tauri 安装包；从源码跑 Web 模式用 `run_web.sh` / `run_web.ps1`。
+> PyQt6 桌面实现已于 2026-10 移至 `pyqt-legacy` 分支存档，主干不再包含。
 
 ### 方式三：手动启动
 
@@ -192,4 +193,4 @@ QT_QPA_PLATFORM=offscreen ./venv/bin/python -m pytest tests/ --basetemp=.pytest_
 - **Cookie 模式能力弱于 PAT** —— 部分大文件 / 二进制要走兜底通道，会话过期后浏览会失效。
 - **一个 Shell 标签页对应一条会话。** 断开即结束；想同时看多个，请用全屏日志页。
 - **`.env` `MERGE_REPO_*` 按仓库名建立映射** —— 同名仓库会撞 key，这类仓库请手动指定本地目录。
-- `main.py`、`gui/`、`workers/` 是较早的 PyQt6 桌面实现，仅作参考保留。发行版为 Electron + Tauri。
+- PyQt6 桌面实现（原 `main.py`、`gui/`、`workers/`）已剥离至 `pyqt-legacy` 分支；主干发行版为 Electron + Tauri。

@@ -613,6 +613,20 @@ button[aria-expanded='true'] .cfd-caret {
 .cfdebug-bp-dot.log {
   color: var(--info);
 }
+/* 断点所在「文件名 : 行号」。两者此前只有类名、没有规则，长文件名会把右侧的
+   条件文本和操作按钮挤出去（.cfdebug-bp-opt 自己限了宽，文件名没限）。 */
+.cfdebug-bp-file {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfdebug-bp-line {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
 .cfdebug-bp-badge {
   font-size: 10px;
   padding: 1px 5px;

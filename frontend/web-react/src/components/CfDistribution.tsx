@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import type { CfLogsRow } from '../api/types';
 import { useT } from '../i18n';
 import {
-  buildTimeBuckets, cfRowIsError, cfRowTime, countByType, fmtBucketFull, fmtBucketTick, fmtStep, pickStepMs,
+  buildTimeBuckets, cfRowIsError, cfRowTime, cfTypeColorVar, countByType,
+  fmtBucketFull, fmtBucketTick, fmtStep, pickStepMs,
   type CfDistBucket,
 } from '../utils/cfDist';
 
@@ -31,7 +32,11 @@ const MAX_TYPE_BARS = 10;
 const TARGET_BARS = 48;
 
 /**
- * 云函数日志「分布」卡片：时间直方图（点柱钻取时间段）+ 类型分布（点击按类型过滤）。
+ * 云函数日志「分布」卡片：时间直方图（堆叠柱，点柱钻取时间段）+ 类型分布（点击按类型过滤）。
+ *
+ * 配色：每个函数一个稳定颜色（`cfTypeColorVar` 按函数名哈希取色），时间柱按函数
+ * 堆叠、类型条同色——两个视图互相印证，「哪根柱/哪根条是哪个函数」一眼可查。
+ * 错误不抢颜色的戏：柱底一根红色 flag 表示「该时段有疑似错误」，明细在悬停提示里。
  *
  * ⚠️ 数据源是**当前已加载**的日志行（纯前端聚合），不是服务端全量，
  * 因此头部显式标注「基于 N 条」，避免被误读成全量统计。
@@ -62,11 +67,22 @@ export function CfDistribution({
     return mc || 1;
   }, [buckets]);
 
-  // x 轴刻度抽样（最多 8 个）
+  // x 轴刻度抽样（最多 8 个）：固定抽首个 + 每隔 step 一个 + **最后一个**，
+  // 否则右端（往往是正在写入的最新桶）没有刻度锚定，看起来像柱「溢出」到图外。
   const tickIdx = useMemo(() => {
     const step = Math.max(1, Math.ceil(buckets.length / 8));
-    return new Set(buckets.map((_, i) => i).filter((i) => i % step === 0));
+    const s = new Set(buckets.map((_, i) => i).filter((i) => i % step === 0));
+    if (buckets.length > 0) s.add(buckets.length - 1);
+    return s;
   }, [buckets]);
+
+  /**
+   * 桶高比例：**对数刻度** `log(1+n)/log(1+max)`。
+   * 日志量呈长尾——最新桶动辄几千条、历史桶个位数，线性刻度下除最新柱外
+   * 全部低于 1px，整张图看起来像「坏了」。对数刻度让个位数桶也有可见高度
+   * （真实数量看悬停提示，title 里逐函数列出）。
+   */
+  const barH = (n: number) => Math.log1p(Math.max(0, n)) / Math.log1p(maxCount);
 
   const shownTypes = types.slice(0, MAX_TYPE_BARS);
   const restCount = types.slice(MAX_TYPE_BARS).reduce((s, x) => s + x.count, 0);
@@ -116,11 +132,13 @@ export function CfDistribution({
             <div className="empty-hint">{t('cf.distEmpty')}</div>
           ) : (
             <>
-              {/* ===== 时间分布（柱状；点柱按该时段过滤）===== */}
+              {/* ===== 时间分布（堆叠柱状；点柱按该时段过滤）===== */}
               <div className="cf-dist-section">
                 <div className="cf-dist-subtitle">
                   <span>🕒 {t('cf.distTime')}</span>
-                  {onTimeRangePick && <span className="cf-dist-hint">{t('cf.distClickHint')}</span>}
+                  {onTimeRangePick
+                    ? <span className="cf-dist-hint">{t('cf.distStackHint')}</span>
+                    : <span className="cf-dist-hint">{t('cf.distColorHint')}</span>}
                 </div>
                 {buckets.length === 0 ? (
                   <div className="empty-hint">{t('cf.distNoTime')}</div>
@@ -130,8 +148,7 @@ export function CfDistribution({
                       <div
                         key={b.ts}
                         className={`cf-dist-bar${onTimeRangePick && b.count ? ' clickable' : ''}`}
-                        title={`${fmtBucketFull(b.ts, stepMs)} · ${b.count}${b.err ? ` (${b.err} err)` : ''}` +
-                               (onTimeRangePick && b.count ? ` · ${t('cf.distClickHint')}` : '')}
+                        title={bucketTitle(b, stepMs, onTimeRangePick ? t('cf.distClickHint') : '')}
                         onClick={() => pickBucket(b)}
                         role={onTimeRangePick && b.count ? 'button' : undefined}
                         tabIndex={onTimeRangePick && b.count ? 0 : undefined}
@@ -140,12 +157,18 @@ export function CfDistribution({
                           : undefined}
                       >
                         <div className="cf-dist-bar-inner">
-                          <div className="cf-dist-bar-err" style={{ height: `${(b.err / maxCount) * 100}%` }} />
-                          <div className="cf-dist-bar-fill"
-                               style={{
-                                 height: `${(b.count / maxCount) * 100}%`,
-                                 background: b.err > 0 ? 'var(--danger)' : undefined,
-                               }} />
+                          {b.segs.map((s) => (
+                            <div
+                              key={s.name}
+                              className="cf-dist-bar-seg"
+                              style={{
+                                // 桶整体高度走对数刻度；桶内各段按真实数量占比分摊
+                                height: `${(s.count / b.count) * barH(b.count) * 100}%`,
+                                background: cfTypeColorVar(s.name),
+                              }}
+                            />
+                          ))}
+                          {b.err > 0 && <div className="cf-dist-bar-flag" />}
                         </div>
                         {tickIdx.has(i) && <div className="cf-dist-bar-label">{fmtBucketTick(b.ts, stepMs)}</div>}
                       </div>
@@ -164,6 +187,7 @@ export function CfDistribution({
                   {shownTypes.map((it) => {
                     const pct = total ? (it.count / total) * 100 : 0;
                     const on = typePick.includes(it.name);
+                    const color = cfTypeColorVar(it.name);
                     return (
                       <button
                         key={it.name}
@@ -171,10 +195,13 @@ export function CfDistribution({
                         onClick={() => onToggleType(it.name)}
                         title={`${it.name} · ${it.count}${it.err ? ` (${it.err} err)` : ''}`}
                       >
-                        <span className="cf-dist-type-name">{on ? '✓ ' : ''}{it.name}</span>
+                        <span className="cf-dist-type-name">
+                          <i className="cf-dist-type-swatch" style={{ background: color }} />
+                          {on ? '✓ ' : ''}{it.name}
+                        </span>
                         <span className="cf-dist-type-track">
                           <span className="cf-dist-type-fill"
-                                style={{ width: `${pct}%`, background: it.err > 0 ? 'var(--danger)' : undefined }} />
+                                style={{ width: `${pct}%`, background: color }} />
                         </span>
                         <span className="cf-dist-type-count">{it.count} · {pct.toFixed(1)}%</span>
                       </button>
@@ -193,6 +220,18 @@ export function CfDistribution({
       )}
     </div>
   );
+}
+
+/** 桶悬停提示：时间段 + 总数（含错误数）+ 函数明细（最多列前 4 个，其余折叠计数）。 */
+function bucketTitle(b: CfDistBucket, stepMs: number, clickHint: string): string {
+  let s = `${fmtBucketFull(b.ts, stepMs)} · ${b.count}${b.err ? ` (${b.err} err)` : ''}`;
+  if (b.segs.length) {
+    const top = b.segs.slice(0, 4).map((x) => `${x.name}×${x.count}`).join(', ');
+    const more = b.segs.length > 4 ? ` +${b.segs.length - 4}` : '';
+    s += `\n${top}${more}`;
+  }
+  if (clickHint && b.count) s += `\n${clickHint}`;
+  return s;
 }
 
 /** 行集的时间跨度（毫秒）；无有效时间戳或跨度为 0 时回退 1 小时（避免桶宽退化）。 */

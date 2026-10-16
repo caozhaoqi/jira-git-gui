@@ -12,6 +12,14 @@ export interface CfDistBucket {
   ts: number;
   count: number;
   err: number;
+  /** 桶内按函数（类型）拆分的计数，count 降序 → 堆叠柱从底往上由大到小 */
+  segs: CfDistBucketSeg[];
+}
+
+/** 堆叠柱的一段：某函数在该时间桶内的日志数。 */
+export interface CfDistBucketSeg {
+  name: string;
+  count: number;
 }
 
 /** 类型分布的一项。 */
@@ -107,7 +115,7 @@ export function fmtStep(stepMs: number): string {
 }
 
 /**
- * 把日志行按时间分桶。
+ * 按时间分桶（柱内再按函数拆分，供堆叠着色）。
  * - 所有桶等宽、按 stepMs 对齐，跨度覆盖所有有效时间戳。
  * - 无有效时间戳时返回空数组（调用方负责显示空态）。
  */
@@ -128,14 +136,27 @@ export function buildTimeBuckets(rows: LogRowLike[], stepMs: number): CfDistBuck
   const end = Math.floor(max / stepMs) * stepMs;
   const n = Math.min(Math.round((end - start) / stepMs) + 1, 400); // 兜底上限，防极端跨度爆柱
   const buckets: CfDistBucket[] = [];
-  for (let i = 0; i < n; i++) buckets.push({ ts: start + i * stepMs, count: 0, err: 0 });
+  const perBucket = new Map<number, Map<string, number>>();
+  for (let i = 0; i < n; i++) {
+    buckets.push({ ts: start + i * stepMs, count: 0, err: 0, segs: [] });
+    perBucket.set(start + i * stepMs, new Map());
+  }
   for (const r of rows) {
     const t = cfRowTime(r);
     if (Number.isNaN(t)) continue;
     const idx = Math.min(Math.floor((t - start) / stepMs), n - 1);
     if (idx < 0) continue;
-    buckets[idx].count += 1;
-    if (cfRowIsError(r)) buckets[idx].err += 1;
+    const b = buckets[idx];
+    b.count += 1;
+    if (cfRowIsError(r)) b.err += 1;
+    const name = cfRowType(r, '') || '(未知)';
+    const seg = perBucket.get(b.ts)!;
+    seg.set(name, (seg.get(name) || 0) + 1);
+  }
+  for (const b of buckets) {
+    const seg = perBucket.get(b.ts)!;
+    b.segs = Array.from(seg, ([name, count]) => ({ name, count }))
+      .sort((a, b2) => b2.count - a.count || a.name.localeCompare(b2.name));
   }
   return buckets;
 }
@@ -173,3 +194,32 @@ export function fmtBucketFull(ms: number, stepMs: number): string {
     `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())} ${p(x.getHours())}:${p(x.getMinutes())}`;
   return `${one(d)} ~ ${one(e)}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 函数配色：同一函数在任何视图、任何过滤条件下都拿到同一个颜色。
+//
+// 为什么用「名字哈希」而不是「按数量排名的下标」：类型列表会随时间范围钻取 /
+// 类型过滤重排，按排名取色会让同一个函数前后变色，用户刚建立的
+// 「颜色=函数」心智模型被打破；哈希只依赖函数名本身，永远稳定。
+// 具体色值定义在 styles/panels.css 的 --cfd-c1..--cfd-c10（浅色/深色两套），
+// 这里只返回变量引用，主题切换由 CSS 负责。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 函数色板容量（与 panels.css 的 --cfd-cN 一一对应）。 */
+export const CF_TYPE_PALETTE_SIZE = 10;
+
+/** djb2 字符串哈希 → 稳定非负整数。 */
+export function cfNameHash(name: string): number {
+  let h = 5381;
+  for (let i = 0; i < name.length; i++) h = ((h << 5) + h + name.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/** 函数名 → `var(--cfd-cN)`。同一名字恒定同一色；N ∈ [1, CF_TYPE_PALETTE_SIZE]。 */
+export function cfTypeColorVar(name: string): string {
+  const idx = (cfNameHash(name || '(未知)') % CF_TYPE_PALETTE_SIZE) + 1;
+  return `var(--cfd-c${idx})`;
+}
+
+/** 「其他/未知」用的中性色（灰色，避免和任何真实函数撞色）。 */
+export const CF_TYPE_REST_COLOR = 'var(--text-faint)';

@@ -104,6 +104,13 @@ async def api_kibana_context(body: ContextQuery):
     """
     if not body.anchor:
         return {"ok": False, "error": "缺少锚点时间（anchor）", "rows": []}
+    # ⚠️ site 必须显式传入：面板里选的站点只存在于前端 state（下拉框不写回 current），
+    # 而 get_client(None) 落到的是配置里的 current 站点。静默回落会打到别的站点，
+    # 那个 pod 当然查不到 → ok:true 且 rows:[] → 前端弹窗一片空白。
+    # 与 logs/histogram 不同，context 没有合理的「默认站点」可言——它锚定的就是
+    # 用户正在看的那条日志所在的站点。宁可响亮报错，不要静默给空。
+    if not (body.site or "").strip():
+        return {"ok": False, "error": "缺少站点（site）——上下文必须指定日志所在的站点", "rows": []}
     try:
         cli = get_client(body.site or None)
     except (UserError, KibanaError) as ex:

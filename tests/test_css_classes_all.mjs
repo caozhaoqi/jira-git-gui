@@ -70,6 +70,18 @@ function classesFromExpr(expr) {
   return out;
 }
 
+// ⚠️ 历史 bug（2026-10-16 修复）：className 有两种写法，早先只走 classesFromExpr，
+// 于是 `className="cfc-wrap"` 这种最常见的静态写法被整段漏掉 —— 外层正则已经把
+// 双引号剥掉，剩下裸串 `cfc-wrap`，里面没有引号，classesFromExpr 自然提取不到。
+// 后果是守卫只看到 82/1022 个类名（覆盖率 8%），"缺 CSS" 根本报不出来，
+// 与它存在的意义完全相反。
+//   1) className="a b c"        → 引号已被剥掉，整串就是类名列表，直接按空白切
+//   2) className={...表达式...} → 只取引号内的片段（裸标识符是变量/条件，不是类名）
+function classesFromClassNameAttr(quoted, expr) {
+  if (quoted !== undefined) return quoted.split(/\s+/);
+  return classesFromExpr(expr ?? '');
+}
+
 // TS 字符串字面量联合类型 / as const 数组里的「值」（如 type Tab = 'list' | 'info'）。
 // 这些词会作为三元比较对象出现在 className 表达式里（tab === 'fields' ? … : …），
 // 但它们是枚举值而不是类名，必须排除，否则每个 tab 名都会被误报成「缺 CSS」。
@@ -102,11 +114,23 @@ const KNOWN_NON_CLASS_VALUES = new Set([
   'whitespace_only', // DiffPanel.tsx：e.status 的枚举值（仅换行符差异）
 ]);
 
+// 「确实是类名、但有意不写 CSS」的例外。这类不是漏写，加规则反而会改变现有版式，
+// 所以显式登记并写清理由 —— 登记本身也让它们重新变得可见（不再是静默跳过）。
+// 新增条目前必须逐条确认理由成立，不接受「先加进来让它绿」。
+const KNOWN_UNSTYLED = new Map([
+  ['unified-diag-panel', 'UnifiedDiagnosisPanel.tsx：外层容器，padding/height/overflow 全走行内 style，类名只作语义标记'],
+  ['diag-summary', 'UnifiedDiagnosisPanel.tsx：纯包裹层，内部元素全部行内 style'],
+  ['diag-cf-detail', 'UnifiedDiagnosisPanel.tsx：纯包裹层，内部元素全部行内 style'],
+  ['diag-k8s-detail', 'UnifiedDiagnosisPanel.tsx：纯包裹层，内部元素全部行内 style'],
+  ['card-body', 'DiffPanel.tsx：折叠区包裹层，子元素 .diff-cfg-card 自带 padding/border/背景，父层再加会双层内边距'],
+  ['kb-dl-foot', 'KibanaLogStream.tsx：与 .modal-foot 同时使用，样式全部由 .modal-foot 提供，此名仅作扩展挂点'],
+]);
+
 const classNameRe = /className=(?:"([^"]*)"|\{([^}]*)\})/g;
 for (const f of tsxFiles) {
   const src = readFileSync(f, 'utf8');
   for (const m of src.matchAll(classNameRe)) {
-    for (const token of classesFromExpr(m[1] ?? m[2] ?? '')) {
+    for (const token of classesFromClassNameAttr(m[1], m[2])) {
       if (!/^[a-z][a-z0-9_-]*$/.test(token)) continue;
       if (token.length < 2) continue;
       // 模板字符串前缀片段（如 hcm-cf-err-kind--${x} 拆出的 hcm-cf-err-kind--）
@@ -114,6 +138,7 @@ for (const f of tsxFiles) {
       if (NOT_CLASS.has(token)) continue;
       if (literalValues.has(token)) continue;
       if (KNOWN_NON_CLASS_VALUES.has(token)) continue;
+      if (KNOWN_UNSTYLED.has(token)) continue;
       if (isExternalClass(token)) continue;
       if (!used.has(token)) used.set(token, []);
       used.get(token).push(f.replace(`${SRC}/`, ''));
@@ -145,6 +170,14 @@ const missing = [...used.keys()].filter((c) => !defined.has(c)).sort();
 check(
   `每个组件里用到的类名都有 CSS 规则${missing.length ? `：缺 ${missing.slice(0, 30).join(', ')}${missing.length > 30 ? ` …等 ${missing.length} 个` : ''}` : ''}`,
   missing.length === 0,
+);
+
+// 守卫自身的健全性下限。提取器一旦又退化成「只认引号内片段」（见上方历史 bug），
+// used.size 会从 ~1000 掉到 ~80，而 missing 反而更少 —— 是「静默放行」而不是报错。
+// 有了这条下限，那种退化会立刻变红，不会再悄悄发生一次。
+check(
+  `类名提取覆盖量正常（used=${used.size}，下限 500）`,
+  used.size >= 500,
 );
 
 console.log(failed === 0 ? '\n全部通过' : `\n${failed} 条失败`);

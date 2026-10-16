@@ -56,10 +56,11 @@ function scheduleBackendRestart(code, signal) {
   backendRestartCount += 1;
   if (backendRestartCount > BACKEND_MAX_RESTARTS) {
     logErr(`后端已连续退出 ${BACKEND_MAX_RESTARTS} 次，停止自动重启。请检查日志：${LOG_FILE}`);
-    dialog.showErrorBox(
+    showErrorWithLogDir(
       '后端持续崩溃',
       `Python API 服务器在短时间内反复退出（已尝试自动重启 ${BACKEND_MAX_RESTARTS} 次）。\n` +
-      `最近一次：code=${code}, signal=${signal}\n请查看日志：${LOG_FILE}`
+      `最近一次：code=${code}, signal=${signal}`,
+      mainWindow,
     );
     return;
   }
@@ -605,6 +606,39 @@ function registerIpcHandlers() {
   });
 }
 
+// ---- 错误对话框（带「打开日志目录」按钮）----
+/**
+ * 弹「错误 + 打开日志目录」对话框。
+ *
+ * 为什么不用 dialog.showErrorBox：它只有「确定」一颗按钮，而后端启动失败时
+ * 用户最需要的恰恰是那行日志路径——看得见、点不着（Windows 用户还得自己敲
+ * 资源管理器地址；现场同事只能把路径复制给别人）。用 showMessageBox 加一颗
+ * 「打开日志目录」：在资源管理器/访达里定位并选中日志文件
+ * （shell.showItemInFolder，比 openPath 直接打开更符合「去目录里看」的预期）。
+ *
+ * 默认与取消都是「确定」：回车即关，不逼用户先理解那颗新按钮。
+ * ``parent`` 可选：传窗口时挂成该窗口的模态（后端运行中崩溃的场景），
+ * 不传则是应用级模态（启动失败时还没有窗口）。
+ */
+function showErrorWithLogDir(title, err, parent) {
+  const msg = (err && typeof err === 'object' && err.message) ? err.message : String(err || '未知错误');
+  const detail = `${msg}\n\n日志文件：${LOG_FILE}`;
+  return dialog.showMessageBox({
+    type: 'error',
+    title,
+    message: title,
+    detail,
+    buttons: ['打开日志目录', '确定'],
+    defaultId: 1,
+    cancelId: 1,
+    ...(parent && !parent.isDestroyed?.() ? { parent } : {}),
+  }).then(({ response }) => {
+    if (response === 0) {
+      try { shell.showItemInFolder(LOG_FILE); } catch (_) {}
+    }
+  }).catch(() => {});
+}
+
 // ---- Python 后端启动 ----
 // 返回后端启动命令：打包态用冻结后的单文件可执行；开发态用 venv 里的 python。
 function getBackendLaunch() {
@@ -664,7 +698,7 @@ function startPythonBackend() {
 
   pyProc.on('error', (err) => {
     logErr(`启动 Python 失败：${err.message}`);
-    dialog.showErrorBox('后端启动失败', `无法启动 Python 后端：${err.message}\n\n日志位置：${LOG_FILE}`);
+    showErrorWithLogDir('后端启动失败', `无法启动 Python 后端：${err.message}`);
   });
 
   return pyProc;
@@ -818,7 +852,7 @@ if (app && app.whenReady) {
       log(`后端端口探测完成：${BACKEND_PORT}`);
     } catch (err) {
       logErr(`端口探测失败：${err.message}`);
-      dialog.showErrorBox('端口不可用', `${err.message}\n\n请释放 8787 附近的端口后重试。`);
+      showErrorWithLogDir('端口不可用', `${err.message}\n\n请释放 8787 附近的端口后重试。`);
       app.quit();
       return;
     }
@@ -839,7 +873,7 @@ if (app && app.whenReady) {
     createWindow();
   } catch (err) {
     logErr(err.message);
-    dialog.showErrorBox('后端启动失败', `${err.message}\n\n日志文件：${LOG_FILE}`);
+    showErrorWithLogDir('后端启动失败', err);
     stopPythonBackend();
     app.quit();
   }
@@ -876,7 +910,7 @@ if (app) {
             ]);
             createWindow();
           } catch (err) {
-            dialog.showErrorBox('后端启动失败', `${err.message}\n\n日志文件：${LOG_FILE}`);
+            showErrorWithLogDir('后端启动失败', err);
             app.quit();
           }
         })();

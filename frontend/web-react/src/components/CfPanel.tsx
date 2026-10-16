@@ -797,7 +797,20 @@ export function CfPanel() {
       setExpanded(null);
       // 注意：不要在此清空 search（实时过滤输入框）。
       // 用户刚输入的过滤条件应在新查询结果上继续生效，否则表现为「点查询后过滤内容被清空」。
-      setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
+      if (rows.length === 0 && total > 0) {
+        // 服务端 total>0 但本页 0 行：要么页码越界，要么类型过滤在该环境未命中。
+        // 不解释的话界面就是「共 N 条 / 本页 0」的自相矛盾观感（SyncOuterRecord 环境尤为常见）。
+        const overflow = pageIndex > 1;
+        const isSyncOuter = recordModel.trim().toLowerCase() === 'syncouterrecord';
+        const hint = overflow
+          ? `第 ${pageIndex} 页超出结果范围，请把高级区「页码」调回 1`
+          : isSyncOuter && logType
+          ? `类型过滤「${logType}」按 name（云函数名）匹配未命中；该环境的记录模型是 SyncOuterRecord，请填真实函数名（可在分布图类型条里点选）`
+          : '过滤条件未命中任何记录（该总数为模型全表行数）';
+        setStatus({ text: `查询成功，共 ${total} 条 —— 本页 0 行。${hint}`, cls: 'warning' });
+      } else {
+        setStatus({ text: `查询成功，共 ${total} 条`, cls: 'success' });
+      }
       // 不再自动全量拉取（原 ensureAllLogs 会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行，
       // 直接撑爆渲染进程内存并诱发字体/布局 OOM）。排序/过滤一律只作用于本次已加载的页。
       // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
@@ -1674,7 +1687,15 @@ export function CfPanel() {
       {!result && <div className="empty-hint">{t('cf.startHint')}</div>}
 
       {result && view.rows.length === 0 && (
-        <div className="empty-hint">{t('cf.noMatch')}</div>
+        <div className="empty-hint">
+          {result.rows.length === 0
+            ? result.total > 0
+              ? // 服务端报了 total 却 0 行：页码越界或类型过滤未命中（SyncOuterRecord 按 name 匹配）
+                t('cf.emptyServerZero', { n: result.total })
+              : t('cf.noMatch')
+            : // 行已加载但全被时间窗/类型/关键词滤光
+              t('cf.emptyAllFiltered', { n: result.rows.length })}
+        </div>
       )}
       {result && search && !filterOn && view.matchTotal === 0 && view.rows.length > 0 && (
         <div className="empty-hint">{t('cf.noMatch')}</div>

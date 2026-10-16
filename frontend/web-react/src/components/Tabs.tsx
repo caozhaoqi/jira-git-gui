@@ -12,8 +12,10 @@ const MAIN_TABS: TabDef[] = [
   { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
   { key: 'kibana', icon: '📈', labelKey: 'tab.kibana' },
   { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
+  { key: 'cfsync', icon: '🔄', labelKey: 'tab.cfsync' },
   { key: 'cfdebug', icon: '🐞', labelKey: 'tab.cfdebug' },
   { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
+  { key: 'hcmapi', icon: '🛠', labelKey: 'tab.hcmapi' },
 ];
 
 // 低频页签：Electron 下收进原生菜单（应用菜单「首选项…」区域，Cmd/Ctrl+Alt+1..4）；

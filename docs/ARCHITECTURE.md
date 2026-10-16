@@ -7,7 +7,6 @@
 
 ```
 jira-git-gui/
-├── main.py                          # 遗留 PyQt6 桌面入口（仅供参考，交付形态见 electron/tauri）
 ├── api/                             # ★ 后端（FastAPI）—— 对外 HTTP / SSE / WebSocket 契约，按业务域分子路由
 ├── core/                            # ★ 核心逻辑层（无 GUI 依赖，按业务子域分目录）
 │   ├── client/                      #   JiraGitClient（连接/仓库/文件/下载/看门狗）
@@ -22,7 +21,6 @@ jira-git-gui/
 ├── web/                             # 旧版前端（原生 JS/CSS，归档；dist 存在时不经 /web 提供）
 ├── electron/                        # ★ Electron 桌面壳（main.js 拉起 api 后端）
 ├── tauri/                           # ★ Tauri 桌面壳（Rust 工程，拉起 api 后端）
-├── gui/  workers/                   # 遗留 PyQt6 GUI 与后台 worker（保留参考，交付不再使用）
 ├── build/                           # 打包脚本（PyInstaller spec 等，产物已 gitignore）
 ├── scripts/                         # 启动器 / 构建脚本（run_web.sh 为 Web/Electron 启动入口；*.sh + *.ps1 跨平台）
 ├── config/                          # 本地配置 JSON（*.local.json 已被 gitignore）
@@ -38,7 +36,6 @@ jira-git-gui/
 
 ```
 frontend(web-react)  →  api/*（HTTP/SSE）  →  core/*   （上层依赖下层）
-gui/*（遗留 PyQt6）  →  api/* / core/*
 tests/*              →  core/* / api/*
 ```
 
@@ -161,10 +158,11 @@ tests/*              →  core/* / api/*
 
 ---
 
-## 四、GUI 层 `gui/`（PyQt6，遗留）
+## 四、GUI 层（PyQt6，已剥离）
 
-> ⚠️ 当前交付形态是 **Electron / Tauri + React 前端**；本目录仅作参考保留，
-> 日常开发请改 `frontend/web-react/` + `api/`。入口 `main.py`（`scripts/run.sh`）。
+> ⚠️ PyQt6 桌面实现（原 `main.py` / `gui/` / `workers/` / `core/safe.py`）已于 2026-10
+> 剥离至 `pyqt-legacy` 分支存档。当前交付形态是 **Electron / Tauri + React 前端**，
+> 日常开发请改 `frontend/web-react/` + `api/`。
 
 | 模块 | 职责 |
 |------|------|

@@ -754,6 +754,10 @@ select:focus-visible {
   line-height: 1.6;
 }
 
+/* 次级说明文字（内联的“已启用/未启用”之类）。此前 ClashPanel 用了 .muted
+   却始终没有规则，等于没写——由 tests/test_css_classes_all.mjs 补捞出来。 */
+.muted { color: var(--text-faint); }
+
 /* ===== 仓库列表 ===== */
 .repo-list-pane,
 .file-tree-pane,
@@ -2466,6 +2470,16 @@ input[type='radio']:disabled {
   letter-spacing: -0.01em;
 }
 .hcm-detail-sub { margin-top: 2px; }
+/* 详情头部右侧的操作按钮组（如 K8sFiles 的 查看/编辑 切换）。
+   头部是 flex + wrap，按钮组需要 nowrap 且靠右，避免被标题挤成两行。 */
+.hcm-detail-head-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-left: auto;
+}
 /* 头部：对象名与 id 徽标同行（id 不再单独占一行，省一行高度）。
    id 徽标用次级底色 + 等宽字体——> 像代码标识符而不是另一条标题 */
 .hcm-detail-head .hcm-detail-title { display: inline-block; vertical-align: middle; }
@@ -2566,15 +2580,17 @@ input[type='radio']:disabled {
    ⚠️ 必须写 `.hcm-data-export .hcm-export-group > select`：下拉已经不在 .hcm-data-export
    直接子级里（外面套了分组 div），用 `>` 会静默失配、宽度规则全部失效。 */
 .hcm-data-export .hcm-export-group > select { flex: 0 1 190px; min-width: 0; }
-/* 导出格式下拉只要放得下 CSV / JSON（在筛选条那行的导出组里，与上面的规则互不重叠） */
-.hcm-filterbar .hcm-export-actions > select { flex: 0 0 auto; max-width: 90px; }
+/* 导出格式下拉只要放得下 CSV / JSON（导出组已移到结果页脚，与上面的规则互不重叠） */
+.hcm-pager .hcm-export-actions > select { flex: 0 0 auto; max-width: 90px; }
 /* 组内默认一行；极窄面板（detail 最小 360px，字段下拉内容宽压不下去）作为兜底允许换行，
    此时用 .hcm-query-btn 把主按钮推到右侧，看起来像表单的提交按钮，而不是左侧落单 */
 .hcm-export-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 /* 查询组撑满整行，关键字输入吃掉剩余宽度（窄面板则退化为折行） */
 .hcm-data-export .hcm-export-group { flex: 1 1 auto; }
-/* 导出组按内容宽贴右（靠父级 spacer 推到右侧） */
-.hcm-filterbar .hcm-export-actions { flex: 0 1 auto; margin-left: auto; }
+/* 导出组在页脚里紧跟左侧状态簇（不推右，右侧留给翻页器），窄面板随 flex-wrap 换行 */
+.hcm-pager .hcm-export-actions { flex: 0 1 auto; margin-left: 12px; }
+/* 页脚里的导出状态文案保持行内紧凑（不强制独占一行） */
+.hcm-pager .hcm-data-export-status { flex: 0 1 auto; margin: 0; max-width: 220px; }
 .hcm-export-group > .hcm-query-btn { margin-left: auto; }
 .hcm-export-actions { margin-left: auto; }
 /* 查询组的字段下拉/关键字输入：输入框吃掉组内剩余空间，窄面板可压缩 */
@@ -2990,3 +3006,33 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-meta-run-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
 .hcm-meta-run-result .hcm-json-block { max-height: 42vh; }
+
+/* ============================================================
+   HCM 接口直调面板（HcmApiTester，独立页签 hcmapi）
+   输入接口名 + JSON 参数 → 后端 /api/hcm/direct 直连网关（加解密+token 自动续期）
+   ============================================================ */
+.hcm-api { height: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); overflow: auto; }
+.hcm-api-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hcm-api-row { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
+.hcm-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hcm-api-field--name { flex: 1 1 260px; }
+.hcm-api-field--gw { flex: 0 1 300px; }
+.hcm-api-field--params { flex: 1 1 100%; }
+.hcm-api-label { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--text-dim); }
+.hcm-api-format { padding: 1px 8px; font-size: 11px; }
+.hcm-api-params { height: 200px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.hcm-api-chk { font-size: 12px; color: var(--text-2); }
+.hcm-api-token-hint { font-size: 11px; color: var(--text-faint); }
+.hcm-api-err {
+  padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-xs);
+  background: var(--danger-bg); color: var(--danger); font-size: 12px;
+  white-space: pre-wrap; word-break: break-all;
+}
+.hcm-api-resp { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+.hcm-api-resp-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.hcm-api-gw {
+  font-size: 11px; color: var(--text-faint); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px;
+}
+.hcm-api-json { flex: 1 1 auto; min-height: 160px; max-height: 480px; overflow: auto; margin: 0; }
+.hcm-api-truncated { color: var(--warn); }

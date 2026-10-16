@@ -121,8 +121,12 @@ async def api_k8s_exec(body: dict):
         return {"ok": False, "error": hint, "hint": True}
 
     # 一次性执行：core.k8s.exec.exec_command 返回 (clean_output, new_cwd)
+    # ⚠️ 底层 subprocess.run 可阻塞到 timeout=60s；必须在 to_thread 里跑，
+    # 否则一次慢命令会把整个 FastAPI 事件循环冻住——SSE/WS/其他路由全部不响应
+    # 直到 kubectl 超时。
     try:
-        out, new_cwd = _k8s_exec_command(
+        out, new_cwd = await asyncio.to_thread(
+            _k8s_exec_command,
             env, pod, container, namespace, command, timeout=60,
         )
     except Exception as ex:

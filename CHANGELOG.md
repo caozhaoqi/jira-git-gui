@@ -1,30 +1,33 @@
 # CHANGELOG
 
 
-## 未发布
+## v0.0.9
 
 - 修复 GitHub CI/CD 打出来的安装包「后端起不来」：现场 `Failed to load Python DLL
   '...\python311.dll'` → `LoadLibrary: ?????` → 退出码 -1，四次重启后 Electron 放弃。
-  两层原因、都已修：
-  - **主因（CI 三端全部中招）**：`requirements.txt` 漏声明运行时依赖——`core/k8s/env.py`
+  三层原因、都已修：
+  - **主因一（CI 三端全部中招）**：`requirements.txt` 漏声明运行时依赖——`core/k8s/env.py`
     顶层 `import yaml`（PyYAML），冻结出的后端一启动就 `ModuleNotFoundError: No module
     named 'yaml'`。本机 venv 碰巧装了这些包所以本地构建不报错，CI 只装 requirements.txt，
     产物三端全坏。补齐 `PyYAML` / `paramiko` / `debugpy` / `SQLAlchemy`（后三者为懒加载依赖，
     同时补进 spec 的 hiddenimports），并把直接 import 的 `pydantic` / `anyio` / `starlette`
     显式声明，不再依赖 fastapi/uvicorn 的传递依赖。
+  - **主因二（Windows 独有）**：`core/k8s/exec_pty.py` 顶层裸 `import fcntl`（`pty` /
+    `termios` 同理），这三个模块 Windows 上不存在。改为 `try/except ImportError` 降级 +
+    `PTY_SUPPORTED` 标志：`PtySession.start()` 在不支持的平台抛带提示的 RuntimeError
+    （引导改用一次性命令通道），`_set_winsize` 直接返回 False；Unix 行为不变。
+    新增回归测试 `tests/test_backend_import_windows_safe.py`：AST 扫描 api/+core/ 顶层
+    裸 import 的 Unix 专属模块 + 子进程挡掉这些模块后 `import api.server` 必须成功。
   - **隐患（Windows 特有、未纳管）**：spec 的 `upx=True` + `strip=True`。UPX 压缩后的
     Python DLL 在 Windows 上 `LoadLibrary` 失败是 PyInstaller 官方点名的已知问题
     （错误 193/126），与现场 `LoadLibrary` 失败症状吻合；两开关还使产物随 runner 工具
     环境漂移、不可复现。前后端 spec 均已关闭。
   - **新增验证**：`release.yml` 三个 job 在「Build backend」后强制拉起冻结后端并探测
-    `/api/status`，探不到直接让工作流失败；并固定 `pyinstaller==6.22.0`。本次正是靠
-    这一步在 3 分钟内抓到漏依赖问题（三端齐挂，日志直达 yaml）。
+    `/api/status`，探不到直接让工作流失败；并固定 `pyinstaller==6.22.0`。两轮 CI 冒烟
+    分别抓到了上面两个主因（第二轮：macOS/Linux 全绿，Windows 浮出 fcntl）。
 - 启动失败弹窗新增「打开日志目录」按钮：后端启动失败 / 端口不可用 / 后端持续崩溃时，
   原来只有「确定」，日志路径看得见点不着；现在一颗按钮直接在资源管理器/访达定位并选中
   日志文件（`shell.showItemInFolder`），Windows 现场不用再手抄路径。
-
-
-## v0.0.9
 
 - UI 更新
 - kibana、hcm object 功能更新

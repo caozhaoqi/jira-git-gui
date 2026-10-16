@@ -46,7 +46,8 @@ Install and run. No Python required.
 ./scripts/run_web.sh --electron   # start the Electron desktop app instead
 ```
 
-> `scripts/run.sh` launches the legacy PyQt6 desktop UI (`main.py`) — it predates the web frontend and does not accept `--electron`. The Windows equivalents are `run_web.ps1` / `run.ps1`.
+> Desktop entry points are the Electron / Tauri installers; run the web mode from source with `run_web.sh` / `run_web.ps1`.
+> The PyQt6 desktop implementation was moved to the `pyqt-legacy` branch in Oct 2026 and no longer ships on mainline.
 
 ### Option 3 — manual
 
@@ -192,4 +193,4 @@ Architecture and module layout: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 - **Cookie mode is less capable than PAT** — some large/binary files need a fallback path, and an expired session breaks browsing.
 - **One Shell tab = one session.** Disconnecting ends it; for several views at once, use the full-screen log page.
 - **`.env` `MERGE_REPO_*` is keyed by repo name** — same-named repos collide, so set the local directory manually for those.
-- `main.py`, `gui/` and `workers/` are the older PyQt6 desktop implementation, kept for reference only. The shipped apps are Electron + Tauri.
+- The PyQt6 desktop implementation (formerly `main.py`, `gui/`, `workers/`) was stripped to the `pyqt-legacy` branch; the shipped apps are Electron + Tauri.

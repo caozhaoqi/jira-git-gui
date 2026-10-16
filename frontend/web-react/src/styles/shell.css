@@ -129,6 +129,26 @@ button {
   align-items: center;
   gap: 8px;
 }
+/* 语言切换下拉：此前只有 className 没有规则，混在 .appbar-actions 的按钮/pill
+   之间时用的是浏览器原生外观，和整条玻璃质感 appbar 明显不搭。
+   对齐 .appbar-status 的观感（次级底 + 细边 + 小字 + 药丸圆角）。 */
+.locale-select {
+  height: var(--ctl-sm);
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.locale-select:hover { border-color: var(--border-strong); }
+.locale-select:focus-visible {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
 .appbar-status {
   display: inline-flex;
   align-items: center;
