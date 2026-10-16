@@ -22,14 +22,23 @@ export async function hcmDirect<T = any>(
   apiName: string,
   params: Record<string, any>,
   model = '',
-  target = ''
+  target = '',
+  opts: { sqlDebug?: boolean; profileDebug?: boolean } = {},
 ): Promise<HcmDirectResult<T>> {
   let res: Response;
   try {
     res = await fetch(DIRECT_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ api_name: apiName, params, model, token: token.trim(), target: target.trim() }),
+      body: JSON.stringify({
+        api_name: apiName,
+        params,
+        model,
+        token: token.trim(),
+        target: target.trim(),
+        sql_debug: !!opts.sqlDebug,
+        profile_debug: !!opts.profileDebug,
+      }),
     });
   } catch (e) {
     // 本地后端不可达：点亮全局网络横幅（HTTP 4xx/5xx 不算，走下方正常错误分支）

@@ -3006,3 +3006,33 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-meta-run-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .hcm-meta-run-result { display: flex; flex-direction: column; min-height: 0; }
 .hcm-meta-run-result .hcm-json-block { max-height: 42vh; }
+
+/* ============================================================
+   HCM 接口直调面板（HcmApiTester，独立页签 hcmapi）
+   输入接口名 + JSON 参数 → 后端 /api/hcm/direct 直连网关（加解密+token 自动续期）
+   ============================================================ */
+.hcm-api { height: 100%; display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); overflow: auto; }
+.hcm-api-form { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hcm-api-row { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
+.hcm-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hcm-api-field--name { flex: 1 1 260px; }
+.hcm-api-field--gw { flex: 0 1 300px; }
+.hcm-api-field--params { flex: 1 1 100%; }
+.hcm-api-label { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--text-dim); }
+.hcm-api-format { padding: 1px 8px; font-size: 11px; }
+.hcm-api-params { height: 200px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.hcm-api-chk { font-size: 12px; color: var(--text-2); }
+.hcm-api-token-hint { font-size: 11px; color: var(--text-faint); }
+.hcm-api-err {
+  padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-xs);
+  background: var(--danger-bg); color: var(--danger); font-size: 12px;
+  white-space: pre-wrap; word-break: break-all;
+}
+.hcm-api-resp { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; }
+.hcm-api-resp-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.hcm-api-gw {
+  font-size: 11px; color: var(--text-faint); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 320px;
+}
+.hcm-api-json { flex: 1 1 auto; min-height: 160px; max-height: 480px; overflow: auto; margin: 0; }
+.hcm-api-truncated { color: var(--warn); }
