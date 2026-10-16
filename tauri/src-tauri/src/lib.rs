@@ -514,7 +514,7 @@ pub fn run() {
                         &MenuItem::with_id(&app_handle, "preferences", "首选项...", true, Some("CmdOrCtrl+,"))?,
                         // &MenuItem::with_id(&app_handle, "hcm_meta", "HCM 元数据...", true, Some("CmdOrCtrl+Shift+M"))?,
                         &PredefinedMenuItem::separator(&app_handle)?,
-                        &MenuItem::with_id(&app_handle, "quit", "退出", true, None)?,
+                        &MenuItem::with_id(&app_handle, "quit", "退出", true, None::<&str>)?,
                     ],
                 ) {
                     Ok(m) => m,
@@ -527,6 +527,9 @@ pub fn run() {
                     log_main(&app_handle, &log_file, &format!("设置菜单失败: {}", e), "error");
                 }
                 let menu_port = port;
+                // 闭包 move 前克隆：守卫线程（下方 watcher）仍需 app_handle / log_file
+                let app_handle_menu = app_handle.clone();
+                let log_file_menu = log_file.clone();
                 app.handle().clone().on_menu_event(move |app, event| {
                     match event.id().as_ref() {
                         "preferences" => {
@@ -537,7 +540,7 @@ pub fn run() {
                                 let _ = existing.show();
                                 let _ = existing.set_focus();
                             } else if let Err(e) = tauri::WebviewWindowBuilder::new(
-                                &app,
+                                app,
                                 "preferences",
                                 tauri::WebviewUrl::External(url.parse().unwrap()),
                             )
@@ -545,7 +548,7 @@ pub fn run() {
                             .inner_size(1080.0, 760.0)
                             .build()
                             {
-                                log_main(&app_handle, &log_file, &format!("打开首选项窗口失败: {}", e), "error");
+                                log_main(&app_handle_menu, &log_file_menu, &format!("打开首选项窗口失败: {}", e), "error");
                             }
                         }
                         "hcm_meta" => {
@@ -555,7 +558,7 @@ pub fn run() {
                                 let _ = existing.show();
                                 let _ = existing.set_focus();
                             } else if let Err(e) = tauri::WebviewWindowBuilder::new(
-                                &app,
+                                app,
                                 "hcm_meta",
                                 tauri::WebviewUrl::External(url.parse().unwrap()),
                             )
@@ -563,7 +566,7 @@ pub fn run() {
                             .inner_size(1180.0, 820.0)
                             .build()
                             {
-                                log_main(&app_handle, &log_file, &format!("打开 HCM 元数据窗口失败: {}", e), "error");
+                                log_main(&app_handle_menu, &log_file_menu, &format!("打开 HCM 元数据窗口失败: {}", e), "error");
                             }
                         }
                         "quit" => {
