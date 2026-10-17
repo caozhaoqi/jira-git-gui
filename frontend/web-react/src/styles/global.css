@@ -3015,7 +3015,24 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-api-form { display: flex; flex-direction: column; gap: var(--sp-2); }
 .hcm-api-row { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
 .hcm-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.hcm-api-field--name { flex: 1 1 260px; }
+.hcm-api-field--name { flex: 1 1 260px; position: relative; }
+/* 接口可搜索下拉（hcm.api.list 全量联想） */
+.hcm-api-dd {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 60;
+  margin-top: 4px; max-height: 340px; overflow-y: auto;
+  background: var(--panel, var(--bg)); border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-xs); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.14));
+}
+.hcm-api-dd-item { display: flex; align-items: baseline; gap: var(--sp-2); padding: 6px 10px; cursor: pointer; }
+.hcm-api-dd-item--active { background: var(--accent-soft, rgba(79,70,229,.1)); }
+.hcm-api-dd-name { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; }
+.hcm-api-dd-desc {
+  font-size: 11px; color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.hcm-api-dd-meta { padding: 8px 10px; font-size: 11px; color: var(--text-faint); }
+.hcm-api-dd-meta--warn { color: var(--warn); cursor: pointer; }
+.hcm-api-count { font-size: 10px; color: var(--text-faint); }
 .hcm-api-field--gw { flex: 0 1 300px; }
 .hcm-api-field--params { flex: 1 1 100%; }
 .hcm-api-label { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--text-dim); }
