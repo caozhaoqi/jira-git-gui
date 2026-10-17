@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
 import { hcmEnvs, HcmApiError, type HcmEnv } from '../../api/hcm/client';
 import { reportLocalApiNetworkError } from '../../api/client';
@@ -6,27 +6,38 @@ import { saveBlob } from '../../utils/download';
 import { useT } from '../../i18n';
 
 /**
- * HCM 接口直调面板：输入接口名 + JSON 参数即可对网关发起任意 hcm.* 请求，
- * 等价于网关自带的「API 文档 → 输入 → 提交」调试页（截图参照 10.22.78.121/api/hcm.model.update）。
+ * HCM 接口直调面板 —— 设计与功能对齐网关自带调试页
+ * （hcm-core templates/api/api_ui.html + static/api/api.js）：
  *
+ *   标题（描述：接口名）→ API 文档 → 输入（JSON）→ 提交行（提交 + SQL/Profile 勾选）
+ *   → 结果（JSON + 耗时 + 下载接口日志/性能日志 + 查看明细错误 + 调用堆栈）
+ *
+ * 差异说明：
  * - 请求统一走后端 /api/hcm/direct（加解密+签名+token 自动续期），前端零密钥；
- * - token 留空 = 后端预设 token（失效时按 cf_accounts 自动重登一次）；
- * - 「输出 SQL/Profile 日志」对应网关的 sql_debug / profile_debug 查询参数；
- * - 网关在 debug 模式下会在响应里带 log_index / profile_index，提供一键下载。
+ * - 网关调试页的「WS」按钮依赖网关 WebSocket 通道，本地后端无 WS 代理，不提供；
+ * - 错误响应原样展示（红色结果块），traceback / error_code / log_index 均来自网关响应，
+ *   与网关调试页 error 分支行为一致。
  */
 
-/** 常用接口候选（datalist 联想；仍可输入任意接口名） */
-const COMMON_APIS = [
-  'hcm.model.list',
-  'hcm.model.info',
-  'hcm.model.view',
-  'hcm.model.count',
-  'hcm.model.update',
-  'hcm.model.add',
-  'hcm.model.delete',
-  'hcm.model.edit',
-  'hcm.model.edit.batch',
-  'hcm.paas.object.list',
+/** 常用接口候选（datalist 联想；仍可输入任意接口名）。doc 文案见 i18n hcm.apiDoc_* */
+interface CommonApi {
+  name: string;
+  docKey: string;
+  /** 会写线上数据的危险接口 */
+  danger?: boolean;
+}
+
+const COMMON_APIS: CommonApi[] = [
+  { name: 'hcm.model.list', docKey: 'apiDoc_list' },
+  { name: 'hcm.model.info', docKey: 'apiDoc_info' },
+  { name: 'hcm.model.view', docKey: 'apiDoc_view' },
+  { name: 'hcm.model.count', docKey: 'apiDoc_count' },
+  { name: 'hcm.model.update', docKey: 'apiDoc_update', danger: true },
+  { name: 'hcm.model.add', docKey: 'apiDoc_add', danger: true },
+  { name: 'hcm.model.delete', docKey: 'apiDoc_delete', danger: true },
+  { name: 'hcm.model.edit', docKey: 'apiDoc_edit', danger: true },
+  { name: 'hcm.model.edit.batch', docKey: 'apiDoc_editBatch', danger: true },
+  { name: 'hcm.paas.object.list', docKey: 'apiDoc_paasList' },
 ];
 
 /** 响应预览截断长度（超出仍可复制完整文本） */
@@ -38,6 +49,12 @@ interface SendResult {
   gateway: string;
   logIndex: string;
   profileIndex: string;
+  /** 网关 srv_end - srv_begin（毫秒） */
+  durationMs?: number;
+  /** 网关业务错误：结果块红色 + traceback + 明细错误链接 */
+  isError: boolean;
+  errorCode?: string;
+  traceback?: string;
 }
 
 export function HcmApiTester() {
@@ -62,6 +79,12 @@ export function HcmApiTester() {
       .catch(() => { /* 候选拉取失败不阻塞：仍可用默认网关 */ });
     return () => { alive = false; };
   }, []);
+
+  // 命中常用接口 → 显示「{描述}：{名称}」标题 + API 文档块（对齐网关调试页标题/文档区）
+  const matchedApi = useMemo(
+    () => COMMON_APIS.find((a) => a.name === apiName.trim()) || null,
+    [apiName],
+  );
 
   const formatParams = useCallback(() => {
     try {
@@ -90,23 +113,42 @@ export function HcmApiTester() {
     setBusy(true);
     setErr('');
     try {
-      const { data, gateway } = await hcmDirect('', apiName.trim(), params, '', target, {
+      const { data, gateway, meta } = await hcmDirect('', apiName.trim(), params, '', target, {
         sqlDebug,
         profileDebug,
       });
       const text = JSON.stringify(data, null, 2);
-      const d = (data && typeof data === 'object' && !Array.isArray(data) ? data : {}) as Record<string, any>;
       setResult({
         text,
         truncated: text.length > PREVIEW_LIMIT,
         gateway: gateway || '',
-        logIndex: String(d.log_index ?? ''),
-        profileIndex: String(d.profile_index ?? ''),
+        logIndex: String(meta?.log_index ?? ''),
+        profileIndex: String(meta?.profile_index ?? ''),
+        durationMs: typeof meta?.duration_ms === 'number' ? meta.duration_ms : undefined,
+        isError: false,
       });
     } catch (e: any) {
-      const msg = e instanceof HcmApiError ? e.message : (e?.message || String(e));
-      setErr(msg);
-      setResult(null);
+      if (e instanceof HcmApiError && e.payload) {
+        // 网关业务错误：对齐网关调试页 error 分支——红色结果块 + traceback + 明细错误 + 日志下载
+        const p = e.payload;
+        const rawText = p.raw !== undefined ? JSON.stringify(p.raw, null, 2) : '';
+        setResult({
+          text: rawText || p.errmsg || e.message,
+          truncated: rawText.length > PREVIEW_LIMIT,
+          gateway: target,
+          logIndex: String(p.log_index ?? ''),
+          profileIndex: String(p.profile_index ?? ''),
+          isError: true,
+          errorCode: p.error_code != null && p.error_code !== ''
+            ? String(p.error_code)
+            : (p.errcode != null ? String(p.errcode) : undefined),
+          traceback: p.traceback || '',
+        });
+      } else {
+        const msg = e instanceof HcmApiError ? e.message : (e?.message || String(e));
+        setErr(msg);
+        setResult(null);
+      }
     } finally {
       setBusy(false);
     }
@@ -150,9 +192,14 @@ export function HcmApiTester() {
     } catch { /* 剪贴板不可用时静默 */ }
   }, [result]);
 
+  // 「查看明细错误」：网关的错误词典页（api.js error 分支同款链接）
+  const errorDetailUrl = result?.errorCode && result.gateway
+    ? `${result.gateway.replace(/\/+$/, '')}/server/static/auth/html/error_message.html?error_code=${encodeURIComponent(result.errorCode)}`
+    : '';
+
   return (
     <div className="hcm-api">
-      {/* ---- 请求构造区 ---- */}
+      {/* ---- 标题行：接口名 + 网关 ---- */}
       <div className="hcm-api-form">
         <div className="hcm-api-row">
           <label className="hcm-api-field hcm-api-field--name">
@@ -167,7 +214,7 @@ export function HcmApiTester() {
               spellCheck={false}
             />
             <datalist id="hcm-api-names">
-              {COMMON_APIS.map((a) => <option key={a} value={a} />)}
+              {COMMON_APIS.map((a) => <option key={a.name} value={a.name} />)}
             </datalist>
           </label>
           <label className="hcm-api-field hcm-api-field--gw">
@@ -188,6 +235,25 @@ export function HcmApiTester() {
           </label>
         </div>
 
+        {/* ---- 标题 + API 文档（对齐网关调试页「{描述}：{名称}」+ 文档块）---- */}
+        {matchedApi && (
+          <>
+            <div className="hcm-api-title">
+              {t(`hcm.${matchedApi.docKey}`)}
+              {'：'}
+              <code>{matchedApi.name}</code>
+            </div>
+            <div className={`hcm-api-doc${matchedApi.danger ? ' hcm-api-doc--danger' : ''}`}>
+              <span className="hcm-api-doc-tag">{t('hcm.apiDoc')}</span>
+              {t(`hcm.${matchedApi.docKey}Body`)}
+              {matchedApi.danger && (
+                <span className="hcm-api-doc-warn"> ⚠ {t('hcm.apiDangerTip')}</span>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ---- 输入区（JSON）---- */}
         <div className="hcm-api-row">
           <div className="hcm-api-field hcm-api-field--params">
             <span className="hcm-api-label">
@@ -206,7 +272,13 @@ export function HcmApiTester() {
           </div>
         </div>
 
-        <div className="hcm-api-row">
+        {/* ---- 提交行（对齐参考页：按钮在左，SQL/Profile 勾选在右）---- */}
+        <div className="hcm-api-row hcm-api-submit-row">
+          <button className="btn btn-primary btn-sm" onClick={() => void send()} disabled={busy}>
+            {busy ? t('hcm.loading') : t('hcm.apiSend')}
+          </button>
+          {busy && <span className="hcm-api-busy" aria-label="loading" />}
+          <span className="spacer" />
           <label className="chk hcm-api-chk" title={t('hcm.apiSqlDebugHint')}>
             <input type="checkbox" checked={sqlDebug} onChange={(e) => setSqlDebug(e.target.checked)} />
             {t('hcm.apiSqlDebug')}
@@ -215,21 +287,25 @@ export function HcmApiTester() {
             <input type="checkbox" checked={profileDebug} onChange={(e) => setProfileDebug(e.target.checked)} />
             {t('hcm.apiProfileDebug')}
           </label>
-          <span className="spacer" />
           <span className="hcm-api-token-hint">{t('hcm.apiTokenHint')}</span>
-          <button className="btn btn-primary btn-sm" onClick={() => void send()} disabled={busy}>
-            {busy ? t('hcm.loading') : t('hcm.apiSend')}
-          </button>
         </div>
 
         {err && <div className="hcm-api-err">{err}</div>}
       </div>
 
-      {/* ---- 响应区 ---- */}
+      {/* ---- 结果区 ---- */}
       {result && (
-        <div className="hcm-api-resp">
+        <div className={`hcm-api-resp${result.isError ? ' hcm-api-resp--error' : ''}`}>
           <div className="hcm-api-resp-head">
             <span className="hcm-api-label">{t('hcm.apiResponse')}</span>
+            {typeof result.durationMs === 'number' && (
+              <span
+                className={`hcm-api-duration${result.isError ? ' hcm-api-duration--err' : ''}`}
+                title={`srv_end - srv_begin = ${result.durationMs}ms`}
+              >
+                {(result.durationMs / 1000).toFixed(2)}s
+              </span>
+            )}
             {result.gateway && (
               <code className="hcm-api-gw" title={t('hcm.apiGatewayHint')}>
                 {t('hcm.apiViaGw', { target: result.gateway })}
@@ -248,6 +324,16 @@ export function HcmApiTester() {
                 {dlBusy === 'log' ? t('hcm.downloading') : t('hcm.downloadLog')}
               </button>
             )}
+            {errorDetailUrl && (
+              <a
+                className="btn btn-sm hcm-link-btn hcm-api-errlink"
+                href={errorDetailUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t('hcm.apiErrorDetail')}
+              </a>
+            )}
             <button className="btn btn-sm" onClick={() => void copyResult()}>
               {t('hcm.apiCopy')}
             </button>
@@ -260,6 +346,12 @@ export function HcmApiTester() {
               </span>
             )}
           </pre>
+          {result.isError && result.traceback && (
+            <div className="hcm-api-traceback">
+              <span className="hcm-api-traceback-tag">{t('hcm.apiTraceback')}</span>
+              {result.traceback}
+            </div>
+          )}
         </div>
       )}
     </div>

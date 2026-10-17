@@ -1,13 +1,31 @@
 import { reportLocalApiNetworkError } from '../client';
 
+/** /api/hcm/direct 业务错误的结构化信息（对齐网关调试页 api.js 的 error 分支） */
+export interface HcmDirectErrorInfo {
+  errcode?: number | string;
+  errmsg?: string;
+  error_code?: string | number;
+  traceback?: string;
+  http_status?: number;
+  /** 网关 debug 元信息（错误响应同样可能携带） */
+  log_index?: string;
+  profile_index?: string;
+  duration_ms?: number;
+  /** 网关错误响应原样 JSON（供调试页红色结果块展示） */
+  raw?: unknown;
+}
+
 export class HcmApiError extends Error {
   status?: number;
   errcode?: number;
-  constructor(message: string, status?: number, errcode?: number) {
+  /** /api/hcm/direct 返回的结构化错误（traceback / error_code / log_index 等供调试页展示） */
+  payload?: HcmDirectErrorInfo;
+  constructor(message: string, status?: number, errcode?: number, payload?: HcmDirectErrorInfo) {
     super(message);
     this.name = 'HcmApiError';
     this.status = status;
     this.errcode = errcode;
+    this.payload = payload;
   }
 }
 
