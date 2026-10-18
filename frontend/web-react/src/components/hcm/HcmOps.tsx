@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
 import { hcmEnvs, type HcmEnv } from '../../api/hcm/client';
+import { useAppStore } from '../../store/useAppStore';
+import { copyText } from '../../utils/clipboard';
 import { useT } from '../../i18n';
 
 /**
@@ -104,6 +106,7 @@ interface RedisItem { key: string; value: string }
 
 function RedisPanel({ target }: { target: string }) {
   const { t } = useT();
+  const addToast = useAppStore((s) => s.addToast);
   const [search, setSearch] = useState('');
   const [possible, setPossible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -116,6 +119,31 @@ function RedisPanel({ target }: { target: string }) {
   const [history, setHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('hcmRedisSearchHistory') || '[]'); } catch { return []; }
   });
+
+  // 切网关即清空旧结果：运维场景下把 A 环境的 key/值误当 B 环境是高危误判
+  useEffect(() => {
+    setItems(null);
+    setSearched(false);
+    setErr('');
+    setDetail(null);
+    setDelTarget(null);
+  }, [target]);
+
+  // 弹层 ESC 关闭（详情 / 删除确认共用）
+  useEffect(() => {
+    if (!detail && !delTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setDetail(null); setDelTarget(null); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [detail, delTarget]);
+
+  // 复制 key/value（项目约定走 utils/clipboard 的 copyText + 全局 toast）
+  const copyAndToast = useCallback(async (text: string) => {
+    const ok = await copyText(text);
+    addToast(ok ? t('hcm.copied') : t('hcm.opsCopyFail'), ok ? 'success' : 'error');
+  }, [addToast, t]);
 
   const pushHistory = useCallback((k: string) => {
     setHistory((prev) => {
@@ -161,12 +189,13 @@ function RedisPanel({ target }: { target: string }) {
       await hcmDirect('', 'redis.key.del', { key: [delTarget] }, '', target);
       setItems((prev) => (prev ? prev.filter((x) => x.key !== delTarget) : prev));
       setDelTarget(null);
+      addToast(t('hcm.opsRedisDelDone', { key: delTarget }), 'success');
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
       setDelBusy(false);
     }
-  }, [delTarget, target]);
+  }, [delTarget, target, addToast, t]);
 
   const historyBox = history.length > 0 && !searched;
 
@@ -221,7 +250,9 @@ function RedisPanel({ target }: { target: string }) {
               >
                 <div className="hcm-ops-rediskey hcm-mono">{it.key}</div>
                 <div className="hcm-ops-redisvalue hcm-mono">
-                  {it.value.length > VALUE_PREVIEW ? `${it.value.slice(0, VALUE_PREVIEW)}…` : it.value}
+                  {it.value
+                    ? (it.value.length > VALUE_PREVIEW ? `${it.value.slice(0, VALUE_PREVIEW)}…` : it.value)
+                    : <span className="hcm-ops-redisvalue--empty">{t('hcm.opsRedisEmptyValue')}</span>}
                 </div>
               </button>
               <button
@@ -243,7 +274,16 @@ function RedisPanel({ target }: { target: string }) {
           <div className="hcm-ops-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="hcm-ops-dialog-head">
               <code className="hcm-mono">{detail.key}</code>
-              <button type="button" className="hcm-ops-dialog-close" onClick={() => setDetail(null)} aria-label="close">×</button>
+              <span className="hcm-ops-dialog-actions">
+                <button
+                  type="button"
+                  className="hcm-ops-dialog-close"
+                  onClick={() => void copyAndToast(detail.value)}
+                  title={t('hcm.opsCopy')}
+                  aria-label={t('hcm.opsCopy')}
+                >⧉</button>
+                <button type="button" className="hcm-ops-dialog-close" onClick={() => setDetail(null)} aria-label="close">×</button>
+              </span>
             </div>
             <pre className="hcm-ops-dialog-body hcm-mono">{detail.value}</pre>
           </div>
@@ -291,6 +331,14 @@ function ErrorPanel({ target }: { target: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+
+  // 切网关清空旧环境数据（避免把 A 环境错误数当成 B 环境）
+  useEffect(() => {
+    setRows(null);
+    setTotal(0);
+    setErr('');
+    setExpanded(null);
+  }, [target]);
 
   const load = useCallback(async (pg: number) => {
     setErr('');
@@ -348,6 +396,7 @@ function ErrorPanel({ target }: { target: string }) {
         <button className="btn btn-primary btn-sm" onClick={() => void load(1)} disabled={busy}>
           {busy ? t('hcm.loading') : t('hcm.opsErrQuery')}
         </button>
+        {busy && <span className="hcm-api-busy" aria-label="loading" />}
         {total > 0 && <span className="hcm-ops-count">{t('hcm.opsErrCount', { n: total })}</span>}
       </div>
       <ErrBar msg={err} />
@@ -402,11 +451,18 @@ function ErrorPanel({ target }: { target: string }) {
 
 function DecryptPanel({ target }: { target: string }) {
   const { t } = useT();
+  const addToast = useAppStore((s) => s.addToast);
   const [paramText, setParamText] = useState('');
   const [strategy, setStrategy] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [result, setResult] = useState<string | null>(null);
+
+  // 切网关清掉旧解密结果（同一密文在不同环境钥下结果不同）
+  useEffect(() => {
+    setResult(null);
+    setErr('');
+  }, [target]);
 
   const run = useCallback(async () => {
     const hp = paramText.trim();
@@ -464,7 +520,19 @@ function DecryptPanel({ target }: { target: string }) {
       <ErrBar msg={err} />
       {result !== null && (
         <div className="hcm-ops-decresult">
-          <div className="hcm-api-label">{t('hcm.opsDecResult')}</div>
+          <div className="hcm-api-label">
+            {t('hcm.opsDecResult')}
+            <button
+              type="button"
+              className="btn btn-sm hcm-api-format"
+              onClick={async () => {
+                const ok = await copyText(result);
+                addToast(ok ? t('hcm.copied') : t('hcm.opsCopyFail'), ok ? 'success' : 'error');
+              }}
+            >
+              {t('hcm.opsCopy')}
+            </button>
+          </div>
           <pre className="hcm-ops-dialog-body hcm-mono">{result}</pre>
         </div>
       )}
