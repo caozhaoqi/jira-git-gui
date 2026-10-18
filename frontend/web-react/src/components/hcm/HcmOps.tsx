@@ -104,6 +104,27 @@ function ErrBar({ msg }: { msg: string }) {
 
 interface RedisItem { key: string; value: string }
 
+/**
+ * 常用 Key 快捷模板（前缀全部取自 hcm-core 源码中的真实缓存 key，
+ * core/base/cache + 各模块 __cache_key__ / 字面量 key）。{cid} 由「公司 ID」输入填充，
+ * 其它占位（{emp_id}/{phone} 等）回填搜索框后手工补全。
+ */
+const COMMON_KEY_PRESETS: { tpl: string; note?: string }[] = [
+  { tpl: 'CompanySetting:{cid}', note: '公司设置' },
+  { tpl: 'SystemFunction:{cid}', note: '功能开关' },
+  { tpl: 'SystemEmployeeRoles:{cid}:role', note: '员工角色' },
+  { tpl: 'SystemManager:{cid}', note: '系统管理员' },
+  { tpl: 'SecuritySystem:{cid}', note: '安全体系' },
+  { tpl: 'CompanyThirdBind:{cid}', note: '第三方绑定' },
+  { tpl: 'SsoPlatformConfig:{cid}', note: 'SSO 配置' },
+  { tpl: 'DynamicScriptList:{cid}:type', note: '动态脚本' },
+  { tpl: 'ControlDynamicScriptList:{cid}:type', note: '控件动态脚本' },
+  { tpl: 'SystemUpdateMessage:{cid}', note: '系统更新消息' },
+  { tpl: 'UserGuide:{cid}', note: '用户引导' },
+  { tpl: 'Employee:{emp_id}', note: '员工缓存' },
+  { tpl: '__valid_code_{phone}', note: '手机验证码' },
+];
+
 function RedisPanel({ target }: { target: string }) {
   const { t } = useT();
   const addToast = useAppStore((s) => s.addToast);
@@ -121,6 +142,13 @@ function RedisPanel({ target }: { target: string }) {
   const [history, setHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('hcmRedisSearchHistory') || '[]'); } catch { return []; }
   });
+  // —— 批量删除 ——
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchProg, setBatchProg] = useState<{ done: number; total: number } | null>(null);
+  const [batchTarget, setBatchTarget] = useState<null | 'all'>(null);
+  // —— 常用 Key ——
+  const [cid, setCid] = useState('');
 
   // 切网关即清空旧结果：运维场景下把 A 环境的 key/值误当 B 环境是高危误判
   useEffect(() => {
@@ -130,17 +158,19 @@ function RedisPanel({ target }: { target: string }) {
     setErr('');
     setDetail(null);
     setDelTarget(null);
+    setSelected(new Set());
+    setBatchProg(null);
   }, [target]);
 
-  // 弹层 ESC 关闭（详情 / 删除确认共用）
+  // 弹层 ESC 关闭（详情 / 单删与批删确认共用）
   useEffect(() => {
-    if (!detail && !delTarget) return;
+    if (!detail && !delTarget && !batchTarget) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setDetail(null); setDelTarget(null); }
+      if (e.key === 'Escape') { setDetail(null); setDelTarget(null); setBatchTarget(null); }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [detail, delTarget]);
+  }, [detail, delTarget, batchTarget]);
 
   // 复制 key/value（项目约定走 utils/clipboard 的 copyText + 全局 toast）
   const copyAndToast = useCallback(async (text: string) => {
@@ -221,6 +251,48 @@ function RedisPanel({ target }: { target: string }) {
     }
   }, [delTarget, target, addToast, t]);
 
+  // —— 批量删除：逐个调 redis.key.del（网关实现一次只删 key[0]），完成后统一反馈 ——
+  const batchDelete = useCallback(async () => {
+    if (!batchTarget || selected.size === 0) return;
+    const keys = [...selected];
+    setBatchBusy(true);
+    setBatchProg({ done: 0, total: keys.length });
+    const failed: string[] = [];
+    let ok = 0;
+    for (const k of keys) {
+      try {
+        await hcmDirect('', 'redis.key.del', { key: [k] }, '', target);
+        ok++;
+      } catch {
+        failed.push(k);
+      }
+      setBatchProg((p) => ({ done: (p?.done ?? 0) + 1, total: keys.length }));
+    }
+    setItems((prev) => (prev ? prev.filter((x) => !selected.has(x.key)) : prev));
+    setSelected(new Set());
+    setBatchTarget(null);
+    setBatchProg(null);
+    setBatchBusy(false);
+    if (failed.length) setErr(t('hcm.opsRedisBatchFailList', { list: failed.join(', ') }));
+    addToast(t('hcm.opsRedisBatchDone', { ok, fail: failed.length }), failed.length ? 'warn' : 'success');
+  }, [batchTarget, selected, target, addToast, t]);
+
+  const toggleSel = useCallback((k: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  }, []);
+
+  // —— 常用 Key：模板 {cid} 用公司 ID 填充，其余占位留在搜索框手工补 ——
+  const applyPreset = useCallback((tpl: string) => {
+    const key = tpl.replace(/\{cid\}/g, cid.trim());
+    setSearch(key);
+    setPossible(false);
+    void doSearch(key, false);
+  }, [cid, doSearch]);
+
   const historyBox = history.length > 0 && !searched;
 
   return (
@@ -259,8 +331,48 @@ function RedisPanel({ target }: { target: string }) {
         </div>
       )}
 
+      {/* 常用 Key（前缀取自 hcm-core 源码；{cid} 由公司 ID 输入填充） */}
+      <div className="hcm-ops-presets">
+        <div className="hcm-ops-history-title">
+          {t('hcm.opsRedisCommon')}
+          <input
+            className="input hcm-mono hcm-ops-cid"
+            value={cid}
+            onChange={(e) => setCid(e.target.value)}
+            placeholder={t('hcm.opsRedisCidPlaceholder')}
+            spellCheck={false}
+            title={t('hcm.opsRedisCidPlaceholder')}
+          />
+        </div>
+        <div className="hcm-ops-presetlist">
+          {COMMON_KEY_PRESETS.map((p) => (
+            <button
+              key={p.tpl}
+              type="button"
+              className="hcm-ops-preset hcm-mono"
+              onClick={() => applyPreset(p.tpl)}
+              title={p.note ? `${p.note} · ${p.tpl}` : p.tpl}
+            >
+              {p.note || p.tpl}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {searched && items !== null && (
-        <div className="hcm-ops-count">{t('hcm.opsRedisFound', { n: items.length })}</div>
+        <div className="hcm-ops-count">
+          {!pickMode && items.length > 0 && (
+            <label className="chk hcm-ops-selall">
+              <input
+                type="checkbox"
+                checked={selected.size === items.length && items.length > 0}
+                onChange={(e) => setSelected(e.target.checked ? new Set(items.map((x) => x.key)) : new Set())}
+              />
+              {t('hcm.opsRedisSelectAll')}
+            </label>
+          )}
+          {t('hcm.opsRedisFound', { n: items.length })}
+        </div>
       )}
       {searched && items !== null && items.length === 0 && (
         <div className="hcm-ops-empty">{t('hcm.opsRedisEmpty')}</div>
@@ -268,7 +380,17 @@ function RedisPanel({ target }: { target: string }) {
       {items && items.length > 0 && (
         <div className="hcm-ops-redislist">
           {items.map((it) => (
-            <div key={it.key} className="hcm-ops-redisitem">
+            <div key={it.key} className={`hcm-ops-redisitem${selected.has(it.key) ? ' hcm-ops-redisitem--sel' : ''}`}>
+              {!pickMode && (
+                <label className="hcm-ops-redissel">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(it.key)}
+                    onChange={() => toggleSel(it.key)}
+                    aria-label={`${t('hcm.opsRedisSelectAll')}: ${it.key}`}
+                  />
+                </label>
+              )}
               <button
                 type="button"
                 className="hcm-ops-redismain"
@@ -297,6 +419,33 @@ function RedisPanel({ target }: { target: string }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* 批量操作条（有勾选时出现） */}
+      {selected.size > 0 && !pickMode && (
+        <div className="hcm-ops-batchbar">
+          <span className="hcm-ops-count">
+            {batchProg
+              ? t('hcm.opsRedisBatchProg', { a: batchProg.done, b: batchProg.total })
+              : t('hcm.opsRedisSelCount', { n: selected.size })}
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            onClick={() => setBatchTarget('all')}
+            disabled={batchBusy}
+          >
+            {t('hcm.opsRedisBatchDel', { n: selected.size })}
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setSelected(new Set())}
+            disabled={batchBusy}
+          >
+            {t('hcm.opsRedisBatchClearSel')}
+          </button>
         </div>
       )}
 
@@ -336,6 +485,33 @@ function RedisPanel({ target }: { target: string }) {
                 className="btn btn-sm btn-danger" onClick={() => void doDelete()} disabled={delBusy}
               >
                 {delBusy ? t('hcm.loading') : t('hcm.opsRedisDelete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量删除确认弹层 */}
+      {batchTarget && (
+        <div className="hcm-ops-mask" onClick={() => setBatchTarget(null)}>
+          <div className="hcm-ops-dialog hcm-ops-dialog--confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="hcm-ops-dialog-msg">
+              {t('hcm.opsRedisBatchConfirm', { n: selected.size })}
+              <div className="hcm-ops-batchkeys hcm-mono">
+                {[...selected].map((k) => <div key={k}>{k}</div>)}
+              </div>
+            </div>
+            <div className="hcm-ops-dialog-btns">
+              <button type="button" className="btn btn-sm" onClick={() => setBatchTarget(null)}>
+                {t('hcm.opsCancel')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => void batchDelete()}
+                disabled={batchBusy}
+              >
+                {batchBusy ? t('hcm.loading') : t('hcm.opsRedisBatchDel', { n: selected.size })}
               </button>
             </div>
           </div>

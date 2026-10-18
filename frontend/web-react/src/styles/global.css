@@ -3158,6 +3158,40 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
   background: var(--panel-2, var(--bg-2));
 }
+.hcm-ops-redisitem--sel { border-color: var(--primary); }
+.hcm-ops-redissel {
+  display: flex; align-items: center; padding-left: 10px; flex: 0 0 auto;
+}
+.hcm-ops-redisitem--sel .hcm-ops-reddel { margin-right: var(--sp-2); }
+
+/* 常用 Key 快捷区（前缀取自 hcm-core 源码） */
+.hcm-ops-presets { display: flex; flex-direction: column; gap: 6px; }
+.hcm-ops-presets .hcm-ops-history-title { display: flex; align-items: center; gap: var(--sp-2); }
+.hcm-ops-cid { width: 220px; padding: 2px 8px; font-size: 11px; }
+.hcm-ops-presetlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.hcm-ops-preset {
+  appearance: none; cursor: pointer; padding: 2px 10px; font-size: 11px;
+  border-radius: 999px; border: 1px solid var(--border-soft, var(--border));
+  background: var(--panel-2, var(--bg-2)); color: var(--text-2);
+}
+.hcm-ops-preset:hover { border-color: var(--primary); color: var(--primary); }
+
+/* 批量操作条 */
+.hcm-ops-batchbar {
+  position: sticky; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: 8px 12px; border-radius: var(--radius-xs);
+  border: 1px solid var(--primary);
+  background: var(--panel, var(--bg));
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 8%);
+}
+.hcm-ops-batchkeys {
+  margin-top: 8px; max-height: 160px; overflow: auto;
+  padding: 8px 10px; font-size: 11px; color: var(--text-2);
+  background: var(--panel-2, var(--bg-2)); border-radius: var(--radius-xs);
+  word-break: break-all;
+}
+.hcm-ops-selall { margin-right: var(--sp-2); font-size: 11px; color: var(--text-dim); }
 .hcm-ops-redismain {
   appearance: none; border: none; background: transparent; cursor: pointer;
   flex: 1 1 auto; min-width: 0; text-align: left;
