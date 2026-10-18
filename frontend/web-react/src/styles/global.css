@@ -3145,6 +3145,11 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   color: var(--text-2);
 }
 .hcm-ops-history-item:hover { border-color: var(--primary); color: var(--primary); }
+.hcm-ops-history-clear {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  font-size: 11px; color: var(--text-faint); padding: 2px 6px;
+}
+.hcm-ops-history-clear:hover { color: var(--danger); }
 
 /* Redis 结果列表（对齐参考页 .redis-item：内容可点看详情，右侧删除钮） */
 .hcm-ops-redislist { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -3169,14 +3174,21 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 /* 错误列表 */
 .hcm-ops-errlist { display: flex; flex-direction: column; gap: var(--sp-2); }
 .hcm-ops-erritem {
+  display: flex; align-items: stretch; gap: var(--sp-1);
   border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
   background: var(--panel-2, var(--bg-2));
 }
 .hcm-ops-errmain {
   appearance: none; border: none; background: transparent; cursor: pointer;
-  width: 100%; text-align: left; padding: 8px 10px;
+  flex: 1 1 auto; min-width: 0; text-align: left; padding: 8px 10px;
   display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: baseline;
 }
+.hcm-ops-errcopy {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  flex: 0 0 auto; align-self: center; padding: 6px 8px;
+  font-size: 13px; color: var(--text-faint);
+}
+.hcm-ops-errcopy:hover { color: var(--primary); }
 .hcm-ops-errcode { font-size: 11px; color: var(--danger); font-weight: 600; }
 .hcm-ops-errinfo { font-size: 12px; color: var(--text-2); word-break: break-all; white-space: pre-wrap; }
 .hcm-ops-errmeta {

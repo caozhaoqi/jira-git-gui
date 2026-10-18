@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
 import { hcmEnvs, type HcmEnv } from '../../api/hcm/client';
 import { useAppStore } from '../../store/useAppStore';
@@ -116,6 +116,8 @@ function RedisPanel({ target }: { target: string }) {
   const [detail, setDetail] = useState<RedisItem | null>(null);
   const [delTarget, setDelTarget] = useState<string | null>(null);
   const [delBusy, setDelBusy] = useState(false);
+  /** 上次查询是否为联想模式（联想返回的是模板 key，点选回填而非删除） */
+  const [pickMode, setPickMode] = useState(false);
   const [history, setHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('hcmRedisSearchHistory') || '[]'); } catch { return []; }
   });
@@ -124,6 +126,7 @@ function RedisPanel({ target }: { target: string }) {
   useEffect(() => {
     setItems(null);
     setSearched(false);
+    setPickMode(false);
     setErr('');
     setDetail(null);
     setDelTarget(null);
@@ -153,17 +156,30 @@ function RedisPanel({ target }: { target: string }) {
     });
   }, []);
 
-  const doSearch = useCallback(async (raw?: string) => {
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    try { localStorage.removeItem('hcmRedisSearchHistory'); } catch { /* 忽略 */ }
+  }, []);
+
+  // 删除确认弹层出现时聚焦「删除」按钮（Enter 直达，Esc 取消）
+  const delBtnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (delTarget) delBtnRef.current?.focus();
+  }, [delTarget]);
+
+  const doSearch = useCallback(async (raw?: string, possibleOverride?: boolean) => {
     const key = (raw ?? search).trim();
     if (!key) { setErr(t('hcm.opsRedisNeedKey')); return; }
+    const usePossible = possibleOverride ?? possible;
     setErr('');
     setBusy(true);
     setSearched(true);
+    setPickMode(usePossible);
     pushHistory(key);
     try {
       let list: RedisItem[] = [];
-      if (possible) {
-        // cache.possible.key：联想模型缓存 key（返回 string[]，点选后可再精确查询）
+      if (usePossible) {
+        // cache.possible.key：联想模型缓存 key（返回 string[]，点选后回填搜索框再精确查询）
         const r = await hcmDirect('', 'cache.possible.key', { key }, '', target);
         list = ((r.data as string[]) || []).map((k) => ({ key: k, value: k }));
       } else {
@@ -179,6 +195,14 @@ function RedisPanel({ target }: { target: string }) {
       setBusy(false);
     }
   }, [search, possible, target, t, pushHistory]);
+
+  // 联想模式点选：回填搜索框并自动转精确查询（对齐参考页 viewContent 行为）
+  const pickPossibleKey = useCallback((k: string) => {
+    setSearch(k);
+    setPossible(false);
+    setDetail(null);
+    void doSearch(k, false);
+  }, [doSearch]);
 
   const doDelete = useCallback(async () => {
     if (!delTarget) return;
@@ -229,6 +253,9 @@ function RedisPanel({ target }: { target: string }) {
               {k}
             </button>
           ))}
+          <button type="button" className="hcm-ops-history-clear" onClick={clearHistory}>
+            {t('hcm.opsRedisHistoryClear')}
+          </button>
         </div>
       )}
 
@@ -245,24 +272,29 @@ function RedisPanel({ target }: { target: string }) {
               <button
                 type="button"
                 className="hcm-ops-redismain"
-                onClick={() => setDetail(it)}
-                title={t('hcm.opsRedisValueTip')}
+                onClick={() => (pickMode ? pickPossibleKey(it.key) : setDetail(it))}
+                title={pickMode ? t('hcm.opsRedisPickTip') : t('hcm.opsRedisValueTip')}
               >
                 <div className="hcm-ops-rediskey hcm-mono">{it.key}</div>
-                <div className="hcm-ops-redisvalue hcm-mono">
-                  {it.value
-                    ? (it.value.length > VALUE_PREVIEW ? `${it.value.slice(0, VALUE_PREVIEW)}…` : it.value)
-                    : <span className="hcm-ops-redisvalue--empty">{t('hcm.opsRedisEmptyValue')}</span>}
-                </div>
+                {!pickMode && (
+                  <div className="hcm-ops-redisvalue hcm-mono">
+                    {it.value
+                      ? (it.value.length > VALUE_PREVIEW ? `${it.value.slice(0, VALUE_PREVIEW)}…` : it.value)
+                      : <span className="hcm-ops-redisvalue--empty">{t('hcm.opsRedisEmptyValue')}</span>}
+                  </div>
+                )}
               </button>
-              <button
-                type="button"
-                className="btn btn-sm hcm-ops-reddel"
-                onClick={() => setDelTarget(it.key)}
-                disabled={delBusy}
-              >
-                {t('hcm.opsRedisDelete')}
-              </button>
+              {/* 联想模式返回的是模板 key（Redis 中不存在），不提供删除 */}
+              {!pickMode && (
+                <button
+                  type="button"
+                  className="btn btn-sm hcm-ops-reddel"
+                  onClick={() => setDelTarget(it.key)}
+                  disabled={delBusy}
+                >
+                  {t('hcm.opsRedisDelete')}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -299,7 +331,10 @@ function RedisPanel({ target }: { target: string }) {
               <button type="button" className="btn btn-sm" onClick={() => setDelTarget(null)}>
                 {t('hcm.opsCancel')}
               </button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => void doDelete()} disabled={delBusy}>
+              <button
+                type="button" ref={delBtnRef}
+                className="btn btn-sm btn-danger" onClick={() => void doDelete()} disabled={delBusy}
+              >
                 {delBusy ? t('hcm.loading') : t('hcm.opsRedisDelete')}
               </button>
             </div>
@@ -322,6 +357,7 @@ interface ErrorRow {
 
 function ErrorPanel({ target }: { target: string }) {
   const { t } = useT();
+  const addToast = useAppStore((s) => s.addToast);
   const [timeType, setTimeType] = useState<TimeType>('today');
   const [beginDate, setBeginDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -373,6 +409,13 @@ function ErrorPanel({ target }: { target: string }) {
   }, [timeType, beginDate, endDate, target, t]);
 
   const totalPages = Math.max(1, Math.ceil(total / ERR_PAGE_SIZE));
+
+  // 单条错误一键复制（[错误码] 环境/人 时间 + 完整信息，便于贴给 AI / 工单）
+  const copyRow = useCallback(async (r: ErrorRow) => {
+    const text = `[${r.error_code}] ${[r.comp_name, r.emp_name].filter(Boolean).join('/')} ${r.error_time}\n${r.error_info}`;
+    const ok = await copyText(text);
+    addToast(ok ? t('hcm.copied') : t('hcm.opsCopyFail'), ok ? 'success' : 'error');
+  }, [addToast, t]);
 
   return (
     <div className="hcm-ops-body">
@@ -428,6 +471,13 @@ function ErrorPanel({ target }: { target: string }) {
                       {r.error_time}
                     </span>
                   </button>
+                  <button
+                    type="button"
+                    className="hcm-ops-errcopy"
+                    onClick={() => void copyRow(r)}
+                    title={t('hcm.opsErrCopy')}
+                    aria-label={t('hcm.opsErrCopy')}
+                  >⧉</button>
                 </div>
               );
             })}
