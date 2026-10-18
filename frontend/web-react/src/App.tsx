@@ -37,6 +37,7 @@ const CfDebugPanel = lazyNamed<Record<string, never>>(() => import('./components
 const ClashPanel = lazyNamed<Record<string, never>>(() => import('./components/ClashPanel'), 'ClashPanel');
 const HcmObjectBrowser = lazyNamed<Record<string, never>>(() => import('./components/hcm/HcmObjectBrowser'), 'HcmObjectBrowser');
 const HcmApiTester = lazyNamed<Record<string, never>>(() => import('./components/hcm/HcmApiTester'), 'HcmApiTester');
+const HcmOps = lazyNamed<Record<string, never>>(() => import('./components/hcm/HcmOps'), 'HcmOps');
 const UnifiedDiagnosisPanel = lazyNamed<Record<string, never>>(() => import('./components/UnifiedDiagnosisPanel'), 'UnifiedDiagnosisPanel');
 const SettingsPanel = lazyNamed<Record<string, never>>(() => import('./components/SettingsPanel'), 'SettingsPanel');
 import { ToastStack } from './components/Toast';
@@ -68,6 +69,7 @@ const PANELS: { key: TabKey; labelKey: string; el: ReactNode }[] = [
   { key: 'clash', labelKey: 'tab.clash', el: <ClashPanel /> },
   { key: 'hcm', labelKey: 'tab.hcm', el: <HcmObjectBrowser /> },
   { key: 'hcmapi', labelKey: 'tab.hcmapi', el: <HcmApiTester /> },
+  { key: 'hcmops', labelKey: 'tab.hcmops', el: <HcmOps /> },
   { key: 'diagnose', labelKey: 'tab.diagnose', el: <UnifiedDiagnosisPanel /> },
   { key: 'settings', labelKey: 'tab.settings', el: <SettingsPanel /> },
 ];

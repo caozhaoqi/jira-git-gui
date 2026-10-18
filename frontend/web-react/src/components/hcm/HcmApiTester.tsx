@@ -41,6 +41,7 @@ const COMMON_APIS: CommonApi[] = [
   { name: 'hcm.model.edit', docKey: 'apiDoc_edit', danger: true },
   { name: 'hcm.model.edit.batch', docKey: 'apiDoc_editBatch', danger: true },
   { name: 'hcm.paas.object.list', docKey: 'apiDoc_paasList' },
+  { name: 'dynamic.script.test', docKey: 'apiDoc_dynScriptTest' },
 ];
 
 interface ApiOption {

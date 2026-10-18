@@ -16,6 +16,7 @@ const MAIN_TABS: TabDef[] = [
   { key: 'cfdebug', icon: '🐞', labelKey: 'tab.cfdebug' },
   { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
   { key: 'hcmapi', icon: '🛠', labelKey: 'tab.hcmapi' },
+  { key: 'hcmops', icon: '🧰', labelKey: 'tab.hcmops' },
 ];
 
 // 低频页签：Electron 下收进原生菜单（应用菜单「首选项…」区域，Cmd/Ctrl+Alt+1..4）；
