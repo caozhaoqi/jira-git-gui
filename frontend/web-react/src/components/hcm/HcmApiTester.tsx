@@ -431,7 +431,17 @@ export function HcmApiTester() {
     };
     sock.onmessage = (ev) => {
       let msg: any;
-      try { msg = JSON.parse(ev.data as string); } catch { return; }
+      try { msg = JSON.parse(ev.data as string); } catch {
+        // 非 JSON 帧（网关异常页/裸文本）：对齐后端 ws_call 语义——按 error
+        // 终态处理并保留原文（HTML 进代码视图），不再静默丢弃。
+        setWs((s) => (s ? { ...s, phase: 'done', error: undefined, final: { status: 'error', data: ev.data } } : s));
+        reportPanelOutput('hcmapi', {
+          text: `API(ws): ${apiName}\nGateway: ${target || '(default)'}\nStatus: error (non-JSON frame)\n\n${ev.data}`,
+          meta: { api: apiName, mode: 'ws', error: true },
+        });
+        try { sock.close(1000, 'terminal'); } catch { /* 忽略 */ }
+        return;
+      }
       const status = String(msg?.status || '');
       if (status === 'notify') {
         if (msg?.data === 'pong') return; // 心跳
@@ -439,7 +449,8 @@ export function HcmApiTester() {
         return;
       }
       if (status === 'success' || status === 'error') {
-        setWs((s) => (s ? { ...s, phase: 'done', final: { status, data: msg?.data } } : s));
+        // 终态覆盖此前的连接层错误（onclose 可能先于终态帧到达过一次）
+        setWs((s) => (s ? { ...s, phase: 'done', error: undefined, final: { status, data: msg?.data } } : s));
         // AI 数据桥：WS 终态同样同步给 /api/ai/output/hcmapi
         reportPanelOutput('hcmapi', {
           text: `API(ws): ${apiName}\nGateway: ${target || '(default)'}\nStatus: ${status}\n\n${JSON.stringify(msg?.data, null, 2)}`,
@@ -449,12 +460,15 @@ export function HcmApiTester() {
       }
     };
     sock.onerror = () => {
-      setWs((s) => (s ? { ...s, phase: 'error', error: t('hcm.apiWsFailed') } : s));
+      // 已拿到终态（含非 JSON 帧终态）：连接随后关闭是正常后续，不得覆盖
+      setWs((s) => (s && !s.final ? { ...s, phase: 'error', error: t('hcm.apiWsFailed') } : s));
     };
     sock.onclose = () => {
       wsRef.current = null;
       setWs((s) => {
-        if (!s || s.phase === 'done') return s;
+        // 终态已到达（success/error 帧，或非 JSON 帧终态）：网关/后端随后关连接
+        // 属协议既定行为（一次性会话），保持 done + final，不弹「连接已关闭」
+        if (!s || s.final || s.phase === 'done') return s;
         return { ...s, phase: 'error', error: s.error || t('hcm.apiWsClosed') };
       });
     };
