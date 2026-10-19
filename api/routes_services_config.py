@@ -3,9 +3,9 @@
 
 提供三套配置的手动增删改查：
   1. 云函数 / HCM 服务账号 —— 读写 config/cf_accounts.local.json
-     （每条：name / server_url / username / password / type）
+     （每条：name / server_url / username / password / http_proxy / type）
   2. HCM 代理与对象配置 —— 读写 config/hcm_whitelist.local.json
-     （proxy_target.base_url / token / platform_hosts.hosts）
+     （proxy_target.base_url / http_proxy / token / platform_hosts.hosts）
   3. Jira 系统配置 —— 读写 <data_root>/.env
      （jira_url / username / JIRA_MODE / personal_access_token / cookie）
 
@@ -31,6 +31,10 @@ from pydantic import BaseModel
 from api.common import app, logger, _PROJECT_ROOT
 from core.config.cf import _env_search_roots, clear_cf_accounts_cache
 from core.config.connect import _BASE as _ENV_BASE, load_config as _load_connect_config
+from core.network_proxy import (
+    get_global_http_proxy, normalize_http_proxy, set_global_http_proxy,
+)
+from core.errors import UserError
 
 router = APIRouter()
 
@@ -84,6 +88,7 @@ class CloudFunctionReq(BaseModel):
     domain: str = ""       # 可选：同服务器的域名地址（仅下拉展示识别，连接仍走 server_url）
     username: str = ""
     password: str = ""
+    http_proxy: Optional[str] = None
     type: str = "云函数"   # 云函数 | HCM（仅前端分组标签，不影响登录逻辑）
 
 
@@ -92,6 +97,7 @@ class HcmConfigReq(BaseModel):
     base_url: str = ""
     token: str = ""
     hosts: List[str] = []
+    http_proxy: Optional[str] = None
 
 
 class JiraConfigReq(BaseModel):
@@ -101,6 +107,7 @@ class JiraConfigReq(BaseModel):
     mode: str = "pat"        # pat | cookie
     pat: str = ""            # 个人访问令牌 Personal Access Token
     cookie: str = ""         # JSESSIONID=...; atlassian.xsrf.token=...
+    http_proxy: Optional[str] = None
 
 
 class ImportAccountsReq(BaseModel):
@@ -112,6 +119,40 @@ class ImportAccountsReq(BaseModel):
 class CopyAccountReq(BaseModel):
     """按序号复制一条账号（生成「副本」）。"""
     index: int
+
+
+class NetworkConfigReq(BaseModel):
+    http_proxy: str = ""
+
+
+@router.get("/api/services/network-config")
+async def get_network_config():
+    """读取全局 HTTP/HTTPS 代理配置。"""
+    return {"ok": True, "http_proxy": get_global_http_proxy()}
+
+
+@router.post("/api/services/network-config")
+async def save_network_config(req: NetworkConfigReq):
+    """保存并立即应用全局 HTTP/HTTPS 代理配置。"""
+    try:
+        proxy = set_global_http_proxy(req.http_proxy)
+    except Exception as ex:  # noqa: BLE001
+        return {"ok": False, "error": str(ex)}
+
+    try:
+        from api.common import client as jira_client
+        jira_client._drop_http_client()
+    except Exception as ex:  # noqa: BLE001
+        logger.warning("[网络配置] Jira 连接池刷新失败: %s", ex)
+    try:
+        from core.kibana.client import close_all_clients
+        close_all_clients()
+    except Exception as ex:  # noqa: BLE001
+        logger.warning("[网络配置] Kibana 连接池刷新失败: %s", ex)
+
+    logger.info("[网络配置] 全局 HTTP/HTTPS 代理已更新（%s）",
+                "启用" if proxy else "关闭")
+    return {"ok": True, "http_proxy": proxy}
 
 
 # --------------------------------------------------------------------------- #
@@ -135,6 +176,7 @@ async def list_cloud_functions():
             "domain": acc.get("domain", ""),
             "username": acc.get("username", ""),
             "type": acc.get("type", "云函数"),
+            "http_proxy": acc.get("http_proxy", ""),
             "has_password": bool((acc.get("password") or "").strip()),
         })
     return {"ok": True, "path": str(_cf_path()), "items": out}
@@ -145,6 +187,10 @@ async def add_cloud_function(req: CloudFunctionReq):
     """新增一条云函数 / HCM 服务账号。"""
     if not req.server_url.strip() and not req.name.strip():
         return {"ok": False, "error": "服务名称与服务器地址至少填写一项"}
+    try:
+        http_proxy = normalize_http_proxy(req.http_proxy or "")
+    except UserError as ex:
+        return {"ok": False, "error": str(ex)}
     data = _read_json(_cf_path(), {"accounts": []})
     if not isinstance(data, dict) or "accounts" not in data:
         data = {"accounts": []}
@@ -155,6 +201,7 @@ async def add_cloud_function(req: CloudFunctionReq):
         "domain": req.domain.strip(),
         "username": req.username.strip(),
         "password": req.password,
+        "http_proxy": http_proxy,
         "type": req.type or "云函数",
     })
     _write_json(_cf_path(), data)
@@ -171,6 +218,12 @@ async def update_cloud_function(index: int, req: CloudFunctionReq):
     if not isinstance(accounts, list) or index < 0 or index >= len(accounts):
         return {"ok": False, "error": f"序号 {index} 不存在"}
     old = accounts[index]
+    try:
+        http_proxy = normalize_http_proxy(
+            req.http_proxy if req.http_proxy is not None else old.get("http_proxy", "")
+        )
+    except UserError as ex:
+        return {"ok": False, "error": str(ex)}
     new_pw = req.password if req.password else (old.get("password") or "")
     accounts[index] = {
         "name": req.name.strip(),
@@ -178,6 +231,7 @@ async def update_cloud_function(index: int, req: CloudFunctionReq):
         "domain": req.domain.strip(),
         "username": req.username.strip(),
         "password": new_pw,
+        "http_proxy": http_proxy,
         "type": req.type or old.get("type", "云函数"),
     }
     _write_json(_cf_path(), data)
@@ -285,6 +339,7 @@ async def get_hcm_config():
         "ok": True,
         "path": str(_hcm_path()),
         "base_url": (proxy.get("base_url", "") if isinstance(proxy, dict) else ""),
+        "http_proxy": (proxy.get("http_proxy", "") if isinstance(proxy, dict) else ""),
         "has_token": bool(token.strip()),
         "hosts": hosts if isinstance(hosts, list) else [],
     }
@@ -294,6 +349,14 @@ async def get_hcm_config():
 async def save_hcm_config(req: HcmConfigReq):
     """保存 HCM 代理配置：base_url / token / platform_hosts。"""
     data = _read_json(_hcm_path(), {})
+    old_proxy = data.get("proxy_target", {}) if isinstance(data, dict) else {}
+    try:
+        http_proxy = normalize_http_proxy(
+            req.http_proxy if req.http_proxy is not None
+            else (old_proxy.get("http_proxy", "") if isinstance(old_proxy, dict) else "")
+        )
+    except UserError as ex:
+        return {"ok": False, "error": str(ex)}
     if not isinstance(data, dict):
         data = {}
     # 保留已有但前端不管理的字段（如 hcminner / reference_projects）
@@ -301,7 +364,7 @@ async def save_hcm_config(req: HcmConfigReq):
     if not isinstance(data["platform_hosts"], dict):
         data["platform_hosts"] = {}
     data["platform_hosts"]["hosts"] = [h.strip() for h in req.hosts if h.strip()]
-    data["proxy_target"] = {"base_url": req.base_url.strip()}
+    data["proxy_target"] = {"base_url": req.base_url.strip(), "http_proxy": http_proxy}
     # token 留空则保留原 token（避免误清空）
     if req.token.strip():
         data["token"] = req.token.strip()
@@ -312,9 +375,11 @@ async def save_hcm_config(req: HcmConfigReq):
         import api.common as common
         import api.hcm.hcm_core as hcm_core
         common._HCM_PROXY_TARGET = common.HCM_PROXY_TARGET = req.base_url.strip()
+        common._HCM_HTTP_PROXY = common.HCM_HTTP_PROXY = http_proxy
         common._HCM_PRESET_TOKEN = common.HCM_PRESET_TOKEN = (req.token.strip()
                                                               or common._HCM_PRESET_TOKEN)
         hcm_core._HCM_PROXY_TARGET = req.base_url.strip()
+        hcm_core._HCM_HTTP_PROXY = http_proxy
         hcm_core._HCM_PRESET_TOKEN = common._HCM_PRESET_TOKEN
     except Exception as e:
         logger.warning("[服务配置] 刷新 HCM 模块变量失败（重启后生效）: %s", e)
@@ -337,6 +402,7 @@ async def get_jira_config():
         "jira_url": cfg.jira_url,
         "username": cfg.username,
         "mode": cfg.mode or "pat",
+        "http_proxy": cfg.http_proxy,
         "has_pat": bool(cfg.pat),
         "has_cookie": bool(cfg.cookie),
     }
@@ -352,10 +418,18 @@ async def save_jira_config(req: JiraConfigReq):
     - personal_access_token / cookie 仅在非空时覆盖；留空表示保留现有值。
     """
     env_path = _ENV_BASE / ".env"
+    current_cfg, _, _ = _load_connect_config()
+    try:
+        http_proxy = normalize_http_proxy(
+            req.http_proxy if req.http_proxy is not None else current_cfg.http_proxy
+        )
+    except UserError as ex:
+        return {"ok": False, "error": str(ex)}
     desired = {
         "jira_url": req.jira_url.strip().rstrip("/"),
         "username": req.username.strip(),
         "JIRA_MODE": (req.mode.strip() or "pat").lower(),
+        "JIRA_HTTP_PROXY": http_proxy,
     }
     if req.pat:
         desired["personal_access_token"] = req.pat
@@ -379,6 +453,14 @@ async def save_jira_config(req: JiraConfigReq):
     tmp = env_path.with_name(".env.tmp")
     tmp.write_text("\n".join(out_lines).rstrip("\n") + "\n", encoding="utf-8")
     tmp.replace(env_path)
+
+    try:
+        from api.common import client as jira_client
+        jira_cfg, _, _ = _load_connect_config()
+        jira_client.set_config(jira_cfg)
+        jira_client._drop_http_client()
+    except Exception as ex:  # noqa: BLE001
+        logger.warning("[服务配置] 刷新 Jira 配置失败: %s", ex)
 
     logger.info("[服务配置] 保存 Jira 配置 jira_url=%s mode=%s", req.jira_url, req.mode)
     return {"ok": True, "path": str(env_path)}

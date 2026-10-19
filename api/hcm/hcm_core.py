@@ -13,10 +13,18 @@ from fastapi import HTTPException
 
 from api.common import (
     app, logger, _PROJECT_ROOT,
-    _HCM_PROXY_TARGET, _HCM_PRESET_TOKEN,
+    _HCM_PROXY_TARGET, _HCM_HTTP_PROXY, _HCM_PRESET_TOKEN,
     get_cf_accounts,
 )
 from core.errors import UserError
+from core.network_proxy import resolve_http_proxy
+
+
+def _request_proxy(target: str) -> str:
+    """Use the HCM server-specific proxy only for its configured gateway."""
+    if (target or "").rstrip("/") == (_HCM_PROXY_TARGET or "").rstrip("/"):
+        return resolve_http_proxy(_HCM_HTTP_PROXY)
+    return ""
 
 
 
@@ -80,7 +88,10 @@ async def hcm_proxy(api_name: str, request) -> "Response":
         # 复用 CF 共享的 SSL 上下文（开启旧式重协商），对 HTTP 目标无害；
         # 若将来 _HCM_PROXY_TARGET 配成 HTTPS legacy 服务器也能兼容。
         from api.cf.cf_tokens import _cf_ssl_context
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=_cf_ssl_context()) as client:
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, verify=_cf_ssl_context(),
+            proxy=_request_proxy(_HCM_PROXY_TARGET) or None,
+        ) as client:
             resp = await client.post(target, content=body, headers=headers, cookies=cookies)
         logger.info(
             "[代理] 网关响应 %s len=%dB head=%s",
@@ -152,7 +163,7 @@ def _resp_is_token_error(raw_text: str) -> bool:
 
 
 async def hcm_direct(req) -> "dict":
-    """直连 HCM 网关并解密响应（绕过透传链，全程**不走任何代理**）。
+    """直连 HCM 网关并解密响应（绕过同源透传链）。
 
     token 默认 2 小时过期，过期后查询会报 17003/51006。这里在首次响应为
     token 失效类错误时，用 cf_accounts 中该网关的账号密码**自动重登一次并重试**，
@@ -193,8 +204,11 @@ async def hcm_direct(req) -> "dict":
     ssl_ctx = _cf_ssl_context()
 
     async def _post_once(tok: str):
-        """直连 POST 到目标网关（**不配置 proxy，不使用代理**）。"""
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=ssl_ctx) as client:
+        """直连 POST 到目标网关，使用其专属代理（如有）或全局代理。"""
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, verify=ssl_ctx,
+            proxy=_request_proxy(effective_target) or None,
+        ) as client:
             return await client.post(
                 target, content=body,
                 headers={"Content-Type": "application/json"},
@@ -267,13 +281,43 @@ async def hcm_direct(req) -> "dict":
                 "meta": meta,
                 "gateway": effective_target,
             }
-        raise HTTPException(resp.status_code, f"HCM 网关 {effective_target} 返回 HTTP {resp.status_code}: {raw_text[:1500]}")
+        # 非 JSON 错误页（网关 500 HTML / nginx 错误页 / SSO 跳转页等）：对齐调试页
+        # ——responseText 原文进红色结果块，由前端 Text/Code 视图展示（树视图对
+        # HTML 无意义，前端按内容自动切换）。HTTPException 只留「连不上」类场景。
+        logger.warning("[HCM直连] 网关 HTTP %s 返回非 JSON 错误页（%dB）: %s",
+                       resp.status_code, len(raw_text), raw_text[:200])
+        return {
+            "ok": False,
+            "data": raw_text[:500_000],
+            "error": {
+                "errcode": None,
+                "errmsg": f"HCM 网关返回 HTTP {resp.status_code}（非 JSON 响应，见结果原文）",
+                "raw": raw_text[:500_000],
+                "http_status": resp.status_code,
+                "traceback": "",
+            },
+            "meta": {},
+            "gateway": effective_target,
+        }
 
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError:
+        # 200 但非 JSON（网关异常页）：同样原文进结果块，不抛 502
         logger.error("[HCM直连] 网关返回非 JSON: %s", raw_text[:800])
-        raise HTTPException(502, f"HCM 直连响应非 JSON（可能网关异常页）: {raw_text[:800]}")
+        return {
+            "ok": False,
+            "data": raw_text[:500_000],
+            "error": {
+                "errcode": None,
+                "errmsg": "HCM 网关返回非 JSON 响应（可能网关异常页），见结果原文",
+                "raw": raw_text[:500_000],
+                "http_status": resp.status_code,
+                "traceback": "",
+            },
+            "meta": {},
+            "gateway": effective_target,
+        }
 
     has_result = isinstance(data, dict) and "result" in data
     has_encrypted = isinstance(data, dict) and "hcm_param" in data
@@ -384,7 +428,10 @@ async def hcm_decrypt_param(req) -> "dict":
     ssl_ctx = _cf_ssl_context()
 
     async def _post_once(tok: str):
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=ssl_ctx) as client:
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, verify=ssl_ctx,
+            proxy=_request_proxy(effective_target) or None,
+        ) as client:
             return await client.post(
                 target, content=body,
                 headers={"Content-Type": "application/json", "Accept": "application/json"},
@@ -523,7 +570,10 @@ async def hcm_temp_download(req) -> "Response":
 
     logger.info("[HCM] 临时文件下载 → %s token=%s", url, "preset" if not getattr(req, "token", "").strip() else "provided")
     try:
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True, verify=_cf_ssl_context()) as client:
+        async with httpx.AsyncClient(
+            timeout=60, follow_redirects=True, verify=_cf_ssl_context(),
+            proxy=_request_proxy(target) or None,
+        ) as client:
             resp = await client.get(url, cookies={"token": token} if token else {})
     except httpx.ConnectError as e:
         raise HTTPException(502, f"无法连接 HCM 服务器 {target}: {e}")

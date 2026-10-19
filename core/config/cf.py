@@ -89,6 +89,7 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
             "domain": (item.get("domain") or "").strip(),
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),
+            "http_proxy": (item.get("http_proxy") or "").strip(),
             "default": is_default,
         })
     # 顶层 default 写了但没有任何账号匹配：日志提示一次（配置写错时不然会静默回落到第一个）
@@ -111,4 +112,3 @@ def clear_cf_accounts_cache() -> None:
 # --------------------------------------------------------------------------- #
 #  平台连接业务白名单（无敏感信息，可提交到 git，属于“改了会连不上平台”的
 #  保留项：hcminner 头、真实接口路径、参考项目名、真实平台域名）
-

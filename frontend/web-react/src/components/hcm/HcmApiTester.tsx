@@ -1,26 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
+import { hcmWsProxyUrl } from '../../api/hcm/ws';
 import { hcmEnvs, HcmApiError, type HcmEnv } from '../../api/hcm/client';
 import { reportLocalApiNetworkError } from '../../api/client';
 import { saveBlob } from '../../utils/download';
 import { useT } from '../../i18n';
 import { reportPanelOutput } from '../../api/aiBridge';
+import { JsonTree } from '../JsonTree';
+import { CodeView } from '../CodeView';
 
 /**
  * HCM 接口直调面板 —— 设计与功能对齐网关自带调试页
  * （hcm-core templates/api/api_ui.html + api_list.html + static/api/api.js）：
  *
  *   标题（描述：接口名）→ API 文档 → 输入（JSON）→ 提交行（提交 + SQL/Profile 勾选）
- *   → 结果（JSON + 耗时 + 下载接口日志/性能日志 + 查看明细错误 + 调用堆栈）
+ *   → 结果（View 下拉：视图树/文本/代码 + 搜索 + 耗时 + 下载接口日志/性能日志
+ *     + 查看明细错误 + 调用堆栈）
  *
  * 接口列表：调平台 Open API `hcm.api.list`（core/service/services.py，返回
  * {list:[{name,description}], count}，支持 filter_str + 分页）拉全量，输入框即
  * 可搜索下拉（名称/描述本地过滤，↑↓ 选择），按网关缓存到 localStorage 24h；
  * 拉取失败时回退到内置常用接口。
  *
+ * WS 调试通道（提交行「WS」按钮）：网关 `ws(s)://<host>/ws/<api>`，握手带
+ * Cookie token、首帧发**明文业务参数**（无 REST 加密信封），回包
+ * `{status: notify|success|error, data}`；notify 为实时进度、success/error
+ * 为终态（随后网关关闭，一次性会话）。浏览器不直连网关（跨域 + 密钥），
+ * 由后端 `/api/hcm/ws` 双向桥接；仅声明 notify 的 handler 支持（长任务类接口）。
+ *
  * 差异说明：
  * - 请求统一走后端 /api/hcm/direct（加解密+签名+token 自动续期），前端零密钥；
- * - 网关调试页的「WS」按钮依赖网关 WebSocket 通道，本地后端无 WS 代理，不提供。
+ * - WS 通道参数为明文（对齐平台 api.js 的 callHcmOpenWebSocket），无需信封；
+ * - 网关返回非 JSON（HTML 错误页/异常页）时，对齐调试页 responseText 的处理：
+ *   原文进红色结果块，视图自动切到代码视图（树只对结构化响应有意义）。
  */
 
 /** 内置常用接口兜底（hcm.api.list 不可用 / 权限不足时仍可联想）。doc 文案见 i18n hcm.apiDoc_* */
@@ -74,7 +86,19 @@ interface SendResult {
   /** 网关业务错误：结果块红色 + traceback + 明细错误链接 */
   isError: boolean;
   errorCode?: string;
+  /** 错误摘要（errmsg）：raw 原文（HTML 错误页）优先展示时，摘要行保证可读性 */
+  errmsg?: string;
   traceback?: string;
+}
+
+/** WS 调试会话状态（对齐调试页 WS 按钮：连接→发参数→notify 进度→终态） */
+interface WsSession {
+  phase: 'connecting' | 'running' | 'done' | 'error';
+  /** notify 进度消息（pong 心跳已过滤） */
+  messages: any[];
+  /** 终态回包 */
+  final?: { status: string; data: any };
+  error?: string;
 }
 
 export function HcmApiTester() {
@@ -90,6 +114,14 @@ export function HcmApiTester() {
   const [err, setErr] = useState('');
   const [result, setResult] = useState<SendResult | null>(null);
   const [dlBusy, setDlBusy] = useState('');
+  // 结果区视图（对齐调试页 View 下拉）：视图（object 树，默认）/ 文本 / 代码
+  const [view, setView] = useState<'tree' | 'text' | 'code'>('tree');
+  const [viewOpen, setViewOpen] = useState(false);
+  const viewBoxRef = useRef<HTMLDivElement>(null);
+  const [respSearch, setRespSearch] = useState('');
+  // WS 调试会话（null = 未启动）
+  const [ws, setWs] = useState<WsSession | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   // AI 数据桥：接口调试的请求+响应同步给 /api/ai/output/hcmapi（供 AI 拉取）
   useEffect(() => {
@@ -217,6 +249,36 @@ export function HcmApiTester() {
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [ddOpen]);
 
+  // 点击面板外关闭结果区视图下拉
+  useEffect(() => {
+    if (!viewOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (viewBoxRef.current && !viewBoxRef.current.contains(e.target as Node)) {
+        setViewOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [viewOpen]);
+
+  // 新响应到达 → 按内容自动选视图（对齐调试页：结构化响应走 object 树，
+  // HTML 错误页 / 纯文本走代码视图——树对非 JSON 无意义）。
+  // 仅在**新内容**时切换；同一响应内用户手动切视图不被覆盖。
+  const lastAutoViewText = useRef('');
+  useEffect(() => {
+    const wsFinal = ws?.final;
+    const text = wsFinal
+      ? (typeof wsFinal.data === 'string'
+          ? wsFinal.data
+          : JSON.stringify(wsFinal.data ?? null, null, 2))
+      : (result?.text ?? '');
+    if (!text || text === lastAutoViewText.current) return;
+    lastAutoViewText.current = text;
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+    setView(parsed !== null && typeof parsed === 'object' ? 'tree' : 'code');
+  }, [result, ws]);
+
   // 下拉数据源：远端列表，失败回退内置常用接口
   const options: ApiOption[] = useMemo(() => (
     apiListState === 'error'
@@ -276,6 +338,9 @@ export function HcmApiTester() {
     setBusy(true);
     setErr('');
     setDdOpen(false);
+    // 结果区展示以「最新一次请求」为准：清掉上一轮 WS 终态（wsStart 对称清 result）。
+    // 仅清终态会话；WS 仍在途时保留其 notify 进度面板（罕见并发现场）。
+    setWs((s) => (s && (s.phase === 'done' || s.phase === 'error') ? null : s));
     try {
       const { data, gateway, meta } = await hcmDirect('', apiName.trim(), params, '', target, {
         sqlDebug,
@@ -295,7 +360,11 @@ export function HcmApiTester() {
       if (e instanceof HcmApiError && e.payload) {
         // 网关业务错误：对齐网关调试页 error 分支——红色结果块 + traceback + 明细错误 + 日志下载
         const p = e.payload;
-        const rawText = p.raw !== undefined ? JSON.stringify(p.raw, null, 2) : '';
+        // 网关非 JSON 错误页（HTML）：error.raw 是字符串原文，直接展示（代码视图高亮）；
+        // JSON 错误响应则序列化保留结构（树视图可展开）
+        const rawText = p.raw !== undefined
+          ? (typeof p.raw === 'string' ? p.raw : JSON.stringify(p.raw, null, 2))
+          : '';
         setResult({
           text: rawText || p.errmsg || e.message,
           truncated: rawText.length > PREVIEW_LIMIT,
@@ -306,6 +375,7 @@ export function HcmApiTester() {
           errorCode: p.error_code != null && p.error_code !== ''
             ? String(p.error_code)
             : (p.errcode != null ? String(p.errcode) : undefined),
+          errmsg: p.errmsg || '',
           traceback: p.traceback || '',
         });
       } else {
@@ -317,6 +387,84 @@ export function HcmApiTester() {
       setBusy(false);
     }
   }, [busy, paramsText, apiName, target, sqlDebug, profileDebug, t]);
+
+  // —— WS 调试通道（对齐调试页 WS 按钮：流式代理 + notify 进度 + 终态）——
+  const wsStop = useCallback(() => {
+    const sock = wsRef.current;
+    if (sock) {
+      try { sock.close(1000, 'client stop'); } catch { /* 已关闭则忽略 */ }
+      wsRef.current = null;
+    }
+    setWs((s) => (s && s.phase !== 'done' ? { ...s, phase: 'done' } : s));
+  }, []);
+
+  const wsStart = useCallback(() => {
+    if (wsRef.current) return; // 已在会话中
+    let params: Record<string, any>;
+    try {
+      params = JSON.parse(paramsText);
+    } catch (e: any) {
+      setErr(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
+      return;
+    }
+    if (!apiName.trim()) {
+      setErr(t('hcm.apiNeedName'));
+      return;
+    }
+    setErr('');
+    setResult(null);
+    setWs({ phase: 'connecting', messages: [] });
+
+    let sock: WebSocket;
+    try {
+      sock = new WebSocket(hcmWsProxyUrl(apiName.trim(), target));
+    } catch (e: any) {
+      setWs({ phase: 'error', messages: [], error: e?.message || String(e) });
+      return;
+    }
+    wsRef.current = sock;
+
+    sock.onopen = () => {
+      // 首帧：明文业务参数（平台 api.js 同款语义）
+      sock.send(JSON.stringify(params));
+      setWs((s) => (s ? { ...s, phase: 'running' } : s));
+    };
+    sock.onmessage = (ev) => {
+      let msg: any;
+      try { msg = JSON.parse(ev.data as string); } catch { return; }
+      const status = String(msg?.status || '');
+      if (status === 'notify') {
+        if (msg?.data === 'pong') return; // 心跳
+        setWs((s) => (s ? { ...s, messages: [...s.messages, msg?.data] } : s));
+        return;
+      }
+      if (status === 'success' || status === 'error') {
+        setWs((s) => (s ? { ...s, phase: 'done', final: { status, data: msg?.data } } : s));
+        // AI 数据桥：WS 终态同样同步给 /api/ai/output/hcmapi
+        reportPanelOutput('hcmapi', {
+          text: `API(ws): ${apiName}\nGateway: ${target || '(default)'}\nStatus: ${status}\n\n${JSON.stringify(msg?.data, null, 2)}`,
+          meta: { api: apiName, mode: 'ws', error: status === 'error' },
+        });
+        try { sock.close(1000, 'terminal'); } catch { /* 忽略 */ }
+      }
+    };
+    sock.onerror = () => {
+      setWs((s) => (s ? { ...s, phase: 'error', error: t('hcm.apiWsFailed') } : s));
+    };
+    sock.onclose = () => {
+      wsRef.current = null;
+      setWs((s) => {
+        if (!s || s.phase === 'done') return s;
+        return { ...s, phase: 'error', error: s.error || t('hcm.apiWsClosed') };
+      });
+    };
+  }, [paramsText, apiName, target, t]);
+
+  // 卸载时关闭在途 WS（切 tab / 关闭面板不留半开连接）
+  useEffect(() => () => {
+    try { wsRef.current?.close(1000, 'unmount'); } catch { /* 忽略 */ }
+    wsRef.current = null;
+  }, []);
 
   const onNameKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (ddOpen && ddFiltered.length) {
@@ -496,7 +644,25 @@ export function HcmApiTester() {
           <button className="btn btn-primary btn-sm" onClick={() => void send()} disabled={busy}>
             {busy ? t('hcm.loading') : t('hcm.apiSend')}
           </button>
+          {ws && ws.phase !== 'done' && ws.phase !== 'error' ? (
+            <button className="btn btn-sm hcm-api-ws-btn" onClick={wsStop}>
+              {t('hcm.apiWsStop')}
+            </button>
+          ) : (
+            <button
+              className="btn btn-sm hcm-api-ws-btn"
+              onClick={wsStart}
+              title={t('hcm.apiWsHint')}
+            >
+              WS
+            </button>
+          )}
           {busy && <span className="hcm-api-busy" aria-label="loading" />}
+          {ws && (ws.phase === 'connecting' || ws.phase === 'running') && (
+            <span className="hcm-api-ws-state" aria-label="ws running">
+              {ws.phase === 'connecting' ? t('hcm.apiWsConnecting') : t('hcm.apiWsRunning')}
+            </span>
+          )}
           <span className="spacer" />
           <label className="chk hcm-api-chk" title={t('hcm.apiSqlDebugHint')}>
             <input type="checkbox" checked={sqlDebug} onChange={(e) => setSqlDebug(e.target.checked)} />
@@ -510,69 +676,168 @@ export function HcmApiTester() {
         </div>
 
         {err && <div className="hcm-api-err">{err}</div>}
+        {ws && ws.phase === 'error' && ws.error && (
+          <div className="hcm-api-err">{ws.error}</div>
+        )}
+        {ws && ws.messages.length > 0 && (
+          <details className="hcm-api-ws-msgs">
+            <summary>{t('hcm.apiWsNotify', { n: ws.messages.length })}</summary>
+            <div className="hcm-api-ws-msg-list">
+              {ws.messages.map((m, i) => (
+                <div key={i} className="hcm-api-ws-msg">
+                  {typeof m === 'string' ? m : JSON.stringify(m)}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </div>
 
-      {/* ---- 结果区 ---- */}
-      {result && (
-        <div className={`hcm-api-resp${result.isError ? ' hcm-api-resp--error' : ''}`}>
-          <div className="hcm-api-resp-head">
-            <span className="hcm-api-label">{t('hcm.apiResponse')}</span>
-            {typeof result.durationMs === 'number' && (
-              <span
-                className={`hcm-api-duration${result.isError ? ' hcm-api-duration--err' : ''}`}
-                title={`srv_end - srv_begin = ${result.durationMs}ms`}
-              >
-                {(result.durationMs / 1000).toFixed(2)}s
-              </span>
-            )}
-            {result.gateway && (
-              <code className="hcm-api-gw" title={t('hcm.apiGatewayHint')}>
-                {t('hcm.apiViaGw', { target: result.gateway })}
-              </code>
-            )}
-            <span className="spacer" />
-            {result.profileIndex && (
-              <button className="btn btn-sm hcm-link-btn" disabled={!!dlBusy}
-                      onClick={() => void downloadTemp(result.profileIndex, 'profile')}>
-                {dlBusy === 'profile' ? t('hcm.downloading') : t('hcm.downloadProfile')}
+      {/* ---- 结果区（REST 结果 / WS 终态共用；树/文本视图 + 搜索）---- */}
+      {(() => {
+        const wsFinal = ws?.final;
+        const display: SendResult | null = wsFinal
+          ? {
+              // WS 终态 data 为字符串（非 JSON 帧原文，如 HTML 错误页）时直接展示
+              text: typeof wsFinal.data === 'string'
+                ? wsFinal.data
+                : JSON.stringify(wsFinal.data ?? null, null, 2),
+              truncated: false,
+              gateway: target,
+              logIndex: '',
+              profileIndex: '',
+              isError: wsFinal.status !== 'success',
+            }
+          : result;
+        if (!display) return null;
+        return (
+          <div className={`hcm-api-resp${display.isError ? ' hcm-api-resp--error' : ''}`}>
+            <div className="hcm-api-resp-head">
+              <span className="hcm-api-label">{t('hcm.apiResponse')}</span>
+              {/* View 下拉（对齐调试页：视图 / 文本 / 代码） */}
+              <div className="hcm-api-view" ref={viewBoxRef}>
+                <button
+                  type="button"
+                  className="hcm-api-view-btn"
+                  aria-haspopup="menu"
+                  aria-expanded={viewOpen}
+                  onClick={() => setViewOpen((v) => !v)}
+                  title={t('hcm.apiViewLabel')}
+                >
+                  {view === 'tree'
+                    ? t('hcm.apiViewView')
+                    : view === 'text'
+                      ? t('hcm.apiViewText')
+                      : t('hcm.apiViewCode')}
+                  <span className="hcm-api-view-caret" aria-hidden="true">▾</span>
+                </button>
+                {viewOpen && (
+                  <div className="hcm-api-view-dd" role="menu">
+                    {([
+                      ['tree', t('hcm.apiViewView')],
+                      ['text', t('hcm.apiViewText')],
+                      ['code', t('hcm.apiViewCode')],
+                    ] as const).map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        role="menuitem"
+                        aria-checked={view === v}
+                        className={`hcm-api-view-dd-item${view === v ? ' active' : ''}`}
+                        onClick={() => { setView(v); setViewOpen(false); }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input
+                className="hcm-api-search"
+                type="search"
+                value={respSearch}
+                placeholder={t('hcm.apiSearch')}
+                onChange={(e) => setRespSearch(e.target.value)}
+                spellCheck={false}
+              />
+              {typeof display.durationMs === 'number' && (
+                <span
+                  className={`hcm-api-duration${display.isError ? ' hcm-api-duration--err' : ''}`}
+                  title={`srv_end - srv_begin = ${display.durationMs}ms`}
+                >
+                  {(display.durationMs / 1000).toFixed(2)}s
+                </span>
+              )}
+              {display.gateway && (
+                <code className="hcm-api-gw" title={t('hcm.apiGatewayHint')}>
+                  {t('hcm.apiViaGw', { target: display.gateway })}
+                </code>
+              )}
+              <span className="spacer" />
+              {display.profileIndex && (
+                <button className="btn btn-sm hcm-link-btn" disabled={!!dlBusy}
+                        onClick={() => void downloadTemp(display.profileIndex, 'profile')}>
+                  {dlBusy === 'profile' ? t('hcm.downloading') : t('hcm.downloadProfile')}
+                </button>
+              )}
+              {display.logIndex && (
+                <button className="btn btn-sm hcm-link-btn" disabled={!!dlBusy}
+                        onClick={() => void downloadTemp(display.logIndex, 'log')}>
+                  {dlBusy === 'log' ? t('hcm.downloading') : t('hcm.downloadLog')}
+                </button>
+              )}
+              {errorDetailUrl && (
+                <a
+                  className="btn btn-sm hcm-link-btn hcm-api-errlink"
+                  href={errorDetailUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t('hcm.apiErrorDetail')}
+                </a>
+              )}
+              <button className="btn btn-sm" onClick={() => void copyResult()}>
+                {t('hcm.apiCopy')}
               </button>
-            )}
-            {result.logIndex && (
-              <button className="btn btn-sm hcm-link-btn" disabled={!!dlBusy}
-                      onClick={() => void downloadTemp(result.logIndex, 'log')}>
-                {dlBusy === 'log' ? t('hcm.downloading') : t('hcm.downloadLog')}
-              </button>
-            )}
-            {errorDetailUrl && (
-              <a
-                className="btn btn-sm hcm-link-btn hcm-api-errlink"
-                href={errorDetailUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t('hcm.apiErrorDetail')}
-              </a>
-            )}
-            <button className="btn btn-sm" onClick={() => void copyResult()}>
-              {t('hcm.apiCopy')}
-            </button>
-          </div>
-          <pre className="hcm-json hcm-api-json">
-            {result.truncated ? result.text.slice(0, PREVIEW_LIMIT) + '\n…' : result.text}
-            {result.truncated && (
-              <span className="hcm-api-truncated">
-                {'\n' + t('hcm.apiTruncated', { n: PREVIEW_LIMIT })}
-              </span>
-            )}
-          </pre>
-          {result.isError && result.traceback && (
-            <div className="hcm-api-traceback">
-              <span className="hcm-api-traceback-tag">{t('hcm.apiTraceback')}</span>
-              {result.traceback}
             </div>
-          )}
-        </div>
-      )}
+            {view === 'tree' ? (
+              <JsonTree data={safeJsonParse(display.text)} search={respSearch} />
+            ) : view === 'code' ? (
+              <CodeView
+                text={display.truncated ? display.text.slice(0, PREVIEW_LIMIT) + '\n…' : display.text}
+                search={respSearch}
+              />
+            ) : (
+              <pre className="hcm-json hcm-api-json">
+                {display.truncated ? display.text.slice(0, PREVIEW_LIMIT) + '\n…' : display.text}
+                {display.truncated && (
+                  <span className="hcm-api-truncated">
+                    {'\n' + t('hcm.apiTruncated', { n: PREVIEW_LIMIT })}
+                  </span>
+                )}
+              </pre>
+            )}
+            {display.isError && display.errmsg && (
+              <div className="hcm-api-errmsg">{display.errmsg}</div>
+            )}
+            {display.isError && display.traceback && (
+              <div className="hcm-api-traceback">
+                <span className="hcm-api-traceback-tag">{t('hcm.apiTraceback')}</span>
+                {display.traceback}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
+}
+
+/** 结果文本 → 树数据；解析失败时退回原文包装，保证树视图不白屏。 */
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { _raw: text };
+  }
 }

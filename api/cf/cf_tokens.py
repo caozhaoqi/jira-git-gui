@@ -26,6 +26,7 @@ from api.common import (
     _cf_is_session_err, _cf_token_stale,
     get_cf_accounts,
 )
+from core.network_proxy import get_global_http_proxy, resolve_http_proxy
 
 # --------------------------------------------------------------------------- #
 #  常量（来自 hcm_whitelist 配置）
@@ -131,7 +132,7 @@ def new_cf_client(req_proxy: str, existing_cookies=None):
     kwargs = dict(timeout=15, follow_redirects=True, verify=ctx)
     if req_proxy:
         kwargs["proxy"] = req_proxy
-    else:
+    elif not get_global_http_proxy():
         # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
         kwargs["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
     if existing_cookies is not None:
@@ -170,6 +171,15 @@ async def cf_captcha_fetch(server_url: str, proxy: str = "") -> "dict":
         raise ValueError("请先配置服务器地址")
     base = server_url.rstrip("/")
     url = f"{base}/img/imagevalidatecode"
+    configured_proxy = next(
+        (
+            account.get("http_proxy", "")
+            for account in get_cf_accounts()
+            if (account.get("server_url") or "").strip().rstrip("/") == base
+        ),
+        "",
+    )
+    proxy = resolve_http_proxy(configured_proxy, proxy)
 
     with CAPTCHA_CACHE_LOCK:
         cf_captcha_cleanup_expired()

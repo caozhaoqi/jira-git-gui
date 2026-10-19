@@ -5,8 +5,8 @@ import { requestConfirm } from '../utils/confirmStore';
 /* ============================================================
    独立全屏「首选项」页 —— 迁移自 web/services-config.html
 
-   能力对齐原生：云函数 / HCM 服务账号的增删改查、HCM 代理配置
-   （base_url / token / hosts 白名单）、Jira 系统配置（PAT / Cookie）。
+   能力对齐原生：云函数 / HCM 服务账号的增删改查、各服务器 HTTP 代理、
+   HCM 代理配置（base_url / token / hosts 白名单）、Jira 系统配置（PAT / Cookie）。
 
    与原生页的差异（有意为之）：
    - React 节点渲染，不再手拼 innerHTML；
@@ -24,6 +24,7 @@ interface CfItem {
   server_url: string;
   domain: string;
   username: string;
+  http_proxy: string;
   has_password: boolean;
 }
 interface CfResp {
@@ -32,6 +33,7 @@ interface CfResp {
 }
 interface HcmResp {
   base_url?: string;
+  http_proxy?: string;
   hosts?: string[];
   path?: string;
   has_token?: boolean;
@@ -40,17 +42,24 @@ interface JiraResp {
   jira_url?: string;
   username?: string;
   mode?: string;
+  http_proxy?: string;
   path?: string;
   has_pat?: boolean;
   has_cookie?: boolean;
 }
+interface NetworkResp {
+  ok?: boolean;
+  http_proxy?: string;
+  error?: string;
+}
 
-type TabKey = 'cf' | 'hcm' | 'jira';
+type TabKey = 'cf' | 'hcm' | 'jira' | 'network';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'cf', label: '云函数 / HCM 服务' },
   { key: 'hcm', label: 'HCM 代理' },
   { key: 'jira', label: 'Jira 配置' },
+  { key: 'network', label: '网络代理' },
 ];
 
 export function ServicesConfig() {
@@ -78,7 +87,7 @@ export function ServicesConfig() {
   const [cfItems, setCfItems] = useState<CfItem[]>([]);
   const [cfPath, setCfPath] = useState('');
   const [cfEdit, setCfEdit] = useState<number | null>(null);
-  const [cf, setCf] = useState({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '' });
+  const [cf, setCf] = useState({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '', http_proxy: '' });
 
   const loadCf = useCallback(async () => {
     try {
@@ -92,7 +101,7 @@ export function ServicesConfig() {
 
   const resetCfForm = useCallback(() => {
     setCfEdit(null);
-    setCf({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '' });
+    setCf({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '', http_proxy: '' });
   }, []);
 
   const editCf = useCallback(
@@ -100,7 +109,7 @@ export function ServicesConfig() {
       const it = cfItems.find((x) => x.index === idx);
       if (!it) return;
       setCfEdit(idx);
-      setCf({ name: it.name, type: it.type, server_url: it.server_url, domain: it.domain || '', username: it.username, password: '' });
+      setCf({ name: it.name, type: it.type, server_url: it.server_url, domain: it.domain || '', username: it.username, password: '', http_proxy: it.http_proxy || '' });
     },
     [cfItems]
   );
@@ -113,6 +122,7 @@ export function ServicesConfig() {
       domain: cf.domain.trim(),
       username: cf.username.trim(),
       password: cf.password,
+      http_proxy: cf.http_proxy.trim(),
     };
     if (!payload.name && !payload.server_url) {
       showToast('名称与服务器地址至少填一项', 'err');
@@ -120,10 +130,12 @@ export function ServicesConfig() {
     }
     try {
       if (cfEdit === null) {
-        await api('/api/services/cloud-functions', { method: 'POST', body: JSON.stringify(payload) });
+        const d = await api('/api/services/cloud-functions', { method: 'POST', body: JSON.stringify(payload) }) as { ok?: boolean; error?: string };
+        if (d.ok === false) throw new Error(d.error || '保存失败');
         showToast('已添加服务');
       } else {
-        await api(`/api/services/cloud-functions/${cfEdit}`, { method: 'PUT', body: JSON.stringify(payload) });
+        const d = await api(`/api/services/cloud-functions/${cfEdit}`, { method: 'PUT', body: JSON.stringify(payload) }) as { ok?: boolean; error?: string };
+        if (d.ok === false) throw new Error(d.error || '保存失败');
         showToast(`已更新服务 #${cfEdit}`);
       }
       resetCfForm();
@@ -150,12 +162,12 @@ export function ServicesConfig() {
   /* ---------------- HCM 代理配置 ---------------- */
   const [hcmPath, setHcmPath] = useState('');
   const [hcmHasToken, setHcmHasToken] = useState(false);
-  const [hcm, setHcm] = useState({ base_url: '', token: '', hosts: '' });
+  const [hcm, setHcm] = useState({ base_url: '', token: '', hosts: '', http_proxy: '' });
 
   const loadHcm = useCallback(async () => {
     try {
       const d = await apiGet<HcmResp>('/api/services/hcm-config');
-      setHcm({ base_url: d.base_url || '', token: '', hosts: (d.hosts || []).join('\n') });
+      setHcm({ base_url: d.base_url || '', token: '', hosts: (d.hosts || []).join('\n'), http_proxy: d.http_proxy || '' });
       setHcmPath(d.path || '');
       setHcmHasToken(!!d.has_token);
     } catch (e: any) {
@@ -168,9 +180,11 @@ export function ServicesConfig() {
       base_url: hcm.base_url.trim(),
       token: hcm.token,
       hosts: hcm.hosts.split('\n').map((s) => s.trim()).filter(Boolean),
+      http_proxy: hcm.http_proxy.trim(),
     };
     try {
-      await api('/api/services/hcm-config', { method: 'POST', body: JSON.stringify(payload) });
+      const d = await api('/api/services/hcm-config', { method: 'POST', body: JSON.stringify(payload) }) as { ok?: boolean; error?: string };
+      if (d.ok === false) throw new Error(d.error || '保存失败');
       showToast('HCM 配置已保存并即时生效');
       loadHcm();
     } catch (e: any) {
@@ -181,7 +195,7 @@ export function ServicesConfig() {
   /* ---------------- Jira 系统配置 ---------------- */
   const [jiraPath, setJiraPath] = useState('');
   const [jiraState, setJiraState] = useState({ has_pat: false, has_cookie: false });
-  const [jira, setJira] = useState({ jira_url: '', username: '', mode: 'pat', pat: '', cookie: '' });
+  const [jira, setJira] = useState({ jira_url: '', username: '', mode: 'pat', pat: '', cookie: '', http_proxy: '' });
 
   const loadJira = useCallback(async () => {
     try {
@@ -192,6 +206,7 @@ export function ServicesConfig() {
         mode: d.mode === 'cookie' ? 'cookie' : 'pat',
         pat: '',
         cookie: '',
+        http_proxy: d.http_proxy || '',
       });
       setJiraPath(d.path || '');
       setJiraState({ has_pat: !!d.has_pat, has_cookie: !!d.has_cookie });
@@ -207,9 +222,11 @@ export function ServicesConfig() {
       mode: jira.mode,
       pat: jira.pat,
       cookie: jira.cookie.trim(),
+      http_proxy: jira.http_proxy.trim(),
     };
     try {
-      await api('/api/services/jira-config', { method: 'POST', body: JSON.stringify(payload) });
+      const d = await api('/api/services/jira-config', { method: 'POST', body: JSON.stringify(payload) }) as { ok?: boolean; error?: string };
+      if (d.ok === false) throw new Error(d.error || '保存失败');
       showToast('Jira 配置已保存并即时生效');
       loadJira();
     } catch (e: any) {
@@ -217,11 +234,36 @@ export function ServicesConfig() {
     }
   }, [jira, loadJira, showToast]);
 
+  const [httpProxy, setHttpProxy] = useState('');
+  const loadNetwork = useCallback(async () => {
+    try {
+      const d = await apiGet<NetworkResp>('/api/services/network-config');
+      setHttpProxy(d.http_proxy || '');
+    } catch (e: any) {
+      showToast('加载失败：' + (e?.message || e), 'err');
+    }
+  }, [showToast]);
+
+  const saveNetwork = useCallback(async () => {
+    try {
+      const d = await api('/api/services/network-config', {
+        method: 'POST',
+        body: JSON.stringify({ http_proxy: httpProxy.trim() }),
+      }) as NetworkResp;
+      if (d.ok === false) throw new Error(d.error || '保存失败');
+      setHttpProxy(d.http_proxy || '');
+      showToast(d.http_proxy ? '全局 HTTP/HTTPS 代理已保存并即时生效' : '全局代理已关闭');
+    } catch (e: any) {
+      showToast('保存失败：' + (e?.message || e), 'err');
+    }
+  }, [httpProxy, showToast]);
+
   /* 首次进入按当前页签加载；切页签时懒加载对应配置 */
   useEffect(() => {
     if (tab === 'cf') loadCf();
     else if (tab === 'hcm') loadHcm();
-    else loadJira();
+    else if (tab === 'jira') loadJira();
+    else loadNetwork();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -252,7 +294,7 @@ export function ServicesConfig() {
                 <table className="svc-table">
                   <thead>
                     <tr>
-                      <th>名称</th><th>类型</th><th>服务器地址</th><th>账号</th><th>密码</th><th>操作</th>
+                      <th>名称</th><th>类型</th><th>服务器地址</th><th>账号</th><th>代理</th><th>密码</th><th>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -267,6 +309,7 @@ export function ServicesConfig() {
                           {it.domain ? <div className="svc-domain">域名：{it.domain}</div> : null}
                         </td>
                         <td>{it.username}</td>
+                        <td>{it.http_proxy || <span className="svc-muted">使用全局代理</span>}</td>
                         <td>
                           {it.has_password
                             ? <span className="svc-ok">已设置</span>
@@ -322,6 +365,11 @@ export function ServicesConfig() {
                   <input className="input" type="password" autoComplete="new-password" value={cf.password}
                     placeholder="留空表示不修改" onChange={(e) => setCf({ ...cf, password: e.target.value })} />
                 </label>
+                <label className="svc-field svc-full">
+                  <span>该服务器专属 HTTP/HTTPS 代理（留空使用全局代理）</span>
+                  <input className="input" value={cf.http_proxy} placeholder="http://127.0.0.1:7890"
+                    onChange={(e) => setCf({ ...cf, http_proxy: e.target.value })} />
+                </label>
               </div>
               <div className="svc-bar">
                 <button className="btn btn-primary" onClick={saveCf}>保存</button>
@@ -338,6 +386,11 @@ export function ServicesConfig() {
                 <span>代理目标网关 base_url（IP / 域名）</span>
                 <input className="input" value={hcm.base_url} placeholder="http://73.2.3.27"
                   onChange={(e) => setHcm({ ...hcm, base_url: e.target.value })} />
+              </label>
+              <label className="svc-field svc-full">
+                <span>该网关专属 HTTP/HTTPS 代理（留空使用全局代理）</span>
+                <input className="input" value={hcm.http_proxy} placeholder="http://127.0.0.1:7890"
+                  onChange={(e) => setHcm({ ...hcm, http_proxy: e.target.value })} />
               </label>
               <label className="svc-field svc-full">
                 <span>登录态 Token（Cookie 中的 token 值，留空表示不修改）</span>
@@ -367,6 +420,11 @@ export function ServicesConfig() {
                 <span>Jira 地址（URL）</span>
                 <input className="input" value={jira.jira_url} placeholder="https://jira.example.com"
                   onChange={(e) => setJira({ ...jira, jira_url: e.target.value })} />
+              </label>
+              <label className="svc-field svc-full">
+                <span>该 Jira 地址专属 HTTP/HTTPS 代理（留空使用全局代理）</span>
+                <input className="input" value={jira.http_proxy} placeholder="http://127.0.0.1:7890"
+                  onChange={(e) => setJira({ ...jira, http_proxy: e.target.value })} />
               </label>
               <label className="svc-field">
                 <span>账号 / 用户名</span>
@@ -398,6 +456,32 @@ export function ServicesConfig() {
             <p className="svc-meta">
               配置文件：{jiraPath || '—'} ｜ PAT：{jiraState.has_pat ? '已设置' : '未设置'} ｜ Cookie：{jiraState.has_cookie ? '已设置' : '未设置'}
             </p>
+          </section>
+        )}
+
+        {tab === 'network' && (
+          <section className="svc-panel card-soft">
+            <div className="svc-form">
+              <label className="svc-field svc-full">
+                <span>全局 HTTP/HTTPS 代理</span>
+                <input
+                  className="input"
+                  value={httpProxy}
+                  placeholder="http://127.0.0.1:7890"
+                  onChange={(e) => setHttpProxy(e.target.value)}
+                />
+                <span className="svc-meta">
+                  可填 http:// 或 https:// 代理地址；留空关闭。立即作用于应用内 HTTP/HTTPS 请求，
+                  单服务代理和 Kibana 站点代理优先级更高；全局代理遵循系统 NO_PROXY 规则。
+                </span>
+                <span className="svc-meta">
+                  不适用于 SSH、数据库 TCP 连接或 HCM WebSocket。
+                </span>
+              </label>
+            </div>
+            <div className="svc-bar">
+              <button className="btn btn-primary" onClick={saveNetwork}>保存网络代理</button>
+            </div>
           </section>
         )}
       </main>

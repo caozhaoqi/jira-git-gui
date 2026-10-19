@@ -4,6 +4,7 @@ import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { requestConfirm } from '../utils/confirmStore';
+import { pickDirectory } from '../utils/pickDirectory';
 
 /* ============================================================
    云函数「线上 ↔ 本地」一致性看板
@@ -215,6 +216,11 @@ export function CfConsistencyPanel() {
   const toggleRoot = useCallback((r: string) => {
     setRoots((prev) => (prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]));
   }, []);
+
+  const addRoot = useCallback(async () => {
+    const path = await pickDirectory(t('cfc.addRoot'));
+    if (path) setRoots((prev) => (prev.includes(path) ? prev : [...prev, path]));
+  }, [t]);
 
   const doScan = useCallback(async () => {
     setBusy(true);
@@ -455,6 +461,14 @@ export function CfConsistencyPanel() {
             <span className="cfc-roots-count">
               {t('cfc.rootsSelected', { n: roots.length, total: shownRoots.length })}
             </span>
+            <button
+              type="button"
+              className="cfc-roots-add"
+              onClick={() => void addRoot()}
+              disabled={busy}
+            >
+              {t('cfc.addRoot')}
+            </button>
             {allRoots.length > 0 && roots.length !== allRoots.length && (
               <button
                 type="button"

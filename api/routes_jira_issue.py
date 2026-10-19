@@ -75,7 +75,9 @@ async def api_jira_issue(req: IssueReq):
     }
 
     try:
-        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as c:
+        async with httpx.AsyncClient(
+            timeout=30, follow_redirects=True, proxy=cfg.http_proxy or None,
+        ) as c:
             r = await c.post(url, json=body, headers=headers)
     except httpx.TimeoutException:
         raise HTTPException(504, "调用 Jira 建单超时")

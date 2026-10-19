@@ -16,6 +16,8 @@ from typing import Any, Optional
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
 
+from core.network_proxy import apply_global_http_proxy
+
 from core.client import JiraGitClient, NetworkWatchdog, DEFAULT_DOWNLOAD_WORKERS
 from core.config import (
     load_config, load_session, save_session, get_session_path,
@@ -30,6 +32,8 @@ from api.eventbus import (
     subscribe,
     unsubscribe,
 )
+
+apply_global_http_proxy()
 
 # 确保项目根目录在 sys.path 中（api 包内模块也可能被直接 import）
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -106,10 +110,12 @@ task_status: dict[str, Any] = {"running": False, "type": None}
 # HCM 代理配置
 _HCM_WL = load_hcm_whitelist() or {}
 HCM_PROXY_TARGET = (_HCM_WL.get("proxy_target", {}) or {}).get("base_url", "") or ""
+HCM_HTTP_PROXY = (_HCM_WL.get("proxy_target", {}) or {}).get("http_proxy", "") or ""
 HCM_PRESET_TOKEN = (_HCM_WL.get("token", "") or "").strip()
 
 # 兼容别名（保持与旧 server.py 调用点一致的命名）
 _HCM_PROXY_TARGET = HCM_PROXY_TARGET
+_HCM_HTTP_PROXY = HCM_HTTP_PROXY
 _HCM_PRESET_TOKEN = HCM_PRESET_TOKEN
 
 

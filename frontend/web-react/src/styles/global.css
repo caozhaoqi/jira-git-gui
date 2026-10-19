@@ -3050,7 +3050,8 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-api-label { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--text-dim); }
 .hcm-api-format { padding: 1px 8px; font-size: 11px; }
 .hcm-api-params { height: 200px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
-.hcm-api-chk { font-size: 12px; color: var(--text-2); }
+/* 复合选择器提特异性：panels.css 的 .chk 基类后加载会压掉单类变体 */
+.chk.hcm-api-chk { font-size: 12px; color: var(--text-2); }
 .hcm-api-token-hint { font-size: 11px; color: var(--text-faint); }
 .hcm-api-err {
   padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-xs);
@@ -3103,6 +3104,12 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 }
 .hcm-api-duration--err { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .hcm-api-errlink { text-decoration: none; }
+.hcm-api-errmsg {
+  padding: 7px 10px; font-size: 12px; line-height: 1.5;
+  color: var(--danger); background: var(--danger-bg);
+  border-bottom: 1px solid var(--border-soft, var(--border));
+  white-space: pre-wrap; word-break: break-all;
+}
 .hcm-api-traceback {
   margin: 0; padding: 12px 14px; max-height: 220px; overflow: auto;
   font-family: var(--mono); font-size: 12px; line-height: 1.5;
@@ -3114,6 +3121,167 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   display: block; margin-bottom: 6px; font-size: 10px;
   color: var(--danger); font-family: var(--font-ui, inherit); font-weight: 600;
 }
+
+/* ---- WS 调试按钮 / 会话状态 / notify 进度 ---- */
+.hcm-api-ws-btn {
+  min-width: 52px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px;
+  border-color: var(--primary); color: var(--primary);
+}
+.hcm-api-ws-btn:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.hcm-api-ws-state {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--primary);
+}
+.hcm-api-ws-state::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--primary); animation: hcm-api-pulse 1s ease-in-out infinite;
+}
+@keyframes hcm-api-pulse { 50% { opacity: 0.25; } }
+.hcm-api-ws-msgs {
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--panel-2, var(--bg-2)); font-size: 12px;
+}
+.hcm-api-ws-msgs > summary {
+  cursor: pointer; padding: 6px 10px; color: var(--text-2);
+  user-select: none; list-style: none;
+}
+.hcm-api-ws-msgs > summary::marker { display: none; }
+.hcm-api-ws-msgs > summary::before { content: '▸ '; color: var(--text-faint); }
+.hcm-api-ws-msgs[open] > summary::before { content: '▾ '; }
+.hcm-api-ws-msg-list { max-height: 180px; overflow: auto; padding: 0 10px 8px; }
+.hcm-api-ws-msg {
+  padding: 4px 0; border-top: 1px dashed var(--border-soft, var(--border));
+  font-family: var(--mono); font-size: 11px; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-all;
+}
+
+/* ---- 结果区：View 下拉（视图/文本/代码，对齐调试页）+ 搜索框 ---- */
+.hcm-api-view { position: relative; display: inline-flex; }
+.hcm-api-view-btn {
+  appearance: none; border: 1px solid var(--border); background: var(--panel, var(--bg));
+  cursor: pointer; padding: 2px 8px; font-size: 11px; color: var(--text-2);
+  border-radius: var(--radius-xs); display: inline-flex; align-items: center; gap: 4px;
+}
+.hcm-api-view-btn:hover { color: var(--text); border-color: var(--primary); }
+.hcm-api-view-caret { font-size: 9px; line-height: 1; color: var(--text-faint); }
+.hcm-api-view-dd {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 84px;
+  background: var(--panel, var(--bg)); border: 1px solid var(--border);
+  border-radius: var(--radius-xs); box-shadow: 0 6px 20px rgba(0, 0, 0, .16);
+  padding: 3px; display: flex; flex-direction: column; gap: 1px;
+}
+.hcm-api-view-dd-item {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  padding: 4px 10px; font-size: 11px; color: var(--text-2); text-align: left;
+  border-radius: 4px; white-space: nowrap;
+}
+.hcm-api-view-dd-item:hover { background: var(--accent-soft, rgba(79, 70, 229, .1)); color: var(--text); }
+.hcm-api-view-dd-item.active { background: var(--primary); color: #fff; }
+.hcm-api-search {
+  width: 150px; padding: 2px 8px; font-size: 11px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--panel, var(--bg)); color: var(--text);
+}
+.hcm-api-search:focus { outline: none; border-color: var(--primary); }
+
+/* ---- 代码视图（对齐调试页 View 下拉 Code 项：行号 + 语法高亮）---- */
+.codeview {
+  flex: 1 1 auto; min-height: 160px; max-height: 480px; overflow: auto;
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--code-bg); color: var(--code-fg);
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+}
+.codeview-hits {
+  position: sticky; top: 0; z-index: 2; padding: 4px 10px; font-size: 11px;
+  color: var(--text-2); background: var(--panel, var(--bg));
+  border-bottom: 1px solid var(--border-soft, var(--border));
+}
+.codeview-body { padding: 6px 0; }
+.codeview-line { display: flex; align-items: flex-start; white-space: pre; }
+.codeview-line:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.codeview-ln {
+  flex: 0 0 44px; padding-right: 10px; text-align: right;
+  user-select: none; color: var(--text-faint); opacity: .65;
+}
+.codeview-text { flex: 1 1 auto; padding-right: 12px; }
+.codeview mark { background: rgba(250, 204, 21, .45); color: inherit; border-radius: 2px; }
+/* token 色板（浅色主题用加深变体，保证浅底可读；深色用 One Dark 同源色） */
+.codeview-key { color: #7c3aed; }
+.codeview-str { color: #0f766e; }
+.codeview-num { color: #b45309; }
+.codeview-kw { color: #6d28d9; }
+.codeview-punct { color: var(--text-faint); }
+.codeview-tag { color: #9333ea; }
+.codeview-attr { color: #1d4ed8; }
+.codeview-doctype { color: #b45309; }
+.codeview-comment { color: #9ca3af; font-style: italic; }
+html.dark .codeview-key { color: #c678dd; }
+html.dark .codeview-str { color: #98c379; }
+html.dark .codeview-num { color: #d19a66; }
+html.dark .codeview-kw { color: #c678dd; }
+html.dark .codeview-tag { color: #c678dd; }
+html.dark .codeview-attr { color: #61afef; }
+html.dark .codeview-doctype { color: #d19a66; }
+html.dark .codeview-comment { color: #7f848e; }
+html.dark .codeview mark { background: rgba(250, 204, 21, .3); }
+
+/* ---- JSON 响应树（对齐调试页 object {n} 可折叠树）---- */
+.jtree {
+  flex: 1 1 auto; min-height: 160px; max-height: 480px; overflow: auto;
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--panel-2, var(--bg-2));
+  font-family: var(--mono); font-size: 12px; line-height: 1.55;
+}
+.jtree-searchbar {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; font-size: 11px; color: var(--text-2);
+  background: var(--panel, var(--bg)); border-bottom: 1px solid var(--border-soft, var(--border));
+}
+.jtree-hits { font-family: var(--font-ui, inherit); }
+.jtree-nav {
+  appearance: none; border: 1px solid var(--border); background: transparent;
+  color: var(--text-2); border-radius: 4px; cursor: pointer; padding: 0 6px; line-height: 18px;
+}
+.jtree-nav:disabled { opacity: 0.4; cursor: default; }
+.jtree-body { padding: 6px 0; }
+.jtree-node { display: block; }
+.jtree-row {
+  display: flex; align-items: baseline; gap: 4px; padding: 1px 8px 1px 0;
+  white-space: nowrap;
+}
+.jtree-row:hover { background: color-mix(in srgb, var(--primary) 7%, transparent); }
+.jtree-row--hit > .jtree-key,
+.jtree-row--hit > .jtree-val { background: color-mix(in srgb, var(--warn) 30%, transparent); border-radius: 3px; }
+.jtree-row--copied > .jtree-key,
+.jtree-row--copied > .jtree-val { background: color-mix(in srgb, var(--ok) 30%, transparent); border-radius: 3px; }
+.jtree-hit--focus { outline: 1px solid var(--primary); outline-offset: -1px; }
+.jtree-toggle {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  width: 14px; flex: 0 0 14px; padding: 0; text-align: center;
+  color: var(--text-faint); font-size: 10px; line-height: 1.4;
+}
+.jtree-toggle--leaf { cursor: default; }
+.jtree-key { color: var(--text-2); }
+.jtree-key--string { color: var(--primary); }
+.jtree-colon { color: var(--text-faint); margin-right: 2px; }
+.jtree-val { color: var(--text); white-space: pre-wrap; word-break: break-all; }
+.jtree-val--string { color: var(--ok); }
+.jtree-val--number { color: var(--warn); }
+.jtree-val--boolean { color: var(--warn); }
+.jtree-val--null { color: var(--text-faint); font-style: italic; }
+.jtree-badge {
+  flex: 0 0 auto; padding: 0 6px; border-radius: 999px; font-size: 10px;
+  color: var(--text-faint); background: color-mix(in srgb, var(--border) 45%, transparent);
+}
+.jtree-actions { margin-left: auto; display: none; gap: 4px; flex: 0 0 auto; }
+.jtree-row:hover .jtree-actions { display: inline-flex; }
+.jtree-act {
+  appearance: none; border: 1px solid var(--border); background: var(--panel, var(--bg));
+  color: var(--text-2); border-radius: 4px; cursor: pointer;
+  font-size: 10px; padding: 0 6px; line-height: 16px; font-family: var(--font-ui, inherit);
+}
+.jtree-act:hover { color: var(--primary); border-color: var(--primary); }
+.jtree-children { border-left: 1px dashed var(--border-soft, var(--border)); }
 
 /* ================= HCM 运维面板（Redis Key / 线上错误 / 参数解密） ================= */
 .hcm-ops { display: flex; flex-direction: column; gap: var(--sp-3); height: 100%; min-height: 0; }
@@ -3135,7 +3303,8 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-ops-body { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; overflow: auto; }
 .hcm-ops-form { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .hcm-ops-form--top { align-items: flex-end; }
-.hcm-ops-keyinput { flex: 1 1 320px; font-size: 12px; }
+/* 复合选择器提特异性：panels.css 的 .input 基类后加载会压掉单类变体 */
+input.hcm-ops-keyinput { flex: 1 1 320px; font-size: 12px; }
 .hcm-ops-err {
   padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-xs);
   background: var(--danger-bg, color-mix(in srgb, var(--danger) 8%, transparent));
@@ -3278,7 +3447,8 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-ops-dialog-btns { display: flex; gap: var(--sp-2); justify-content: flex-end; }
 
 /* 参数解密 */
-.hcm-ops-decinput { height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; }
+/* 复合选择器提特异性：panels.css 的 .input 基类后加载会压掉单类变体 */
+textarea.hcm-ops-decinput { height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; }
 .hcm-ops-decresult { display: flex; flex-direction: column; gap: 4px; }
 .hcm-ops-s3h { width: 320px; font-size: 11px; }
 

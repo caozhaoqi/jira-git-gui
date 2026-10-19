@@ -23,7 +23,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
-from api.common import logger
+from api.common import logger, get_cf_accounts
 from api.eventbus import broadcast
 from api.cf.cf_logs import cf_query_logs
 
@@ -192,10 +192,19 @@ async def start_stream(server_url: str, token: str = "", proxy: str = "",
                 await old["task"]
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
+        configured_proxy = next(
+            (
+                account.get("http_proxy", "")
+                for account in get_cf_accounts()
+                if (account.get("server_url") or "").strip().rstrip("/") == key
+            ),
+            "",
+        )
+        from core.network_proxy import resolve_http_proxy
         cfg = {
             "server_url": key,
             "token": (token or "").strip(),
-            "proxy": (proxy or "").strip(),
+            "proxy": resolve_http_proxy(configured_proxy, proxy),
             "log_type": (log_type or "").strip(),
             "record_model": (record_model or "dynamic_log").strip() or "dynamic_log",
             "page_size": max(10, min(int(page_size or 100), 500)),

@@ -30,4 +30,5 @@ from .client import (  # noqa: F401
     KibanaError,
     KibanaClient,
     get_client,
+    normalize_http_proxy,
 )

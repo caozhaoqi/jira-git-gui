@@ -5,9 +5,11 @@ uvicorn>=0.29
 # jira-git-backend.exe 一启动就 ModuleNotFoundError）：
 #   PyYAML  —— core/k8s/env.py、core/k8s/yaml.py 顶层 import（硬崩溃）
 #   paramiko —— core/k8s/ssh_exec.py（K8s SSH 执行功能，懒加载）
+#   websockets —— api/hcm/ws_bridge.py（HCM 网关 WS 调试通道，懒加载）
 #   debugpy / SQLAlchemy —— api/cfdebug/launcher.py、loader.py（CF 调试模式，懒加载）
 PyYAML>=6.0
 paramiko>=3.4
+websockets>=12.0
 debugpy>=1.6
 SQLAlchemy>=2.0
 # fastapi/uvicorn 的传递依赖，但被自身代码直接 import，显式声明防上游变心：
