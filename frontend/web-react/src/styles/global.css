@@ -851,6 +851,18 @@ select:focus-visible {
 }
 .tree-icon {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+/* 按钮内 SVG 功能图标：随按钮文字色着色、不参与收缩，与文字保持基线对齐 */
+.btn svg {
+  flex: none;
+  opacity: 0.9;
+}
+.btn:hover svg,
+.btn.primary svg {
+  opacity: 1;
 }
 .tree-name {
   flex: 1 1 0;
@@ -3015,7 +3027,24 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-api-form { display: flex; flex-direction: column; gap: var(--sp-2); }
 .hcm-api-row { display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap; }
 .hcm-api-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.hcm-api-field--name { flex: 1 1 260px; }
+.hcm-api-field--name { flex: 1 1 260px; position: relative; }
+/* 接口可搜索下拉（hcm.api.list 全量联想） */
+.hcm-api-dd {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 60;
+  margin-top: 4px; max-height: 340px; overflow-y: auto;
+  background: var(--panel, var(--bg)); border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-xs); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.14));
+}
+.hcm-api-dd-item { display: flex; align-items: baseline; gap: var(--sp-2); padding: 6px 10px; cursor: pointer; }
+.hcm-api-dd-item--active { background: var(--accent-soft, rgba(79,70,229,.1)); }
+.hcm-api-dd-name { font-family: var(--mono); font-size: 12px; color: var(--text); white-space: nowrap; }
+.hcm-api-dd-desc {
+  font-size: 11px; color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.hcm-api-dd-meta { padding: 8px 10px; font-size: 11px; color: var(--text-faint); }
+.hcm-api-dd-meta--warn { color: var(--warn); cursor: pointer; }
+.hcm-api-count { font-size: 10px; color: var(--text-faint); }
 .hcm-api-field--gw { flex: 0 1 300px; }
 .hcm-api-field--params { flex: 1 1 100%; }
 .hcm-api-label { display: flex; align-items: center; gap: var(--sp-2); font-size: 12px; color: var(--text-dim); }
@@ -3085,3 +3114,171 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   display: block; margin-bottom: 6px; font-size: 10px;
   color: var(--danger); font-family: var(--font-ui, inherit); font-weight: 600;
 }
+
+/* ================= HCM 运维面板（Redis Key / 线上错误 / 参数解密） ================= */
+.hcm-ops { display: flex; flex-direction: column; gap: var(--sp-3); height: 100%; min-height: 0; }
+.hcm-ops-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: var(--sp-3); flex-wrap: wrap;
+}
+.hcm-ops-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft, var(--border)); }
+.hcm-ops-tab {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  padding: 6px 14px; font-size: 12px; color: var(--text-2);
+  border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 5px;
+}
+.hcm-ops-tab:hover { color: var(--text); }
+.hcm-ops-tab.active {
+  color: var(--primary); border-bottom-color: var(--primary); font-weight: 600;
+}
+.hcm-ops-gw { display: flex; align-items: center; gap: var(--sp-2); min-width: 240px; }
+.hcm-ops-body { display: flex; flex-direction: column; gap: var(--sp-3); min-height: 0; overflow: auto; }
+.hcm-ops-form { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.hcm-ops-form--top { align-items: flex-end; }
+.hcm-ops-keyinput { flex: 1 1 320px; font-size: 12px; }
+.hcm-ops-err {
+  padding: 8px 12px; border: 1px solid var(--danger); border-radius: var(--radius-xs);
+  background: var(--danger-bg, color-mix(in srgb, var(--danger) 8%, transparent));
+  color: var(--danger); font-size: 12px; white-space: pre-wrap; word-break: break-all;
+}
+.hcm-ops-hint { font-size: 11px; color: var(--text-faint); }
+.hcm-ops-count { font-size: 11px; color: var(--text-faint); }
+.hcm-ops-empty { padding: 24px 0; text-align: center; color: var(--text-faint); font-size: 12px; }
+.hcm-ops-field { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+
+/* 搜索历史（对齐参考页 .search-his-box） */
+.hcm-ops-history { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hcm-ops-history-title { font-size: 11px; color: var(--text-faint); }
+.hcm-ops-history-item {
+  appearance: none; cursor: pointer; max-width: 320px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+  padding: 2px 10px; font-size: 11px; border-radius: 999px;
+  border: 1px solid var(--border-soft, var(--border)); background: var(--panel-2, var(--bg-2));
+  color: var(--text-2);
+}
+.hcm-ops-history-item:hover { border-color: var(--primary); color: var(--primary); }
+.hcm-ops-history-clear {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  font-size: 11px; color: var(--text-faint); padding: 2px 6px;
+}
+.hcm-ops-history-clear:hover { color: var(--danger); }
+
+/* Redis 结果列表（对齐参考页 .redis-item：内容可点看详情，右侧删除钮） */
+.hcm-ops-redislist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hcm-ops-redisitem {
+  display: flex; align-items: stretch; gap: var(--sp-2);
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--panel-2, var(--bg-2));
+}
+.hcm-ops-redisitem--sel { border-color: var(--primary); }
+.hcm-ops-redissel {
+  display: flex; align-items: center; padding-left: 10px; flex: 0 0 auto;
+}
+.hcm-ops-redisitem--sel .hcm-ops-reddel { margin-right: var(--sp-2); }
+
+/* 常用 Key 快捷区（前缀取自 hcm-core 源码） */
+.hcm-ops-presets { display: flex; flex-direction: column; gap: 6px; }
+.hcm-ops-presets .hcm-ops-history-title { display: flex; align-items: center; gap: var(--sp-2); }
+.hcm-ops-cid { width: 220px; padding: 2px 8px; font-size: 11px; }
+.hcm-ops-presetlist { display: flex; flex-wrap: wrap; gap: 6px; }
+.hcm-ops-preset {
+  appearance: none; cursor: pointer; padding: 2px 10px; font-size: 11px;
+  border-radius: 999px; border: 1px solid var(--border-soft, var(--border));
+  background: var(--panel-2, var(--bg-2)); color: var(--text-2);
+}
+.hcm-ops-preset:hover { border-color: var(--primary); color: var(--primary); }
+
+/* 批量操作条 */
+.hcm-ops-batchbar {
+  position: sticky; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: 8px 12px; border-radius: var(--radius-xs);
+  border: 1px solid var(--primary);
+  background: var(--panel, var(--bg));
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 8%);
+}
+.hcm-ops-batchkeys {
+  margin-top: 8px; max-height: 160px; overflow: auto;
+  padding: 8px 10px; font-size: 11px; color: var(--text-2);
+  background: var(--panel-2, var(--bg-2)); border-radius: var(--radius-xs);
+  word-break: break-all;
+}
+.hcm-ops-selall { margin-right: var(--sp-2); font-size: 11px; color: var(--text-dim); }
+.hcm-ops-redismain {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  flex: 1 1 auto; min-width: 0; text-align: left;
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+}
+.hcm-ops-rediskey { font-size: 12px; color: var(--primary); font-weight: 600; word-break: break-all; }
+.hcm-ops-redisvalue {
+  font-size: 11px; color: var(--text-2); word-break: break-all;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hcm-ops-redisvalue--empty { color: var(--text-faint); font-style: italic; }
+.hcm-ops-reddel { flex: 0 0 auto; align-self: center; margin-right: var(--sp-2); }
+
+/* 错误列表 */
+.hcm-ops-errlist { display: flex; flex-direction: column; gap: var(--sp-2); }
+.hcm-ops-erritem {
+  display: flex; align-items: stretch; gap: var(--sp-1);
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--panel-2, var(--bg-2));
+}
+.hcm-ops-errmain {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  flex: 1 1 auto; min-width: 0; text-align: left; padding: 8px 10px;
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; align-items: baseline;
+}
+.hcm-ops-errcopy {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  flex: 0 0 auto; align-self: center; padding: 6px 8px;
+  font-size: 13px; color: var(--text-faint);
+}
+.hcm-ops-errcopy:hover { color: var(--primary); }
+.hcm-ops-errcode { font-size: 11px; color: var(--danger); font-weight: 600; }
+.hcm-ops-errinfo { font-size: 12px; color: var(--text-2); word-break: break-all; white-space: pre-wrap; }
+.hcm-ops-errmeta {
+  grid-column: 1 / -1; font-size: 11px; color: var(--text-faint);
+}
+
+/* 分页 */
+.hcm-ops-pager { display: flex; align-items: center; gap: var(--sp-3); justify-content: center; }
+.hcm-ops-pager-info { font-size: 11px; color: var(--text-faint); }
+.hcm-ops-datesep { font-size: 12px; color: var(--text-faint); }
+
+/* 弹层（value 详情 / 删除确认，对齐参考页 .confirm / .content-detail） */
+.hcm-ops-mask {
+  position: fixed; inset: 0; z-index: 90;
+  background: color-mix(in srgb, var(--text) 32%, transparent);
+  display: flex; align-items: center; justify-content: center; padding: var(--sp-4);
+}
+.hcm-ops-dialog {
+  width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
+  background: var(--panel, var(--bg)); border: 1px solid var(--border-soft, var(--border));
+  border-radius: var(--radius-sm, var(--radius-xs)); box-shadow: 0 20px 25px rgb(0 0 0 / 12%);
+}
+.hcm-ops-dialog--confirm { width: min(460px, 92vw); padding: var(--sp-4); gap: var(--sp-3); }
+.hcm-ops-dialog-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: 10px 12px; border-bottom: 1px solid var(--border-soft, var(--border));
+  font-size: 12px; color: var(--primary); word-break: break-all;
+}
+.hcm-ops-dialog-close {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  font-size: 16px; line-height: 1; color: var(--text-faint); padding: 2px 6px;
+}
+.hcm-ops-dialog-close:hover { color: var(--danger); }
+.hcm-ops-dialog-actions { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.hcm-ops-dialog-body {
+  margin: 0; padding: 12px 14px; overflow: auto;
+  font-size: 12px; line-height: 1.5; color: var(--text-2);
+  white-space: pre-wrap; word-break: break-all;
+}
+.hcm-ops-dialog-msg { font-size: 13px; color: var(--text); word-break: break-all; }
+.hcm-ops-dialog-btns { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+
+/* 参数解密 */
+.hcm-ops-decinput { height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; }
+.hcm-ops-decresult { display: flex; flex-direction: column; gap: 4px; }
+.hcm-ops-s3h { width: 320px; font-size: 11px; }
+

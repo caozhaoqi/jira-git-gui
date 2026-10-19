@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { reportPanelOutput } from '../../api/aiBridge';
 import { apiGet, apiPost } from '../../api/client';
 import type {
   KibanaBucket, KibanaContextResp, KibanaFieldsResp,
@@ -51,6 +52,15 @@ export function KibanaLogStream({
   const addBusy = useContext(KibanaContext)?.addBusy;
 
   const [rows, setRows] = useState<KibanaLogRow[]>([]);
+
+  // AI 数据桥：日志行同步给 /api/ai/output/kibana（取前 300 条防超限）
+  useEffect(() => {
+    if (rows.length === 0) return;
+    reportPanelOutput('kibana', {
+      text: JSON.stringify(rows.slice(0, 300), null, 2).slice(0, 200000),
+      data: { kind: 'kibana-logs', count: rows.length, total: total?.value ?? null },
+    });
+  }, [rows]);
   const [total, setTotal] = useState<{ value: number; relation?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');

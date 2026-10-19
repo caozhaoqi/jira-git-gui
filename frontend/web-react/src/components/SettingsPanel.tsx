@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { TabIcon } from './icons';
 import { apiGet } from '../api/client';
 import { useT } from '../i18n';
 
@@ -103,7 +104,7 @@ export function SettingsPanel() {
 
       <section className="settings-section">
         <div className="settings-section-head">
-          <h3>📡 {t('settings.apiDocs')}</h3>
+          <h3><TabIcon name="external" size={14} /> {t('settings.apiDocs')}</h3>
           {doc && (
             <span className="settings-meta">
               {t('settings.total', { n: doc.total })} ·{' '}

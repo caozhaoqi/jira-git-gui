@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo, memo, type MouseEvent as ReactMouseEvent } from 'react';
+import { reportPanelOutput } from '../api/aiBridge';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
@@ -169,6 +170,15 @@ export function CfDebugPanel() {
   const [sessionId, setSessionId] = useState('');
   const [logs, setLogs] = useState<{ level: string; msg: string }[]>([]);
   const [result, setResult] = useState<string | null>(null);
+
+  // AI 数据桥：调试日志与结果同步给 /api/ai/output/cfdebug
+  useEffect(() => {
+    if (logs.length === 0 && !result) return;
+    reportPanelOutput('cfdebug', {
+      text: logs.map((l) => `[${l.level}] ${l.msg}`).join('\n') + (result ? `\n--- result ---\n${result}` : ''),
+      data: { kind: 'cfdebug', logCount: logs.length, hasResult: !!result },
+    });
+  }, [logs, result]);
 
   // ── DAP 调试信息 ──
   const [frames, setFrames] = useState<DapStackFrame[]>([]);

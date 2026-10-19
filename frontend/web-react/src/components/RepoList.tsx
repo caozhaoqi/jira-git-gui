@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { TabIcon } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type { Repo, ReposResp, StatusResp } from '../api/types';
@@ -109,7 +110,7 @@ export function RepoList() {
           type="search"
         />
         <button className="btn btn-primary" onClick={() => discover(false)} disabled={busy}>
-          {busy ? t('common.loading') : `🔄 ${t('repo.discover')}`}
+          {busy ? t('common.loading') : (<><TabIcon name="refresh" size={13} /> {t('repo.discover')}</>)}
         </button>
       </div>
       <div className="repo-list">

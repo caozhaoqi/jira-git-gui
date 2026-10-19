@@ -3,7 +3,8 @@ venv/
 .venv/
 
 # 运行期产物（克隆仓库 / 下载文件，含可能的敏感内容）
-store/
+# 仅锚定仓库根目录——不加 ^ 会误伤 frontend/web-react/src/store/（React 状态源码）
+/store/
 
 # 运行期日志（含完整 traceback，不入库）
 logs/

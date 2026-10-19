@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { reportPanelOutput } from '../api/aiBridge';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { requestConfirm } from '../utils/confirmStore';
@@ -132,6 +133,15 @@ export function UnifiedDiagnosisPanel() {
   const [token, setToken] = useState(localStorage.getItem('hcm.token') || '');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<UnifiedDiagnosisResult | null>(null);
+
+  // AI 数据桥：诊断结果同步给 /api/ai/output/diagnose
+  useEffect(() => {
+    if (!result) return;
+    reportPanelOutput('diagnose', {
+      text: JSON.stringify(result, null, 2).slice(0, 200000),
+      data: { kind: 'diagnosis' },
+    });
+  }, [result]);
   const [activeSection, setActiveSection] = useState<'summary' | 'cf' | 'k8s' | 'prompt'>('summary');
 
   // 加载 K8s 环境列表

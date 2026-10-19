@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { reportPanelOutput } from '../api/aiBridge';
 import { apiPost, apiGet } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
@@ -75,11 +76,20 @@ export function DiffPanel() {
 
   const [entries, setEntries] = useState<DiffEntry[]>([]);
   const [summary, setSummary] = useState<DiffSummary | null>(null);
+
   const [mergedCount, setMergedCount] = useState(0);
   const [selectedPath, setSelectedPath] = useState('');
   const [fileTitle, setFileTitle] = useState('');
   const [fileHtml, setFileHtml] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
+  // AI 数据桥：diff 摘要与条目同步给 /api/ai/output/diff
+  useEffect(() => {
+    if (!summary && entries.length === 0) return;
+    reportPanelOutput('diff', {
+      text: JSON.stringify({ summary, errors, entries: entries.slice(0, 200) }, null, 2),
+      data: { kind: 'diff', summary, errorCount: errors.length, entryCount: entries.length },
+    });
+  }, [summary, entries, errors]);
   // F2：历史版本预览（commit 里某文件的历史内容 + 与本地对比）
   const [history, setHistory] = useState<{
     commitId: string;

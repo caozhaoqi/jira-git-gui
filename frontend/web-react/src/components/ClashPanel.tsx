@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
+import { reportPanelOutput } from '../api/aiBridge';
+import { TabIcon } from './icons';
 import { apiGet, apiPost } from '../api/client';
 import { useT } from '../i18n';
 import { requestConfirm } from '../utils/confirmStore';
@@ -93,6 +95,7 @@ export function ClashPanel() {
   const [checks, setChecks] = useState<Record<string, CheckResp>>({});
   const [checking, setChecking] = useState(false);
   const [gen, setGen] = useState<GenResp | null>(null);
+
   const [genErr, setGenErr] = useState('');
   const [proxyPorts, setProxyPorts] = useState<{ port: number; open: boolean }[] | null>(null);
   const [copied, setCopied] = useState('');
@@ -102,6 +105,14 @@ export function ClashPanel() {
   const [applying, setApplying] = useState(false);
   const [applyLog, setApplyLog] = useState<ApplyResp | null>(null);
   const [diag, setDiag] = useState<DiagItem[] | null>(null);
+  // AI 数据桥：生成结果/诊断同步给 /api/ai/output/clash
+  useEffect(() => {
+    if (!gen && !diag) return;
+    reportPanelOutput('clash', {
+      text: JSON.stringify({ gen, diag }, null, 2).slice(0, 200000),
+      data: { kind: 'clash', hasGen: !!gen, diagCount: diag?.length ?? 0 },
+    });
+  }, [gen, diag]);
   const [diaging, setDiaging] = useState(false);
   const [fixing, setFixing] = useState(false);
   const [fixMsg, setFixMsg] = useState('');
@@ -413,7 +424,7 @@ export function ClashPanel() {
           })}
         </div>
         <div className="clash-hint">
-          💡 {t('clash.ruleHint')}
+          <TabIcon name="bulb" size={13} /> {t('clash.ruleHint')}
           {proxyPorts?.map((p) => (
             <span key={p.port} className={`clash-proxy-port ${p.open ? 'open' : ''}`}>
               {p.port}:{p.open ? t('clash.listening') : t('clash.closed')}
@@ -653,7 +664,7 @@ export function ClashPanel() {
           </button>
           <div className="clash-apply-btns">
             <button className="btn btn-primary" onClick={doGenerate}>
-              ⚙ {t('clash.generate')}
+              <TabIcon name="settings" size={13} /> {t('clash.generate')}
             </button>
           </div>
         </div>

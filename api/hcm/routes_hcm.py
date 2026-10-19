@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from fastapi import APIRouter
 from api.common import app, _PROJECT_ROOT
-from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_save_data, hcm_temp_download
+from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_decrypt_param, hcm_save_data, hcm_temp_download
 
 router = APIRouter()
 
@@ -41,6 +41,26 @@ async def api_hcm_proxy(api_name: str, request: Request) -> Response:
 async def api_hcm_direct(req: HcmDirectReq) -> dict:
     """「能直连就走直连」：由后端直接 POST HCM 网关并解密响应。"""
     return await hcm_direct(req)
+
+
+class HcmDecryptReq(BaseModel):
+    """解密抓包参数请求（网关 /api/api_decrypt_param，需 onlyoneowner 等管理角色）。
+
+    hcm_param 为抓包得到的密文；hcm_transfer_strategy / s3h 为抓包同款传输策略与
+    签名（s3h 留空时后端自动计算）。后端会把整个信封再加密一层明文直发——该
+    handler 自身解两层，不能走 /api/hcm/direct 的信封通道。
+    """
+    hcm_param: str = ""
+    hcm_transfer_strategy: str = ""
+    s3h: str = ""
+    token: str = ""
+    target: str = ""
+
+
+@router.post("/api/hcm/decrypt")
+async def api_hcm_decrypt(req: HcmDecryptReq) -> dict:
+    """解密抓包参数：hcm_param → 明文 JSON（供 HCM 运维面板「参数解密」页）。"""
+    return await hcm_decrypt_param(req)
 
 
 class HcmSaveDataReq(BaseModel):

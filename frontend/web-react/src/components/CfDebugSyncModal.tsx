@@ -1,6 +1,7 @@
 // 云函数调试：配置同步弹窗（cf_accounts 导入 / 导出 / 复制）。
 // 复用 cfdebug 的 listAccounts / copyAccount / exportAccounts / importAccounts。
 import { useEffect, useState } from 'react';
+import { TabIcon } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { cfdebug } from '../api/cfdebug/client';
@@ -112,7 +113,7 @@ export function CfDebugSyncModal({
         <div className="cfd-modal-body">
           <div className="cfd-sync-actions">
             <button className="btn btn-sm" onClick={() => void doExport()}>
-              ⬇ {t('cfdebug.syncExport')}
+              <TabIcon name="download" size={13} /> {t('cfdebug.syncExport')}
             </button>
             <span className="cfdebug-hint">{t('cfdebug.syncExportHint')}</span>
           </div>
@@ -159,7 +160,7 @@ export function CfDebugSyncModal({
               className={'btn btn-sm ' + (importMode === 'replace' ? 'btn-danger' : 'btn-primary')}
               onClick={() => void doImport()}
             >
-              ⬆ {t('cfdebug.syncImportBtn')}
+              <TabIcon name="upload" size={13} /> {t('cfdebug.syncImportBtn')}
             </button>
           </div>
         </div>

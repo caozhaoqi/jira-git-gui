@@ -316,11 +316,15 @@ const ALL_TABS = [
   { key: 'k8s', label: 'K8s 快照' },
   { key: 'kibana', label: 'Kibana 日志' },
   { key: 'cf', label: '云函数日志' },
+  { key: 'cfsync', label: '云函数一致性' },
   { key: 'cfdebug', label: '云函数调试' },
   { key: 'hcm', label: 'HCM 对象' },
+  { key: 'hcmapi', label: 'HCM 接口' },
+  { key: 'hcmops', label: 'HCM 运维' },
   { key: 'logs', label: '日志' },
   { key: 'clash', label: 'Clash 分流' },
   { key: 'diagnose', label: '统一诊断' },
+  { key: 'aibridge', label: 'AI 数据桥' },
   { key: 'settings', label: '系统设置' },
 ];
 

@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { reportPanelOutput } from '../../api/aiBridge';
 import { useT } from '../../i18n';
 import {
   hcmEnvs,
@@ -161,6 +162,15 @@ export function HcmObjectBrowser() {
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录，以 JSON 展示并可保存
   const [dataResult, setDataResult] = useState<any>(null);
+
+  // AI 数据桥：对象浏览数据同步给 /api/ai/output/hcm
+  useEffect(() => {
+    if (dataResult == null && items.length === 0) return;
+    reportPanelOutput('hcm', {
+      text: JSON.stringify({ objects: items, dataResult }, null, 2).slice(0, 200000),
+      data: { kind: 'hcm-object', objectCount: items.length, hasData: dataResult != null },
+    });
+  }, [dataResult, items]);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState('');
   const [dataTotal, setDataTotal] = useState(0);
