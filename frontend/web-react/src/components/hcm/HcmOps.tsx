@@ -105,24 +105,26 @@ function ErrBar({ msg }: { msg: string }) {
 interface RedisItem { key: string; value: string }
 
 /**
- * 常用 Key 快捷模板（前缀全部取自 hcm-core 源码中的真实缓存 key，
- * core/base/cache + 各模块 __cache_key__ / 字面量 key）。{cid} 由「公司 ID」输入填充，
- * 其它占位（{emp_id}/{phone} 等）回填搜索框后手工补全。
+ * 常用 Key 快捷模板（前缀全部取自 hcm-core 源码中的真实缓存 key）。
+ * 实测（京投-测试环境）实例化格式 = 源码字面量完整保留 + ":" + 值
+ * （如 CompanySetting:company_id:3929 / CompanyThirdBind:company_id:3929 均验证命中）。
+ * {cid} 由「公司 ID」输入填充；其余占位（{emp_id}/{phone} 等）回填搜索框后手工补全。
+ * 部分 key 在特定环境可能未被实例化（查询为空属正常）。
  */
 const COMMON_KEY_PRESETS: { tpl: string; note?: string }[] = [
-  { tpl: 'CompanySetting:{cid}', note: '公司设置' },
-  { tpl: 'SystemFunction:{cid}', note: '功能开关' },
-  { tpl: 'SystemEmployeeRoles:{cid}:role', note: '员工角色' },
-  { tpl: 'SystemManager:{cid}', note: '系统管理员' },
-  { tpl: 'SecuritySystem:{cid}', note: '安全体系' },
-  { tpl: 'CompanyThirdBind:{cid}', note: '第三方绑定' },
-  { tpl: 'SsoPlatformConfig:{cid}', note: 'SSO 配置' },
-  { tpl: 'DynamicScriptList:{cid}:type', note: '动态脚本' },
-  { tpl: 'ControlDynamicScriptList:{cid}:type', note: '控件动态脚本' },
-  { tpl: 'SystemUpdateMessage:{cid}', note: '系统更新消息' },
-  { tpl: 'UserGuide:{cid}', note: '用户引导' },
-  { tpl: 'Employee:{emp_id}', note: '员工缓存' },
-  { tpl: '__valid_code_{phone}', note: '手机验证码' },
+  { tpl: 'CompanySetting:company_id:{cid}', note: '公司设置' },
+  { tpl: 'CompanyThirdBind:company_id:{cid}', note: '第三方绑定' },
+  { tpl: 'SystemFunction:company_id:{cid}', note: '功能开关' },
+  { tpl: 'SystemEmployeeRoles:company_id:role:', note: '员工角色（末尾补角色路径）' },
+  { tpl: 'SystemManager:company_id:manger_type:', note: '系统管理员（末尾补类型）' },
+  { tpl: 'SecuritySystem:company_id:{cid}', note: '安全体系' },
+  { tpl: 'SsoPlatformConfig:company_id:{cid}', note: 'SSO 配置' },
+  { tpl: 'DynamicScriptList:company_id:type', note: '动态脚本（末段补类型）' },
+  { tpl: 'ControlDynamicScriptList:company_id:type', note: '控件动态脚本（末段补类型）' },
+  { tpl: 'SystemUpdateMessage:company_id:{cid}', note: '系统更新消息' },
+  { tpl: 'UserGuide:company_id:{cid}', note: '用户引导' },
+  { tpl: 'Employee:{emp_id}', note: '员工缓存（填员工 id）' },
+  { tpl: '__valid_code_{phone}', note: '手机验证码（填手机号）' },
 ];
 
 function RedisPanel({ target }: { target: string }) {
