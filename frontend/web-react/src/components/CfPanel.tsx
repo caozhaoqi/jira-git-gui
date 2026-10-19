@@ -12,6 +12,7 @@ import { apiGet, apiPost } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
+import { TabIcon } from './icons';
 import { readClipboardText, writeClipboardText, copyText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
@@ -1297,17 +1298,17 @@ export function CfPanel() {
                       disabled={autoLogin.running}
                       title={t('cf.autoGetTokenHint')}
                     >
-                      🔄 {t('cf.retry')}
+                      <TabIcon name="refresh" size={13} /> {t('cf.retry')}
                     </button>
                   );
                   if (tk.has_token && tk.stale)
                     return (
                       <span className="cf-token-hint warn">
-                        ✓ {t('cf.tokenCached')}{ageText} {t('cf.tokenStale')} {RetryBtn}
+                        <TabIcon name="check" size={12} /> {t('cf.tokenCached')}{ageText} {t('cf.tokenStale')} {RetryBtn}
                       </span>
                     );
                   if (tk.has_token)
-                    return <span className="cf-token-hint ok">✓ {t('cf.tokenCached')}{ageText}</span>;
+                    return (<span className="cf-token-hint ok"><TabIcon name="check" size={12} /> {t('cf.tokenCached')}{ageText}</span>);
                   if (tk.need_captcha)
                     return <span className="cf-token-hint warn">{t('cf.tokenNeedCaptcha')}</span>;
                   if (tk.last_error)
@@ -1359,7 +1360,7 @@ export function CfPanel() {
                     onClick={fetchCaptcha}
                     disabled={loading.captcha}
                   >
-                    🔄 {t('cf.refresh')}
+                    <TabIcon name="refresh" size={13} /> {t('cf.refresh')}
                   </button>
                 </div>
               </div>
@@ -1389,7 +1390,7 @@ export function CfPanel() {
                 disabled={autoLogin.running}
                 title={t('cf.autoGetTokenHint')}
               >
-                {autoLogin.running ? `⏳ ${t('cf.autoGetting')}` : `🔑 ${t('cf.autoGetToken')}`}
+                {autoLogin.running ? (<><TabIcon name="clock" size={13} /> {t('cf.autoGetting')}</>) : (<><TabIcon name="key" size={13} /> {t('cf.autoGetToken')}</>)}
               </button>
               {/* 「浏览器打开日志」收进配置体：默认折叠隐藏（cfgOpen 默认 false），
                   只在需要时展开配置即可看到。用当前 server_url/log_type/record_model/token。 */}
@@ -1451,7 +1452,7 @@ export function CfPanel() {
             aria-expanded={advOpen}
             title={t('cf.advHint')}
           >
-            <i className="cfd-caret">{advOpen ? '▾' : '▸'}</i> ⚙ {t('cf.advOptions')}
+            <i className="cfd-caret">{advOpen ? '▾' : '▸'}</i> <TabIcon name="settings" size={13} /> {t('cf.advOptions')}
             {advDirty && <span className="cf-adv-dot" aria-label={t('cf.advModified')} />}
           </button>
 
@@ -1538,7 +1539,7 @@ export function CfPanel() {
             onClick={clipboardSave}
             disabled={loading.clipboard}
           >
-            📋 {t('cf.clipboardToFile')}
+            <TabIcon name="clipboard" size={13} /> {t('cf.clipboardToFile')}
           </button>
           {/* 实时刷新：后端轮询最新页 + SSE 推送，开启后新日志自动进列表 */}
           <select

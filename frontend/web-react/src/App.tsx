@@ -46,6 +46,7 @@ import { ConnectModal } from './components/ConnectModal';
 import { ConfirmHost } from './components/ConfirmHost';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PanelActiveContext } from './utils/panelActive';
+import { TabIcon } from './components/icons';
 
 const ACTIONBAR_TABS = new Set(['repo']);
 
@@ -323,7 +324,7 @@ export default function App() {
           {ACTIONBAR_TABS.has(activeTab) && <ActionBar />}
           {networkWarning && (
             <div className="network-warning" onClick={() => setNetworkWarning(null)}>
-              ⚠ {networkWarning}
+              <TabIcon name="alert" size={13} /> {networkWarning}
             </div>
           )}
           {/* 全局状态告警：凭据失效 / 配置缺失这类「会让功能整体不可用」的前置条件，
@@ -334,7 +335,7 @@ export default function App() {
               {alerts.map((a) => (
                 <div className="app-alert" role="alert" key={a.id}>
                   <div className="app-alert-text">
-                    <strong>⚠ {t(a.titleKey)}</strong>
+                    <strong><TabIcon name="alert" size={13} /> {t(a.titleKey)}</strong>
                     <span>{a.detail || (a.detailKey ? t(a.detailKey) : '')}</span>
                   </div>
                   {!!a.actions?.length && (
@@ -357,7 +358,7 @@ export default function App() {
           {apiDown && (
             <div className="api-down-banner" role="alert">
               <div className="api-down-text">
-                <strong>⚠ {t('net.title')}</strong>
+                <strong><TabIcon name="alert" size={13} /> {t('net.title')}</strong>
                 <span>{t('net.desc')}</span>
                 <ul className="api-down-steps">
                   <li>{t('net.step1')}</li>

@@ -851,6 +851,18 @@ select:focus-visible {
 }
 .tree-icon {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+}
+/* 按钮内 SVG 功能图标：随按钮文字色着色、不参与收缩，与文字保持基线对齐 */
+.btn svg {
+  flex: none;
+  opacity: 0.9;
+}
+.btn:hover svg,
+.btn.primary svg {
+  opacity: 1;
 }
 .tree-name {
   flex: 1 1 0;

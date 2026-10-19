@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { TabIcon } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet } from '../api/client';
 import type { FileResp } from '../api/types';
@@ -106,7 +107,7 @@ export function Preview() {
             title={t('common.more')}
             aria-label={maximized ? t('file.exitMaximize') : t('file.maximize')}
           >
-            ⛶
+            <TabIcon name="expand" size={14} />
           </button>
           <button
             className="btn btn-ghost btn-sm"
@@ -115,7 +116,7 @@ export function Preview() {
             title={t('file.copyPath', { path: selectedFilePath || '' })}
             aria-label={t('file.copyPathLabel')}
           >
-            📋
+            <TabIcon name="clipboard" size={13} />
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { TabIcon } from '../icons';
 import { apiGet, apiPost } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
@@ -372,7 +373,7 @@ function SiteManager() {
               <button className="kb-site-op-btn"
                       onClick={() => startEdit(s)} title={t('common.edit')} aria-label={t('common.edit')}>✎</button>
               <button className="kb-site-op-btn danger"
-                      onClick={() => remove(s.name)} title={t('common.delete')} aria-label={t('common.delete')}>🗑</button>
+                      onClick={() => remove(s.name)} title={t('common.delete')} aria-label={t('common.delete')}><TabIcon name="trash" size={13} /></button>
             </div>
           </div>
         ))}
@@ -508,7 +509,7 @@ function SiteManager() {
   // 未编辑 / 未新增时的右侧占位：给引导而不是留空白
   const placeholderEl = (
     <div className="kb-site-placeholder">
-      <div className="kb-site-placeholder-icon" aria-hidden>🛰️</div>
+      <div className="kb-site-placeholder-icon" aria-hidden><TabIcon name="clash" size={28} /></div>
       <div className="kb-site-placeholder-text">{t('kibana.site.pickHint')}</div>
       <button className="btn btn-primary" onClick={() => startEdit()}>
         + {t('kibana.site.add')}

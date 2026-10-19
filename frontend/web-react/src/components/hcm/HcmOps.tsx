@@ -5,6 +5,7 @@ import { reportLocalApiNetworkError } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { copyText } from '../../utils/clipboard';
 import { useT } from '../../i18n';
+import { TabIcon } from '../icons';
 
 /**
  * HCM 运维面板 —— 功能取自 hcm-cloud-vue（hcm-core）运维页面，走 /api/hcm/direct 零后端改动：
@@ -46,9 +47,9 @@ export function HcmOps() {
   }, []);
 
   const tabs: { key: OpsTab; label: string; icon: string }[] = useMemo(() => ([
-    { key: 'redis', label: t('hcm.opsTabRedis'), icon: '🧱' },
-    { key: 'errors', label: t('hcm.opsTabErrors'), icon: '🚨' },
-    { key: 'decrypt', label: t('hcm.opsTabDecrypt'), icon: '🔓' },
+    { key: 'redis', label: t('hcm.opsTabRedis'), icon: 'database' },
+    { key: 'errors', label: t('hcm.opsTabErrors'), icon: 'alert' },
+    { key: 'decrypt', label: t('hcm.opsTabDecrypt'), icon: 'unlock' },
   ]), [t]);
 
   return (
@@ -64,7 +65,7 @@ export function HcmOps() {
               className={`hcm-ops-tab${tab === x.key ? ' active' : ''}`}
               onClick={() => setTab(x.key)}
             >
-              <span aria-hidden="true">{x.icon}</span>
+              <span aria-hidden="true"><TabIcon name={x.icon} size={13} /></span>
               {x.label}
             </button>
           ))}

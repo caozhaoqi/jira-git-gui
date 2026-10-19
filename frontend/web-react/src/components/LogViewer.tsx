@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TabIcon } from './icons';
 import type { ReactNode } from 'react';
 import { apiGet, apiText } from '../api/client';
 import type { K8sPodsResp } from '../api/types';
@@ -655,7 +656,7 @@ export function LogViewer() {
         <div className="lv-head-right">
           <button className="btn btn-sm" onClick={refresh} title={t('logviewer.refresh')} disabled={streaming}>↻ {t('logviewer.refresh')}</button>
           <button className="btn btn-sm" onClick={download} title={t('logviewer.download')} disabled={!raw}>↓ {t('logviewer.download')}</button>
-          <button className="btn btn-icon" onClick={toggleTheme} title={t('app.themeToggle')}>{theme === 'dark' ? '☀' : '🌓'}</button>
+          <button className="btn btn-icon" onClick={toggleTheme} title={t('app.themeToggle')}><TabIcon name={theme === 'dark' ? 'sun' : 'moon'} size={14} /></button>
         </div>
       </header>
 

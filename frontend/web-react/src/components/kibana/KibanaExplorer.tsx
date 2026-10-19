@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { TabIcon } from '../icons';
 import { apiGet } from '../../api/client';
 import type { KibanaPodRow, KibanaPodsResp } from '../../api/types';
 import { useT } from '../../i18n';
@@ -151,7 +152,7 @@ export function KibanaExplorer({ site, query, wrap, onToggleWrap, refreshSec, re
           emptyHint={selected ? t('kibana.noLogs') : t('kibana.pickPodHint')}
           headerExtra={
             <span className="kb-cur-pod">
-              {selected ? `📦 ${selected}` : `📦 ${t('kibana.allPods')}`}
+              {selected ? (<><TabIcon name="box" size={13} /> {selected}</>) : (<><TabIcon name="box" size={13} /> {t('kibana.allPods')}</>)}
             </span>
           }
         />

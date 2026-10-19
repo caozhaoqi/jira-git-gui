@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { TabIcon } from '../icons';
 import { apiPost } from '../../api/client';
 import { sse } from '../../api/events';
 import { useAppStore } from '../../store/useAppStore';
@@ -199,7 +200,7 @@ export function K8sSnapshot() {
               onClick={() => setShowStats((s) => !s)}
               title={t('k8s.snapshot.toggleStats')}
             >
-              📊 {summary.total ?? 0}
+              <TabIcon name="chart" size={13} /> {summary.total ?? 0}
             </button>
           )}
 

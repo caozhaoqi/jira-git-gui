@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { TabIcon } from './icons';
 import { apiGet, apiPost } from '../api/client';
 import { useT } from '../i18n';
 import { requestConfirm } from '../utils/confirmStore';
@@ -413,7 +414,7 @@ export function ClashPanel() {
           })}
         </div>
         <div className="clash-hint">
-          💡 {t('clash.ruleHint')}
+          <TabIcon name="bulb" size={13} /> {t('clash.ruleHint')}
           {proxyPorts?.map((p) => (
             <span key={p.port} className={`clash-proxy-port ${p.open ? 'open' : ''}`}>
               {p.port}:{p.open ? t('clash.listening') : t('clash.closed')}
@@ -653,7 +654,7 @@ export function ClashPanel() {
           </button>
           <div className="clash-apply-btns">
             <button className="btn btn-primary" onClick={doGenerate}>
-              ⚙ {t('clash.generate')}
+              <TabIcon name="settings" size={13} /> {t('clash.generate')}
             </button>
           </div>
         </div>

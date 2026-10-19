@@ -1,6 +1,7 @@
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { LOCALES } from '../i18n/types';
+import { TabIcon } from './icons';
 
 export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const status = useAppStore((s) => s.status);
@@ -41,7 +42,7 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
           {(status?.mode || '-').toUpperCase()} · {status?.repo_id || t('repo.noRepo')}
         </span>
         <button className="btn btn-ghost" onClick={onOpenConnect} title={t('app.connectSettings')}>
-          <span>⚙</span>
+          <TabIcon name="settings" size={14} />
           <span className="lbl">{t('app.connectSettings')}</span>
         </button>
         <select
@@ -66,7 +67,7 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
           onClick={toggleTheme}
           title={t('app.themeToggle')}
         >
-          {theme === 'dark' ? '☀' : '🌓'}
+          <TabIcon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
         </button>
       </div>
     </header>

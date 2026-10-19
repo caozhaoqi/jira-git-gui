@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TabIcon } from './icons';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet, apiPost } from '../api/client';
 import type {
@@ -368,7 +369,7 @@ export function FileTree() {
             />
           )}
           <span className="tree-toggle" aria-hidden="true">{isDir ? (isOpen ? '▼' : '▶') : ''}</span>
-          <span className="tree-icon">{isDir ? '📁' : '📄'}</span>
+          <span className="tree-icon"><TabIcon name={isDir ? 'folder' : 'file'} size={13} /></span>
           <span className="tree-name">{entry.name}</span>
           {/* F1：差异状态色点（来自最近一次扫描的 diffOverlay）。same 不显示以免刷屏。 */}
           {diffOverlay[entry.path] && diffOverlay[entry.path] !== 'same' && (
@@ -452,7 +453,7 @@ export function FileTree() {
           <div className="tree-search-wrap">
             <input
               className="input tree-search-input"
-              placeholder={`🔍 ${t('file.browser')}`}
+              placeholder={t('file.browser')}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               aria-label={t('file.searchLabel')}

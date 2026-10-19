@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { TabIcon } from './icons';
 import type { CfLogsRow } from '../api/types';
 import { useT } from '../i18n';
 import {
@@ -135,7 +136,7 @@ export function CfDistribution({
               {/* ===== 时间分布（堆叠柱状；点柱按该时段过滤）===== */}
               <div className="cf-dist-section">
                 <div className="cf-dist-subtitle">
-                  <span>🕒 {t('cf.distTime')}</span>
+                  <span><TabIcon name="clock" size={13} /> {t('cf.distTime')}</span>
                   {onTimeRangePick
                     ? <span className="cf-dist-hint">{t('cf.distStackHint')}</span>
                     : <span className="cf-dist-hint">{t('cf.distColorHint')}</span>}
@@ -180,7 +181,7 @@ export function CfDistribution({
               {/* ===== 类型分布（横向条；点击按该类型过滤，再点取消）===== */}
               <div className="cf-dist-section">
                 <div className="cf-dist-subtitle">
-                  <span>🏷 {t('cf.distType')}</span>
+                  <span><TabIcon name="tag" size={13} /> {t('cf.distType')}</span>
                   <span className="cf-dist-hint">{t('cf.distTypesHint')}</span>
                 </div>
                 <div className="cf-dist-types">
