@@ -5,24 +5,25 @@ import { useT } from '../i18n';
 
 type TabDef = { key: TabKey; icon: string; labelKey: string };
 
-// 折叠分组定义：同类功能收进一组（点击组头展开/收起，激活项落在组内时强制展开），
-// 复用原「系统」分组的交互与样式（tab-group / tab-sub）。组本身不是页面，
-// 不能加 .active（否则组与子项同时高亮），用 --contains-active 修饰类标示。
+// 折叠分组定义：同类功能收进一组（点击组头展开/收起），复用原「系统」分组的
+// 交互与样式（tab-group / tab-sub）。组本身不是页面，不能加 .active（否则组与
+// 子项同时高亮），用 --contains-active 修饰类标示「组内含当前页」的弱提示。
 type TabGroup = { key: string; icon: string; labelKey: string; tabs: TabDef[]; electronHidden?: boolean };
 
-// 高频页签：平铺展示
+// 高频页签：平铺展示（含两组内最高频的「云函数日志」「HCM 对象」）
 const MAIN_TABS: TabDef[] = [
   { key: 'repo', icon: '📦', labelKey: 'tab.repo' },
   { key: 'diff', icon: '🔀', labelKey: 'tab.diff' },
+  { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
+  { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
   { key: 'k8s', icon: '☸', labelKey: 'tab.k8s' },
   { key: 'kibana', icon: '📈', labelKey: 'tab.kibana' },
 ];
 
-// 同类功能分组：云函数三件套 / HCM 三件套
+// 同类功能分组：组内保留次高频项
 const CF_GROUP: TabGroup = {
   key: 'group-cf', icon: '☁', labelKey: 'tab.groupCF',
   tabs: [
-    { key: 'cf', icon: '🔬', labelKey: 'tab.cf' },
     { key: 'cfsync', icon: '🔄', labelKey: 'tab.cfsync' },
     { key: 'cfdebug', icon: '🐞', labelKey: 'tab.cfdebug' },
   ],
@@ -30,7 +31,6 @@ const CF_GROUP: TabGroup = {
 const HCM_GROUP: TabGroup = {
   key: 'group-hcm', icon: '🧩', labelKey: 'tab.groupHCM',
   tabs: [
-    { key: 'hcm', icon: '🗂', labelKey: 'tab.hcm' },
     { key: 'hcmapi', icon: '🛠', labelKey: 'tab.hcmapi' },
     { key: 'hcmops', icon: '🧰', labelKey: 'tab.hcmops' },
   ],
@@ -68,12 +68,32 @@ export function Tabs() {
     return off;
   }, [setTab]);
 
-  // 各分组折叠态；激活页签落在组内时强制展开，保证高亮项可见。
-  // 初始展开态：激活页签所在组默认展开（刷新/直链进来自动定位）。
+  // 折叠态：expanded = manual ?? 自动展开（激活项落在组内时）。
+  // 只用布尔会有「激活组永远展开、点组头收不起来」的坑：containsActive 持续为
+  // true 会压过 toggle。改为记录**用户手动操作**，未手动操作过时跟随自动展开；
+  // 切到组内其它子项时清除该组 manual，恢复「激活组自动展开」的跟随行为。
   const groups = isElectron ? TAB_GROUPS : [...TAB_GROUPS, SYS_GROUP];
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(groups.map((g) => [g.key, g.tabs.some((tab) => tab.key === activeTab)])),
-  );
+  const [manual, setManual] = useState<Record<string, boolean>>({});
+
+  const expandedOf = (g: TabGroup) =>
+    manual[g.key] ?? g.tabs.some((tab) => tab.key === activeTab);
+
+  // 激活页签变化：清除「新激活项所在组」的手动记录，让该组恢复自动展开
+  useEffect(() => {
+    setManual((m) => {
+      let changed = false;
+      const next = { ...m };
+      for (const g of groups) {
+        if (g.tabs.some((tab) => tab.key === activeTab) && g.key in next) {
+          delete next[g.key];
+          changed = true;
+        }
+      }
+      return changed ? next : m;
+    });
+    // groups 每次渲染都是新数组，依赖只放 activeTab / isElectron
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, isElectron]);
 
   const toggleTitle = sidebarOpen ? t('app.sidebarCollapse') : t('app.sidebarExpand');
 
@@ -93,13 +113,13 @@ export function Tabs() {
 
   const renderGroup = (g: TabGroup) => {
     const containsActive = g.tabs.some((tab) => tab.key === activeTab);
-    const expanded = !!openMap[g.key] || containsActive;
+    const expanded = expandedOf(g);
     return (
       <div key={g.key} className="tab-group-wrap">
         <button
           type="button"
           className={`tab tab-group${containsActive ? ' tab-group--contains-active' : ''}`}
-          onClick={() => setOpenMap((m) => ({ ...m, [g.key]: !m[g.key] }))}
+          onClick={() => setManual((m) => ({ ...m, [g.key]: !expanded }))}
           title={sidebarOpen ? undefined : t(g.labelKey)}
           aria-expanded={expanded}
         >
