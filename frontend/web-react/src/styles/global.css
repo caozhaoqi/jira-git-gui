@@ -3268,4 +3268,5 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 /* 参数解密 */
 .hcm-ops-decinput { height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; }
 .hcm-ops-decresult { display: flex; flex-direction: column; gap: 4px; }
+.hcm-ops-s3h { width: 320px; font-size: 11px; }
 

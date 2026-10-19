@@ -470,10 +470,12 @@ export const ja: Dict = {
     opsDecParamPlaceholder: 'キャプチャ/ログから hcm_param を貼り付け…',
     opsDecStrategy: '転送ストラテジー (hcm_transfer_strategy)',
     opsDecStrategyPlaceholder: '例：ha / hb5（空欄は ha）',
+    opsDecS3h: '署名 (s3h、任意)',
+    opsDecS3hPlaceholder: 'キャプチャ body の s3h。空欄で自動計算',
     opsDecRun: '復号',
     opsDecResult: '復号結果',
     opsDecNeedParam: '復号する hcm_param を貼り付けてください',
-    opsDecHint: 'ゲートウェイ /api/api_decrypt_param に対応：キャプチャした hcm_param を平文 JSON に復号します。onlyoneowner / hcmsysmanager 権限が必要です。',
+    opsDecHint: 'ゲートウェイ /api/api_decrypt_param に対応：キャプチャした hcm_param（転送層の内側暗号文）を貼り付けると、バックエンドが自動で信封を一層包んでゲートウェイに直接呼び出し、平文 JSON を取得します。onlyoneowner / hcmsysmanager 権限が必要です。',
   },
   connect: {
     title: '接続設定',

@@ -476,10 +476,12 @@ export const zh: Dict = {
     opsDecParamPlaceholder: '粘贴抓包/日志中的 hcm_param…',
     opsDecStrategy: '传输策略 (hcm_transfer_strategy)',
     opsDecStrategyPlaceholder: '如 ha / hb5（留空默认 ha）',
+    opsDecS3h: '签名 (s3h，可选)',
+    opsDecS3hPlaceholder: '抓包请求体里的 s3h；留空自动计算',
     opsDecRun: '解密',
     opsDecResult: '解密结果',
     opsDecNeedParam: '请粘贴要解密的 hcm_param',
-    opsDecHint: '对应网关 /api/api_decrypt_param：把抓包或接口日志里的 hcm_param 解回明文 JSON，需要 onlyoneowner / hcmsysmanager 等管理角色。',
+    opsDecHint: '对应网关 /api/api_decrypt_param：把抓包请求体里的 hcm_param 粘贴进来（传输层内层密文），后端自动包一层信封直调网关解出明文 JSON。需要 onlyoneowner / hcmsysmanager 等管理角色。',
   },
   connect: {
     title: '连接设置',

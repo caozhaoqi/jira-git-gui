@@ -470,10 +470,12 @@ export const en: Dict = {
     opsDecParamPlaceholder: 'Paste hcm_param captured from network/logs…',
     opsDecStrategy: 'Transfer strategy (hcm_transfer_strategy)',
     opsDecStrategyPlaceholder: 'e.g. ha / hb5 (defaults to ha)',
+    opsDecS3h: 'Signature (s3h, optional)',
+    opsDecS3hPlaceholder: 's3h from the captured body; leave empty to auto-compute',
     opsDecRun: 'Decrypt',
     opsDecResult: 'Decrypted result',
     opsDecNeedParam: 'Please paste the hcm_param to decrypt',
-    opsDecHint: 'Backed by gateway /api/api_decrypt_param: decrypt a captured hcm_param back to plain JSON. Requires onlyoneowner / hcmsysmanager roles.',
+    opsDecHint: 'Backed by gateway /api/api_decrypt_param: paste the hcm_param captured from the request body (inner transport ciphertext); the backend wraps it in one envelope and calls the gateway directly to get plain JSON. Requires onlyoneowner / hcmsysmanager roles.',
   },
   connect: {
     title: 'Connection Settings',

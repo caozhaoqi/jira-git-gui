@@ -111,6 +111,30 @@ def _load_hcm_direct_core():
 _TOKEN_ERRCODES = (17003, 51006)
 
 
+async def _auto_relogin_token(target_url: str) -> str:
+    """用 cf_accounts 中该网关的账号密码重登，返回新 token；失败返回空串。
+
+    hcm_direct / hcm_decrypt_param 共用。
+    """
+    try:
+        from api.cf.cf_login import cf_login_account, cf_account_by_server
+        acc = cf_account_by_server(target_url)
+        if not acc:
+            logger.info("[HCM直连] cf_accounts 无该网关账号，跳过自动重登: %s", target_url)
+            return ""
+        r = await cf_login_account(acc, proxy="")
+        if not (r or {}).get("ok"):
+            logger.warning("[HCM直连] 自动重登失败 %s: %s", target_url, (r or {}).get("message"))
+            return ""
+        new_tok = (r.get("token") or "").strip()
+        if new_tok:
+            logger.info("[HCM直连] 自动重登成功 %s（新 token %d 字符）", target_url, len(new_tok))
+        return new_tok
+    except Exception as e:
+        logger.warning("[HCM直连] 自动重登异常 %s: %s", target_url, e)
+        return ""
+
+
 def _resp_is_token_error(raw_text: str) -> bool:
     """判定网关响应是否为「token 失效」类错误。
 
@@ -177,23 +201,7 @@ async def hcm_direct(req) -> "dict":
 
     async def _auto_relogin(target_url: str) -> str:
         """用 cf_accounts 中该网关的账号密码重登，返回新 token；失败返回空串。"""
-        try:
-            from api.cf.cf_login import cf_login_account, cf_account_by_server
-            acc = cf_account_by_server(target_url)
-            if not acc:
-                logger.info("[HCM直连] cf_accounts 无该网关账号，跳过自动重登: %s", target_url)
-                return ""
-            r = await cf_login_account(acc, proxy="")
-            if not (r or {}).get("ok"):
-                logger.warning("[HCM直连] 自动重登失败 %s: %s", target_url, (r or {}).get("message"))
-                return ""
-            new_tok = (r.get("token") or "").strip()
-            if new_tok:
-                logger.info("[HCM直连] 自动重登成功 %s（新 token %d 字符）", target_url, len(new_tok))
-            return new_tok
-        except Exception as e:
-            logger.warning("[HCM直连] 自动重登异常 %s: %s", target_url, e)
-            return ""
+        return await _auto_relogin_token(target_url)
 
     logger.info("[直连] %s → %s body=%dB token=%s", api_name, target, len(body),
                 "preset" if not req.token.strip() else "provided")
@@ -319,6 +327,132 @@ async def hcm_direct(req) -> "dict":
         if "srv_begin" in meta and "srv_end" in meta:
             meta["duration_ms"] = meta["srv_end"] - meta["srv_begin"]
     return {"ok": True, "data": result, "meta": meta, "gateway": effective_target}
+
+
+async def hcm_decrypt_param(req) -> "dict":
+    """调用网关 /api/api_decrypt_param 解密抓包参数（hcm_param → 明文 JSON）。
+
+    关键差异：该 handler **不能走 /api/hcm/direct 的信封通道**。网关的
+    DecryptParamHandler 在 `_asynchronous_service` 里先对 body 做一次
+    TransferParamDecryptUtil.decrypt_param（会 pop 掉 hcm_transfer_strategy /
+    hcm_param），随后 execute 再取这两个键包成信封解第二层——即 handler 语义
+    是「解两层」。若把用户参数再套一层传输信封（hcmDirect 的做法），handler
+    解完后键已被 pop，execute 取不到 → KeyError 'hcm_transfer_strategy'。
+
+    正确姿势：**明文直发** body {hcm_transfer_strategy, hcm_param, s3h?}，
+    其中 hcm_param = encrypt_param(完整信封 {hcm_transfer_strategy,
+    hcm_param:<抓包密文>, s3h:<抓包签名>})——即把抓包得到的信封整体再加密
+    一层，handler 两层各解一次后还原出业务明文。
+    """
+    _hd = _load_hcm_direct_core()
+
+    effective_target = (getattr(req, "target", "") or "").strip() or _HCM_PROXY_TARGET
+    if not effective_target:
+        raise HTTPException(500, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url，或请求传入 target）")
+    token = (getattr(req, "token", "") or "").strip() or _HCM_PRESET_TOKEN
+    if not token:
+        raise HTTPException(400, "未提供 token 且预设 token 为空，请先配置 token 或传入 token")
+
+    captured = (getattr(req, "hcm_param", "") or "").strip()
+    if not captured:
+        raise HTTPException(400, "未提供要解密的 hcm_param")
+    strategy = (getattr(req, "hcm_transfer_strategy", "") or "").strip() or "ha"
+    sig = (getattr(req, "s3h", "") or "").strip() or _hd.sign_param(captured)
+
+    # 内层信封：完整还原抓包请求体（解开后仍含 strategy/hcm_param，供 handler 第二层解密）
+    inner_envelope = {
+        "hcm_transfer_strategy": strategy,
+        "hcm_param": captured,
+        "s3h": sig,
+    }
+    outer_hp = _hd.encrypt_param(inner_envelope)
+    body = json.dumps({
+        "hcm_transfer_strategy": "ha",
+        "hcm_param": outer_hp,
+        "s3h": _hd.sign_param(outer_hp),
+    }).encode()
+
+    target = f"{effective_target.rstrip('/')}/api/api_decrypt_param?debug=1"
+
+    from api.cf.cf_tokens import _cf_ssl_context
+    ssl_ctx = _cf_ssl_context()
+
+    async def _post_once(tok: str):
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True, verify=ssl_ctx) as client:
+            return await client.post(
+                target, content=body,
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                cookies={"token": tok} if tok else {},
+            )
+
+    logger.info("[HCM解密] %s body=%dB token=%s", target, len(body),
+                "preset" if not (getattr(req, "token", "") or "").strip() else "provided")
+
+    try:
+        resp = await _post_once(token)
+    except httpx.ConnectError as e:
+        logger.error("[HCM解密] 无法连接 %s: %s", effective_target, e)
+        raise HTTPException(502, f"无法连接 HCM 服务器 {effective_target}: {e}")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "连接 HCM 服务器超时")
+
+    raw_text = resp.content.decode("utf-8", "replace")
+
+    def _suspect_auth(raw: str) -> bool:
+        """api_decrypt_param 特有：token 过期/缺失**不报** 17003/51006，而是
+        handler 内部取登录上下文时炸出 {"code":500,"message":"'NoneType'
+        object has no attribute 'keys'"}（实测）。凡非 result 结构的
+        errcode/code>=4xx 响应，先按疑似登录态失效重登重试一次；重试后仍
+        失败则按原样透传（如真正的 no permission）。"""
+        try:
+            d = json.loads(raw or "")
+        except Exception:
+            return False
+        if not isinstance(d, dict) or "result" in d:
+            return False
+        if d.get("errcode") is not None:
+            return True
+        code = d.get("code")
+        return isinstance(code, int) and code >= 400
+
+    if _resp_is_token_error(raw_text) or _suspect_auth(raw_text):
+        new_tok = await _auto_relogin_token(effective_target)
+        if new_tok and new_tok != token:
+            try:
+                resp = await _post_once(new_tok)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass
+            else:
+                raw_text = resp.content.decode("utf-8", "replace")
+                logger.info("[HCM解密] 自动重登后重试 → %s", resp.status_code)
+
+    if resp.status_code >= 400:
+        try:
+            err_payload = json.loads(raw_text)
+        except json.JSONDecodeError:
+            err_payload = None
+        msg = (err_payload or {}).get("message") or (err_payload or {}).get("errmsg") or raw_text[:300]
+        return {
+            "ok": False,
+            "error": {"errcode": (err_payload or {}).get("errcode"), "errmsg": msg,
+                      "http_status": resp.status_code},
+            "gateway": effective_target,
+        }
+
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError:
+        raise HTTPException(502, f"HCM 解密响应非 JSON: {raw_text[:500]}")
+
+    if isinstance(data, dict) and "result" in data:
+        return {"ok": True, "data": data["result"], "gateway": effective_target}
+    if isinstance(data, dict) and (data.get("errcode") or (isinstance(data.get("code"), int) and data["code"] >= 400)):
+        # 网关业务错误：errcode 结构 或 {code:5xx, message}（api_decrypt_param 实测形态）
+        return {"ok": False, "error": {"errcode": data.get("errcode", data.get("code")),
+                                       "errmsg": data.get("errmsg") or data.get("message") or ""},
+                "gateway": effective_target}
+    # 兜底：handler 也可能直接回明文结构
+    return {"ok": True, "data": data, "gateway": effective_target}
 
 
 def hcm_save_data(req) -> "dict":

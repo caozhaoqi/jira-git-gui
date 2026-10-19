@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
 import { hcmEnvs, type HcmEnv } from '../../api/hcm/client';
+import { reportLocalApiNetworkError } from '../../api/client';
 import { useAppStore } from '../../store/useAppStore';
 import { copyText } from '../../utils/clipboard';
 import { useT } from '../../i18n';
@@ -682,6 +683,7 @@ function DecryptPanel({ target }: { target: string }) {
   const addToast = useAppStore((s) => s.addToast);
   const [paramText, setParamText] = useState('');
   const [strategy, setStrategy] = useState('');
+  const [s3h, setS3h] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [result, setResult] = useState<string | null>(null);
@@ -699,21 +701,40 @@ function DecryptPanel({ target }: { target: string }) {
     setBusy(true);
     setResult(null);
     try {
-      // 网关 /api/api_decrypt_param：外层信封加密后，handler 收到
-      // {hcm_transfer_strategy, hcm_param} 并对内层 hcm_param 再解一次
-      const r = await hcmDirect('', 'api_decrypt_param', {
-        hcm_param: hp,
-        hcm_transfer_strategy: strategy.trim() || 'ha',
-      }, '', target);
-      const d = r.data as { result?: unknown } | unknown;
-      const out = (d as { result?: unknown })?.result !== undefined ? (d as { result?: unknown }).result : d;
+      // 专用端点：后端明文直调网关 /api/api_decrypt_param（handler 自身解两层，
+      // 不能走 /api/hcm/direct 的信封通道——否则 handler pop 键后 execute 取不到）。
+      // s3h 留空时后端按 hcm_param 自动计算签名。
+      let res: Response;
+      try {
+        res = await fetch('/api/hcm/decrypt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            hcm_param: hp,
+            hcm_transfer_strategy: strategy.trim(),
+            s3h: s3h.trim(),
+            target,
+          }),
+        });
+      } catch (e) {
+        reportLocalApiNetworkError('/api/hcm/decrypt', e);
+        throw e;
+      }
+      const body = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+      if (!res.ok) {
+        throw new Error(typeof body?.detail === 'string' ? body.detail : `HTTP ${res.status}`);
+      }
+      if (body.ok === false) {
+        throw new Error(body?.error?.errmsg || body?.error?.message || `HTTP ${res.status}`);
+      }
+      const out = body.data;
       setResult(typeof out === 'string' ? out : JSON.stringify(out, null, 2));
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
       setBusy(false);
     }
-  }, [paramText, strategy, target, t]);
+  }, [paramText, strategy, s3h, target, t]);
 
   return (
     <div className="hcm-ops-body">
@@ -726,6 +747,17 @@ function DecryptPanel({ target }: { target: string }) {
             onChange={(e) => setStrategy(e.target.value)}
             placeholder={t('hcm.opsDecStrategyPlaceholder')}
             spellCheck={false}
+          />
+        </label>
+        <label className="hcm-ops-field">
+          <span className="hcm-api-label">{t('hcm.opsDecS3h')}</span>
+          <input
+            className="input hcm-mono hcm-ops-s3h"
+            value={s3h}
+            onChange={(e) => setS3h(e.target.value)}
+            placeholder={t('hcm.opsDecS3hPlaceholder')}
+            spellCheck={false}
+            autoComplete="off"
           />
         </label>
       </div>
