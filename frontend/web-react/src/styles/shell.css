@@ -272,9 +272,37 @@ button {
   width: 20px;
   text-align: center;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* 单色 SVG 图标：继承 .tab 的 color（默认灰 / hover 深 / active 主色） */
+.tab-ico svg {
+  display: block;
+  opacity: 0.85;
+}
+.sidebar .tab.active .tab-ico svg,
+.sidebar .tab:hover .tab-ico svg {
+  opacity: 1;
 }
 .tab-txt {
   flex: 1;
+}
+/* 键盘快捷键角标（⌘1..6 / Ctrl+1..6），弱化呈现不抢视觉 */
+.tab-hotkey {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-faint);
+  border: 0.5px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.sidebar .tab:hover .tab-hotkey,
+.sidebar .tab.active .tab-hotkey {
+  opacity: 1;
 }
 /* 「系统」分组：可折叠菜单项 + 缩进子项 */
 .sidebar.sidebar-collapsed .tab-group .tab-caret { display: none; }
@@ -289,6 +317,33 @@ button {
   flex-direction: column;
   gap: 2px;
   margin-top: 4px;
+}
+/* 组头小型化（Linear 风 section 标签）：小字号、灰阶、弱 hover，
+   与子项拉开视觉层级 —— 组是「区块标签」而非「又一个页面按钮」 */
+.sidebar .tab-group {
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--text-faint);
+  padding: 5px 12px 3px;
+  font-weight: 500;
+  min-height: 0;
+}
+.sidebar .tab-group:hover {
+  background: transparent;
+  color: var(--text-dim);
+}
+/* 展开态组头是纯文字 section（无图标）；折叠 rail 模式才显示组图标 */
+.sidebar .tab-group .tab-group-ico {
+  display: none;
+}
+.sidebar.sidebar-collapsed .tab-group .tab-group-ico {
+  display: inline-flex;
+}
+/* 折叠窄条模式：组头图标行顶部加分隔线，与子项图标区分开 */
+.sidebar.sidebar-collapsed .tab-group-wrap {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
 }
 .sidebar-foot {
   margin-top: auto;
