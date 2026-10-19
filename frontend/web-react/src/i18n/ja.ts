@@ -72,6 +72,8 @@ export const ja: Dict = {
     diagnose: '統合診断',
     settings: 'システム設定',
     system: 'システム',
+    groupCF: 'クラウド関数',
+    groupHCM: 'HCM',
   },
   hcm: {
     cfErrRiskLevel: 'リスクレベル',

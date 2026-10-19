@@ -75,6 +75,8 @@ export const zh: Dict = {
     diagnose: '统一诊断',
     settings: '系统设置',
     system: '系统',
+    groupCF: '云函数',
+    groupHCM: 'HCM',
   },
   hcm: {
     cfErrRiskLevel: '风险等级',

@@ -72,6 +72,8 @@ export const en: Dict = {
     diagnose: 'Diagnose',
     settings: 'Settings',
     system: 'System',
+    groupCF: 'Cloud Functions',
+    groupHCM: 'HCM',
   },
   hcm: {
     cfErrRiskLevel: 'Risk level',

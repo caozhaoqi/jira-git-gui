@@ -283,6 +283,13 @@ button {
   font-size: 12.5px;
 }
 .sidebar.sidebar-collapsed .tab-sub { padding-left: 0; }
+/* 折叠分组容器：组与组之间留出分隔（组头 + 缩进子项包在同一 wrap 内） */
+.tab-group-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
 .sidebar-foot {
   margin-top: auto;
   padding-top: 12px;
