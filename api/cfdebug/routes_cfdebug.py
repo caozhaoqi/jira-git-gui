@@ -131,6 +131,7 @@ def get_accounts():
             "index": i,
             "name": acc.get("name", ""),
             "server_url": acc.get("server_url", ""),
+            "domain": (acc.get("domain") or "").strip(),
             "type": acc.get("type", "云函数"),
             "has_password": bool((acc.get("password") or "").strip()),
         })

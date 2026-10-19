@@ -82,7 +82,7 @@ export function HcmOps() {
             <option value="">{t('hcm.apiGatewayDefault')}</option>
             {envs.map((env) => (
               <option key={env.server_url} value={env.server_url}>
-                {env.name} · {env.server_url}
+                {env.name} · {env.server_url}{env.domain ? ` · ${env.domain}` : ''}
               </option>
             ))}
           </select>

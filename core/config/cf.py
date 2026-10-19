@@ -34,7 +34,9 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
     两种同时存在时以顶层 ``default`` 为准。解析结果落在每个账号的 ``default`` 布尔上，
     使调用方无需再关心用的是哪种写法。
 
-    返回: [{"name", "server_url", "username", "password", "default": bool}, ...]
+    返回: [{"name", "server_url", "domain", "username", "password", "default": bool}, ...]
+    （``domain`` 为可选展示别名：同一服务器的域名地址，仅用于下拉展示识别，
+      连接 / 登录仍走 ``server_url``。）
     """
     global _CF_ACCOUNTS_CACHE
     if not force and _CF_ACCOUNTS_CACHE is not None:
@@ -84,6 +86,7 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
         out.append({
             "name": name,
             "server_url": url,
+            "domain": (item.get("domain") or "").strip(),
             "username": (item.get("username") or item.get("mobile") or "").strip(),
             "password": (item.get("password") or "").strip(),
             "default": is_default,

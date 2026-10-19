@@ -1231,7 +1231,7 @@ export function CfPanel() {
               )}
               {accounts.map((a) => (
                 <option key={a.name} value={a.name}>
-                  {a.name}
+                  {a.name}{a.domain ? ` · ${a.domain}` : ''}
                 </option>
               ))}
               <option value="custom">{t('cf.custom')}</option>

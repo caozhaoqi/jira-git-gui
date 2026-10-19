@@ -72,10 +72,11 @@ tests/*              →  core/* / api/*
 | `routes_events.py` `routes_sync_history.py` `routes_settings.py` `routes_download.py` `routes_cache.py` | 各业务路由 | 事件(SSE)/同步历史/设置/下载/缓存 |
 | `eventbus.py` | SSE 事件总线 | 跨模块跨线程广播；队列满按优先级丢弃（告警不被进度事件挤掉） |
 | `unified_diagnose.py` `full_diagnose.py` `diagnosis_capabilities.py` | 统一诊断 | CF + K8s + dynamic_log + 元数据一键诊断与编排 |
+| `ai_bridge.py` | AI 数据桥 | 各前端面板输出的内存环形缓冲（每 tab 20 条 / 256KB 截断）；`POST /api/ai/output/{tab}` 上报、`GET /api/ai/output` 概览、`GET /api/ai/output/{tab}?format=text&at=-n` 拉取、`/history` 历史。TAB_DESCRIPTIONS 白名单限定可上报 tab |
 | `cf/` | CF 云函数子包 | routes_cf + cf_tokens/cf_login/cf_logs/cf_diagnose/cf_stream（实时日志流） |
 | `cfdebug/` | 云函数调试子包 | 本地 runner / DAP 断点桥 / mock 数据 / 错误定位 |
 | `clash/` | Clash 子包 | probe（只读探测）/ rules（规则生成应用）/ config（诊断与写入） |
-| `hcm/` | HCM 对象浏览器 | `routes_hcm.py` + `hcm_core.py`（HCM 平台对象查询） |
+| `hcm/` | HCM 对象浏览器 + HCM 运维 | `routes_hcm.py` + `hcm_core.py`（对象查询、hcm_direct 通用调用含 401/403/空 body 自动重登、Redis Key 管理/批量删除、线上错误监控、`api_decrypt_param` 参数解密含 `_suspect_auth` 判定重登） |
 | `k8s/` | K8s 子包 | snapshot / env / observe / exec(WS 终端) / files / state |
 | `kibana/` | Kibana 子包 | sites / logs / meta（ES 系统日志汇聚查询） |
 | `cf_core.py` | CF 兼容层 | re-export，真实实现在 `cf/` 子包 |

@@ -153,6 +153,13 @@
   color: var(--muted);
 }
 
+/* 表格里服务器地址下方附带的域名别名（弱化展示） */
+.svc-domain {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .svc-form {
   display: grid;
   grid-template-columns: 1fr 1fr;

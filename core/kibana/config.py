@@ -177,7 +177,11 @@ def _server_sites(base_site: dict) -> dict:
         if not url:
             continue
         item = dict(tmpl)
-        item["label"] = s.get("name") or s.get("key") or url
+        label = s.get("name") or s.get("key") or url
+        domain = (s.get("domain") or "").strip()
+        if domain:
+            label = f"{label} · {domain}"
+        item["label"] = label
         item["base_url"] = url
         item["derived"] = True
         item["server_url"] = s.get("server_url", "")

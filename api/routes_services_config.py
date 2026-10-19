@@ -81,6 +81,7 @@ class CloudFunctionReq(BaseModel):
     """云函数 / HCM 服务账号条目。"""
     name: str = ""
     server_url: str = ""
+    domain: str = ""       # 可选：同服务器的域名地址（仅下拉展示识别，连接仍走 server_url）
     username: str = ""
     password: str = ""
     type: str = "云函数"   # 云函数 | HCM（仅前端分组标签，不影响登录逻辑）
@@ -131,6 +132,7 @@ async def list_cloud_functions():
             "index": i,
             "name": acc.get("name", ""),
             "server_url": acc.get("server_url", ""),
+            "domain": acc.get("domain", ""),
             "username": acc.get("username", ""),
             "type": acc.get("type", "云函数"),
             "has_password": bool((acc.get("password") or "").strip()),
@@ -150,6 +152,7 @@ async def add_cloud_function(req: CloudFunctionReq):
     accounts.append({
         "name": req.name.strip(),
         "server_url": req.server_url.strip(),
+        "domain": req.domain.strip(),
         "username": req.username.strip(),
         "password": req.password,
         "type": req.type or "云函数",
@@ -172,6 +175,7 @@ async def update_cloud_function(index: int, req: CloudFunctionReq):
     accounts[index] = {
         "name": req.name.strip(),
         "server_url": req.server_url.strip(),
+        "domain": req.domain.strip(),
         "username": req.username.strip(),
         "password": new_pw,
         "type": req.type or old.get("type", "云函数"),
