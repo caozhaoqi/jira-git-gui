@@ -48,6 +48,7 @@ import { ConfirmHost } from './components/ConfirmHost';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PanelActiveContext } from './utils/panelActive';
 import { TabIcon } from './components/icons';
+import { AiApiFab } from './components/AiApiFab';
 
 const ACTIONBAR_TABS = new Set(['repo']);
 
@@ -409,6 +410,8 @@ export default function App() {
       </div>
       <ToastStack />
       <ProgressBar />
+      {/* AI 接口悬浮按钮：跟随当前页签，一键复制该功能的 AI 数据接口（embed 窗口不显示） */}
+      {!embed && <AiApiFab tab={activeTab} />}
       {connectOpen && <ConnectModal onClose={closeConnect} />}
       <ConfirmHost />
     </div>

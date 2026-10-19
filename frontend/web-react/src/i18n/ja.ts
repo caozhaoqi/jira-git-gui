@@ -86,6 +86,9 @@ export const ja: Dict = {
     noData: 'データなし（該当機能を開いて出力を生成すると自動送信されます）',
     noText: '（テキスト内容なし）',
     previewTitle: '最新出力 · {{tab}}',
+    copied: 'AI エンドポイントをコピーしました',
+    fabLabel: 'AI API',
+    fabTitle: 'このパネルの AI データエンドポイントをコピー（AI に貼り付けると出力を読み取れます）',
   },
   hcm: {
     cfErrRiskLevel: 'リスクレベル',

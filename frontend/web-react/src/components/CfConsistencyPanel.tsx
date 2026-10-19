@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { reportPanelOutput } from '../api/aiBridge';
 import { apiGet, apiPost } from '../api/client';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
@@ -137,6 +138,15 @@ export function CfConsistencyPanel() {
   const [ledgerRoot, setLedgerRoot] = useState('');
 
   const [scan, setScan] = useState<ScanResp | null>(null);
+
+  // AI 数据桥：一致性扫描结果同步给 /api/ai/output/cfsync
+  useEffect(() => {
+    if (!scan) return;
+    reportPanelOutput('cfsync', {
+      text: JSON.stringify(scan, null, 2).slice(0, 200000),
+      data: { kind: 'cfsync-scan' },
+    });
+  }, [scan]);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<Status | 'all' | 'only_local'>('all');
   const [q, setQ] = useState('');

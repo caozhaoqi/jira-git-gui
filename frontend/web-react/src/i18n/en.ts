@@ -86,6 +86,9 @@ export const en: Dict = {
     noData: 'No data yet (open the feature and produce output to report)',
     noText: '(no text content in this entry)',
     previewTitle: 'Latest output · {{tab}}',
+    copied: 'AI endpoint copied',
+    fabLabel: 'AI API',
+    fabTitle: 'Copy this panel\'s AI data endpoint (paste to your AI so it can read this panel\'s output)',
   },
   hcm: {
     cfErrRiskLevel: 'Risk level',

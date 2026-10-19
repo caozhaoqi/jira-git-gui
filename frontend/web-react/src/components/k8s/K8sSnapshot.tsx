@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { reportPanelOutput } from '../../api/aiBridge';
 import { TabIcon } from '../icons';
 import { apiPost } from '../../api/client';
 import { sse } from '../../api/events';
@@ -48,6 +49,15 @@ export function K8sSnapshot() {
   const [running, setRunning] = useState(false);
   const [summary, setSummary] = useState<K8sSummary | null>(null);
   const [records, setRecords] = useState<K8sRecord[]>([]);
+
+  // AI 数据桥：快照记录同步给 /api/ai/output/k8s
+  useEffect(() => {
+    if (records.length === 0 && !summary) return;
+    reportPanelOutput('k8s', {
+      text: JSON.stringify({ summary, records: records.slice(0, 300) }, null, 2).slice(0, 200000),
+      data: { kind: 'k8s-snapshot', count: records.length },
+    });
+  }, [records, summary]);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [outDirText, setOutDirText] = useState('');
   const [selectedPod, setSelectedPod] = useState('');

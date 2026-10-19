@@ -1812,3 +1812,50 @@ button {
   word-break: break-all;
   font-family: var(--font-mono, monospace);
 }
+
+/* ===== AI 接口悬浮按钮（AiApiFab）===== */
+.ai-api-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60; /* 高于内容低于 modal/toast */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-api-fab-url {
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-2);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-api-fab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  transition: color 0.18s var(--ease-out), border-color 0.18s var(--ease-out),
+    background-color 0.18s var(--ease-out);
+}
+.ai-api-fab-btn:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--surface-2);
+}
+html.dark .ai-api-fab-btn {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}

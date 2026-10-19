@@ -89,6 +89,9 @@ export const zh: Dict = {
     noData: '暂无数据（打开对应功能并产生输出后自动上报）',
     noText: '（该条目无文本内容）',
     previewTitle: '最新输出 · {{tab}}',
+    copied: '已复制 AI 接口',
+    fabLabel: 'AI 接口',
+    fabTitle: '复制本功能的 AI 数据接口（贴给 AI 即可读取本窗口输出）',
   },
   hcm: {
     cfErrRiskLevel: '风险等级',

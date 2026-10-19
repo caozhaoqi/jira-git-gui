@@ -245,7 +245,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   })(),
 
   setStatus: (s) => set({ status: s }),
-  setRepos: (r) => set({ repos: r }),
+  setRepos: (r) => {
+    set({ repos: r });
+    // AI 数据桥：仓库列表同步给 /api/ai/output/repo
+    reportPanelOutput('repo', {
+      text: r.map((x) => `${x.repo_id}\t${x.display_name || x.repo_id}`).join('\n'),
+      data: { kind: 'repos', count: r.length },
+    });
+  },
   selectRepo: (r) => set({ selectedRepo: r, checkedPaths: [] }),
   setSelectedFile: (p) => set({ selectedFilePath: p }),
   toggleTheme: () => {
