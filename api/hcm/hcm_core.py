@@ -219,8 +219,11 @@ async def hcm_direct(req) -> "dict":
     logger.info("[HCM直连] 网关响应 %s len=%dB head=%s",
                 resp.status_code, len(resp.content), raw_text[:600])
 
-    # token 失效（默认 2h 过期）→ 自动重登一次并重试
-    if _resp_is_token_error(raw_text):
+    # token 失效（默认 2h 过期）→ 自动重登一次并重试。
+    # 注意：部分网关 token 失效/无权限时不返回 errcode 结构，而是
+    # 401/403（body 可能为空）——同样先按疑似登录态失效重登重试一次，
+    # 重试后仍是 403 则按原样透传（真无权限）。
+    if _resp_is_token_error(raw_text) or resp.status_code in (401, 403) or not raw_text.strip():
         new_tok = await _auto_relogin(effective_target)
         if new_tok and new_tok != token:
             try:
