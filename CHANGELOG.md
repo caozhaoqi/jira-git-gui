@@ -1,6 +1,24 @@
 # CHANGELOG
 
 
+## v0.0.10
+
+- **AI 数据桥**（前后端全链路）：把每个功能面板的实时输出暴露为本地 HTTP 接口，外部 AI 助手可直接拉取应用正在显示的数据。
+  - 后端 `api/ai_bridge.py`：内存环形缓冲（每 tab 20 条、单条 256KB 截断），`POST /api/ai/output/{tab}` 上报 + `GET /api/ai/output` 概览 + `GET /api/ai/output/{tab}?format=text&at=-n` 拉取 + `/history` 历史；TAB_DESCRIPTIONS 白名单限定 tab。测试 `tests/test_ai_bridge.py`（9 例）。
+  - 前端：`api/aiBridge.ts` 上报（fire-and-forget + 800ms 节流 + localStorage 开关 `jgg-ai-bridge`）；13 个数据源面板全量接入（云函数日志/差异对比/一致性/调试/Clash/HCM 对象/接口/运维/统一诊断/K8s 快照/Kibana/应用日志/仓库）；新增 `AiBridgePanel` 状态总览页与 `AiApiFab` 悬浮按钮（任意面板右下角一键复制 curl）。
+- **HCM 运维**（新 tab）：
+  - Redis：Key 浏览/搜索/批量删除（二次确认）+ 常用 Key 预设。
+  - 线上错误：`monitor.error.get_error_list` 报错监控，按时间/关键字过滤。
+  - 参数解密：`api_decrypt_param` 抓包参数还原明文（嵌套信封：外层明文 body 内 `hcm_param` 为加密载荷；token 过期表现为 `code:500 NoneType.keys`，新增 `_suspect_auth` 判定触发自动重登重试）。
+  - `hcm_direct` 401/403/空 body 也触发自动重登（部分网关 token 失效不回 errcode 结构）。
+- **侧栏两轮重构**：
+  - 10 个页签按域收进「云函数 / HCM / 系统」三个可折叠分组（手动折叠优先，组内激活自动展开）；高频页签平铺，`Cmd/Ctrl+1..6` 直达（Electron 原生菜单 Cmd/Ctrl+Alt+1..4）。
+  - `Tabs.tsx` 重写：TabGroup 结构、section 组头、hint 角标。
+- **全局图标统一**：新增 `components/icons.tsx` 33 个 16×16 单色 SVG 图标（stroke=currentColor，随主题/激活态着色），全站 55 个文件 323 处 emoji 全面替换为统一图标。
+- 文档：README / README.zh-CN 补充 HCM 运维、AI 数据桥、新侧栏结构与快捷键说明；ARCHITECTURE.md 补 `api/ai_bridge.py` 与 HCM 运维模块说明。
+- Electron：`ALL_TABS` 补齐 cfsync / hcmapi / hcmops / aibridge。
+
+
 ## v0.0.9
 
 - 修复 GitHub CI/CD 打出来的安装包「后端起不来」：现场 `Failed to load Python DLL

@@ -24,6 +24,10 @@ Runs on macOS / Windows / Linux. The same UI ships as an Electron app, a lighter
 | Download / upload files in a container | K8s → Files |
 | Grab status + logs for a batch of Pods | K8s → Snapshot |
 | Query cloud-function logs | Cloud functions |
+| Bulk-clean HCM Redis keys (with presets) | HCM ops → Redis |
+| Watch live HCM API errors (trend + details) | HCM ops → Errors |
+| Decrypt an HCM packet-capture parameter | HCM ops → Decrypt |
+| Let an external AI assistant read each panel's live output | AI bridge |
 
 ## Getting started
 
@@ -139,6 +143,48 @@ Environments can also be exported for backup or sharing — but the export conta
 
 The **Cloud functions** tab queries, filters, sorts and exports cloud-function logs, and can copy results straight to a file.
 
+### CF consistency
+
+**CF consistency** scans your local cloud-function directory against the deployed online version and flags drift — so "fixed locally but never deployed" (or the reverse) can't happen silently.
+
+### HCM API
+
+**HCM API** is a general-purpose debugger for HCM platform endpoints: pick an API, fill in parameters, call it and inspect the raw response. Handy for one-off checks of platform API behaviour.
+
+### HCM ops
+
+**HCM ops** covers day-to-day HCM platform operations, currently in three parts:
+
+- **Redis** — browse/search Redis keys and inspect values, with bulk delete (double confirmation). Ships with key presets for common business key patterns, one click to fill the match string.
+- **Errors** — pulls live API errors from `monitor.error.get_error_list`, filterable by time / keyword, to quickly spot recent anomalies.
+- **Decrypt** — turns an encrypted HCM packet-capture parameter back into plaintext. Paste the full captured body and decrypt. Mind the two-layer structure: the encrypted payload is the `hcm_param` field nested inside the plaintext outer body, and decryption needs a valid token cookie (the app re-logs-in and retries automatically when the token has expired).
+
+### AI bridge
+
+The **AI bridge** exposes each panel's live output as a local HTTP API, so an external AI assistant (Claude, a self-built agent, …) can read exactly what the app is showing — no copy-paste.
+
+- Panel output is reported automatically as it is produced (off by default; flip the switch in the AI bridge tab — the preference is stored under `jgg-ai-bridge`).
+- Each panel keeps its last 20 outputs, capped at 256 KB each (longer entries are truncated).
+- A floating **AI API button** in the bottom-right of every panel copies the curl command for the current panel.
+
+Endpoint reference (all GET; `format=text` returns plain text, `at=-n` picks the n-th most recent):
+
+```bash
+# overview of every panel's latest output
+curl http://127.0.0.1:8787/api/ai/output
+
+# a panel's latest output as text
+curl "http://127.0.0.1:8787/api/ai/output/hcmops?format=text"
+
+# 2nd most recent entry, raw JSON
+curl "http://127.0.0.1:8787/api/ai/output/cf?at=-2"
+
+# full history of one panel
+curl http://127.0.0.1:8787/api/ai/output/hcm/history
+```
+
+Wired-up sources: cloud-function logs, diff, CF consistency, CF debug, Clash, HCM objects, HCM API, HCM ops, unified diagnosis, K8s snapshot, Kibana logs, app log, repositories.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -153,21 +199,36 @@ The **Cloud functions** tab queries, filters, sorts and exports cloud-function l
 
 ## What each tab is
 
-The sidebar has the main tabs plus a **System** group (in the Electron app the System tabs also appear in the native menu, under Cmd/Ctrl+Alt+1..4).
+The sidebar is organized in two tiers by usage frequency: **frequent tabs are top-level** (reachable via `Cmd/Ctrl+1..6`), the rest are grouped into three collapsible sections (click a section header to fold/unfold; a group auto-expands while one of its tabs is active). In the Electron app every tab also appears in the native menu.
+
+**Top-level tabs:**
 
 - **Repository / File tree / Preview** — pick a repo, browse it, read code.
 - **Diff** — the compare-and-merge workflow above.
-- **Log** — the app's own log; useful when something breaks.
+- **Cloud functions** — cloud-function log query, export and error diagnosis (structured filters, live stream).
 - **K8s** — Snapshot / Pod YAML / Describe / Network / Events / Top / Shell / Files / Logs.
 - **Kibana Logs** — query system/container logs collected into Elasticsearch, per server or Kibana site.
-- **Cloud functions** — cloud-function log query, export and error diagnosis.
-- **Cloud-function debug** — run a cloud function locally with breakpoints / mock data, and locate errors against source.
-- **Clash** — manage the Clash proxy: adapters, rules, one-click apply/revert, diagnostics.
-- **HCM objects** — browse and query HCM platform data models.
 - **Unified diagnosis** — one-click combined CF + K8s + dynamic-log diagnosis with AI-ready evidence bundle.
-- **Settings** — app preferences.
 
-The light/dark theme toggle is in the top bar.
+**Cloud-function group:**
+
+- **CF debug** — run a cloud function locally with breakpoints / mock data, and locate errors against source.
+- **CF consistency** — drift scan between local and deployed function versions.
+- **Clash** — manage the Clash proxy: adapters, rules, one-click apply/revert, diagnostics.
+
+**HCM group:**
+
+- **HCM objects** — browse and query HCM platform data models (with structured filters).
+- **HCM API** — general-purpose HCM platform API debugger.
+- **HCM ops** — Redis key management / live error monitoring / API parameter decryption.
+- **AI bridge** — expose panel outputs as a local HTTP API for AI consumption.
+
+**System group (Electron native menu, Cmd/Ctrl+Alt+1..4):**
+
+- **Log** — the app's own log; useful when something breaks.
+- **Settings** — app preferences (theme, language, proxy, …).
+
+The light/dark theme toggle is in the top bar; the whole app uses a unified set of monochrome SVG icons that follow the theme and active state.
 
 ## For developers
 
