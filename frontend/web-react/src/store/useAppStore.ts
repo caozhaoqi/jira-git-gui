@@ -4,9 +4,10 @@ import type { Locale } from '../i18n/types';
 import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY } from '../i18n/types';
 import { setLocale as setI18nLocale } from '../i18n';
 import { apiPost } from '../api/client';
+import { reportPanelOutput } from '../api/aiBridge';
 
 export type Theme = 'light' | 'dark';
-export type TabKey = 'repo' | 'diff' | 'logs' | 'k8s' | 'kibana' | 'cf' | 'cfsync' | 'clash' | 'hcm' | 'hcmapi' | 'hcmops' | 'cfdebug' | 'settings' | 'diagnose';
+export type TabKey = 'repo' | 'diff' | 'logs' | 'k8s' | 'kibana' | 'cf' | 'cfsync' | 'clash' | 'hcm' | 'hcmapi' | 'hcmops' | 'cfdebug' | 'settings' | 'diagnose' | 'aibridge';
 export type ToastType = 'success' | 'warn' | 'error' | 'info';
 export type ProgressMode =
   | 'indeterminate'
@@ -173,7 +174,7 @@ function initialTab(): TabKey {
 }
 
 const TAB_KEYS = new Set<TabKey>([
-  'repo', 'diff', 'logs', 'k8s', 'kibana', 'cf', 'cfsync', 'cfdebug', 'clash', 'hcm', 'hcmapi', 'hcmops', 'diagnose', 'settings',
+  'repo', 'diff', 'logs', 'k8s', 'kibana', 'cf', 'cfsync', 'cfdebug', 'clash', 'hcm', 'hcmapi', 'hcmops', 'diagnose', 'settings', 'aibridge',
 ]);
 
 function initialLocale(): Locale {
@@ -303,6 +304,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => {
       const logs = [...s.logs, { msg, level }];
       if (logs.length > 3000) logs.splice(0, logs.length - 3000);
+      // AI 数据桥：应用日志同步给 /api/ai/output/logs（aiBridge 内部节流，仅上报最近 100 条）
+      reportPanelOutput('logs', {
+        text: logs.slice(-100).map((l) => `[${l.level}] ${l.msg}`).join('\n'),
+        meta: { total: logs.length },
+      });
       return { logs };
     }),
   clearLogs: () => set({ logs: [] }),

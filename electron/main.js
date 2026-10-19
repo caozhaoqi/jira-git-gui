@@ -324,6 +324,7 @@ const ALL_TABS = [
   { key: 'logs', label: '日志' },
   { key: 'clash', label: 'Clash 分流' },
   { key: 'diagnose', label: '统一诊断' },
+  { key: 'aibridge', label: 'AI 数据桥' },
   { key: 'settings', label: '系统设置' },
 ];
 

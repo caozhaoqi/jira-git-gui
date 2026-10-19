@@ -173,6 +173,7 @@ from api.clash.routes_clash import router as clash_router            # noqa: E40
 from api.routes_services_config import router as services_config_router  # noqa: E402
 from api.routes_jira_issue import router as jira_issue_router            # noqa: E402
 from api.routes_unified_diagnose import router as unified_diagnose_router  # noqa: E402
+from api.ai_bridge import router as ai_bridge_router        # noqa: E402
 
 # 按业务域分组挂载（顺序无关，仅便于阅读）：
 #   仓库/下载/差异/缓存/同步/事件 → CF/HCM 平台 → 设置(汇总) → K8s/Clash 聚合域
@@ -192,6 +193,8 @@ for _r in (
     jira_issue_router,
     # 统一诊断（CF + K8s 联合诊断）
     unified_diagnose_router,
+    # AI 数据桥（面板输出 → 本地接口，供 AI 助手拉取）
+    ai_bridge_router,
 ):
     app.include_router(_r)
 

@@ -40,6 +40,7 @@ const HcmApiTester = lazyNamed<Record<string, never>>(() => import('./components
 const HcmOps = lazyNamed<Record<string, never>>(() => import('./components/hcm/HcmOps'), 'HcmOps');
 const UnifiedDiagnosisPanel = lazyNamed<Record<string, never>>(() => import('./components/UnifiedDiagnosisPanel'), 'UnifiedDiagnosisPanel');
 const SettingsPanel = lazyNamed<Record<string, never>>(() => import('./components/SettingsPanel'), 'SettingsPanel');
+const AiBridgePanel = lazyNamed<Record<string, never>>(() => import('./components/AiBridgePanel'), 'AiBridgePanel');
 import { ToastStack } from './components/Toast';
 import { ProgressBar } from './components/ProgressBar';
 import { ConnectModal } from './components/ConnectModal';
@@ -72,6 +73,7 @@ const PANELS: { key: TabKey; labelKey: string; el: ReactNode }[] = [
   { key: 'hcmapi', labelKey: 'tab.hcmapi', el: <HcmApiTester /> },
   { key: 'hcmops', labelKey: 'tab.hcmops', el: <HcmOps /> },
   { key: 'diagnose', labelKey: 'tab.diagnose', el: <UnifiedDiagnosisPanel /> },
+  { key: 'aibridge', labelKey: 'tab.aibridge', el: <AiBridgePanel /> },
   { key: 'settings', labelKey: 'tab.settings', el: <SettingsPanel /> },
 ];
 

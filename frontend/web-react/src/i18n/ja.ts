@@ -74,6 +74,18 @@ export const ja: Dict = {
     system: 'システム',
     groupCF: 'クラウド関数',
     groupHCM: 'HCM',
+    aibridge: 'AI ブリッジ',
+  },
+  ai: {
+    title: 'AI ブリッジ',
+    desc: '各パネルの出力をローカル HTTP API として公開し、同一マシン上の AI アシスタント（Claude Code / Cursor など）が低レベル API を再呼び出しすることなくアプリの取得済みデータを読めるようにします。',
+    enabled: 'レポート有効',
+    disabled: 'レポート無効',
+    curlTitle: 'AI 側エンドポイント（localhost 8787）',
+    panelsTitle: 'パネル出力ステータス',
+    noData: 'データなし（該当機能を開いて出力を生成すると自動送信されます）',
+    noText: '（テキスト内容なし）',
+    previewTitle: '最新出力 · {{tab}}',
   },
   hcm: {
     cfErrRiskLevel: 'リスクレベル',

@@ -74,6 +74,18 @@ export const en: Dict = {
     system: 'System',
     groupCF: 'Cloud Functions',
     groupHCM: 'HCM',
+    aibridge: 'AI Bridge',
+  },
+  ai: {
+    title: 'AI Data Bridge',
+    desc: 'Exposes each panel\'s output as local HTTP endpoints so AI assistants on this machine (Claude Code / Cursor etc.) can read data the app already fetched, without re-calling low-level APIs.',
+    enabled: 'Reporting on',
+    disabled: 'Reporting off',
+    curlTitle: 'AI-side endpoints (localhost 8787)',
+    panelsTitle: 'Panel output status',
+    noData: 'No data yet (open the feature and produce output to report)',
+    noText: '(no text content in this entry)',
+    previewTitle: 'Latest output · {{tab}}',
   },
   hcm: {
     cfErrRiskLevel: 'Risk level',

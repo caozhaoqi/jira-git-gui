@@ -77,6 +77,18 @@ export const zh: Dict = {
     system: '系统',
     groupCF: '云函数',
     groupHCM: 'HCM',
+    aibridge: 'AI 数据桥',
+  },
+  ai: {
+    title: 'AI 数据桥',
+    desc: '把各功能窗口的输出暴露为本机 HTTP 接口，同机 AI 助手（Claude Code / Cursor 等）可直接读取应用已获取的数据，无需重复调用底层 API。',
+    enabled: '上报已开启',
+    disabled: '上报已关闭',
+    curlTitle: 'AI 侧拉取接口（本机 8787）',
+    panelsTitle: '面板输出状态',
+    noData: '暂无数据（打开对应功能并产生输出后自动上报）',
+    noText: '（该条目无文本内容）',
+    previewTitle: '最新输出 · {{tab}}',
   },
   hcm: {
     cfErrRiskLevel: '风险等级',

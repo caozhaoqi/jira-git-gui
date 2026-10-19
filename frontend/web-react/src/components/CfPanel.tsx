@@ -12,6 +12,7 @@ import { apiGet, apiPost } from '../api/client';
 import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
+import { reportPanelOutput } from '../api/aiBridge';
 import { TabIcon } from './icons';
 import { readClipboardText, writeClipboardText, copyText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
@@ -251,6 +252,25 @@ export function CfPanel() {
   });
   const [imageCode, setImageCode] = useState('');
   const [result, setResult] = useState<CfLastResult | null>(null);
+
+  // AI 数据桥：云函数日志查询结果同步给 /api/ai/output/cf（供 AI 拉取）
+  useEffect(() => {
+    if (!result) return;
+    const text = (result.rows || [])
+      .map((r) => JSON.stringify(r))
+      .join('\n');
+    reportPanelOutput('cf', {
+      text: text || '(empty rows)',
+      data: {
+        kind: 'cflogs',
+        server_url: result.server_url,
+        log_type: result.log_type,
+        total: result.total,
+        page_size: result.page_size,
+        count: (result.rows || []).length,
+      },
+    });
+  }, [result]);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);

@@ -133,6 +133,7 @@ const P: Record<string, string[]> = {
   chart: ['M2.5 2.5v11h11', 'M4.5 10.5l3-3.5 2 2 3.5-4', 'M4.5 13.5V8M8 13.5V9.5M11.5 13.5V7'],
   bulb: ['M8 2a4.5 4.5 0 00-2.5 8.2c.6.5 1 1.1 1 1.8h3c0-.7.4-1.3 1-1.8A4.5 4.5 0 008 2z', 'M6.5 14h3'],
   tag: ['M2.5 7.5v-5h5L14 9l-5 5z', 'M5.5 5.5v.01'],
+  bridge: ['M5.5 2.5v4M10.5 2.5v4', 'M4 6.5h8v2.5a4 4 0 01-8 0z', 'M8 13v1.5', 'M5.5 14.5h5'],
 };
 
 export function TabIcon({ name, size = 13 }: { name: string; size?: number }): ReactElement {

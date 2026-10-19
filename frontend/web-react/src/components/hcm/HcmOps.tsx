@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { copyText } from '../../utils/clipboard';
 import { useT } from '../../i18n';
 import { TabIcon } from '../icons';
+import { reportPanelOutput } from '../../api/aiBridge';
 
 /**
  * HCM 运维面板 —— 功能取自 hcm-cloud-vue（hcm-core）运维页面，走 /api/hcm/direct 零后端改动：
@@ -222,6 +223,11 @@ function RedisPanel({ target }: { target: string }) {
         list = ((r.data as { list?: RedisItem[] })?.list || []);
       }
       setItems(list);
+      // AI 数据桥：Redis 查询结果同步给 /api/ai/output/hcmops
+      reportPanelOutput('hcmops', {
+        text: JSON.stringify(list, null, 2),
+        data: { kind: 'redis', key, count: list.length },
+      });
     } catch (e: any) {
       setItems(null);
       setErr(e?.message || String(e));
@@ -575,6 +581,11 @@ function ErrorPanel({ target }: { target: string }) {
         }, '', target).catch(() => null),
       ]);
       setRows((listR.data as ErrorRow[]) || []);
+      // AI 数据桥：线上错误列表同步给 /api/ai/output/hcmops
+      reportPanelOutput('hcmops', {
+        text: JSON.stringify((listR.data as ErrorRow[]) || [], null, 2),
+        data: { kind: 'errors', time_type: timeType, count: ((listR.data as ErrorRow[]) || []).length },
+      });
       const c = countR?.data;
       setTotal(typeof c === 'number' ? c : Number((c as { count?: number })?.count ?? 0));
       setPage(pg);
@@ -688,6 +699,11 @@ function DecryptPanel({ target }: { target: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [result, setResult] = useState<string | null>(null);
+
+  // AI 数据桥：解密结果同步给 /api/ai/output/hcmops
+  useEffect(() => {
+    if (result) reportPanelOutput('hcmops', { text: result, data: { kind: 'decrypt' } });
+  }, [result]);
 
   // 切网关清掉旧解密结果（同一密文在不同环境钥下结果不同）
   useEffect(() => {

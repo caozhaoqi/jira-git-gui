@@ -43,12 +43,13 @@ type TabGroup = {
 function makeSysGroup(): TabGroup {
   return {
     key: 'group-sys', icon: 'groupSys', labelKey: 'tab.system', electronHidden: true,
-    tabs: [
-      { key: 'logs', labelKey: 'tab.logs', icon: 'logs' },
-      { key: 'clash', labelKey: 'tab.clash', icon: 'clash' },
-      { key: 'diagnose', labelKey: 'tab.diagnose', icon: 'diagnose' },
-      { key: 'settings', labelKey: 'tab.settings', icon: 'settings' },
-    ],
+  tabs: [
+    { key: 'logs', labelKey: 'tab.logs', icon: 'logs' },
+    { key: 'clash', labelKey: 'tab.clash', icon: 'clash' },
+    { key: 'diagnose', labelKey: 'tab.diagnose', icon: 'diagnose' },
+    { key: 'aibridge', labelKey: 'tab.aibridge', icon: 'bridge' },
+    { key: 'settings', labelKey: 'tab.settings', icon: 'settings' },
+  ],
   };
 }
 const SYS_GROUP = makeSysGroup();

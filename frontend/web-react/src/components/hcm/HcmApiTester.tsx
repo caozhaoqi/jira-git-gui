@@ -4,6 +4,7 @@ import { hcmEnvs, HcmApiError, type HcmEnv } from '../../api/hcm/client';
 import { reportLocalApiNetworkError } from '../../api/client';
 import { saveBlob } from '../../utils/download';
 import { useT } from '../../i18n';
+import { reportPanelOutput } from '../../api/aiBridge';
 
 /**
  * HCM 接口直调面板 —— 设计与功能对齐网关自带调试页
@@ -89,6 +90,15 @@ export function HcmApiTester() {
   const [err, setErr] = useState('');
   const [result, setResult] = useState<SendResult | null>(null);
   const [dlBusy, setDlBusy] = useState('');
+
+  // AI 数据桥：接口调试的请求+响应同步给 /api/ai/output/hcmapi（供 AI 拉取）
+  useEffect(() => {
+    if (!result) return;
+    reportPanelOutput('hcmapi', {
+      text: `API: ${apiName}\nGateway: ${result.gateway}\nStatus: ${result.isError ? 'ERROR' : 'OK'}\n\n${result.text}`,
+      meta: { api: apiName, error: result.isError, duration_ms: result.durationMs },
+    });
+  }, [result, apiName]);
 
   // —— 接口列表（hcm.api.list）——
   const [apiOptions, setApiOptions] = useState<ApiOption[]>([]);
