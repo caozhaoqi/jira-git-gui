@@ -983,7 +983,7 @@ const loadList = useCallback(async () => {
                 <option value="">{t('hcm.serverEnvSelect')}</option>
                 {envs.map((ev) => (
                   <option key={ev.key} value={ev.key}>
-                    {ev.name}（{ev.server_url}）{ev.has_preset_token ? '●' : ''}
+                    {ev.name}（{ev.server_url}{ev.domain ? ` / ${ev.domain}` : ''}）{ev.has_preset_token ? '●' : ''}
                   </option>
                 ))}
               </select>

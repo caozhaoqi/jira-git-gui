@@ -43,6 +43,7 @@ async def hcm_envs() -> "dict":
             "key": f"cf:{url}",
             "name": acc.get("name", url),
             "server_url": url,
+            "domain": (acc.get("domain") or "").strip(),
             "source": "cf_accounts",
             "has_preset_token": False,
         })
@@ -162,7 +163,8 @@ async def hcm_direct(req) -> "dict":
     # 允许请求级覆盖网关（如切换到可达的 HCM 部署），否则用配置文件中的 proxy_target。
     effective_target = (getattr(req, "target", "") or "").strip() or _HCM_PROXY_TARGET
     if not effective_target:
-        raise HTTPException(500, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url，或请求传入 target）")
+        # 缺配置属用户可预期错误 → 400（与 UserError 约定一致，回归测试也依赖非 500）
+        raise HTTPException(400, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url，或请求传入 target）")
 
     token = req.token.strip() or _HCM_PRESET_TOKEN
     if not token:
@@ -351,7 +353,8 @@ async def hcm_decrypt_param(req) -> "dict":
 
     effective_target = (getattr(req, "target", "") or "").strip() or _HCM_PROXY_TARGET
     if not effective_target:
-        raise HTTPException(500, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url，或请求传入 target）")
+        # 缺配置属用户可预期错误 → 400（与 UserError 约定一致，回归测试也依赖非 500）
+        raise HTTPException(400, "直连目标未配置（hcm_whitelist.local.json 的 proxy_target.base_url，或请求传入 target）")
     token = (getattr(req, "token", "") or "").strip() or _HCM_PRESET_TOKEN
     if not token:
         raise HTTPException(400, "未提供 token 且预设 token 为空，请先配置 token 或传入 token")

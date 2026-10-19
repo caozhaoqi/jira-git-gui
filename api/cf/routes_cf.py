@@ -48,6 +48,7 @@ async def api_cf_accounts():
             {
                 "name": a.get("name", ""),
                 "server_url": a.get("server_url", ""),
+                "domain": (a.get("domain") or "").strip(),
                 "username": a.get("username", a.get("mobile", "")),
                 "has_password": bool(a.get("password")),
                 "has_cookie": bool(a.get("cookie")),

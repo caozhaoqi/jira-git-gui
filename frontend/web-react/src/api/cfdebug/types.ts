@@ -57,6 +57,8 @@ export interface CfAccount {
   index: number;
   name: string;
   server_url: string;
+  /** 可选：域名别名（仅下拉展示识别，连接仍走 server_url） */
+  domain?: string;
   type: string;
   has_password: boolean;
 }

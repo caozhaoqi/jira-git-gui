@@ -82,6 +82,7 @@ def list_servers() -> List[Dict[str, str]]:
             "key": f"cf:{url}",
             "name": acc.get("name", url),
             "server_url": url,
+            "domain": (acc.get("domain") or "").strip(),
             "source": "cf_accounts",
         })
         seen.add(url)

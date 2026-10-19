@@ -33,6 +33,8 @@ export interface HcmEnv {
   key: string;
   name: string;
   server_url: string;
+  /** 可选：同一服务器的域名地址（后端从 cf_accounts.domain 透传，仅展示用） */
+  domain?: string;
   source: string;
   has_preset_token: boolean;
 }

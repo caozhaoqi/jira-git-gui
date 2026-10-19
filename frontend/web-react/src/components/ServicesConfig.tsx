@@ -22,6 +22,7 @@ interface CfItem {
   name: string;
   type: '云函数' | 'HCM';
   server_url: string;
+  domain: string;
   username: string;
   has_password: boolean;
 }
@@ -77,7 +78,7 @@ export function ServicesConfig() {
   const [cfItems, setCfItems] = useState<CfItem[]>([]);
   const [cfPath, setCfPath] = useState('');
   const [cfEdit, setCfEdit] = useState<number | null>(null);
-  const [cf, setCf] = useState({ name: '', type: '云函数', server_url: '', username: '', password: '' });
+  const [cf, setCf] = useState({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '' });
 
   const loadCf = useCallback(async () => {
     try {
@@ -91,7 +92,7 @@ export function ServicesConfig() {
 
   const resetCfForm = useCallback(() => {
     setCfEdit(null);
-    setCf({ name: '', type: '云函数', server_url: '', username: '', password: '' });
+    setCf({ name: '', type: '云函数', server_url: '', domain: '', username: '', password: '' });
   }, []);
 
   const editCf = useCallback(
@@ -99,7 +100,7 @@ export function ServicesConfig() {
       const it = cfItems.find((x) => x.index === idx);
       if (!it) return;
       setCfEdit(idx);
-      setCf({ name: it.name, type: it.type, server_url: it.server_url, username: it.username, password: '' });
+      setCf({ name: it.name, type: it.type, server_url: it.server_url, domain: it.domain || '', username: it.username, password: '' });
     },
     [cfItems]
   );
@@ -109,6 +110,7 @@ export function ServicesConfig() {
       name: cf.name.trim(),
       type: cf.type,
       server_url: cf.server_url.trim(),
+      domain: cf.domain.trim(),
       username: cf.username.trim(),
       password: cf.password,
     };
@@ -260,7 +262,10 @@ export function ServicesConfig() {
                         <td>
                           {it.type === 'HCM' ? <span className="chip chip-hcm">HCM</span> : <span className="chip">云函数</span>}
                         </td>
-                        <td><code>{it.server_url}</code></td>
+                        <td>
+                          <code>{it.server_url}</code>
+                          {it.domain ? <div className="svc-domain">域名：{it.domain}</div> : null}
+                        </td>
                         <td>{it.username}</td>
                         <td>
                           {it.has_password
@@ -283,7 +288,7 @@ export function ServicesConfig() {
 
             <div className="svc-add">
               <h3>{cfEdit === null ? '添加服务' : `编辑服务 #${cfEdit}`}</h3>
-              <p className="svc-hint">服务器地址填 IP 或域名（含 http:// 或 https://）。密码留空表示不修改（编辑时）。</p>
+              <p className="svc-hint">服务器地址填 IP 或域名（含 http:// 或 https://），连接与登录都走它。域名选填：同服务器的域名别名，仅用于下拉展示识别。密码留空表示不修改（编辑时）。</p>
               <div className="svc-form">
                 <label className="svc-field">
                   <span>名称 / 备注</span>
@@ -301,6 +306,11 @@ export function ServicesConfig() {
                   <span>服务器地址（IP / 域名）</span>
                   <input className="input" value={cf.server_url} placeholder="https://21qor.hcmcloud.cn 或 http://10.1.38.184"
                     onChange={(e) => setCf({ ...cf, server_url: e.target.value })} />
+                </label>
+                <label className="svc-field svc-full">
+                  <span>域名（选填，仅展示识别）</span>
+                  <input className="input" value={cf.domain} placeholder="如 21qor.hcmcloud.cn（IP 直连时便于对照）"
+                    onChange={(e) => setCf({ ...cf, domain: e.target.value })} />
                 </label>
                 <label className="svc-field">
                   <span>账号 / 用户名</span>

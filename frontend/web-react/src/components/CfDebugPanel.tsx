@@ -948,7 +948,7 @@ export function CfDebugPanel() {
               <option value="">{t('cfdebug.pickAccount')}</option>
               {accounts.map((a) => (
                 <option key={a.index} value={a.server_url || a.name}>
-                  {a.name} · {a.server_url}
+                  {a.name} · {a.server_url}{a.domain ? ` · ${a.domain}` : ''}
                 </option>
               ))}
             </select>
