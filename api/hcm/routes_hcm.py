@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """HCM 对象浏览器 —— 路由层（薄 HTTP 适配）。"""
-from fastapi import Request
+from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
 
 from fastapi import APIRouter
-from api.common import app, _PROJECT_ROOT
+from api.common import app, logger, _PROJECT_ROOT
 from api.hcm.hcm_core import hcm_envs, hcm_proxy, hcm_direct, hcm_decrypt_param, hcm_save_data, hcm_temp_download
+from api.hcm.ws_bridge import ws_call, ws_proxy
 
 router = APIRouter()
 
@@ -91,6 +92,61 @@ class HcmTempDownloadReq(BaseModel):
 async def api_hcm_temp_download(req: HcmTempDownloadReq) -> Response:
     """代理下载 HCM 网关临时文件（日志 / profile），前端拿到 Blob 后自行落盘。"""
     return await hcm_temp_download(req)
+
+
+class HcmWsCallReq(BaseModel):
+    """WS 调试调用（对齐平台调试页「WS」按钮的一次性语义）。
+
+    与 /api/hcm/direct 的差异：走网关 ``/ws/<api>`` 通道，参数为**明文业务
+    参数**（无加密信封），回包为 ``{status, data}``；仅声明 notify 的
+    handler 支持（长任务类接口）。
+    """
+    api_name: str = ""
+    params: dict = {}
+    token: str = ""
+    target: str = ""
+    # 长任务（导出 / 批量审批）可能数分钟：默认 300s，前端可按需调大
+    recv_timeout: float = 300.0
+
+
+@router.post("/api/hcm/ws-call")
+async def api_hcm_ws_call(req: HcmWsCallReq) -> dict:
+    """一次性 WS 调试调用：连接网关 WS → 发参数 → 收包至终态 → 关闭。"""
+    if not req.api_name.strip():
+        return {"ok": False, "error": "缺少 api_name"}
+    try:
+        r = await ws_call(
+            req.target, req.api_name.strip(), req.params, req.token,
+            recv_timeout=req.recv_timeout,
+        )
+    except PermissionError as e:
+        return {"ok": False, "error": str(e)}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:  # 连接层失败 → 502，透传类型便于定位
+        logger.warning("[HCM-WS] ws-call 失败 %s: %s", req.api_name, e)
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    return r
+
+
+@router.websocket("/api/hcm/ws")
+async def api_hcm_ws(ws: WebSocket) -> None:
+    """流式 WS 调试代理：本地浏览器 ↔ 网关 ``/ws/<api>`` 双向桥接。
+
+    查询参数：``api``（接口名）、``target``（可选，覆盖网关）、``token``
+    （可选，缺省用预设）。连接后首帧发业务参数（明文 JSON），之后网关的
+    notify 进度 / success / error 终态实时转发；任一侧断开即整体结束。
+    """
+    await ws.accept()
+    api_name = (ws.query_params.get("api") or "").strip()
+    if not api_name:
+        await ws.close(code=4400, reason="missing api")
+        return
+    try:
+        await ws_proxy(ws, ws.query_params.get("target") or "",
+                       api_name, ws.query_params.get("token") or "")
+    except WebSocketDisconnect:
+        pass
 
 
 # # --------------------------------------------------------------------------- #

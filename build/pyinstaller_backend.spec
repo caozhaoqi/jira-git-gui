@@ -46,8 +46,10 @@ a = Analysis(
         # 否则冻结产物在用户点到对应功能时才 ModuleNotFoundError。
         # yaml：core/k8s/env.py 顶层其实就有 import，这里再声明一次双保险；
         # paramiko：K8s SSH 执行（core/k8s/ssh_exec.py）；
+        # websockets：HCM 网关 WS 调试通道（api/hcm/ws_bridge.py，函数内 import）；
         # debugpy / sqlalchemy：CF 调试模式（api/cfdebug/launcher.py、loader.py）。
         "yaml", "paramiko",
+        "websockets",
         "debugpy",
         "sqlalchemy", "sqlalchemy.orm", "sqlalchemy.engine", "sqlalchemy.pool",
     ],

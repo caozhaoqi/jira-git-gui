@@ -3,6 +3,12 @@
 
 ## v0.0.10
 
+- **HCM 接口调试面板补齐 WS 通道与响应树**（对齐网关自带调试页）：
+  - 新增 `api/hcm/ws_bridge.py`：逆向网关 `static/api/api.js` 的 `callHcmOpenWebSocket` 协议（`ws(s)://<host><前缀>/ws/<api>`，握手 Cookie token，首帧**明文业务参数**（无 REST 加密信封），回包 `{status: notify|success|error, data}`；notify 可多条、`data=="pong"` 为心跳，success/error 为终态）。两个入口：`ws_call`（一次性调用，`POST /api/hcm/ws-call`）与 `ws_proxy`（流式双向桥接，`WS /api/hcm/ws`）；两个 connect 均显式 `proxy=None`（禁环境代理，与 hcm_direct「不走代理」约定一致）。
+  - 登录态失效自动重登：`请先登录` / errcode 17003、51006 / bhcd 网关兜底码 `system_errors_msg_00000055` 均触发（ws_call 重试一次；ws_proxy 重建连接并重发首帧，本地无感知）——预设 token 属另一网关时用户选网关点 WS 即可用，与 REST 通道体验对齐。
+  - 前端：WS 按钮 + 连接/运行/终态状态点 + notify 进度折叠面板；结果区重构为 REST/WS 共用，新增 Tree/Text 视图切换（`JsonTree` 组件：可折叠树 + `{n}`/`[n]` 徽标 + 搜索高亮/命中计数/↑↓ 跳转/复制值与路径）；修复「WS 终态后 REST 结果被掩盖」（结果区以最新一次请求为准）。
+  - 依赖：`websockets>=12.0` 补进 requirements.txt 与 PyInstaller spec hiddenimports（v0.0.9 踩过漏声明坑）。测试 `tests/test_hcm_ws_bridge.py`（12 例：mock 网关协议回放 + 路由 + 自动重登/重建）；现网 E2E：bhcd 网关 ws-call 与流式代理均 success（count 3288）， playwright 全流程 21 项 PASS。
+- **服务账号支持配置域名别名（domain）**：cf_accounts 条目新增可选 `domain` 字段（仅下拉展示识别，连接/登录仍走 server_url）；全链路贯通（load_cf_accounts → services-config GET/POST/PUT → /api/cf/accounts → /api/cf-debug/accounts → hcm_envs → kibana list_servers）；HCM 接口/HCM 运维/HCM 对象/云函数/云函数调试下拉均展示「name · url · domain」；系统设置服务账号表格新增域名副行。测试 `tests/test_cf_account_domain.py`（6 例）。
 - **AI 数据桥**（前后端全链路）：把每个功能面板的实时输出暴露为本地 HTTP 接口，外部 AI 助手可直接拉取应用正在显示的数据。
   - 后端 `api/ai_bridge.py`：内存环形缓冲（每 tab 20 条、单条 256KB 截断），`POST /api/ai/output/{tab}` 上报 + `GET /api/ai/output` 概览 + `GET /api/ai/output/{tab}?format=text&at=-n` 拉取 + `/history` 历史；TAB_DESCRIPTIONS 白名单限定 tab。测试 `tests/test_ai_bridge.py`（9 例）。
   - 前端：`api/aiBridge.ts` 上报（fire-and-forget + 800ms 节流 + localStorage 开关 `jgg-ai-bridge`）；13 个数据源面板全量接入（云函数日志/差异对比/一致性/调试/Clash/HCM 对象/接口/运维/统一诊断/K8s 快照/Kibana/应用日志/仓库）；新增 `AiBridgePanel` 状态总览页与 `AiApiFab` 悬浮按钮（任意面板右下角一键复制 curl）。
