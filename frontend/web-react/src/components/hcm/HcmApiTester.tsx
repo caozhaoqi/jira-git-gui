@@ -7,13 +7,15 @@ import { saveBlob } from '../../utils/download';
 import { useT } from '../../i18n';
 import { reportPanelOutput } from '../../api/aiBridge';
 import { JsonTree } from '../JsonTree';
+import { CodeView } from '../CodeView';
 
 /**
  * HCM 接口直调面板 —— 设计与功能对齐网关自带调试页
  * （hcm-core templates/api/api_ui.html + api_list.html + static/api/api.js）：
  *
  *   标题（描述：接口名）→ API 文档 → 输入（JSON）→ 提交行（提交 + SQL/Profile 勾选）
- *   → 结果（树/文本视图 + 搜索 + 耗时 + 下载接口日志/性能日志 + 查看明细错误 + 调用堆栈）
+ *   → 结果（View 下拉：视图树/文本/代码 + 搜索 + 耗时 + 下载接口日志/性能日志
+ *     + 查看明细错误 + 调用堆栈）
  *
  * 接口列表：调平台 Open API `hcm.api.list`（core/service/services.py，返回
  * {list:[{name,description}], count}，支持 filter_str + 分页）拉全量，输入框即
@@ -28,7 +30,9 @@ import { JsonTree } from '../JsonTree';
  *
  * 差异说明：
  * - 请求统一走后端 /api/hcm/direct（加解密+签名+token 自动续期），前端零密钥；
- * - WS 通道参数为明文（对齐平台 api.js 的 callHcmOpenWebSocket），无需信封。
+ * - WS 通道参数为明文（对齐平台 api.js 的 callHcmOpenWebSocket），无需信封；
+ * - 网关返回非 JSON（HTML 错误页/异常页）时，对齐调试页 responseText 的处理：
+ *   原文进红色结果块，视图自动切到代码视图（树只对结构化响应有意义）。
  */
 
 /** 内置常用接口兜底（hcm.api.list 不可用 / 权限不足时仍可联想）。doc 文案见 i18n hcm.apiDoc_* */
@@ -82,6 +86,8 @@ interface SendResult {
   /** 网关业务错误：结果块红色 + traceback + 明细错误链接 */
   isError: boolean;
   errorCode?: string;
+  /** 错误摘要（errmsg）：raw 原文（HTML 错误页）优先展示时，摘要行保证可读性 */
+  errmsg?: string;
   traceback?: string;
 }
 
@@ -108,8 +114,10 @@ export function HcmApiTester() {
   const [err, setErr] = useState('');
   const [result, setResult] = useState<SendResult | null>(null);
   const [dlBusy, setDlBusy] = useState('');
-  // 结果区视图：树（默认，对齐调试页 object {n} 可折叠树）/ 文本
-  const [view, setView] = useState<'tree' | 'text'>('tree');
+  // 结果区视图（对齐调试页 View 下拉）：视图（object 树，默认）/ 文本 / 代码
+  const [view, setView] = useState<'tree' | 'text' | 'code'>('tree');
+  const [viewOpen, setViewOpen] = useState(false);
+  const viewBoxRef = useRef<HTMLDivElement>(null);
   const [respSearch, setRespSearch] = useState('');
   // WS 调试会话（null = 未启动）
   const [ws, setWs] = useState<WsSession | null>(null);
@@ -241,6 +249,36 @@ export function HcmApiTester() {
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [ddOpen]);
 
+  // 点击面板外关闭结果区视图下拉
+  useEffect(() => {
+    if (!viewOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (viewBoxRef.current && !viewBoxRef.current.contains(e.target as Node)) {
+        setViewOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [viewOpen]);
+
+  // 新响应到达 → 按内容自动选视图（对齐调试页：结构化响应走 object 树，
+  // HTML 错误页 / 纯文本走代码视图——树对非 JSON 无意义）。
+  // 仅在**新内容**时切换；同一响应内用户手动切视图不被覆盖。
+  const lastAutoViewText = useRef('');
+  useEffect(() => {
+    const wsFinal = ws?.final;
+    const text = wsFinal
+      ? (typeof wsFinal.data === 'string'
+          ? wsFinal.data
+          : JSON.stringify(wsFinal.data ?? null, null, 2))
+      : (result?.text ?? '');
+    if (!text || text === lastAutoViewText.current) return;
+    lastAutoViewText.current = text;
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { parsed = undefined; }
+    setView(parsed !== null && typeof parsed === 'object' ? 'tree' : 'code');
+  }, [result, ws]);
+
   // 下拉数据源：远端列表，失败回退内置常用接口
   const options: ApiOption[] = useMemo(() => (
     apiListState === 'error'
@@ -322,7 +360,11 @@ export function HcmApiTester() {
       if (e instanceof HcmApiError && e.payload) {
         // 网关业务错误：对齐网关调试页 error 分支——红色结果块 + traceback + 明细错误 + 日志下载
         const p = e.payload;
-        const rawText = p.raw !== undefined ? JSON.stringify(p.raw, null, 2) : '';
+        // 网关非 JSON 错误页（HTML）：error.raw 是字符串原文，直接展示（代码视图高亮）；
+        // JSON 错误响应则序列化保留结构（树视图可展开）
+        const rawText = p.raw !== undefined
+          ? (typeof p.raw === 'string' ? p.raw : JSON.stringify(p.raw, null, 2))
+          : '';
         setResult({
           text: rawText || p.errmsg || e.message,
           truncated: rawText.length > PREVIEW_LIMIT,
@@ -333,6 +375,7 @@ export function HcmApiTester() {
           errorCode: p.error_code != null && p.error_code !== ''
             ? String(p.error_code)
             : (p.errcode != null ? String(p.errcode) : undefined),
+          errmsg: p.errmsg || '',
           traceback: p.traceback || '',
         });
       } else {
@@ -655,7 +698,10 @@ export function HcmApiTester() {
         const wsFinal = ws?.final;
         const display: SendResult | null = wsFinal
           ? {
-              text: JSON.stringify(wsFinal.data ?? null, null, 2),
+              // WS 终态 data 为字符串（非 JSON 帧原文，如 HTML 错误页）时直接展示
+              text: typeof wsFinal.data === 'string'
+                ? wsFinal.data
+                : JSON.stringify(wsFinal.data ?? null, null, 2),
               truncated: false,
               gateway: target,
               logIndex: '',
@@ -664,30 +710,47 @@ export function HcmApiTester() {
             }
           : result;
         if (!display) return null;
-        const canTree = view === 'tree';
         return (
           <div className={`hcm-api-resp${display.isError ? ' hcm-api-resp--error' : ''}`}>
             <div className="hcm-api-resp-head">
               <span className="hcm-api-label">{t('hcm.apiResponse')}</span>
-              <div className="hcm-api-view" role="tablist" aria-label={t('hcm.apiViewLabel')}>
+              {/* View 下拉（对齐调试页：视图 / 文本 / 代码） */}
+              <div className="hcm-api-view" ref={viewBoxRef}>
                 <button
                   type="button"
-                  role="tab"
-                  aria-selected={view === 'tree'}
-                  className={`hcm-api-view-btn${view === 'tree' ? ' active' : ''}`}
-                  onClick={() => setView('tree')}
+                  className="hcm-api-view-btn"
+                  aria-haspopup="menu"
+                  aria-expanded={viewOpen}
+                  onClick={() => setViewOpen((v) => !v)}
+                  title={t('hcm.apiViewLabel')}
                 >
-                  {t('hcm.apiViewTree')}
+                  {view === 'tree'
+                    ? t('hcm.apiViewView')
+                    : view === 'text'
+                      ? t('hcm.apiViewText')
+                      : t('hcm.apiViewCode')}
+                  <span className="hcm-api-view-caret" aria-hidden="true">▾</span>
                 </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={view === 'text'}
-                  className={`hcm-api-view-btn${view === 'text' ? ' active' : ''}`}
-                  onClick={() => setView('text')}
-                >
-                  {t('hcm.apiViewText')}
-                </button>
+                {viewOpen && (
+                  <div className="hcm-api-view-dd" role="menu">
+                    {([
+                      ['tree', t('hcm.apiViewView')],
+                      ['text', t('hcm.apiViewText')],
+                      ['code', t('hcm.apiViewCode')],
+                    ] as const).map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        role="menuitem"
+                        aria-checked={view === v}
+                        className={`hcm-api-view-dd-item${view === v ? ' active' : ''}`}
+                        onClick={() => { setView(v); setViewOpen(false); }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <input
                 className="hcm-api-search"
@@ -737,8 +800,13 @@ export function HcmApiTester() {
                 {t('hcm.apiCopy')}
               </button>
             </div>
-            {canTree ? (
+            {view === 'tree' ? (
               <JsonTree data={safeJsonParse(display.text)} search={respSearch} />
+            ) : view === 'code' ? (
+              <CodeView
+                text={display.truncated ? display.text.slice(0, PREVIEW_LIMIT) + '\n…' : display.text}
+                search={respSearch}
+              />
             ) : (
               <pre className="hcm-json hcm-api-json">
                 {display.truncated ? display.text.slice(0, PREVIEW_LIMIT) + '\n…' : display.text}
@@ -748,6 +816,9 @@ export function HcmApiTester() {
                   </span>
                 )}
               </pre>
+            )}
+            {display.isError && display.errmsg && (
+              <div className="hcm-api-errmsg">{display.errmsg}</div>
             )}
             {display.isError && display.traceback && (
               <div className="hcm-api-traceback">

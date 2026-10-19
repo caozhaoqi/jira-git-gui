@@ -8,6 +8,11 @@
   - 登录态失效自动重登：`请先登录` / errcode 17003、51006 / bhcd 网关兜底码 `system_errors_msg_00000055` 均触发（ws_call 重试一次；ws_proxy 重建连接并重发首帧，本地无感知）——预设 token 属另一网关时用户选网关点 WS 即可用，与 REST 通道体验对齐。
   - 前端：WS 按钮 + 连接/运行/终态状态点 + notify 进度折叠面板；结果区重构为 REST/WS 共用，新增 Tree/Text 视图切换（`JsonTree` 组件：可折叠树 + `{n}`/`[n]` 徽标 + 搜索高亮/命中计数/↑↓ 跳转/复制值与路径）；修复「WS 终态后 REST 结果被掩盖」（结果区以最新一次请求为准）。
   - 依赖：`websockets>=12.0` 补进 requirements.txt 与 PyInstaller spec hiddenimports（v0.0.9 踩过漏声明坑）。测试 `tests/test_hcm_ws_bridge.py`（12 例：mock 网关协议回放 + 路由 + 自动重登/重建）；现网 E2E：bhcd 网关 ws-call 与流式代理均 success（count 3288）， playwright 全流程 21 项 PASS。
+- **HCM 接口调试面板 View 三态 + 非 JSON 错误页处理**（续对齐网关调试页）：
+  - 结果区视图切换由 Tree/Text 两态按钮组改为调试页同款 **View 下拉（视图 / 文本 / 代码）**；新增 `CodeView` 组件：行号 + 自研轻量 tokenizer 语法高亮（JSON 键/串/数字/关键字，HTML doctype/标签/属性/属性值/注释；截断的 JSON 也按 JSON 高亮），搜索命中 `<mark>` 高亮 + 命中行数统计。tokenizer 自研而非引 highlight.js：token 边界明确、搜索替换不会误伤 class 名、无 `dangerouslySetInnerHTML`。
+  - 非 JSON 响应（网关 500 HTML 错误页 / nginx 页 / SSO 跳转页）：后端 `hcm_direct` 不再抛 HTTPException 把整页 HTML 塞进 message，改为结构化 `{ok:false, error.raw=原文}`（HTTP 200），前端红色结果块展示 + **按内容自动选视图**（结构化 JSON → 树，HTML/纯文本 → 代码视图，树对非 JSON 无意义）；错误块新增 errmsg 摘要行（红条），raw 原文优先展示时可读性不丢。
+  - 顺带修复 3 处既有 CSS 级联问题（`.hcm-api-chk` / `.hcm-ops-keyinput` / `.hcm-ops-decinput` 单类变体被 panels.css 基类压掉）——改复合选择器提特异性，`audit_css_cascade` 由 4 项告警清零。
+  - 测试：新增 `tests/test_hcm_direct.py`（6 例：成功/业务错误/HTTP 500 HTML/200 非 JSON/502 上游页/路由层结构化；⚠️ fake client 必须按 URL 过滤响应，否则全量跑时 startup 的 cf auto-login 会消耗脚本响应）；playwright E2E 27 项 PASS（真实网关 JSON 流程 + page.route mock HTML 500 全流程：红块/自动代码视图/行号/高亮/搜索/树兜底）。
 - **服务账号支持配置域名别名（domain）**：cf_accounts 条目新增可选 `domain` 字段（仅下拉展示识别，连接/登录仍走 server_url）；全链路贯通（load_cf_accounts → services-config GET/POST/PUT → /api/cf/accounts → /api/cf-debug/accounts → hcm_envs → kibana list_servers）；HCM 接口/HCM 运维/HCM 对象/云函数/云函数调试下拉均展示「name · url · domain」；系统设置服务账号表格新增域名副行。测试 `tests/test_cf_account_domain.py`（6 例）。
 - **AI 数据桥**（前后端全链路）：把每个功能面板的实时输出暴露为本地 HTTP 接口，外部 AI 助手可直接拉取应用正在显示的数据。
   - 后端 `api/ai_bridge.py`：内存环形缓冲（每 tab 20 条、单条 256KB 截断），`POST /api/ai/output/{tab}` 上报 + `GET /api/ai/output` 概览 + `GET /api/ai/output/{tab}?format=text&at=-n` 拉取 + `/history` 历史；TAB_DESCRIPTIONS 白名单限定 tab。测试 `tests/test_ai_bridge.py`（9 例）。
