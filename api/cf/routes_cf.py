@@ -21,6 +21,7 @@ from api.schemas import (
     CfLogReq, CfLogExportReq, CfLoginReq, CfCaptchaReq, CfAutoLoginReq, ClipboardSaveReq,
     CfDiagnoseReq, CfCaseSaveReq, CfCaseFeedbackReq, CfFeedbackLearnReq, CfLogStreamReq,
 )
+from core.errors import UserError
 
 router = APIRouter()
 
@@ -34,7 +35,7 @@ def _http_error(e: Exception) -> HTTPException:
         return HTTPException(502, msg)
     if isinstance(e, (TimeoutError,)):
         return HTTPException(504, msg)
-    if isinstance(e, (ValueError,)):
+    if isinstance(e, (ValueError, UserError)):
         return HTTPException(400, msg)
     return HTTPException(500, msg)
 
@@ -49,6 +50,7 @@ async def api_cf_accounts():
                 "name": a.get("name", ""),
                 "server_url": a.get("server_url", ""),
                 "domain": (a.get("domain") or "").strip(),
+                "http_proxy": a.get("http_proxy", ""),
                 "username": a.get("username", a.get("mobile", "")),
                 "has_password": bool(a.get("password")),
                 "has_cookie": bool(a.get("cookie")),
@@ -64,7 +66,7 @@ async def api_cf_captcha(server_url: str = "", proxy: str = ""):
     """获取 CF 登录验证码图片（返回 base64 data URL）。"""
     try:
         return await cf_captcha_fetch(server_url, proxy=proxy)
-    except (ValueError, ConnectionError, TimeoutError, RuntimeError) as e:
+    except (ValueError, UserError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
 
 
@@ -100,7 +102,20 @@ def _resolve_stored_password(server_url: str, mobile: str = "") -> str:
 @router.post("/api/cf/login")
 async def api_cf_login(req: CfLoginReq):
     """手动登录单个 CF 账号（支持验证码），缓存并返回 token。"""
-    payload = {"server_url": req.server_url, "username": req.mobile, "password": req.password}
+    server_url = (req.server_url or "").strip().rstrip("/")
+    account = next(
+        (
+            item for item in get_cf_accounts()
+            if (item.get("server_url") or "").strip().rstrip("/") == server_url
+        ),
+        {},
+    )
+    payload = {
+        "server_url": req.server_url,
+        "username": req.mobile,
+        "password": req.password,
+        "http_proxy": account.get("http_proxy", ""),
+    }
     # 密码留空 → 用配置账号里已存的密码就地补齐（见 _resolve_stored_password）；
     # 配置里也没有则维持空，由 cf_login_account 返回缺参提示。
     if not (req.password or "").strip():
@@ -177,7 +192,7 @@ async def api_cf_logs(req: CfLogReq):
     """查询 CF 云函数日志。"""
     try:
         return await cf_query_logs(req)
-    except (ValueError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
+    except (ValueError, UserError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
 
 
@@ -212,7 +227,7 @@ async def api_cf_log_stream(req: CfLogStreamReq):
             page_size=req.page_size,
             interval=req.interval,
         )
-    except (ValueError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
+    except (ValueError, UserError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
 
 

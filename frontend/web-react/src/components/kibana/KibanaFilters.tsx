@@ -263,7 +263,7 @@ function SiteManager() {
       setForm({
         name: '', label: '', base_url: '', username: 'elastic', password: '',
         index_pattern: 'logstash-*', time_field: 'es_time', msg_field: 'log',
-        field_prefix: 'kubernetes', verify_ssl: false, timeout: 30,
+        field_prefix: 'kubernetes', http_proxy: '', verify_ssl: false, timeout: 30,
       });
     }
   };
@@ -327,9 +327,10 @@ function SiteManager() {
     setTesting(true);
     setTestResult(null);
     try {
-      const payload: Record<string, any> = editing?.name
-        ? { name: editing.name }
-        : { ...form };
+      const payload: Record<string, any> = {
+        ...form,
+        ...(editing?.name ? { name: editing.name } : {}),
+      };
       const d = await apiPost<any>('/api/kibana/test', payload);
       setTestResult(d);
     } catch (ex: any) {
@@ -464,6 +465,13 @@ function SiteManager() {
                      min={1} max={300}
                      value={form.timeout ?? 30}
                      onChange={(e) => set('timeout', Number(e.target.value))} />
+            </label>
+            <label className="kb-span2">
+              {t('kibana.site.httpProxy')}
+              <input className="input input-sm" value={form.http_proxy || ''}
+                     placeholder="http://10.99.35.201:3128"
+                     onChange={(e) => set('http_proxy', e.target.value)} />
+              <span className="kb-help">{t('kibana.site.httpProxyHint')}</span>
             </label>
             <label className="kb-chk">
               <input type="checkbox" checked={!!form.verify_ssl}

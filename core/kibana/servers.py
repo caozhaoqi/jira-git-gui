@@ -64,6 +64,7 @@ def list_servers() -> List[Dict[str, str]]:
             "name": "代理（同源）",
             "server_url": proxy,
             "source": "hcm_whitelist",
+            "http_proxy": ((wh.get("proxy_target") or {}).get("http_proxy") or ""),
         })
         seen.add(proxy)
 
@@ -84,6 +85,7 @@ def list_servers() -> List[Dict[str, str]]:
             "server_url": url,
             "domain": (acc.get("domain") or "").strip(),
             "source": "cf_accounts",
+            "http_proxy": (acc.get("http_proxy") or "").strip(),
         })
         seen.add(url)
 

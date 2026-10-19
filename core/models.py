@@ -11,6 +11,7 @@ class ConnectConfig:
     mode: str = "pat"      # "pat" | "cookie"
     pat: str = ""          # Personal Access Token
     cookie: str = ""       # JSESSIONID=...; atlassian.xsrf.token=...
+    http_proxy: str = ""   # per-server HTTP(S) proxy
 
 
 @dataclass

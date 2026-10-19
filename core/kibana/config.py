@@ -32,6 +32,7 @@ DEFAULT_SITE_SEED = {
             "time_field": "es_time",
             "msg_field": "log",
             "field_prefix": "kubernetes",
+            "http_proxy": "",
             "verify_ssl": False,
             "timeout": 30,
         },
@@ -49,6 +50,7 @@ SITE_DEFAULTS = {
     "time_field": "es_time",
     "msg_field": "log",
     "field_prefix": "kubernetes",
+    "http_proxy": "",
     "verify_ssl": False,
     "timeout": 30,
 }
@@ -183,6 +185,7 @@ def _server_sites(base_site: dict) -> dict:
             label = f"{label} · {domain}"
         item["label"] = label
         item["base_url"] = url
+        item["http_proxy"] = s.get("http_proxy", "")
         item["derived"] = True
         item["server_url"] = s.get("server_url", "")
         out["srv::" + s.get("key", url)] = item

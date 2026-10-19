@@ -40,6 +40,7 @@ _FIELD_ALIASES = {
     "pat": ("JIRA_PAT", "PERSONAL_ACCESS_TOKEN", "personal_access_token",
             "PAT", "pat", "persoanl_access_token"),
     "cookie": ("JIRA_COOKIE", "cookie", "COOKIE"),
+    "http_proxy": ("JIRA_HTTP_PROXY", "jira_http_proxy"),
 }
 
 
@@ -57,6 +58,7 @@ def build_config(env: dict) -> ConnectConfig:
         mode=(pick(*_FIELD_ALIASES["mode"]) or "pat").lower(),
         pat=pick(*_FIELD_ALIASES["pat"]),
         cookie=pick(*_FIELD_ALIASES["cookie"]),
+        http_proxy=pick(*_FIELD_ALIASES["http_proxy"]),
     )
 
 
@@ -97,4 +99,3 @@ def load_config(project_root: Optional[Path] = None) -> Tuple[ConnectConfig, boo
 # --------------------------------------------------------------------------- #
 #  Cookie / 会话持久化
 # --------------------------------------------------------------------------- #
-

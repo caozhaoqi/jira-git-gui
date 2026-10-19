@@ -459,6 +459,7 @@ export interface KibanaSite {
   time_field?: string;
   msg_field?: string;
   field_prefix?: string;
+  http_proxy?: string;
   verify_ssl?: boolean;
   timeout?: number;
   is_current?: boolean;

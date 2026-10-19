@@ -8,7 +8,12 @@ from datetime import datetime
 
 import httpx
 
-from api.common import logger, _PROJECT_ROOT, _HCM_WL, _cf_is_session_err, _cf_token_stale
+from core.network_proxy import get_global_http_proxy, resolve_http_proxy
+
+from api.common import (
+    logger, _PROJECT_ROOT, _HCM_WL, _cf_is_session_err, _cf_token_stale,
+    get_cf_accounts,
+)
 from core.app_paths import get_data_root
 from core.log_retention import prune_cf_exports
 from api.cf.cf_tokens import (
@@ -113,9 +118,19 @@ async def cf_query_logs(req) -> "dict":
     def _client_kwargs():
         ctx = _cf_ssl_context()
         kw = dict(timeout=30, follow_redirects=True, verify=ctx)
-        if req.proxy:
-            kw["proxy"] = req.proxy
-        else:
+        configured_proxy = next(
+            (
+                account.get("http_proxy", "")
+                for account in get_cf_accounts()
+                if (account.get("server_url") or "").strip().rstrip("/")
+                == (req.server_url or "").strip().rstrip("/")
+            ),
+            "",
+        )
+        proxy = resolve_http_proxy(configured_proxy, req.proxy)
+        if proxy:
+            kw["proxy"] = proxy
+        elif not get_global_http_proxy():
             # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
             kw["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
         return kw

@@ -9,6 +9,7 @@ import httpx
 
 from api.common import logger, get_cf_accounts
 from api.cf.cf_tokens import _CF_TOKEN_CACHE, _cf_tokens_save, _cf_ssl_context, TOKEN_CACHE_LOCK
+from core.network_proxy import get_global_http_proxy, resolve_http_proxy
 
 
 # 会话内「永久鉴权失败」的 server_url 集合：账号密码错误属永久失败，
@@ -44,9 +45,10 @@ async def cf_login_account(account: "dict", proxy: str = "") -> "dict":
     url = f"{base}/login"
     ctx = _cf_ssl_context()
     kwargs = dict(timeout=15, follow_redirects=True, verify=ctx)
+    proxy = resolve_http_proxy(account.get("http_proxy", ""), proxy)
     if proxy:
         kwargs["proxy"] = proxy
-    else:
+    elif not get_global_http_proxy():
         # 显式 transport 会忽略客户端的 verify=，必须在这里也传入 ssl 上下文
         kwargs["transport"] = httpx.AsyncHTTPTransport(verify=ctx)
     form_data = {

@@ -183,6 +183,11 @@ async def api_connect(req: ConnectReq):
         mode=req.mode,
         pat=effective_pat,
         cookie=effective_cookie,
+        http_proxy=(
+            client.config.http_proxy
+            if req.jira_url.rstrip("/") == client.config.jira_url.rstrip("/")
+            else ""
+        ),
     )
 
     if req.dry_run:

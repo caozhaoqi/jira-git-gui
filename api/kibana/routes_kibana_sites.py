@@ -18,6 +18,7 @@ from core.kibana import (
     delete_site as _delete_site,
     get_client,
     KibanaError,
+    normalize_http_proxy,
 )
 
 router = APIRouter()
@@ -33,6 +34,7 @@ class SiteSaveReq(BaseModel):
     time_field: str = ""
     msg_field: str = ""
     field_prefix: str = ""
+    http_proxy: str = ""
     verify_ssl: bool = False
     timeout: int = 30
 
@@ -44,6 +46,7 @@ class TestReq(BaseModel):
     password: str = ""
     index_pattern: str = ""
     time_field: str = ""
+    http_proxy: str = ""
     verify_ssl: bool = False
     timeout: int = 30
 
@@ -83,6 +86,7 @@ async def api_kibana_site_save(body: SiteSaveReq):
             time_field=body.time_field,
             msg_field=body.msg_field,
             field_prefix=body.field_prefix,
+            http_proxy=normalize_http_proxy(body.http_proxy),
             verify_ssl=body.verify_ssl,
             timeout=body.timeout,
         )
@@ -121,24 +125,31 @@ async def api_kibana_test(body: TestReq):
     ``_cluster/health``）→ 索引模式能查到数据（一次 ``size=1`` 检索）。
     任一步失败都给出具体到步骤的错误，便于用户自行定位。
     """
-    site = {
-        "base_url": body.base_url,
-        "username": body.username,
-        "password": body.password,
-        "index_pattern": body.index_pattern or "logstash-*",
-        "time_field": body.time_field or "es_time",
-        "msg_field": "log",
-        "field_prefix": "kubernetes",
-        "verify_ssl": body.verify_ssl,
-        "timeout": body.timeout,
-    }
-    if body.name and not body.base_url:
-        # 测已保存站点：用库里的配置（含已存密码）
+    site = {}
+    if body.name:
+        # 测已保存站点时以表单显式提供的值覆盖配置；密码留空仍复用已存密码。
         try:
             from core.kibana.config import get_site
-            _, site = get_site(body.name)
+            _, saved_site = get_site(body.name)
+            site.update(saved_site)
         except UserError as ex:
             return {"ok": False, "error": _err(ex)}
+
+    for field in body.model_fields_set:
+        value = getattr(body, field)
+        if field == "password" and not value and site.get("password"):
+            continue
+        site[field] = value
+    site.setdefault("index_pattern", "logstash-*")
+    site.setdefault("time_field", "es_time")
+    site.setdefault("msg_field", "log")
+    site.setdefault("field_prefix", "kubernetes")
+    site.setdefault("verify_ssl", False)
+    site.setdefault("timeout", 30)
+    try:
+        site["http_proxy"] = normalize_http_proxy(str(site.get("http_proxy") or ""))
+    except KibanaError as ex:
+        return {"ok": False, "error": _err(ex)}
 
     def _run():
         from core.kibana.client import KibanaClient

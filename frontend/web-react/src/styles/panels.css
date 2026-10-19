@@ -4299,6 +4299,19 @@ html.dark {
   font-size: 10.5px;
   cursor: pointer;
 }
+.cfc-roots-add {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-elevated);
+  color: var(--primary);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.cfc-roots-add:hover { border-color: var(--primary); }
+.cfc-roots-add:disabled { color: var(--text-faint); cursor: default; }
 .cfc-roots-reset:hover { text-decoration: underline; }
 .cfc-roots-reset:disabled {
   color: var(--text-faint);

@@ -15,7 +15,7 @@ from typing import Optional
 
 import httpx
 
-from core.constants import HTTP_TIMEOUT, PROXY_URL, DEFAULT_REQUEST_QPS
+from core.constants import HTTP_TIMEOUT, DEFAULT_REQUEST_QPS
 from core.errors import UserError
 from core.models import ConnectConfig
 from core import throttle
@@ -150,8 +150,8 @@ class ConnectionMixin:
         return httpx.Client(
             timeout=HTTP_TIMEOUT,
             follow_redirects=True,
-            proxy=PROXY_URL or None,
             verify=False,
+            proxy=self.config.http_proxy or None,
             headers={"User-Agent": "jira-git-gui/1.0"},
         )
 

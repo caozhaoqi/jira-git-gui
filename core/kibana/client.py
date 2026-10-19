@@ -29,6 +29,7 @@ from typing import Any, Dict, Optional, Tuple
 import httpx
 
 from core.errors import UserError
+from core.network_proxy import normalize_http_proxy as _normalize_http_proxy
 
 __all__ = ["KibanaError", "KibanaClient", "get_client"]
 
@@ -39,6 +40,13 @@ class KibanaError(UserError):
     归类为 ``UserError``：绝大多数情况是「站点评错、账号过期、索引模式不存在、
     时间范围无数据」这类用户可修正的问题，不该被全局处理器兜底成 500。
     """
+
+
+def normalize_http_proxy(value: str) -> str:
+    try:
+        return _normalize_http_proxy(value)
+    except UserError as ex:
+        raise KibanaError(str(ex)) from ex
 
 
 class KibanaClient:
@@ -58,6 +66,7 @@ class KibanaClient:
         self.time_field = str(site.get("time_field") or "es_time")
         self.msg_field = str(site.get("msg_field") or "log")
         self.field_prefix = str(site.get("field_prefix") or "kubernetes").strip(".")
+        self.http_proxy = normalize_http_proxy(str(site.get("http_proxy") or ""))
         self.timeout = float(site.get("timeout") or 30)
         self.verify_ssl = bool(site.get("verify_ssl"))
         self._client: Optional[httpx.Client] = None
@@ -76,6 +85,7 @@ class KibanaClient:
                         if (self.username or self.password) else None
                     self._client = httpx.Client(
                         auth=auth,
+                        proxy=self.http_proxy or None,
                         verify=self.verify_ssl,
                         timeout=self.timeout,
                         follow_redirects=True,
@@ -209,7 +219,7 @@ class KibanaClient:
 # --------------------------------------------------------------------------- #
 #  客户端缓存：同一站点配置复用一个 httpx 连接池
 # --------------------------------------------------------------------------- #
-_clients: Dict[Tuple[str, str, str], KibanaClient] = {}
+_clients: Dict[Tuple[str, str, str, str], KibanaClient] = {}
 _clients_lock = __import__("threading").Lock()
 
 
@@ -218,7 +228,9 @@ def get_client(site_name: str = None, refresh: bool = False) -> KibanaClient:
     from .config import get_site  # 延迟导入，避免与 config 形成导入环
 
     name, site = get_site(site_name)
-    key = (name, str(site.get("base_url") or ""), str(site.get("username") or ""))
+    site_proxy = normalize_http_proxy(str(site.get("http_proxy") or ""))
+    key = (name, str(site.get("base_url") or ""), str(site.get("username") or ""),
+           site_proxy)
     with _clients_lock:
         cli = _clients.get(key)
         if refresh and cli is not None:
@@ -235,6 +247,7 @@ def get_client(site_name: str = None, refresh: bool = False) -> KibanaClient:
             # 同步可能被就地修改过的字段（密码/超时等）
             cli.password = str(site.get("password") or "")
             cli.timeout = float(site.get("timeout") or 30)
+            cli.http_proxy = key[3]
             cli.verify_ssl = bool(site.get("verify_ssl"))
             cli.index_pattern = str(site.get("index_pattern") or cli.index_pattern)
             cli.time_field = str(site.get("time_field") or cli.time_field)
