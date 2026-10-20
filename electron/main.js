@@ -479,6 +479,23 @@ function registerIpcHandlers() {
     isDev,
   }));
 
+  ipcMain.handle('window:minimize', (ev) => {
+    const win = BrowserWindow.fromWebContents(ev.sender);
+    if (!win) throw new Error('Cannot find the window to minimize');
+    win.minimize();
+  });
+  ipcMain.handle('window:toggle-maximize', (ev) => {
+    const win = BrowserWindow.fromWebContents(ev.sender);
+    if (!win) throw new Error('Cannot find the window to maximize or restore');
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+  });
+  ipcMain.handle('window:close', (ev) => {
+    const win = BrowserWindow.fromWebContents(ev.sender);
+    if (!win) throw new Error('Cannot find the window to close');
+    win.close();
+  });
+
   // 原生目录选择对话框（Diff 面板 localDir 等）。取消/关闭返回 null。
   ipcMain.handle('dialog:open-directory', async (_ev, payload) => {
     const title = String((payload && payload.title) || '');
@@ -770,7 +787,7 @@ function createWindow() {
     height: initH,
     minWidth: 900,
     minHeight: 600,
-    // 标题栏不显示应用名（用户要求去掉）：置空即可，macOS 只留红绿灯按钮。
+    frame: false,
     title: '',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

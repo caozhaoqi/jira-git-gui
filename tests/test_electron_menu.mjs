@@ -74,6 +74,16 @@ const titleGuardHits = [];
 const msgBoxCalls = [];
 const showItemInFolderCalls = [];
 let msgBoxResponse = { response: 0 };
+const ipcHandlers = new Map();
+const windowControlCalls = [];
+let controlledWindowMaximized = false;
+const controlledWindow = {
+  minimize: () => windowControlCalls.push('minimize'),
+  isMaximized: () => controlledWindowMaximized,
+  maximize: () => { controlledWindowMaximized = true; windowControlCalls.push('maximize'); },
+  unmaximize: () => { controlledWindowMaximized = false; windowControlCalls.push('unmaximize'); },
+  close: () => windowControlCalls.push('close'),
+};
 
 function makeWebContents() {
   let opened = false;
@@ -144,6 +154,7 @@ const electronStub = {
   BrowserWindow: Object.assign(function BrowserWindow(opts) { return makeWindow(opts); }, {
     getFocusedWindow: () => focusedWindow,
     getAllWindows: () => [],
+    fromWebContents: () => controlledWindow,
   }),
   dialog: {
     showErrorBox: () => {},
@@ -152,7 +163,10 @@ const electronStub = {
       return Promise.resolve(msgBoxResponse);
     },
   },
-  ipcMain: { on: () => {}, handle: () => {} },
+  ipcMain: {
+    on: () => {},
+    handle: (name, handler) => ipcHandlers.set(name, handler),
+  },
   clipboard: { writeText: () => {}, readText: () => '' },
   Menu: {
     buildFromTemplate: (tpl) => {
@@ -213,6 +227,7 @@ context.globalThis = context;
 
 const source = fs.readFileSync(MAIN_JS, 'utf8');
 vm.runInNewContext(`${source}\n;buildAppMenu();`, context, { filename: MAIN_JS });
+context.registerIpcHandlers();
 
 // ---- 断言 ------------------------------------------------------------------- //
 console.log('buildAppMenu 产出的模板');
@@ -222,6 +237,16 @@ const localBackendArgs = context.getBackendLaunch().args;
 const lanBackendArgs = context.getBackendLaunch(true).args;
 check('默认 Electron 后端仍只监听本机', !localBackendArgs.includes('--lan'));
 check('LAN 模式将 --lan 透传给后端', lanBackendArgs.includes('--lan'));
+console.log('自定义标题栏窗口控制');
+const controlEvent = { sender: {} };
+await ipcHandlers.get('window:minimize')(controlEvent);
+check('最小化控制调用 BrowserWindow.minimize()', windowControlCalls.at(-1) === 'minimize');
+await ipcHandlers.get('window:toggle-maximize')(controlEvent);
+check('窗口未最大化时可最大化', windowControlCalls.at(-1) === 'maximize');
+await ipcHandlers.get('window:toggle-maximize')(controlEvent);
+check('窗口最大化时可还原', windowControlCalls.at(-1) === 'unmaximize');
+await ipcHandlers.get('window:close')(controlEvent);
+check('关闭控制调用 BrowserWindow.close()', windowControlCalls.at(-1) === 'close');
 
 const topLabels = capturedTemplate.map((m) => m.label || `[${m.role || m.type}]`);
 console.log(`  顶层菜单：${topLabels.join(' / ')}`);
@@ -285,6 +310,7 @@ windowOptions.length = 0;
 context.createWindow();
 const mainOpts = windowOptions[0] || {};
 check('主窗口 title 置空（标题栏不显示应用名）', mainOpts.title === '', `实际 ${JSON.stringify(mainOpts.title)}`);
+check('主窗口使用 frameless 自定义标题栏', mainOpts.frame === false);
 check('主窗口仍保留最小尺寸等既有配置', mainOpts.minWidth === 900 && mainOpts.minHeight === 600);
 check('主窗口注册了 page-title-updated 拦截', titleGuardHits.length > 0);
 check(

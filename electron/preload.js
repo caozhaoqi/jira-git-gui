@@ -23,6 +23,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('app:get-info');
   },
 
+  minimizeWindow() {
+    return ipcRenderer.invoke('window:minimize');
+  },
+
+  toggleMaximizeWindow() {
+    return ipcRenderer.invoke('window:toggle-maximize');
+  },
+
+  closeWindow() {
+    return ipcRenderer.invoke('window:close');
+  },
+
   openExternal(url) {
     return ipcRenderer.invoke('shell:open-external', String(url || ''));
   },

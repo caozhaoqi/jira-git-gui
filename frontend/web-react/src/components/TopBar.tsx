@@ -2,6 +2,56 @@ import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { LOCALES } from '../i18n/types';
 import { TabIcon } from './icons';
+import {
+  controlDesktopWindow,
+  isDesktopApp,
+  isMacDesktopApp,
+  type DesktopWindowAction,
+} from '../utils/desktopWindow';
+
+function WindowControls({ mac = false }: { mac?: boolean }) {
+  const { t } = useT();
+  const controls: { action: DesktopWindowAction; label: string; icon: string }[] = mac
+    ? [
+        { action: 'close', label: 'app.windowClose', icon: 'close' },
+        { action: 'minimize', label: 'app.windowMinimize', icon: 'minimize' },
+        { action: 'toggle-maximize', label: 'app.windowToggleMaximize', icon: 'maximize' },
+      ]
+    : [
+        { action: 'minimize', label: 'app.windowMinimize', icon: 'minimize' },
+        { action: 'toggle-maximize', label: 'app.windowToggleMaximize', icon: 'maximize' },
+        { action: 'close', label: 'app.windowClose', icon: 'close' },
+      ];
+
+  const run = (action: DesktopWindowAction) => {
+    void controlDesktopWindow(action).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Window control failed (${action}): ${message}`);
+      window.electronAPI?.log?.('error', `Window control failed (${action}): ${message}`);
+    });
+  };
+
+  return (
+    <div className={`window-controls${mac ? ' window-controls--mac' : ' window-controls--desktop'}`}>
+      {controls.map(({ action, label, icon }) => (
+        <button
+          key={action}
+          type="button"
+          className={`window-control window-control--${icon}`}
+          onClick={() => run(action)}
+          title={t(label)}
+          aria-label={t(label)}
+        >
+          <svg viewBox="0 0 12 12" aria-hidden="true">
+            {icon === 'close' && <path d="m3 3 6 6M9 3 3 9" />}
+            {icon === 'minimize' && <path d="M2.5 6h7" />}
+            {icon === 'maximize' && <rect x="2.5" y="2.5" width="7" height="7" rx=".7" />}
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const status = useAppStore((s) => s.status);
@@ -10,11 +60,14 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const locale = useAppStore((s) => s.locale);
   const setLocale = useAppStore((s) => s.setLocale);
   const { t } = useT();
+  const desktop = isDesktopApp();
+  const macDesktop = desktop && isMacDesktopApp();
 
   const credOk = !!(status?.cookie_set || status?.pat_set);
 
   return (
-    <header className="appbar">
+    <header className={`appbar${desktop ? ' appbar--desktop' : ''}`}>
+      {macDesktop && <WindowControls mac />}
       <div className="appbar-brand">
         <span className="brand-mark" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
@@ -37,6 +90,19 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
           Jira&nbsp;Git <b>GUI</b>
         </span>
       </div>
+      {desktop && (
+        <div
+          className="appbar-drag-region"
+          data-tauri-drag-region=""
+          onDoubleClick={() => {
+            void controlDesktopWindow('toggle-maximize').catch((error: unknown) => {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`Window maximize failed: ${message}`);
+            });
+          }}
+          aria-hidden="true"
+        />
+      )}
       <div className="appbar-actions">
         <span className="appbar-status" title={t('app.statusTitle')}>
           {(status?.mode || '-').toUpperCase()} · {status?.repo_id || t('repo.noRepo')}
@@ -70,6 +136,7 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
           <TabIcon name={theme === 'dark' ? 'sun' : 'moon'} size={14} />
         </button>
       </div>
+      {desktop && !macDesktop && <WindowControls />}
     </header>
   );
 }
