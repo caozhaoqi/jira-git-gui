@@ -307,6 +307,7 @@ function SiteManager() {
     if (!(await requestConfirm({ message: t('kibana.site.confirmDelete', { name }), danger: true }))) return;
     try {
       await apiPost('/api/kibana/sites/delete', { name });
+      addToast(t('kibana.site.deleted', { name }), 'success');
       await reload();
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');
@@ -317,6 +318,7 @@ function SiteManager() {
     try {
       await apiPost('/api/kibana/sites/switch', { name });
       setCurrent(name);
+      addToast(t('kibana.site.switched', { name }), 'success');
       await reload();
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');

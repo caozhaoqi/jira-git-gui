@@ -889,6 +889,7 @@ export function CfDebugPanel() {
     try {
       const cfg = await cfdebug.saveEnv(patch);
       setEnvConfig(cfg);
+      addToast(t('cfdebug.envSaved'), 'success');
     } catch (e: any) {
       addToast(t('cfdebug.envSaveFail', { msg: e.message }), 'error');
     }

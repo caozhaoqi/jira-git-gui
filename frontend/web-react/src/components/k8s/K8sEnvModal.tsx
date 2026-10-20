@@ -28,7 +28,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const { t } = useT();
   // 保存/切换/删除后同步刷新 Panel 的环境列表与当前环境（envbar 下拉、kcText、target.env），
   // 否则新增的环境不出现在顶部下拉里、切换后 target.env 与后端 current 不一致。
-  const { reloadEnvs } = useK8s();
+  const { reloadEnvs, addToast } = useK8s();
   const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [list, setList] = useState<K8sEnv[]>([]);
   const [form, setForm] = useState<EnvForm>(EMPTY);
@@ -116,12 +116,14 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     try {
       await apiPost('/api/k8s/env', body);
       setMsg(isNewEnv ? t('k8s.env.created') : t('k8s.env.saved'));
+      addToast(isNewEnv ? t('k8s.env.toastCreated', { name: body.name }) : t('k8s.env.toastSaved', { name: body.name }), 'success');
       setSelName(body.name);
       setDelArmed(false);
       await loadList();
       await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
+      addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
     }
   };
 
@@ -130,11 +132,13 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     try {
       await apiPost('/api/k8s/env/switch', { name: form.name.trim() });
       setMsg(t('k8s.env.switched'));
+      addToast(t('k8s.env.toastSwitched', { name: form.name.trim() }), 'success');
       setDelArmed(false);
       await loadList();
       await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
+      addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
     }
   };
 
@@ -145,6 +149,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     try {
       await apiPost('/api/k8s/env/delete', { name: form.name.trim() });
       setMsg(t('k8s.env.deleted'));
+      addToast(t('k8s.env.toastDeleted', { name: form.name.trim() }), 'success');
       setForm(EMPTY);
       setSelName('');
       setDelArmed(false);
@@ -152,6 +157,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
+      addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
     }
   };
 

@@ -150,6 +150,7 @@ export function K8sFiles() {
     // （还会把「... (truncated, total N bytes)」这行提示当成正文写进去）。
     if (editTruncated) {
       setEditMsg(t('k8s.files.saveBlockedTruncated'));
+      addToast(t('k8s.files.saveBlockedTruncated'), 'warn');
       return;
     }
     setEditMsg(t('k8s.files.saveMsgSaving'));
@@ -157,14 +158,20 @@ export function K8sFiles() {
       const d = await apiPost<K8sFileWriteResp>('/api/k8s/file/write', {
         env: target.env, pod: target.pod, container: target.container, namespace: target.namespace, path: editPath, content: editContent,
       });
-      if (!d.ok) { setEditMsg(t('k8s.files.saveFail') + (d.error || '')); return; }
+      if (!d.ok) {
+        setEditMsg(t('k8s.files.saveFail') + (d.error || ''));
+        addToast(t('k8s.files.saveFail') + (d.error || ''), 'error');
+        return;
+      }
       setEditMsg(t('k8s.files.saveDone'));
+      addToast(t('k8s.files.toastSaved', { path: editPath }), 'success');
       loadedRef.current = editContent;
       listFiles(path);
     } catch (ex: any) {
       setEditMsg(t('k8s.files.saveFail') + ex.message);
+      addToast(t('k8s.files.saveFail') + ex.message, 'error');
     }
-  }, [editPath, editContent, editTruncated, target.env, target.pod, target.container, target.namespace, listFiles, path, t]);
+  }, [editPath, editContent, editTruncated, target.env, target.pod, target.container, target.namespace, addToast, listFiles, path, t]);
 
   // 保存可用条件：处于编辑模式 + 内容确有改动 + 文件未被截断
   const editDirty = loadedRef.current !== null && editContent !== loadedRef.current;
