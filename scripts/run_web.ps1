@@ -1,7 +1,9 @@
 # Electron / Web 版启动脚本（Windows PowerShell）
 # 用法：
 #   .\run_web.ps1              # 启动 API + Web 前端（自动打开浏览器）
+#   .\run_web.ps1 --lan        # 允许局域网设备访问（需允许防火墙端口 8787）
 #   .\run_web.ps1 --electron   # 启动 Electron 桌面应用
+#   .\run_web.ps1 --electron --lan # Electron 后端也允许局域网访问
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Resolve-Path (Join-Path $ScriptDir '..')
 Set-Location $Root
@@ -26,6 +28,10 @@ if ($args.Count -gt 0 -and $args[0] -eq '--electron') {
     exit $LASTEXITCODE
 } else {
     Write-Host "启动 API 服务器…"
+    if ($args -contains '--lan') {
+        Write-Host "已启用局域网访问；其他设备请访问本机局域网 IP 的 8787 端口。"
+        Write-Host "仅在可信网络使用；请按需允许防火墙入站连接。"
+    }
     Write-Host "浏览器访问 http://127.0.0.1:8787"
     Start-Process "http://127.0.0.1:8787"
     & $Py -m api.server @args

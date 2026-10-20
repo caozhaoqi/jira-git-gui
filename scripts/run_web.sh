@@ -2,7 +2,9 @@
 # Electron / Web 版启动脚本（跨平台：macOS / Linux / Windows-Git-Bash）
 # 用法：
 #   ./scripts/run_web.sh              # 启动 API + Web 前端（自动打开浏览器）
+#   ./scripts/run_web.sh --lan        # 允许局域网设备访问（需允许防火墙端口 8787）
 #   ./scripts/run_web.sh --electron   # 启动 Electron 桌面应用
+#   ./scripts/run_web.sh --electron --lan # Electron 后端也允许局域网访问
 set -euo pipefail
 
 # 脚本位于 <root>/scripts/ 下，切到项目根目录再干活
@@ -42,6 +44,10 @@ if [ "${1:-}" = "--electron" ]; then
 else
     # Web 模式：启动 API 服务器，自动打开浏览器
     echo "启动 API 服务器…"
+    if [[ " $* " == *" --lan "* ]]; then
+        echo "已启用局域网访问；其他设备请访问本机局域网 IP 的 8787 端口。"
+        echo "仅在可信网络使用；请按需允许防火墙入站连接。"
+    fi
     echo "浏览器访问 http://127.0.0.1:8787"
     open_browser "http://127.0.0.1:8787"
     exec "$PYTHON" -m api.server "$@"

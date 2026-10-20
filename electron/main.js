@@ -30,6 +30,7 @@ let mainWindow = null;
 let BACKEND_PORT = 8787;
 let BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
+const exposeBackendToLan = process.argv.includes('--lan');
 
 // ---- 进程守卫：后端意外退出时自动重启（指数退避） ----
 // OOM / 未捕获异常 / 崩溃都会触发；主动 quit 或用户点击「停止后端」不重启。
@@ -645,13 +646,14 @@ function showErrorWithLogDir(title, err, parent) {
 
 // ---- Python 后端启动 ----
 // 返回后端启动命令：打包态用冻结后的单文件可执行；开发态用 venv 里的 python。
-function getBackendLaunch() {
+function getBackendLaunch(lan = exposeBackendToLan) {
   const port = String(BACKEND_PORT);
   const isPacked = app?.isPackaged ?? false;
+  const networkArgs = lan ? ['--lan'] : [];
   if (isPacked) {
     const exeName = process.platform === 'win32' ? 'jira-git-backend.exe' : 'jira-git-backend';
     const cmd = path.join(process.resourcesPath, 'backend', exeName);
-    return { cmd, args: ['--port', port] };
+    return { cmd, args: ['--port', port, ...networkArgs] };
   }
   // 开发态 Python：Windows 的 venv 布局是 Scripts/python.exe，macOS/Linux 是 bin/python；
   // venv 不存在时回退到 PATH 上的 python/python3，避免直接 spawn 失败。
@@ -666,7 +668,7 @@ function getBackendLaunch() {
   } else {
     cmd = process.platform === 'win32' ? 'python' : 'python3';
   }
-  return { cmd, args: ['-m', 'api.server', '--port', port] };
+  return { cmd, args: ['-m', 'api.server', '--port', port, ...networkArgs] };
 }
 
 function startPythonBackend() {
