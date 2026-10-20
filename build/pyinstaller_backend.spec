@@ -19,12 +19,16 @@ import glob
 SPEC_DIR = Path(os.path.dirname(os.path.abspath(SPEC)))
 PROJ = SPEC_DIR.parent
 
-# Keep the frozen backend's static files aligned with api/server.py's lookup order.
+# The frozen backend must ship the React build used by api/server.py.
 _frontend_dist = PROJ / "frontend" / "web-react" / "dist"
-if _frontend_dist.is_dir():
-    _web_datas = [(str(_frontend_dist), "frontend/web-react/dist")]
-else:
-    _web_datas = [(str(PROJ / "web"), "web")]
+_frontend_index = _frontend_dist / "index.html"
+if not _frontend_index.is_file() or not any((_frontend_dist / "assets").glob("*.js")):
+    raise SystemExit(
+        "React frontend build is missing or incomplete; refusing to package the legacy web UI. "
+        "Run `cd frontend/web-react && npm ci && npm run build` or "
+        "`python build/build.py --flavor backend` first."
+    )
+_web_datas = [(str(_frontend_dist), "frontend/web-react/dist")]
 
 a = Analysis(
     [str(PROJ / "build" / "run_backend.py")],

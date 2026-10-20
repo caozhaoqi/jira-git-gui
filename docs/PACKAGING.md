@@ -134,7 +134,8 @@ cargo install tauri-cli                                        # 安装 Tauri CL
 
 Electron 与 Tauri 都不直接打包 Python 源码，而是把**冻结好的后端可执行**作为资源嵌入安装包。
 冻结前先构建 React 前端。PyInstaller 会把 `frontend/web-react/dist` 放进可执行包的同一路径，
-供 `api/server.py` 的静态资源路由读取；仅在该目录不存在时才回退到旧的 `web/`。
+供 `api/server.py` 的静态资源路由读取。若 React 产物缺失或不完整，PyInstaller 会直接停止，
+不会回退到旧版 `web/` 生成启动后 bundle 404 的白屏包。
 
 ```bash
 npm ci --prefix frontend/web-react
