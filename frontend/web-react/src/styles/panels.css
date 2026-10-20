@@ -1187,6 +1187,34 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 10px;
   padding: 12px 0;
 }
+/* 表单模式条：一眼分清「新建环境 / 编辑中」，附目标环境名或新建提示 */
+.k8s-env-form-mode {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.k8s-env-mode-tag {
+  padding: 1px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+.k8s-env-mode-tag.new {
+  background: var(--primary);
+}
+.k8s-env-mode-tag.edit {
+  background: var(--text-dim);
+}
+.k8s-env-form-mode-text {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .form-row {
   display: flex;
   align-items: center;

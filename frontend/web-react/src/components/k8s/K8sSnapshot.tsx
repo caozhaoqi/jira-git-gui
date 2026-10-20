@@ -8,6 +8,7 @@ import { useT } from '../../i18n';
 import type { K8sSummary, K8sRecord } from '../../api/types';
 import { copyText } from '../../utils/clipboard';
 import { openLogViewer } from '../../utils/logviewer';
+import { envTagClass, envTagText, envKindKey, envUnreachable } from '../../utils/k8sEnv';
 import { useK8s } from './context';
 
 function CfgChip({ label, value }: { label: string; value?: string | number | boolean }) {
@@ -27,7 +28,7 @@ function CfgChip({ label, value }: { label: string; value?: string | number | bo
 }
 
 export function K8sSnapshot() {
-  const { target, pushLog, openDescribe } = useK8s();
+  const { target, envs, pushLog, openDescribe, openEnvModal } = useK8s();
   const addToast = useAppStore((s) => s.addToast);
   const setProgress = useAppStore((s) => s.setProgress);
   const { t } = useT();
@@ -64,6 +65,19 @@ export function K8sSnapshot() {
 
   const runningRef = useRef(false);
   const logsRef = useRef<string[]>([]);
+
+  // 当前环境连通性：既没配 kubeconfig 也没配 SSH 跳板时，后端 kubectl 只能连
+  // localhost，抓取必然失败——在运行按钮/守卫上直接拦下并引导去「管理环境」。
+  const curEnv = envs.find((e) => e.name === target.env);
+  const envBlocked = !!target.env && envUnreachable(curEnv) && !kubeconfig.trim();
+  const envTitle = !target.env
+    ? t('k8s.snapshot.noEnvChipTip')
+    : envUnreachable(curEnv)
+      ? t('k8s.snapshot.envNoAccess')
+      : curEnv?.kubeconfig
+        ? 'kubeconfig: ' + curEnv.kubeconfig
+        : t('k8s.snapshot.envSshRemote');
+
   const appendLog = useCallback((msg: string) => {
     logsRef.current.push(msg);
     if (logsRef.current.length > 2000) logsRef.current = logsRef.current.slice(-2000);
@@ -117,6 +131,13 @@ export function K8sSnapshot() {
       appendLog(t('k8s.snapshot.needEnv'));
       return;
     }
+    // 守卫：选了环境但该环境没有 kubeconfig 也没有 SSH 跳板（且未手填 kubeconfig）时
+    // 同样连不上集群，提前拦下并提示去「管理环境」完善配置。
+    if (envBlocked) {
+      addToast(t('k8s.snapshot.envNoAccess'), 'error');
+      appendLog(t('k8s.snapshot.envNoAccess'));
+      return;
+    }
     setRunning(true);
     runningRef.current = true;
     logsRef.current = [];
@@ -149,7 +170,7 @@ export function K8sSnapshot() {
       runningRef.current = false;
       setProgress({ visible: false });
     }
-  }, [namespace, selector, podFilter, tail, restartThreshold, allLogs, includePrevious, outDir, kubeconfig, target.env, logLevel, pushLog, addToast, setProgress, appendLog, t]);
+  }, [namespace, selector, podFilter, tail, restartThreshold, allLogs, includePrevious, outDir, kubeconfig, target.env, envs, envBlocked, logLevel, pushLog, addToast, setProgress, appendLog, t]);
 
   const cancel = useCallback(async () => {
     try {
@@ -193,6 +214,28 @@ export function K8sSnapshot() {
           </button>
 
           <div className="k8s-cfg-chips">
+            {/* 环境信息 + 直达「管理环境」：此前快照配置区内没有任何环境展示与
+                新增/切换入口，用户只能注意到面板顶部的 envbar，感知断裂。 */}
+            <span
+              className={`k8s-snap-env${!target.env || envUnreachable(curEnv) ? ' unreachable' : ''}`}
+              title={envTitle}
+            >
+              {target.env ? (
+                <>
+                  <span className={envTagClass(target.env)}>{t(envKindKey(target.env))}</span>
+                  <span className="k8s-snap-env-name">{envTagText(envs, target.env)}</span>
+                </>
+              ) : (
+                <span className="k8s-snap-env-name">{t('k8s.snapshot.noEnvChip')}</span>
+              )}
+            </span>
+            <button
+              className="btn btn-ghost btn-sm k8s-snap-env-btn"
+              onClick={openEnvModal}
+              title={t('k8s.manageEnv')}
+            >
+              {t('k8s.manageEnv')}
+            </button>
             <CfgChip label={t('k8s.snapshot.namespace')} value={namespace || t('k8s.snapshot.allNamespaces')} />
             <CfgChip label={t('k8s.snapshot.selector')} value={selector} />
             <CfgChip label={t('k8s.snapshot.podFilter')} value={podFilter} />
@@ -219,9 +262,10 @@ export function K8sSnapshot() {
               className="btn btn-primary btn-sm"
               onClick={run}
               // 与 run() 内的守卫保持一致：没选环境但填了 kubeconfig 也应可运行，
-              // 否则那个 kubeconfig 输入框永远无法生效（前端把它渲染成了摆设）。
-              disabled={!target.env && !kubeconfig.trim()}
-              title={!target.env && !kubeconfig.trim() ? t('k8s.snapshot.needEnvOrKubeconfig') : undefined}
+              // 否则那个 kubeconfig 输入框永远无法生效（前端把它渲染成了摆设）；
+              // 环境存在但无 kubeconfig/SSH 时禁用并说明原因（去「管理环境」完善）。
+              disabled={envBlocked || (!target.env && !kubeconfig.trim())}
+              title={envBlocked ? t('k8s.snapshot.envNoAccess') : (!target.env && !kubeconfig.trim() ? t('k8s.snapshot.needEnvOrKubeconfig') : undefined)}
             >
               {t('k8s.snapshot.run')}
             </button>

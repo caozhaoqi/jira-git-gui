@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/useAppStore';
 import { useT } from '../../i18n';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
 import { clearK8sEnvAlert, raiseK8sEnvAlert } from '../../utils/appAlerts';
+import { envTagClass, envTagText, envKindKey } from '../../utils/k8sEnv';
 import { K8sContext, type K8sTarget } from './context';
 import { K8sSnapshot } from './K8sSnapshot';
 import { K8sYaml } from './K8sYaml';
@@ -26,29 +27,6 @@ const SUBTABS: { key: SubTab; labelKey: string }[] = [
   { key: 'shell', labelKey: 'k8s.subtabs.shell' },
   { key: 'files', labelKey: 'k8s.subtabs.files' },
 ];
-
-function envTagClass(name: string): string {
-  const v = (name || '').toLowerCase();
-  if (v.includes('prod') || v === 'prd' || v.includes('生产')) return 'k8s-env-tag env-prod';
-  if (v.includes('test') || v.includes('uat') || v.includes('stag') || v.includes('测试') || v.includes('预发')) return 'k8s-env-tag env-test';
-  if (v.includes('dev') || v.includes('开发') || v.includes('development')) return 'k8s-env-tag env-dev';
-  return 'k8s-env-tag env-other';
-}
-
-function envTagText(envs: { name: string; label?: string }[], cur: string): string {
-  const e = envs.find((x) => x.name === cur);
-  return e ? `${e.label || e.name} (${e.name})` : cur || '—';
-}
-
-/** 环境「类型」标签：下拉框已经显示了环境名，这里只补充下拉框表达不了的风险等级
-    （生产/测试/开发），避免同一行里把同一个环境名显示两遍。 */
-function envKindKey(name: string): string {
-  const v = (name || '').toLowerCase();
-  if (v.includes('prod') || v === 'prd' || v.includes('生产')) return 'k8s.envKind.prod';
-  if (v.includes('test') || v.includes('uat') || v.includes('stag') || v.includes('测试') || v.includes('预发')) return 'k8s.envKind.test';
-  if (v.includes('dev') || v.includes('开发') || v.includes('development')) return 'k8s.envKind.dev';
-  return 'k8s.envKind.other';
-}
 
 export function K8sPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
@@ -108,9 +86,13 @@ export function K8sPanel() {
     setDescribeSeed({ kind: kind || 'pod', name: name || '', namespace: namespace || '' });
   }, []);
 
+  // 子 tab（如快照）内直达「管理环境」弹窗：环境配置能力此前只在顶部 envbar 暴露，
+  // 用户在快照配置区看不到当前环境、也没有新增环境入口。
+  const openEnvModal = useCallback(() => setEnvModalOpen(true), []);
+
   const ctx = useMemo(
-    () => ({ envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe }),
-    [envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe]
+    () => ({ envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe, openEnvModal }),
+    [envs, target, setTarget, reloadEnvs, pushLog, addToast, openDescribe, openEnvModal]
   );
 
   const onEnvChange = (name: string) => {

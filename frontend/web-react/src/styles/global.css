@@ -2074,6 +2074,35 @@ select:focus-visible {
   padding: 1px 8px;
   white-space: nowrap;
 }
+/* 快照配置区内的「当前环境」chip：环境信息 + 直达「管理环境」入口 */
+.k8s-snap-env {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.k8s-snap-env.unreachable {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.k8s-snap-env-name {
+  font-weight: 600;
+}
+.k8s-snap-env .k8s-env-tag {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+.k8s-snap-env-btn {
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: 12px;
+}
 .k8s-snapshot-cfg-body {
   display: grid;
   grid-template-rows: 1fr;

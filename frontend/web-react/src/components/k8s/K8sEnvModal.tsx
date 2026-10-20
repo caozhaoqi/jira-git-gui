@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
 import { useT } from '../../i18n';
 import { useModalA11y } from '../../utils/useModalA11y';
+import { envTagText } from '../../utils/k8sEnv';
+import { useK8s } from './context';
 
 interface EnvForm {
   name: string;
@@ -24,28 +26,25 @@ const EMPTY: EnvForm = {
 
 export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const { t } = useT();
+  // 保存/切换/删除后同步刷新 Panel 的环境列表与当前环境（envbar 下拉、kcText、target.env），
+  // 否则新增的环境不出现在顶部下拉里、切换后 target.env 与后端 current 不一致。
+  const { reloadEnvs } = useK8s();
   const dialogRef = useModalA11y<HTMLDivElement>(onClose);
   const [list, setList] = useState<K8sEnv[]>([]);
   const [form, setForm] = useState<EnvForm>(EMPTY);
   const [msg, setMsg] = useState('');
   // 点选（回填表单）的环境名：给列表项加 selected 高亮，否则看不出点了哪个
   const [selName, setSelName] = useState('');
-
-  const loadList = useCallback(async () => {
-    try {
-      const d = await apiGet<K8sEnvsResp>('/api/k8s/env');
-      const envs = d.environments || [];
-      setList(envs);
-      // 首次加载锚定「Current」项（与绿色徽标一致）；之后保留用户点选，不覆盖
-      setSelName((prev) => prev || (envs.find((x) => x.is_current) || ({} as K8sEnv)).name || '');
-    } catch (ex: any) {
-      setMsg(t('k8s.env.listFail') + ex.message);
-    }
-  }, [t]);
+  // 删除二次确认：首次点击只武装按钮（变红「确认删除？」），5 秒内再点才真删，
+  // 防止误触丢配置；超时/其他操作自动解除。
+  const [delArmed, setDelArmed] = useState(false);
+  const idInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    if (!delArmed) return;
+    const timer = setTimeout(() => setDelArmed(false), 5000);
+    return () => clearTimeout(timer);
+  }, [delArmed]);
 
   const fill = (e: K8sEnv) => {
     setForm({
@@ -62,7 +61,43 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     });
     setSelName(e.name);
     setMsg('');
+    setDelArmed(false);
   };
+
+  /** 进入「新建环境」模式：清空表单、取消列表选中、焦点落到标识输入框。 */
+  const startNew = () => {
+    setForm(EMPTY);
+    setSelName('');
+    setMsg('');
+    setDelArmed(false);
+    idInputRef.current?.focus();
+  };
+
+  const loadList = useCallback(async (initial = false) => {
+    try {
+      const d = await apiGet<K8sEnvsResp>('/api/k8s/env');
+      const envs = d.environments || [];
+      setList(envs);
+      // 首次加载锚定「Current」项（与绿色徽标一致）并回填表单：此前打开弹窗
+      // 列表高亮着当前环境、表单却是空的，用户不知道该填还是该点。
+      setSelName((prev) => prev || (envs.find((x) => x.is_current) || ({} as K8sEnv)).name || '');
+      if (initial) {
+        const cur = envs.find((x) => x.is_current);
+        if (cur) fill(cur);
+      }
+    } catch (ex: any) {
+      setMsg(t('k8s.env.listFail') + ex.message);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    loadList(true);
+  }, [loadList]);
+
+  // 标识是否已存在：决定保存按钮是「创建」还是「保存」，以及切换/删除是否可用。
+  // 标识为空（刚点过「新增」）同样归入新建态：模式标签显示「新建环境」、主按钮显示「创建」。
+  const nameExists = !!form.name.trim() && list.some((e) => e.name === form.name.trim());
+  const isNewEnv = !nameExists;
 
   const save = async () => {
     if (!form.name.trim()) { setMsg(t('k8s.env.nameRequired')); return; }
@@ -80,8 +115,11 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     };
     try {
       await apiPost('/api/k8s/env', body);
-      setMsg(t('k8s.env.saved'));
+      setMsg(isNewEnv ? t('k8s.env.created') : t('k8s.env.saved'));
+      setSelName(body.name);
+      setDelArmed(false);
       await loadList();
+      await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
     }
@@ -92,7 +130,9 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     try {
       await apiPost('/api/k8s/env/switch', { name: form.name.trim() });
       setMsg(t('k8s.env.switched'));
+      setDelArmed(false);
       await loadList();
+      await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
     }
@@ -100,12 +140,16 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
 
   const del = async () => {
     if (!form.name.trim()) return;
+    // 二次确认：首次点击只武装，再点才真删
+    if (!delArmed) { setDelArmed(true); return; }
     try {
       await apiPost('/api/k8s/env/delete', { name: form.name.trim() });
       setMsg(t('k8s.env.deleted'));
       setForm(EMPTY);
       setSelName('');
+      setDelArmed(false);
       await loadList();
+      await reloadEnvs();
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
     }
@@ -152,7 +196,17 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <div className="k8s-env-form">
-            <div className="form-row"><label>{t('k8s.env.id')}</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
+            <div className="k8s-env-form-mode">
+              <span className={isNewEnv ? 'k8s-env-mode-tag new' : 'k8s-env-mode-tag edit'}>
+                {isNewEnv ? t('k8s.env.modeNew') : t('k8s.env.modeEdit')}
+              </span>
+              <span className="k8s-env-form-mode-text">
+                {nameExists
+                  ? envTagText(list, form.name.trim())
+                  : t('k8s.env.newHint')}
+              </span>
+            </div>
+            <div className="form-row"><label>{t('k8s.env.id')}</label><input ref={idInputRef} className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={t('k8s.env.idPh')} /></div>
             <div className="form-row"><label>{t('k8s.env.label')}</label><input className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
             <div className="form-row"><label>{t('k8s.env.kubeconfig')}</label><input className="input" value={form.kubeconfig} onChange={(e) => setForm({ ...form, kubeconfig: e.target.value })} /></div>
             <div className="form-row"><label>{t('k8s.env.context')}</label><input className="input" value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} /></div>
@@ -168,9 +222,28 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
         <div className="modal-footer">
           <span className="k8s-env-msg">{msg}</span>
           <div className="spacer" />
-          <button className="btn btn-sm" onClick={save}>{t('k8s.env.save')}</button>
-          <button className="btn btn-sm btn-ghost" onClick={switchEnv}>{t('k8s.env.switch')}</button>
-          <button className="btn btn-sm btn-ghost" onClick={del}>{t('k8s.env.delete')}</button>
+          {/* 按钮层级：主提交（创建/保存）唯一 primary 放中间；新增/切换/删除为 ghost；
+              删除放最右且需二次确认（武装态变红），防误触丢配置。 */}
+          <button className="btn btn-sm btn-ghost" onClick={startNew}>{t('k8s.env.newBtn')}</button>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={save}
+            disabled={!form.name.trim()}
+            title={!form.name.trim() ? t('k8s.env.nameRequired') : undefined}
+          >
+            {isNewEnv ? t('k8s.env.create') : t('k8s.env.save')}
+          </button>
+          <button className="btn btn-sm btn-ghost" onClick={switchEnv} disabled={!nameExists} title={nameExists ? undefined : t('k8s.env.switchNeedExisting')}>
+            {t('k8s.env.switch')}
+          </button>
+          <button
+            className={`btn btn-sm${delArmed ? ' btn-danger' : ' btn-ghost'}`}
+            onClick={del}
+            disabled={!form.name.trim()}
+            title={delArmed ? t('k8s.env.confirmDeleteTip') : undefined}
+          >
+            {delArmed ? t('k8s.env.confirmDelete') : t('k8s.env.delete')}
+          </button>
         </div>
       </div>
     </div>
