@@ -47,10 +47,16 @@ Install and run. No Python required.
 
 ```bash
 ./scripts/run_web.sh              # start the backend and open the browser
+./scripts/run_web.sh --lan        # allow devices on the local network to connect
 ./scripts/run_web.sh --electron   # start the Electron desktop app instead
+./scripts/run_web.sh --electron --lan # also expose the Electron backend to the local network
 ```
 
 > Desktop entry points are the Electron / Tauri installers; run the web mode from source with `run_web.sh` / `run_web.ps1`.
+> Windows PowerShell: `.\scripts\run_web.ps1 --lan`.
+> LAN mode listens on all network interfaces and exposes the app's API (including configured integrations and operations) to devices that can reach the computer; the app does not provide LAN user authentication.
+> Use it only on a trusted network, allow inbound TCP port 8787 on the **Private** firewall profile if needed, and have other users open `http://<host-LAN-IP>:8787` (find the host IPv4 address with `ipconfig`).
+> Without `--lan`, the server remains accessible only from the local computer.
 > The PyQt6 desktop implementation was moved to the `pyqt-legacy` branch in Oct 2026 and no longer ships on mainline.
 
 ### Option 3 — manual
@@ -59,6 +65,12 @@ Install and run. No Python required.
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 PYTHONPATH=. ./venv/bin/python -m api.server      # then open http://127.0.0.1:8787
+```
+
+To serve the same web UI to trusted LAN devices, start it with `--lan` instead:
+
+```bash
+PYTHONPATH=. ./venv/bin/python -m api.server --lan
 ```
 
 If `npm` or the Electron download is blocked, skip it — just start the backend and open `http://127.0.0.1:8787/` in any browser. It's the same page the desktop apps load.

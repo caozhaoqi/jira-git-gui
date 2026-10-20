@@ -218,6 +218,10 @@ vm.runInNewContext(`${source}\n;buildAppMenu();`, context, { filename: MAIN_JS }
 console.log('buildAppMenu 产出的模板');
 check('模板被真正构建（Menu.buildFromTemplate 被调用）', Array.isArray(capturedTemplate));
 check('模块级 whenReady 副作用未执行（桩返回 pending）', whenReadyCalls.length === 1);
+const localBackendArgs = context.getBackendLaunch().args;
+const lanBackendArgs = context.getBackendLaunch(true).args;
+check('默认 Electron 后端仍只监听本机', !localBackendArgs.includes('--lan'));
+check('LAN 模式将 --lan 透传给后端', lanBackendArgs.includes('--lan'));
 
 const topLabels = capturedTemplate.map((m) => m.label || `[${m.role || m.type}]`);
 console.log(`  顶层菜单：${topLabels.join(' / ')}`);

@@ -205,18 +205,30 @@ for _r in (
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Jira Git GUI API Server")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host",
+        default=None,
+        help="bind address (default: 127.0.0.1; use 0.0.0.0 to listen on all interfaces)",
+    )
+    parser.add_argument(
+        "--lan",
+        action="store_true",
+        help="allow other devices on the local network to connect (same as --host 0.0.0.0)",
+    )
     parser.add_argument("--port", type=int, default=8787)
     args = parser.parse_args()
+    host = args.host or ("0.0.0.0" if args.lan else "127.0.0.1")
 
     logger.info("=" * 60)
     logger.info("API Server 启动")
     logger.info("Python  : %s", sys.version.replace("\n", " "))
-    logger.info("监听    : http://%s:%d", args.host, args.port)
+    logger.info("监听    : http://%s:%d", host, args.port)
+    if host == "0.0.0.0":
+        logger.info("局域网设备请访问本机的局域网 IP（端口 %d）", args.port)
     logger.info("=" * 60)
 
     import uvicorn
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    uvicorn.run(app, host=host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":
