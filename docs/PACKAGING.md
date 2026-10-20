@@ -194,7 +194,9 @@ cd tauri && cargo tauri build
 ## 五、CI 一键发布
 
 推送 `vX.Y.Z` 标签（或手动 `workflow_dispatch`）触发 `.github/workflows/release.yml`：
-三条 runner（macos / windows / ubuntu）各自构建 **后端 + Electron + Tauri** 并上传 artifact。
+CI 先在单独 job 中构建一次 React 前端，再把同一份静态资源交给 macOS、Windows、Linux
+runner 打进各自的后端和桌面包；平台 runner 随后分别构建 **后端 + Electron + Tauri** 并上传 artifact。
+因此同一次 CI 运行中的应用页面使用完全相同的前端资源；系统窗口标题栏仍按操作系统原生显示。
 产物的跨平台对应：
 
 | Runner | 后端 | Electron | Tauri |

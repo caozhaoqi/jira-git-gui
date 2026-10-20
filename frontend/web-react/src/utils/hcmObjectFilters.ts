@@ -101,6 +101,22 @@ function digList(resp: unknown): any[] {
   return [];
 }
 
+/** Parse list responses consistently across direct API envelope variants. */
+export function parseHcmList(resp: unknown): Record<string, any>[] {
+  return digList(resp).filter((row): row is Record<string, any> => !!row && typeof row === 'object');
+}
+
+/** Build the name search used by the person lookup over sync-ledger records. */
+export function buildPersonLookupFilter(name: string): Record<string, { like: string }> {
+  const value = name.trim();
+  return value ? { u_source_name: { like: value } } : {};
+}
+
+/** Whether a name lookup result contains a personnel appointment ledger record. */
+export function hasPersonAppointment(rows: Record<string, any>[]): boolean {
+  return rows.some((row) => String(row.u_entity_type || '').toUpperCase() === 'EMP_ORG');
+}
+
 /**
  * 解析 `hcm.model.count` 的 group_by 结果 → [{value,count}]（按 count 降序）。
  * 请求示例：{ model, filter_dict:{}, group_by:['u_entity_type'], count_by:['*'] }
