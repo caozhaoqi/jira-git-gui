@@ -298,7 +298,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       message,
       type,
       action: opts?.action,
-      duration: opts?.duration ?? (type === 'error' ? 8000 : 3500),
+      // 成功/信息/警告 3.5s 自动消失；错误类默认常驻（duration 0），需手动关闭，
+      // 与交互规范「错误类可以常驻」一致；调用方可显式传 duration 覆盖。
+      duration: opts?.duration ?? (type === 'error' ? 0 : 3500),
     };
     set((s) => ({ toasts: [...s.toasts, toast] }));
     return id;

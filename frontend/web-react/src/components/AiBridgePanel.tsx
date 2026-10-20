@@ -10,6 +10,7 @@
  * 数据来源：各面板数据更新时调 reportPanelOutput(tab, …) 上报（aiBridge.ts）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { EmptyState } from './EmptyState';
 import { useAppStore } from '../store/useAppStore';
 import { apiGet } from '../api/client';
 import { useT } from '../i18n';
@@ -128,9 +129,9 @@ curl http://127.0.0.1:8787/api/ai/output/hcmapi/history?limit=10     # 历史记
 
       <div className="ai-bridge-panels">
         <div className="ai-bridge-panels-head">{t('ai.panelsTitle')}</div>
-        {!panels && <div className="ai-bridge-empty">{t('common.loading')}</div>}
+        {!panels && <EmptyState className="ai-bridge-empty" hint={t('common.loading')} />}
         {panels && panels.length === 0 && (
-          <div className="ai-bridge-empty">{t('ai.noData')}</div>
+          <EmptyState className="ai-bridge-empty" hint={t('ai.noData')} />
         )}
         {panels && panels.map((p) => (
           <div key={p.tab} className={`ai-bridge-row${p.entries > 0 ? ' has-data' : ''}`}>

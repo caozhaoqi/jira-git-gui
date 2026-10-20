@@ -392,6 +392,10 @@ export default function App() {
               visited.has(key) || activeTab === key ? (
                 <div
                   key={key}
+                  id={`panel-${key}`}
+                  role="tabpanel"
+                  aria-labelledby={`tab-${key}`}
+                  tabIndex={0}
                   className={`tab-pane${activeTab === key ? '' : ' tab-pane--hidden'}`}
                 >
                   <ErrorBoundary label={t(labelKey)}>

@@ -41,6 +41,8 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const [selName, setSelName] = useState('');
   // 删除二次确认：首次点击只武装按钮（变红「确认删除？」），5 秒内再点才真删
   const [delArmed, setDelArmed] = useState(false);
+  // 异步操作（保存 / 删除）进行中的 loading 态：按钮转圈 + 禁用，避免重复点击
+  const [busy, setBusy] = useState(false);
   const idInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -112,19 +114,20 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
       addToast(t('k8s.env.idExists'), 'warn');
       return;
     }
-    const body = {
-      name: form.name.trim(),
-      label: form.label.trim(),
-      kubeconfig: form.kubeconfig.trim(),
-      context: form.context.trim(),
-      namespace: form.namespace.trim() || 'default',
-      intranet_hosts: form.intranet.split('\n').map((s) => s.trim()).filter(Boolean),
-      ssh_host: form.ssh_host.trim(),
-      ssh_port: form.ssh_port.trim() || '22',
-      ssh_user: form.ssh_user.trim(),
-      ssh_password: form.ssh_password,
-    };
+    setBusy(true);
     try {
+      const body = {
+        name: form.name.trim(),
+        label: form.label.trim(),
+        kubeconfig: form.kubeconfig.trim(),
+        context: form.context.trim(),
+        namespace: form.namespace.trim() || 'default',
+        intranet_hosts: form.intranet.split('\n').map((s) => s.trim()).filter(Boolean),
+        ssh_host: form.ssh_host.trim(),
+        ssh_port: form.ssh_port.trim() || '22',
+        ssh_user: form.ssh_user.trim(),
+        ssh_password: form.ssh_password,
+      };
       await apiPost('/api/k8s/env', body);
       if (mode === 'new') {
         // 创建成功 → 落到新环境的编辑态，「保存修改」与「创建环境」语义始终唯一
@@ -142,6 +145,8 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
       addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -167,6 +172,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     // 二次确认：首次点击只武装，再点才真删
     if (!delArmed) { setDelArmed(true); return; }
     const name = form.name.trim();
+    setBusy(true);
     try {
       await apiPost('/api/k8s/env/delete', { name });
       setDelArmed(false);
@@ -182,6 +188,8 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     } catch (ex: any) {
       setMsg(t('k8s.env.fail') + ex.message);
       addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -268,11 +276,11 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
               </div>
 
               <div className="k8s-env-form">
-                <div className="form-row">
+                <div className={`form-row${idTaken ? ' is-error' : ''}`}>
                   <label>{t('k8s.env.id')}</label>
                   <input
                     ref={idInputRef}
-                    className="input"
+                    className={`input${idTaken ? ' is-error' : ''}`}
                     value={form.name}
                     disabled={mode === 'edit'}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -304,16 +312,16 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
               编辑 → 保存修改（ID 不变，永远只是更新）；新建 → 创建环境（撞车禁用，永远只是创建）。 */}
           {mode === 'edit' ? (
             <>
-              <button className="btn btn-sm btn-primary" onClick={save} disabled={!form.name.trim()}>
+              <button className={`btn btn-sm btn-primary${busy ? ' is-loading' : ''}`} onClick={save} disabled={!form.name.trim() || busy}>
                 {t('k8s.env.saveEdit')}
               </button>
-              <button className="btn btn-sm btn-ghost" onClick={switchEnv} disabled={!form.name.trim()}>
+              <button className="btn btn-sm btn-ghost" onClick={switchEnv} disabled={!form.name.trim() || busy}>
                 {t('k8s.env.switch')}
               </button>
               <button
-                className={`btn btn-sm${delArmed ? ' btn-danger' : ' btn-ghost'}`}
+                className={`btn btn-sm${delArmed ? ' btn-danger' : ' btn-ghost'}${busy ? ' is-loading' : ''}`}
                 onClick={del}
-                disabled={!form.name.trim()}
+                disabled={!form.name.trim() || busy}
                 title={delArmed ? t('k8s.env.confirmDeleteTip') : undefined}
               >
                 {delArmed ? t('k8s.env.confirmDelete') : t('k8s.env.delete')}
@@ -322,9 +330,9 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
           ) : (
             <>
               <button
-                className="btn btn-sm btn-primary"
+                className={`btn btn-sm btn-primary${busy ? ' is-loading' : ''}`}
                 onClick={save}
-                disabled={!form.name.trim() || idTaken}
+                disabled={!form.name.trim() || idTaken || busy}
                 title={idTaken ? t('k8s.env.idExists') : undefined}
               >
                 {t('k8s.env.createEnv')}

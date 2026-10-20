@@ -132,14 +132,18 @@ cargo install tauri-cli                                        # 安装 Tauri CL
 ## 二、冻结 Python 后端（两种形态共用的前置步骤）
 
 Electron 与 Tauri 都不直接打包 Python 源码，而是把**冻结好的后端可执行**作为资源嵌入安装包。
+冻结前先构建 React 前端。PyInstaller 会把 `frontend/web-react/dist` 放进可执行包的同一路径，
+供 `api/server.py` 的静态资源路由读取；仅在该目录不存在时才回退到旧的 `web/`。
 
 ```bash
+npm ci --prefix frontend/web-react
+npm run build --prefix frontend/web-react
 pyinstaller build/pyinstaller_backend.spec --noconfirm
 # 产出：dist/jira-git-backend（macOS / Linux）或 dist/jira-git-backend.exe（Windows）
 # 浏览器打开 http://127.0.0.1:8787 即可验证
 ```
 
-`web/` 静态资源与 `.env` 已被收集进包内（`sys._MEIPASS`），后端自动从包内加载。
+前端静态资源与 `.env` 已被收集进包内（`sys._MEIPASS`），后端自动从包内加载。
 
 ---
 

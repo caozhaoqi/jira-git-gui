@@ -9,6 +9,7 @@ import { cfdebug } from '../api/cfdebug/client';
 import { DapClient } from '../api/cfdebug/dapClient';
 import { requestConfirm } from '../utils/confirmStore';
 import { CfDebugSyncModal } from './CfDebugSyncModal';
+import { EmptyState } from './EmptyState';
 import hljs from 'highlight.js/lib/core';
 import python from 'highlight.js/lib/languages/python';
 
@@ -1641,7 +1642,7 @@ function VarNode({ node, client }: { node: DapVariable; client: DapClient | null
       {expanded && children && (
         <div className="cfd-var-children">
           {children.length === 0 ? (
-            <div className="cfd-var-empty">∅</div>
+            <EmptyState className="cfd-var-empty" icon="∅" />
           ) : (
             children.map((c, i) => <VarNode key={`${c.name}-${i}`} node={c} client={client} />)
           )}
