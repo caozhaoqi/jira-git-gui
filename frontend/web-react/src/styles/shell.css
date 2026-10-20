@@ -98,6 +98,84 @@ button {
   box-shadow: var(--shadow-xs);
   z-index: 5;
 }
+.appbar--desktop {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.appbar--desktop .appbar-brand,
+.appbar--desktop .appbar-actions,
+.appbar--desktop .window-controls {
+  -webkit-app-region: no-drag;
+}
+.appbar-drag-region {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 24px;
+}
+.window-controls {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  -webkit-app-region: no-drag;
+}
+.window-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.window-control svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+.window-control:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.window-control--close:hover {
+  background: #e81123;
+  color: #fff;
+}
+.window-controls--mac {
+  gap: 8px;
+  margin-right: 12px;
+}
+.window-controls--mac .window-control {
+  width: 13px;
+  height: 13px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 50%;
+  color: rgba(0, 0, 0, 0.68);
+}
+.window-controls--mac .window-control--close { background: #ff5f57; }
+.window-controls--mac .window-control--minimize { background: #febc2e; }
+.window-controls--mac .window-control--maximize { background: #28c840; }
+.window-controls--mac .window-control:hover {
+  filter: brightness(0.92);
+}
+.window-controls--mac .window-control--close:hover {
+  background: #ff5f57;
+}
+.window-controls--mac .window-control svg {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  stroke-width: 1.5;
+}
+.window-controls--mac:hover .window-control svg { opacity: 1; }
 .appbar-brand {
   display: flex;
   align-items: center;

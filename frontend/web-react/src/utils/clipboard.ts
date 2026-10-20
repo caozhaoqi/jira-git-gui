@@ -4,12 +4,23 @@
 
 interface ElectronAPI {
   isElectron?: boolean;
+  platform?: string;
+  log?: (level: string, msg: string) => void;
   readClipboardText?: () => Promise<string>;
   writeClipboardText?: (text: string) => Promise<void>;
+  minimizeWindow?: () => Promise<void>;
+  toggleMaximizeWindow?: () => Promise<void>;
+  closeWindow?: () => Promise<void>;
   openBuiltinBrowser?: (
     url: string,
     cookies?: Array<{ name: string; value: string; url?: string }>
   ) => Promise<{ ok: boolean; reason?: string }>;
+}
+
+interface TauriWindow {
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<void>;
+  close: () => Promise<void>;
 }
 
 declare global {
@@ -18,6 +29,9 @@ declare global {
     __TAURI__?: {
       core?: {
         invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+      };
+      window?: {
+        getCurrentWindow: () => TauriWindow;
       };
     };
   }

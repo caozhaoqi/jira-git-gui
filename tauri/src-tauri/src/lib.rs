@@ -501,6 +501,7 @@ pub fn run() {
                 .title("Jira Git GUI")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(900.0, 600.0)
+                .decorations(false)
                 .build()?;
 
             log_main(&app_handle, &log_file, "Window created.", "info");
