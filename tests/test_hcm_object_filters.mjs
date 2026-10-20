@@ -1,6 +1,7 @@
 // Regression tests for model-aware HCM filter_dict construction.
 import {
   buildHcmFilterDict,
+  buildPersonLookupFilter,
   buildSyncLedgerCsv,
   buildSyncLedgerFilterDict,
   buildSyncLedgerJson,
@@ -9,9 +10,11 @@ import {
   entityTypeLabel,
   exportFileName,
   fetchAllRows,
+  hasPersonAppointment,
   isSyncLedgerModel,
   metaFilterCandidates,
   parseGroupCount,
+  parseHcmList,
   parseTotalCount,
   pickDefaultFilterKey,
   selectHcmFilterFields,
@@ -37,6 +40,25 @@ function check(name, condition) {
     console.log(`  ✗ ${name}`);
   }
 }
+
+console.log('person lookup helpers');
+check(
+  'builds a trimmed contains filter for the sync-ledger person name',
+  JSON.stringify(buildPersonLookupFilter('  张三  ')) === JSON.stringify({ u_source_name: { like: '张三' } }),
+);
+check('empty person name produces no filter', Object.keys(buildPersonLookupFilter('  ')).length === 0);
+check(
+  'parses direct and nested list response envelopes',
+  parseHcmList({ result: { list: [{ id: 'employee-1' }, null, 'invalid'] } }).length === 1,
+);
+check(
+  'recognizes appointment records among person lookup results',
+  hasPersonAppointment([{ u_entity_type: 'EMPLOYEE' }, { u_entity_type: 'EMP_ORG' }]),
+);
+check(
+  'does not treat a person record as an appointment',
+  !hasPersonAppointment([{ u_entity_type: 'EMPLOYEE' }]),
+);
 
 console.log('buildHcmFilterDict');
 const filters = buildHcmFilterDict([

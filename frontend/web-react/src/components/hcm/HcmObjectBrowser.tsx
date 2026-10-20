@@ -17,14 +17,17 @@ import { isTokenLikelyExpired } from '../../api/hcm/errDict';
 import { openHcmWindow } from './hcmWindow';
 import {
   buildHcmFilterDict,
+  buildPersonLookupFilter,
   buildSyncLedgerCsv,
   buildSyncLedgerFilterDict,
   buildSyncLedgerJson,
   entityTypeLabel,
   exportFileName,
   fetchAllRows,
+  hasPersonAppointment,
   isSyncLedgerModel,
   metaFilterCandidates,
+  parseHcmList,
   parseGroupCount,
   parseTotalCount,
   pickDefaultFilterKey,
@@ -127,6 +130,16 @@ export function HcmObjectBrowser() {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
+  const [personLookupOpen, setPersonLookupOpen] = useState(false);
+  const [personLookupName, setPersonLookupName] = useState('');
+  const [personLookupModels, setPersonLookupModels] = useState<HcmObjectItem[]>([]);
+  const [personLookupModelId, setPersonLookupModelId] = useState('');
+  const [personLookupResults, setPersonLookupResults] = useState<Record<string, any>[]>([]);
+  const [personLookupSearched, setPersonLookupSearched] = useState(false);
+  const personHasAppointment = hasPersonAppointment(personLookupResults);
+  const [personLookupLoading, setPersonLookupLoading] = useState(false);
+  const [personLookupModelsLoading, setPersonLookupModelsLoading] = useState(false);
+  const [personLookupError, setPersonLookupError] = useState('');
 
   // 所有请求统一走同源 /api/hcm/direct（后端直连网关），固定端点，无代理分支。
   const baseUrl = DIRECT_ENDPOINT;
@@ -294,6 +307,109 @@ export function HcmObjectBrowser() {
     },
     [ensureFreshToken, usePresetToken, targetUrl]
   );
+
+  const loadPersonLookupModels = useCallback(async () => {
+    if (personLookupModelsLoading) return;
+    setPersonLookupModelsLoading(true);
+    setPersonLookupError('');
+    try {
+      if (!usePresetToken && !token.trim()) {
+        throw new HcmApiError(t('hcm.configRequired'), 401);
+      }
+      const response = await directCall('hcm.paas.object.list', {
+        model: null,
+        filter_str: 'U_SyncRaw',
+        filter_dict: {},
+        query_str: 'U_SyncRaw',
+        page_index: 1,
+        page_size: 100,
+        extra_property: {
+          sorts: [],
+          filter_params: {
+            filter_str: 'U_SyncRaw',
+            page_index: 1,
+            page_size: 100,
+            advance_filter_dict: {},
+            show_fields_key: ['class_', 'model_category', 'update_time'],
+            base_object_str: 'hcm.paas.object',
+            key: 'main.setting.hcm_model',
+            query_str: 'U_SyncRaw',
+          },
+          only_list: false,
+        },
+        biz_type: 'list',
+      });
+      const candidates = parseHcmList(response).filter((item) =>
+        `${item.id || ''} ${item.name || ''}`.toLowerCase().includes('syncraw')
+      );
+      const ledgers: HcmObjectItem[] = [];
+      for (const candidate of candidates) {
+        if (!candidate.id) continue;
+        const metadata = await directCall(
+          'hcm.model.meta',
+          { model: candidate.id, meta_key: '' },
+          candidate.id
+        );
+        if (isSyncLedgerModel(metadata?.fields || [])) ledgers.push(candidate as HcmObjectItem);
+      }
+      if (ledgers.length === 0) {
+        throw new Error(t('hcm.personLookupNoModel'));
+      }
+      setPersonLookupModels(ledgers);
+      setPersonLookupModelId((current) =>
+        ledgers.some((model) => model.id === current) ? current : ledgers[0].id
+      );
+    } catch (e: any) {
+      setPersonLookupError(e instanceof HcmApiError ? e.message : String(e?.message || e));
+    } finally {
+      setPersonLookupModelsLoading(false);
+    }
+  }, [directCall, personLookupModelsLoading, t, token, usePresetToken]);
+
+  const searchPerson = useCallback(async () => {
+    const name = personLookupName.trim();
+    if (!name) {
+      setPersonLookupError(t('hcm.personLookupNeedName'));
+      return;
+    }
+    if (!personLookupModelId) {
+      setPersonLookupError(t('hcm.personLookupNoModel'));
+      return;
+    }
+    if (!usePresetToken && !token.trim()) {
+      setPersonLookupError(t('hcm.configRequired'));
+      return;
+    }
+    setPersonLookupLoading(true);
+    setPersonLookupError('');
+    setPersonLookupResults([]);
+    setPersonLookupSearched(false);
+    try {
+      const response = await directCall('hcm.model.list', {
+        model: personLookupModelId,
+        filter_str: null,
+        filter_dict: buildPersonLookupFilter(name),
+        page_index: 1,
+        page_size: 100,
+        biz_type: 'list',
+      }, personLookupModelId);
+      setPersonLookupResults(parseHcmList(response));
+      setPersonLookupSearched(true);
+    } catch (e: any) {
+      setPersonLookupError(e instanceof HcmApiError ? e.message : String(e?.message || e));
+    } finally {
+      setPersonLookupLoading(false);
+    }
+  }, [directCall, personLookupModelId, personLookupName, t, token, usePresetToken]);
+
+  useEffect(() => {
+    setPersonLookupModels([]);
+    setPersonLookupModelId('');
+    setPersonLookupResults([]);
+    setPersonLookupSearched(false);
+    setPersonLookupError('');
+    if (personLookupOpen) void loadPersonLookupModels();
+  }, [targetUrl]);
 
 const loadList = useCallback(async () => {
     if (!usePresetToken && !token.trim()) {
@@ -942,6 +1058,17 @@ const loadList = useCallback(async () => {
             {loading ? t('hcm.loading') : t('hcm.refresh')}
           </button>
           <button
+            className={`btn btn-sm ${personLookupOpen ? 'btn-active' : ''}`}
+            onClick={() => {
+              const opening = !personLookupOpen;
+              setPersonLookupOpen(opening);
+              if (opening && personLookupModels.length === 0) void loadPersonLookupModels();
+            }}
+            aria-expanded={personLookupOpen}
+          >
+            {t('hcm.personLookupTitle')}
+          </button>
+          <button
             className={`btn btn-sm hcm-connect-toggle${configOpen ? ' is-open' : ''}`}
             onClick={() => setConfigOpen((v) => !v)}
             aria-expanded={configOpen}
@@ -963,6 +1090,93 @@ const loadList = useCallback(async () => {
             {t('hcm.cfErrLauncher')}
           </button> */}
         </div>
+
+        {personLookupOpen && (
+          <section className="hcm-person-lookup" aria-label={t('hcm.personLookupTitle')}>
+            <div className="hcm-person-lookup-heading">
+              <strong>{t('hcm.personLookupTitle')}</strong>
+              <span>{t('hcm.personLookupHint')}</span>
+            </div>
+            <div className="hcm-person-lookup-form">
+              {personLookupModels.length > 1 && (
+                <select
+                  className="sel"
+                  value={personLookupModelId}
+                  onChange={(e) => {
+                    setPersonLookupModelId(e.target.value);
+                    setPersonLookupResults([]);
+                    setPersonLookupSearched(false);
+                  }}
+                  aria-label={t('hcm.personLookupModel')}
+                >
+                  {personLookupModels.map((model) => (
+                    <option key={model.id} value={model.id}>{model.name || model.id}</option>
+                  ))}
+                </select>
+              )}
+              <input
+                className="hcm-search"
+                value={personLookupName}
+                onChange={(e) => {
+                  setPersonLookupName(e.target.value);
+                  setPersonLookupSearched(false);
+                  setPersonLookupResults([]);
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') void searchPerson(); }}
+                placeholder={t('hcm.personLookupPlaceholder')}
+                spellCheck={false}
+                aria-label={t('hcm.personLookupPlaceholder')}
+              />
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={() => void searchPerson()}
+                disabled={personLookupLoading || personLookupModelsLoading || !personLookupModelId}
+              >
+                {personLookupModelsLoading
+                  ? t('hcm.personLookupLoadingModels')
+                  : personLookupLoading ? t('hcm.loading') : t('hcm.personLookupSearch')}
+              </button>
+            </div>
+            {personLookupError && <div className="hcm-error" role="alert">{personLookupError}</div>}
+            {personLookupSearched && !personLookupLoading && !personLookupError && (
+              <div className="hcm-person-lookup-summary">
+                {t('hcm.personLookupCount', { n: personLookupResults.length })}
+              </div>
+            )}
+            {personLookupSearched && !personLookupLoading && !personLookupError && !personHasAppointment && (
+              <div className="hcm-person-lookup-summary" role="status">
+                {personLookupResults.length > 0
+                  ? t('hcm.personLookupNoAppointment')
+                  : t('hcm.personLookupNoResults')}
+              </div>
+            )}
+            {personLookupResults.length > 0 && (
+              <div className="hcm-person-lookup-results">
+                {personLookupResults.map((row, index) => {
+                  const raw = row.u_raw_json;
+                  let detail: string;
+                  if (typeof raw === 'string') {
+                    try { detail = JSON.stringify(JSON.parse(raw), null, 2); }
+                    catch { detail = raw; }
+                  } else {
+                    detail = JSON.stringify(raw ?? row, null, 2);
+                  }
+                  return (
+                    <details className="hcm-person-result" key={`${row.id ?? row.u_source_code ?? index}-${index}`}>
+                      <summary>
+                        <span>{entityTypeLabel(String(row.u_entity_type || '')) || t('hcm.personLookupRecord')}</span>
+                        <span>{String(row.u_source_name || '')}</span>
+                        {row.u_source_code && <code>{String(row.u_source_code)}</code>}
+                      </summary>
+                      <pre>{detail}</pre>
+                    </details>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
         {configOpen && (
           <div className="hcm-config hcm-connect-body">
             <label className="hcm-config-readonly">

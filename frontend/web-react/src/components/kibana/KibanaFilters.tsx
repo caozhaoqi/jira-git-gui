@@ -19,8 +19,10 @@ export interface FiltersProps {
     levels: string[];
   };
   onChange: (patch: Record<string, unknown>) => void;
-  /** 应用草稿并触发查询（「查询」按钮 / 关键词回车） */
-  onApply: () => void;
+  /** 应用草稿并触发查询（「查询」按钮 / 关键词回车 / 下拉选完即应用）。
+   *  可传 override：把选中值作为 patch 合并到草稿再提交（一步到位，
+   *  避免先 onChange 再 onApply() 在同次渲染里读到旧 draftRef）。 */
+  onApply: (override?: Record<string, unknown>) => void;
   /** 草稿与已提交条件不一致（查询按钮高亮提示） */
   dirty?: boolean;
   showPodSelect?: boolean;
@@ -36,6 +38,19 @@ const TIME_PRESETS = [
 ];
 
 const LEVELS = ['ERROR', 'WARN', 'INFO', 'DEBUG'];
+
+/** 下拉/按钮类筛选用：选完直接应用（离散选择不会连打后端）。
+ *  关键词/排除词输入框仍走草稿制（回车才应用），避免逐字符打后端。
+ *  ⚠️ 必须把选中值作为 override 传给 onApply，而不是先 onChange 再 onApply()——
+ *  后者在同一次渲染里读 draftRef.current 拿到的还是旧值，提交的是旧草稿。 */
+const pickSelect = (k: string, v: string, onApply: (p: Record<string, unknown>) => void) =>
+  onApply({ [k]: v });
+
+/** 级别按钮：点击后把新 levels 作为 override 应用。 */
+const pickLevels = (
+  levels: string[],
+  onApply: (p: Record<string, unknown>) => void,
+) => onApply({ levels });
 
 export function KibanaFilters({
   site, value, onChange, onApply, dirty, showPodSelect, pod,
@@ -73,7 +88,7 @@ export function KibanaFilters({
             value={TIME_PRESETS.some((p) => p.key === value.start) ? value.start : 'custom'}
             onChange={(e) => {
               const v = e.target.value;
-              if (v !== 'custom') onChange({ start: v, end: '' });
+              if (v !== 'custom') onApply({ start: v, end: '' });
             }}
           >
             {TIME_PRESETS.map((p) => (
@@ -104,7 +119,7 @@ export function KibanaFilters({
         <label className="field-inline">
           {t('kibana.container')}
           <select className="sel" value={value.container}
-                  onChange={(e) => onChange({ container: e.target.value })}>
+                  onChange={(e) => pickSelect('container', e.target.value, onApply)}>
             <option value="">{t('common.all')}</option>
             {opts(fields.containers).map((b) => (
               <option key={b.key} value={b.key}>{b.key} ({b.count})</option>
@@ -115,7 +130,7 @@ export function KibanaFilters({
         <label className="field-inline">
           {t('kibana.app')}
           <select className="sel" value={value.app}
-                  onChange={(e) => onChange({ app: e.target.value })}>
+                  onChange={(e) => pickSelect('app', e.target.value, onApply)}>
             <option value="">{t('common.all')}</option>
             {opts(fields.apps).map((b) => (
               <option key={b.key} value={b.key}>{b.key}</option>
@@ -126,7 +141,7 @@ export function KibanaFilters({
         <label className="field-inline">
           {t('kibana.host')}
           <select className="sel" value={value.host}
-                  onChange={(e) => onChange({ host: e.target.value })}>
+                  onChange={(e) => pickSelect('host', e.target.value, onApply)}>
             <option value="">{t('common.all')}</option>
             {opts(fields.hosts).map((b) => (
               <option key={b.key} value={b.key}>{b.key}</option>
@@ -138,7 +153,7 @@ export function KibanaFilters({
           <label className="field-inline">
             Pod
             <select className="sel" value={pod || ''}
-                    onChange={(e) => onChange({ pod: e.target.value })}>
+                    onChange={(e) => pickSelect('pod', e.target.value, onApply)}>
               <option value="">{t('common.all')}</option>
               {opts(fields.pods).map((b) => (
                 <option key={b.key} value={b.key}>{b.key}</option>
@@ -174,10 +189,10 @@ export function KibanaFilters({
               <button
                 key={lv}
                 className={`kb-level kb-level-${lv.toLowerCase()}${on ? ' on' : ''}`}
-                onClick={() => onChange({
-                  levels: on ? value.levels.filter((x) => x !== lv)
-                             : [...value.levels, lv],
-                })}
+                onClick={() => pickLevels(
+                  on ? value.levels.filter((x) => x !== lv) : [...value.levels, lv],
+                  onApply,
+                )}
               >{lv}</button>
             );
           })}

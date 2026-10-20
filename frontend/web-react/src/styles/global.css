@@ -2478,6 +2478,28 @@ input[type='radio']:disabled {
 .hcm-config-readonly { flex: 0 1 240px; }
 .hcm-config-readonly input { opacity: .7; cursor: not-allowed; background: var(--bg-elevated); }
 .hcm-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent); padding: 6px 10px; border-radius: var(--radius-xs); font-size: var(--text-md); }
+.hcm-person-lookup {
+  display: flex; flex-direction: column; gap: 8px; min-height: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-panel); box-shadow: var(--shadow-xs);
+}
+.hcm-person-lookup-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.hcm-person-lookup-heading span, .hcm-person-lookup-summary { color: var(--muted); font-size: var(--text-sm); }
+.hcm-person-lookup-form { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hcm-person-lookup-form .hcm-search { max-width: 420px; }
+.hcm-person-lookup-form select {
+  min-width: 180px; max-width: 320px; padding: 6px 10px;
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  background: var(--bg-input); color: var(--text); font-size: var(--text-md);
+}
+.hcm-person-lookup-results { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow: auto; }
+.hcm-person-result { border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs); background: var(--bg-elevated); }
+.hcm-person-result summary { display: flex; align-items: center; gap: 10px; padding: 7px 9px; cursor: pointer; }
+.hcm-person-result summary span:first-child { font-weight: 600; color: var(--primary); }
+.hcm-person-result summary span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcm-person-result summary code { margin-left: auto; color: var(--muted); font-size: var(--text-sm); }
+.hcm-person-result pre { max-height: 220px; overflow: auto; margin: 0; padding: 8px 10px; border-top: 1px solid var(--border-soft, var(--border)); font-size: var(--text-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .hcm-split { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1.3fr); gap: 12px; flex: 1; min-height: 0; }
 /* 列表 / 详情 卡片：统一的圆角 + 淡阴影 + 轻微边框——> 内容有呼吸感，悬浮时变明显 */
 .hcm-list, .hcm-detail {
@@ -3609,4 +3631,3 @@ input.hcm-ops-keyinput { flex: 1 1 320px; font-size: var(--text-sm); }
 textarea.hcm-ops-decinput { height: 140px; resize: vertical; font-size: var(--text-sm); line-height: 1.5; }
 .hcm-ops-decresult { display: flex; flex-direction: column; gap: 4px; }
 .hcm-ops-s3h { width: 320px; font-size: var(--text-xs); }
-
