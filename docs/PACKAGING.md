@@ -113,7 +113,8 @@ cargo tauri build --target x86_64-pc-windows-gnu
 python -m pip install -r requirements.txt
 pip install pyinstaller                       # 冻结后端用
 
-# 2) Node 依赖（仅 Electron 形态）
+# 2) Node.js/npm（后端需要它构建 React 前端；Electron 还需 Electron 依赖）
+cd frontend/web-react && npm ci && cd ../..
 cd electron && npm install && cd ..
 
 # 3) Rust 工具链（仅 Tauri 形态）

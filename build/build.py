@@ -97,6 +97,23 @@ def ensure_module(venv_py: Path, import_name: str, pip_name: str, no_deps: bool)
     return py_has(venv_py, import_name)
 
 
+def build_frontend(no_deps: bool) -> bool:
+    """Build current React sources before freezing them into the backend."""
+    if shutil.which("npm") is None:
+        print("  ✗ 构建后端 UI 需要 Node.js/npm")
+        return False
+    frontend_dir = ROOT / "frontend" / "web-react"
+    if not (frontend_dir / "node_modules").exists():
+        if no_deps:
+            print("  ✗ React 依赖未安装（--no-deps 已禁用自动安装）。请先："
+                  "cd frontend/web-react && npm ci")
+            return False
+        print("  ↳ npm ci（首次安装 React 依赖）")
+        run(["npm", "ci"], cwd=frontend_dir)
+    run(["npm", "run", "build"], cwd=frontend_dir)
+    return True
+
+
 def backend_exe_name(os_name: str) -> str:
     return "jira-git-backend.exe" if os_name == "windows" else "jira-git-backend"
 
@@ -124,6 +141,9 @@ def build_backend(venv_py: Path, os_name: str, no_deps: bool) -> bool:
             return False
     if not ensure_module(venv_py, "PyInstaller", "pyinstaller", no_deps):
         print("  ✗ 跳过 backend（PyInstaller 不可用）")
+        return False
+    if not build_frontend(no_deps):
+        print("  ✗ 跳过 backend（React 前端构建失败）")
         return False
     run([str(venv_py), "-m", "PyInstaller",
          str(BUILD_DIR / "pyinstaller_backend.spec"), "--noconfirm"])
