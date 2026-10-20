@@ -16,7 +16,10 @@
 - 请求 URL 指向传入的 ``target``（而不是本机）；
 - token 以 **cookie** 形式传递；
 - 二进制响应原样回传（带 attachment 文件名）；
-- 网关以 JSON 报错时**不能**当成文件下发，要把错误信息透出。
+- 网关以 JSON 报错时**不能**当成文件下发，要把错误信息透出；
+- 登录失效时网关回 **HTTP 200 + text/html 错误页**（实测暗号
+  ``system_errors_msg_00000062``）——同样不能当文件下发，且按疑似登录态
+  失效**自动重登重试一次**（无效 preset token 跨网关下载日志的修复）。
 
 运行：./venv/bin/python -m pytest tests/test_hcm_temp_download.py -s
 """
@@ -156,3 +159,91 @@ def test_gateway_http_error_surfaces_status(fake_httpx):
         asyncio.run(_core.hcm_temp_download(_Req(index="log_1", target="http://gw")))
     assert ei.value.status_code == 500
     assert "HCM 下载失败" in str(ei.value.detail)
+
+
+# ---- 4. HTML 错误页不当下发 + 登录失效自动重登重试 --------------------------- #
+HTML_AUTH_ERR = "出错啦！\nerror\nsystem_errors_msg_00000062\n".encode("utf-8")
+
+
+def test_html_error_page_not_downloaded_as_file(fake_httpx):
+    """登录失效时网关回 200 + text/html 错误页（实测暗号 system_errors_msg_00000062）：
+    不能当文件下发；cf_accounts 无 gw 账号 → 不重试，直接透出错误。"""
+    fake_httpx(_FakeResp(HTML_AUTH_ERR, status_code=200, content_type="text/html; charset=utf-8"))
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(_core.hcm_temp_download(_Req(index="profile_x", target="http://gw")))
+    assert ei.value.status_code == 400
+    assert "system_errors_msg_00000062" in str(ei.value.detail), ei.value.detail
+
+
+class _ScriptedClient:
+    """按脚本依次返回响应并记录 cookies（验证重登后确带新 token 重试）。"""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.cookies_seen = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, cookies=None):
+        self.cookies_seen.append(cookies)
+        return self._responses.pop(0)
+
+
+def _install_scripted(monkeypatch, responses):
+    fake = _ScriptedClient(responses)
+    monkeypatch.setattr(_core.httpx, "AsyncClient", lambda **kw: fake)
+    return fake
+
+
+async def _fake_relogin_ok(target_url):
+    return "NEW-TK"
+
+
+async def _fake_relogin_fail(target_url):
+    return ""
+
+
+def test_html_auth_failure_triggers_relogin_retry(monkeypatch):
+    """无效 token → HTML 错误页 → 自动重登 → 重试拿到文件（hr-test 实测场景）。"""
+    fake = _install_scripted(monkeypatch, [
+        _FakeResp(HTML_AUTH_ERR, status_code=200, content_type="text/html"),
+        _FakeResp(b"profile-bytes", status_code=200, content_type="application/octet-stream"),
+    ])
+    monkeypatch.setattr(_core, "_auto_relogin_token", _fake_relogin_ok)
+    resp = asyncio.run(
+        _core.hcm_temp_download(_Req(index="profile_x", token="bad", target="http://gw"))
+    )
+    assert resp.body == b"profile-bytes"
+    assert len(fake.cookies_seen) == 2
+    assert fake.cookies_seen[0] == {"token": "bad"}
+    assert fake.cookies_seen[1] == {"token": "NEW-TK"}
+
+
+def test_html_auth_failure_relogin_retry_still_fails(monkeypatch):
+    """重登成功但重试仍失败：透传重试后的错误，不把错误页当文件。"""
+    _install_scripted(monkeypatch, [
+        _FakeResp(HTML_AUTH_ERR, status_code=200, content_type="text/html"),
+        _FakeResp(HTML_AUTH_ERR, status_code=200, content_type="text/html"),
+    ])
+    monkeypatch.setattr(_core, "_auto_relogin_token", _fake_relogin_ok)
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(_core.hcm_temp_download(_Req(index="profile_x", token="bad", target="http://gw")))
+    assert ei.value.status_code == 400
+    assert "system_errors_msg_00000062" in str(ei.value.detail)
+
+
+def test_missing_file_no_relogin(monkeypatch):
+    """非登录类错误（文件不存在 JSON）：不触发重登，只调一次。"""
+    body = '{"errcode": 80002, "errmsg": "文件不存在"}'.encode("utf-8")
+    fake = _install_scripted(monkeypatch, [
+        _FakeResp(body, status_code=200, content_type="application/json"),
+    ])
+    monkeypatch.setattr(_core, "_auto_relogin_token", _fake_relogin_ok)
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(_core.hcm_temp_download(_Req(index="log_1", token="TK", target="http://gw")))
+    assert "文件不存在" in str(ei.value.detail)
+    assert len(fake.cookies_seen) == 1

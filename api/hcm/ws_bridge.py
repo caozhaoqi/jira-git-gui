@@ -232,7 +232,7 @@ async def _proxy_bridge(local_ws, url: str, tok: str, first: str, ssl_ctx):
 
 
 async def ws_proxy(local_ws, target: str, api_name: str, token: str = "",
-                   allow_relogin: bool = True) -> None:
+                   allow_relogin: bool = True, extra_query: str = "") -> None:
     """流式 WS 代理：本地客户端 ↔ 网关 WS 双向桥接。
 
     - 本地首帧（业务参数）原样转发给网关（调试页同款语义）；
@@ -242,13 +242,16 @@ async def ws_proxy(local_ws, target: str, api_name: str, token: str = "",
       自动用 cf_accounts 账密重登并**重建连接重发首帧**（首帧已从本地消费，
       缓存在后重用），本地客户端无感知；重登不可用（无账密/失败）时才把
       网关错误帧透传给本地——与 hcm_direct 的自动重登策略对齐。
+
+    ``extra_query``：附加到网关 WS URL 的查询串（如 ``sql_debug=1``，
+    对齐 REST 通道的调试开关；网关不认识的参数会自行忽略）。
     """
     effective_target = (target or "").strip() or _HCM_PROXY_TARGET
     if not effective_target:
         await local_ws.close(code=4400, reason="WS 目标未配置")
         return
     tok = (token or "").strip() or _HCM_PRESET_TOKEN
-    url = build_ws_url(effective_target, api_name)
+    url = build_ws_url(effective_target, api_name, extra_query)
     logger.info("[HCM-WS][proxy] %s → %s", api_name, url)
 
     ssl_ctx = None

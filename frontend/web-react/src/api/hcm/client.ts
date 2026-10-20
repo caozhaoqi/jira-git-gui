@@ -10,6 +10,8 @@ export interface HcmDirectErrorInfo {
   /** 网关 debug 元信息（错误响应同样可能携带） */
   log_index?: string;
   profile_index?: string;
+  /** sql_debug=1 时网关返回的 SQL 语句数组（带 [耗时ms] 前缀） */
+  sql_trace?: string[];
   duration_ms?: number;
   /** 网关错误响应原样 JSON（供调试页红色结果块展示） */
   raw?: unknown;

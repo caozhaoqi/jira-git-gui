@@ -19,7 +19,7 @@ const DIRECT_ENDPOINT = '/api/hcm/direct';
 export interface HcmDirectResult<T = any> {
   data: T;
   gateway?: string;
-  /** 网关 debug 元信息：srv_begin/srv_end/duration_ms/log_index/profile_index */
+  /** 网关 debug 元信息：srv_begin/srv_end/duration_ms/log_index/profile_index/sql_trace */
   meta?: Record<string, any>;
 }
 
@@ -63,9 +63,10 @@ export async function hcmDirect<T = any>(
     const meta = (body.meta || {}) as Record<string, any>;
     throw new HcmApiError(err.errmsg || `HCM 网关错误 ${err.errcode ?? ''}`, 200, undefined, {
       ...err,
-      // 错误响应里同样可能带接口日志/性能日志索引与耗时（参考网关调试页错误分支）
+      // 错误响应里同样可能带接口日志/性能日志索引、SQL 日志与耗时（参考网关调试页错误分支）
       log_index: meta.log_index,
       profile_index: meta.profile_index,
+      sql_trace: meta.sql_trace,
       duration_ms: meta.duration_ms,
       raw: body.data,
     });

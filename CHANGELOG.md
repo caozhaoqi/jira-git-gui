@@ -13,6 +13,11 @@
   - 非 JSON 响应（网关 500 HTML 错误页 / nginx 页 / SSO 跳转页）：后端 `hcm_direct` 不再抛 HTTPException 把整页 HTML 塞进 message，改为结构化 `{ok:false, error.raw=原文}`（HTTP 200），前端红色结果块展示 + **按内容自动选视图**（结构化 JSON → 树，HTML/纯文本 → 代码视图，树对非 JSON 无意义）；错误块新增 errmsg 摘要行（红条），raw 原文优先展示时可读性不丢。
   - 顺带修复 3 处既有 CSS 级联问题（`.hcm-api-chk` / `.hcm-ops-keyinput` / `.hcm-ops-decinput` 单类变体被 panels.css 基类压掉）——改复合选择器提特异性，`audit_css_cascade` 由 4 项告警清零。
   - 测试：新增 `tests/test_hcm_direct.py`（6 例：成功/业务错误/HTTP 500 HTML/200 非 JSON/502 上游页/路由层结构化；⚠️ fake client 必须按 URL 过滤响应，否则全量跑时 startup 的 cf auto-login 会消耗脚本响应）；playwright E2E 27 项 PASS（真实网关 JSON 流程 + page.route mock HTML 500 全流程：红块/自动代码视图/行号/高亮/搜索/树兜底）。
+- **WS 调试会话状态机修复**（终态与连接关闭竞争）：
+  - 修复「WS 已拿到终态错误响应（结果区红块 + HTML 代码视图）却仍弹 `WS connection closed` 错误条」——onerror/onclose 在**已拿到终态（final）**时不再改会话状态（终态后网关/后端关连接是协议既定行为，一次性会话）；终态帧到达时清掉此前的连接层 error 字段（覆盖 onclose 先跑的时序）。
+  - 非 JSON 帧（网关异常页/裸文本）不再被静默丢弃：对齐后端 `ws_call` 语义，按 error 终态处理并保留原文（HTML 进代码视图，用户看得见内容）。
+  - 真连接中断（无终态）仍保留 `WS 连接已关闭` 错误反馈；notify 进度后中断 → 进度面板 + 错误条并存（进度可见 + 失败原因明确）。
+  - 验证：playwright E2E 17 项 PASS（mock 网关五场景回放：error-HTML 终态/裸 HTML 帧/success/静默关闭/notify 后中断），真实网关回归 27 项 PASS。
 - **服务账号支持配置域名别名（domain）**：cf_accounts 条目新增可选 `domain` 字段（仅下拉展示识别，连接/登录仍走 server_url）；全链路贯通（load_cf_accounts → services-config GET/POST/PUT → /api/cf/accounts → /api/cf-debug/accounts → hcm_envs → kibana list_servers）；HCM 接口/HCM 运维/HCM 对象/云函数/云函数调试下拉均展示「name · url · domain」；系统设置服务账号表格新增域名副行。测试 `tests/test_cf_account_domain.py`（6 例）。
 - **AI 数据桥**（前后端全链路）：把每个功能面板的实时输出暴露为本地 HTTP 接口，外部 AI 助手可直接拉取应用正在显示的数据。
   - 后端 `api/ai_bridge.py`：内存环形缓冲（每 tab 20 条、单条 256KB 截断），`POST /api/ai/output/{tab}` 上报 + `GET /api/ai/output` 概览 + `GET /api/ai/output/{tab}?format=text&at=-n` 拉取 + `/history` 历史；TAB_DESCRIPTIONS 白名单限定 tab。测试 `tests/test_ai_bridge.py`（9 例）。

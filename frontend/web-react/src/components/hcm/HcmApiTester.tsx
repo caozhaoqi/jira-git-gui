@@ -83,6 +83,8 @@ interface SendResult {
   profileIndex: string;
   /** 网关 srv_end - srv_begin（毫秒） */
   durationMs?: number;
+  /** sql_debug=1 时网关返回的 SQL 语句（带 [耗时ms] 前缀） */
+  sqlTrace?: string[];
   /** 网关业务错误：结果块红色 + traceback + 明细错误链接 */
   isError: boolean;
   errorCode?: string;
@@ -353,6 +355,7 @@ export function HcmApiTester() {
         gateway: gateway || '',
         logIndex: String(meta?.log_index ?? ''),
         profileIndex: String(meta?.profile_index ?? ''),
+        sqlTrace: Array.isArray(meta?.sql_trace) ? meta.sql_trace : undefined,
         durationMs: typeof meta?.duration_ms === 'number' ? meta.duration_ms : undefined,
         isError: false,
       });
@@ -371,6 +374,7 @@ export function HcmApiTester() {
           gateway: target,
           logIndex: String(p.log_index ?? ''),
           profileIndex: String(p.profile_index ?? ''),
+          sqlTrace: Array.isArray(p.sql_trace) ? p.sql_trace : undefined,
           isError: true,
           errorCode: p.error_code != null && p.error_code !== ''
             ? String(p.error_code)
@@ -417,7 +421,7 @@ export function HcmApiTester() {
 
     let sock: WebSocket;
     try {
-      sock = new WebSocket(hcmWsProxyUrl(apiName.trim(), target));
+      sock = new WebSocket(hcmWsProxyUrl(apiName.trim(), target, '', { sqlDebug, profileDebug }));
     } catch (e: any) {
       setWs({ phase: 'error', messages: [], error: e?.message || String(e) });
       return;
@@ -431,7 +435,17 @@ export function HcmApiTester() {
     };
     sock.onmessage = (ev) => {
       let msg: any;
-      try { msg = JSON.parse(ev.data as string); } catch { return; }
+      try { msg = JSON.parse(ev.data as string); } catch {
+        // 非 JSON 帧（网关异常页/裸文本）：对齐后端 ws_call 语义——按 error
+        // 终态处理并保留原文（HTML 进代码视图），不再静默丢弃。
+        setWs((s) => (s ? { ...s, phase: 'done', error: undefined, final: { status: 'error', data: ev.data } } : s));
+        reportPanelOutput('hcmapi', {
+          text: `API(ws): ${apiName}\nGateway: ${target || '(default)'}\nStatus: error (non-JSON frame)\n\n${ev.data}`,
+          meta: { api: apiName, mode: 'ws', error: true },
+        });
+        try { sock.close(1000, 'terminal'); } catch { /* 忽略 */ }
+        return;
+      }
       const status = String(msg?.status || '');
       if (status === 'notify') {
         if (msg?.data === 'pong') return; // 心跳
@@ -439,7 +453,8 @@ export function HcmApiTester() {
         return;
       }
       if (status === 'success' || status === 'error') {
-        setWs((s) => (s ? { ...s, phase: 'done', final: { status, data: msg?.data } } : s));
+        // 终态覆盖此前的连接层错误（onclose 可能先于终态帧到达过一次）
+        setWs((s) => (s ? { ...s, phase: 'done', error: undefined, final: { status, data: msg?.data } } : s));
         // AI 数据桥：WS 终态同样同步给 /api/ai/output/hcmapi
         reportPanelOutput('hcmapi', {
           text: `API(ws): ${apiName}\nGateway: ${target || '(default)'}\nStatus: ${status}\n\n${JSON.stringify(msg?.data, null, 2)}`,
@@ -449,12 +464,15 @@ export function HcmApiTester() {
       }
     };
     sock.onerror = () => {
-      setWs((s) => (s ? { ...s, phase: 'error', error: t('hcm.apiWsFailed') } : s));
+      // 已拿到终态（含非 JSON 帧终态）：连接随后关闭是正常后续，不得覆盖
+      setWs((s) => (s && !s.final ? { ...s, phase: 'error', error: t('hcm.apiWsFailed') } : s));
     };
     sock.onclose = () => {
       wsRef.current = null;
       setWs((s) => {
-        if (!s || s.phase === 'done') return s;
+        // 终态已到达（success/error 帧，或非 JSON 帧终态）：网关/后端随后关连接
+        // 属协议既定行为（一次性会话），保持 done + final，不弹「连接已关闭」
+        if (!s || s.final || s.phase === 'done') return s;
         return { ...s, phase: 'error', error: s.error || t('hcm.apiWsClosed') };
       });
     };
@@ -585,7 +603,7 @@ export function HcmApiTester() {
           <label className="hcm-api-field hcm-api-field--gw">
             <span className="hcm-api-label">{t('hcm.apiGateway')}</span>
             <select
-              className="input"
+              className="sel"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               title={t('hcm.apiGatewayHint')}
@@ -825,6 +843,33 @@ export function HcmApiTester() {
                 <span className="hcm-api-traceback-tag">{t('hcm.apiTraceback')}</span>
                 {display.traceback}
               </div>
+            )}
+            {/* SQL 日志（sql_debug=1 时网关在响应里带回 sql_trace） */}
+            {display.sqlTrace && display.sqlTrace.length > 0 && (
+              <details className="hcm-api-sqltrace">
+                <summary>
+                  {t('hcm.apiSqlTrace', { n: display.sqlTrace.length })}
+                </summary>
+                <div className="hcm-api-sqltrace-body">
+                  {display.sqlTrace.map((s, i) => {
+                    const m = /^\[(\d+(?:\.\d+)?)\]\s*([\s\S]*)$/.exec(s);
+                    return (
+                      <div key={i} className="hcm-api-sqltrace-item">
+                        {m ? (
+                          <>
+                            <span className="hcm-api-sqltrace-ms" title={t('hcm.apiSqlTraceMs')}>
+                              [{m[1]}ms]
+                            </span>
+                            <span className="hcm-api-sqltrace-sql">{m[2]}</span>
+                          </>
+                        ) : (
+                          <span className="hcm-api-sqltrace-sql">{s}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
             )}
           </div>
         );

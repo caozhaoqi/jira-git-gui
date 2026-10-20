@@ -61,11 +61,23 @@ export async function hcmWsCall(
   return body as HcmWsCallResult;
 }
 
-/** 流式 WS 代理地址（浏览器 WebSocket 直连本地后端）。 */
-export function hcmWsProxyUrl(apiName: string, target = '', token = ''): string {
+/** 流式 WS 代理地址（浏览器 WebSocket 直连本地后端）。
+ *
+ * ``opts`` 的调试开关会透传到网关 WS URL（``sql_debug=1`` /
+ * ``profile_debug=1``），与 REST 通道的「输出 SQL/Profile 日志」复选框
+ * 语义一致；网关不认识的参数会自行忽略。
+ */
+export function hcmWsProxyUrl(
+  apiName: string,
+  target = '',
+  token = '',
+  opts: { sqlDebug?: boolean; profileDebug?: boolean } = {},
+): string {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const q = new URLSearchParams({ api: apiName.trim() });
   if (target.trim()) q.set('target', target.trim());
   if (token.trim()) q.set('token', token.trim());
+  if (opts.sqlDebug) q.set('sql_debug', '1');
+  if (opts.profileDebug) q.set('profile_debug', '1');
   return `${proto}//${location.host}/api/hcm/ws?${q.toString()}`;
 }

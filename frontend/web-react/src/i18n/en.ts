@@ -176,6 +176,8 @@ export const en: Dict = {
     apiDuration: 'Duration',
     apiErrorDetail: 'Error details',
     apiTraceback: 'Traceback',
+    apiSqlTrace: 'SQL log ({{n}})',
+    apiSqlTraceMs: 'Elapsed time of this SQL (ms)',
     apiDangerTip: 'Dangerous API: writes live data directly — double-check the gateway environment and params',
     apiSearchPlaceholder: 'Search API name or description…',
     apiListLoading: 'Loading API list…',

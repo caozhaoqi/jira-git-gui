@@ -162,6 +162,19 @@ def _resp_is_token_error(raw_text: str) -> bool:
     return isinstance(d, dict) and d.get("errcode") in _TOKEN_ERRCODES
 
 
+def _is_html_error_page(raw_text: str) -> bool:
+    """判定网关响应是否为 HTML 错误兜底页（非 JSON 结构体）。
+
+    实测 ``hr-test.bii.com.cn``：token 失效时**不返回** 17003/51006 JSON，
+    而是框架兜底成 HTTP 500 HTML 错误页（``<!DOCTYPE html> ...
+    STATUS:500 服务器内部错误``），errcode 判定完全落空；有效 token +
+    空信封体则回 501 HTML。JSON 必以 ``{``/``[`` 开头、HTML 必以 ``<``
+    开头，据此区分。凡 5xx + HTML 形态按疑似登录态失效重登重试一次，
+    重试后仍失败则原样透传（真·服务器错误多重一次登录无害）。
+    """
+    return (raw_text or "").lstrip().startswith("<")
+
+
 async def hcm_direct(req) -> "dict":
     """直连 HCM 网关并解密响应（绕过同源透传链）。
 
@@ -236,10 +249,16 @@ async def hcm_direct(req) -> "dict":
                 resp.status_code, len(resp.content), raw_text[:600])
 
     # token 失效（默认 2h 过期）→ 自动重登一次并重试。
-    # 注意：部分网关 token 失效/无权限时不返回 errcode 结构，而是
+    # 注意 1：部分网关 token 失效/无权限时不返回 errcode 结构，而是
     # 401/403（body 可能为空）——同样先按疑似登录态失效重登重试一次，
     # 重试后仍是 403 则按原样透传（真无权限）。
-    if _resp_is_token_error(raw_text) or resp.status_code in (401, 403) or not raw_text.strip():
+    # 注意 2：hr-test 部署对无效 token 直接兜底成 HTTP 500 HTML 错误页
+    # （非 JSON，errcode 判定落空）——同样纳入疑似失效：重登一次后重试
+    # 即可恢复（实测：无效 token → 500 HTML；有效 token → 200 数据）。
+    if (_resp_is_token_error(raw_text)
+            or resp.status_code in (401, 403)
+            or not raw_text.strip()
+            or (resp.status_code >= 500 and _is_html_error_page(raw_text))):
         new_tok = await _auto_relogin(effective_target)
         if new_tok and new_tok != token:
             try:
@@ -263,7 +282,7 @@ async def hcm_direct(req) -> "dict":
         if isinstance(err_payload, dict):
             meta = {
                 k: err_payload[k]
-                for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+                for k in ("srv_begin", "srv_end", "profile_index", "log_index", "sql_trace")
                 if k in err_payload
             }
             if "srv_begin" in meta and "srv_end" in meta:
@@ -339,7 +358,7 @@ async def hcm_direct(req) -> "dict":
         # （红色结果块 + traceback + 「查看明细错误」+ 下载接口日志），由前端统一抛 HcmApiError。
         meta = {
             k: data[k]
-            for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+            for k in ("srv_begin", "srv_end", "profile_index", "log_index", "sql_trace")
             if k in data
         }
         if "srv_begin" in meta and "srv_end" in meta:
@@ -370,7 +389,7 @@ async def hcm_direct(req) -> "dict":
     if isinstance(data, dict):
         meta = {
             k: data[k]
-            for k in ("srv_begin", "srv_end", "profile_index", "log_index")
+            for k in ("srv_begin", "srv_end", "profile_index", "log_index", "sql_trace")
             if k in data
         }
         if "srv_begin" in meta and "srv_end" in meta:
@@ -468,7 +487,8 @@ async def hcm_decrypt_param(req) -> "dict":
         code = d.get("code")
         return isinstance(code, int) and code >= 400
 
-    if _resp_is_token_error(raw_text) or _suspect_auth(raw_text):
+    if (_resp_is_token_error(raw_text) or _suspect_auth(raw_text)
+            or (resp.status_code >= 500 and _is_html_error_page(raw_text))):
         new_tok = await _auto_relogin_token(effective_target)
         if new_tok and new_tok != token:
             try:
@@ -569,27 +589,73 @@ async def hcm_temp_download(req) -> "Response":
     from api.cf.cf_tokens import _cf_ssl_context
 
     logger.info("[HCM] 临时文件下载 → %s token=%s", url, "preset" if not getattr(req, "token", "").strip() else "provided")
-    try:
+
+    async def _get(tok: str):
         async with httpx.AsyncClient(
             timeout=60, follow_redirects=True, verify=_cf_ssl_context(),
             proxy=_request_proxy(target) or None,
         ) as client:
-            resp = await client.get(url, cookies={"token": token} if token else {})
+            return await client.get(url, cookies={"token": tok} if tok else {})
+
+    def _is_failed(r) -> bool:
+        """非文件响应（错误体）判定：4xx/5xx、JSON 错误体、HTML 错误页。
+
+        实测登录失效时网关回 **HTTP 200 + text/html** 错误页
+        （"出错啦！error system_errors_msg_00000062"），只判 json 会把它
+        当文件下发（前端存出 46 字节"日志"）；正常日志/profile 均为
+        application/octet-stream，判 html 为失败安全。
+        """
+        c = (r.headers.get("content-type") or "").lower()
+        return r.status_code >= 400 or "json" in c or "html" in c
+
+    def _is_auth_failure(r) -> bool:
+        """登录态失效判定：401/403、JSON errcode 17003/51006、HTML 错误页暗号。"""
+        if r.status_code in (401, 403):
+            return True
+        text = r.content.decode("utf-8", "replace")
+        if "json" in (r.headers.get("content-type") or "").lower():
+            try:
+                d = json.loads(text)
+                if isinstance(d, dict) and d.get("errcode") in _TOKEN_ERRCODES:
+                    return True
+            except Exception:
+                pass
+        # 实测：token 跨网关不匹配/过期 → 200 + text/html + 该暗号
+        return "system_errors_msg_00000062" in text or "请登录" in text
+
+    def _err_msg(r) -> str:
+        text = r.content.decode("utf-8", "replace")
+        msg = text[:500]
+        try:
+            j = json.loads(text)
+            if isinstance(j, dict):
+                msg = j.get("errmsg") or j.get("description") or j.get("message") or msg
+        except Exception:
+            pass
+        return msg
+
+    try:
+        resp = await _get(token)
     except httpx.ConnectError as e:
         raise HTTPException(502, f"无法连接 HCM 服务器 {target}: {e}")
     except httpx.TimeoutException:
         raise HTTPException(504, "下载 HCM 临时文件超时")
 
-    ctype = (resp.headers.get("content-type") or "").lower()
-    # 网关失败时会返回 JSON 错误体（如「请登录后操作」「文件不存在」），不能当文件下发。
-    if resp.status_code >= 400 or "json" in ctype:
-        text = resp.content.decode("utf-8", "replace")
-        msg = text[:500]
-        try:
-            j = json.loads(text)
-            msg = j.get("errmsg") or j.get("description") or j.get("message") or msg
-        except Exception:
-            pass
+    # token 失效/跨网关不匹配 → 自动重登一次重试（与 hcm_direct 同策略）。
+    # 典型场景：面板未填 token、后端用 hcm_whitelist 的 proxy_target 预设
+    # token（只对默认网关有效）下载其它部署的日志 → 网关回 HTML 错误页。
+    if _is_failed(resp) and _is_auth_failure(resp):
+        new_tok = await _auto_relogin_token(target)
+        if new_tok and new_tok != token:
+            try:
+                resp = await _get(new_tok)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                pass  # 重试仍连不上：沿用首次响应走错误分支
+            else:
+                logger.info("[HCM] 临时文件下载自动重登后重试 → %s", resp.status_code)
+
+    if _is_failed(resp):
+        msg = _err_msg(resp)
         logger.warning("[HCM] 临时文件下载失败 index=%s http=%s msg=%s", index, resp.status_code, msg)
         raise HTTPException(
             resp.status_code if resp.status_code >= 400 else 400,
@@ -601,6 +667,7 @@ async def hcm_temp_download(req) -> "Response":
     disposition = f"attachment; filename*=UTF-8''{quote(name)}"
     return Response(
         content=resp.content,
-        media_type=ctype or "application/octet-stream",
+        media_type=(resp.headers.get("content-type") or "").lower()
+        or "application/octet-stream",
         headers={"Content-Disposition": disposition},
     )

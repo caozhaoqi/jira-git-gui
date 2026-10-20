@@ -134,7 +134,8 @@ async def api_hcm_ws(ws: WebSocket) -> None:
     """流式 WS 调试代理：本地浏览器 ↔ 网关 ``/ws/<api>`` 双向桥接。
 
     查询参数：``api``（接口名）、``target``（可选，覆盖网关）、``token``
-    （可选，缺省用预设）。连接后首帧发业务参数（明文 JSON），之后网关的
+    （可选，缺省用预设）、``sql_debug``/``profile_debug``（可选，调试开关，
+    透传到网关 WS URL）。连接后首帧发业务参数（明文 JSON），之后网关的
     notify 进度 / success / error 终态实时转发；任一侧断开即整体结束。
     """
     await ws.accept()
@@ -142,9 +143,15 @@ async def api_hcm_ws(ws: WebSocket) -> None:
     if not api_name:
         await ws.close(code=4400, reason="missing api")
         return
+    extra = []
+    if (ws.query_params.get("sql_debug") or "") == "1":
+        extra.append("sql_debug=1")
+    if (ws.query_params.get("profile_debug") or "") == "1":
+        extra.append("profile_debug=1")
     try:
         await ws_proxy(ws, ws.query_params.get("target") or "",
-                       api_name, ws.query_params.get("token") or "")
+                       api_name, ws.query_params.get("token") or "",
+                       extra_query="&".join(extra))
     except WebSocketDisconnect:
         pass
 

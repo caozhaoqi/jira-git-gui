@@ -2893,6 +2893,8 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
 .hcm-cf-err-gateway { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: 6px; background: rgba(127,127,127,.06); }
 .hcm-cf-err-gateway .hcm-config-label { flex: 0 1 320px; }
 .hcm-cf-err-gateway .hcm-input { min-width: 200px; }
+/* 网关下拉已统一到 .sel 基类：宽度特化跟 select 元素走 */
+.hcm-cf-err-gateway select { min-width: 200px; }
 .hcm-input { min-width: 140px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-input); color: var(--text); font-size: 13px; }
 .hcm-cf-err-error { padding: 8px 10px; border-radius: 6px; background: rgba(220,38,38,.12); color: #e5484d; font-size: 13px; }
 .hcm-cf-err-error--gw { background: rgba(217,119,6,.14); color: #c2620a; }
@@ -3121,6 +3123,27 @@ html.dark .hcm-meta-name mark, .hcm-list mark { background: var(--hl-bg-dark); c
   display: block; margin-bottom: 6px; font-size: 10px;
   color: var(--danger); font-family: var(--font-ui, inherit); font-weight: 600;
 }
+
+/* ---- SQL 日志（sql_debug=1：网关响应 sql_trace）---- */
+.hcm-api-sqltrace {
+  border: 1px solid var(--border-soft, var(--border)); border-radius: var(--radius-xs);
+  background: var(--panel-2, var(--bg-2)); font-size: 12px;
+}
+.hcm-api-sqltrace > summary {
+  cursor: pointer; padding: 6px 10px; color: var(--text-2);
+  user-select: none; list-style: none;
+}
+.hcm-api-sqltrace > summary::marker { display: none; }
+.hcm-api-sqltrace > summary::before { content: '▸ '; color: var(--text-faint); }
+.hcm-api-sqltrace[open] > summary::before { content: '▾ '; }
+.hcm-api-sqltrace-body { max-height: 260px; overflow: auto; padding: 0 10px 8px; }
+.hcm-api-sqltrace-item {
+  display: flex; gap: 8px; padding: 4px 0;
+  border-top: 1px dashed var(--border-soft, var(--border));
+  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+}
+.hcm-api-sqltrace-ms { flex: none; color: var(--primary); font-weight: 600; }
+.hcm-api-sqltrace-sql { color: var(--text-2); white-space: pre-wrap; word-break: break-all; }
 
 /* ---- WS 调试按钮 / 会话状态 / notify 进度 ---- */
 .hcm-api-ws-btn {

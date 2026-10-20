@@ -74,7 +74,7 @@ export function HcmOps() {
         <label className="hcm-ops-gw">
           <span className="hcm-api-label">{t('hcm.apiGateway')}</span>
           <select
-            className="input"
+            className="sel"
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             title={t('hcm.apiGatewayHint')}
@@ -612,7 +612,7 @@ function ErrorPanel({ target }: { target: string }) {
     <div className="hcm-ops-body">
       <div className="hcm-ops-form">
         <select
-          className="input"
+          className="sel"
           value={timeType}
           onChange={(e) => { setTimeType(e.target.value as TimeType); setRows(null); setTotal(0); }}
         >
