@@ -454,10 +454,13 @@
   transition: width .2s ease-out, max-height .2s ease-out, border-radius .2s ease-out;
 }
 
-/* k8s-env-list */
+/* k8s-env-list：左栏滚动列表（原为纵向堆叠在表单上方，现为左右分栏的左栏） */
 .k8s-env-list {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
 }
 
 /* k8s-env-item */
@@ -1187,33 +1190,95 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 10px;
   padding: 12px 0;
 }
-/* 表单模式条：一眼分清「新建环境 / 编辑中」，附目标环境名或新建提示 */
-.k8s-env-form-mode {
+/* ===== 环境管理弹窗 v2：左列表 | 右（模式分段 + 表单）显式分流 ===== */
+/* 宽档弹窗：440px 放不下左右分栏，新增 modal-wide 变体 */
+.modal-wide {
+  width: 780px;
+  max-width: 94vw;
+}
+.k8s-env-cols {
   display: flex;
-  align-items: center;
+  gap: 16px;
+  min-height: 400px;
+}
+/* 左栏：环境列表 */
+.k8s-env-side {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  font-size: 12px;
+  border-right: 1px solid var(--border);
+  padding-right: 14px;
   min-width: 0;
 }
-.k8s-env-mode-tag {
-  padding: 1px 8px;
-  border-radius: 12px;
-  font-size: 11px;
+.k8s-env-side-title {
+  font-size: 12px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-dim);
   flex-shrink: 0;
 }
-.k8s-env-mode-tag.new {
-  background: var(--primary);
+/* 右栏：模式分段 + 说明 + 表单 */
+.k8s-env-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.k8s-env-mode-tag.edit {
-  background: var(--text-dim);
+/* 分段控件：编辑 / 新建（显式模式开关，取代旧「ID 是否在列表」隐式判定） */
+.k8s-env-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  align-self: flex-start;
 }
-.k8s-env-form-mode-text {
+.k8s-env-seg .seg {
+  border: none;
+  background: transparent;
   color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background-color .15s ease-out, color .15s ease-out;
+}
+.k8s-env-seg .seg:hover:not(:disabled) {
+  color: var(--text);
+}
+.k8s-env-seg .seg.active {
+  background: var(--primary);
+  color: #fff;
+}
+.k8s-env-seg .seg:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.k8s-env-mode-note {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+/* 标识锁定提示 / 撞车提示（缩进与表单输入对齐） */
+.k8s-env-id-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  margin: -4px 0 2px 96px;
+}
+.k8s-env-id-hint.err {
+  color: var(--danger);
+}
+.k8s-env-lock {
+  font-size: 12px;
+  flex-shrink: 0;
+  cursor: help;
+}
+.k8s-env-form .input:disabled {
+  opacity: .6;
+  cursor: not-allowed;
 }
 .form-row {
   display: flex;
