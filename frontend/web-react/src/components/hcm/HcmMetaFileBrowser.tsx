@@ -410,7 +410,7 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
           </label>
           <label className="hcm-config-label">
             <span>{t('hcm.metaBizType')}</span>
-            <select value={bizType} onChange={(e) => setBizType(e.target.value)}>
+            <select className="sel" value={bizType} onChange={(e) => setBizType(e.target.value)}>
               <option value="">{t('hcm.metaAll')}</option>
               <option value="list">list</option>
               <option value="info">info</option>
@@ -422,7 +422,7 @@ export function HcmMetaFileBrowser({ embedded = false }: { embedded?: boolean })
           </label>
           <label className="hcm-config-label">
             <span>{t('hcm.metaType')}</span>
-            <select value={srcType} onChange={(e) => setSrcType(e.target.value)}>
+            <select className="sel" value={srcType} onChange={(e) => setSrcType(e.target.value)}>
               <option value="">{t('hcm.metaAll')}</option>
               <option value="SYSTEM">SYSTEM</option>
               <option value="PROGRAM">PROGRAM</option>

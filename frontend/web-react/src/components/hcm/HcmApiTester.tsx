@@ -83,6 +83,8 @@ interface SendResult {
   profileIndex: string;
   /** 网关 srv_end - srv_begin（毫秒） */
   durationMs?: number;
+  /** sql_debug=1 时网关返回的 SQL 语句（带 [耗时ms] 前缀） */
+  sqlTrace?: string[];
   /** 网关业务错误：结果块红色 + traceback + 明细错误链接 */
   isError: boolean;
   errorCode?: string;
@@ -353,6 +355,7 @@ export function HcmApiTester() {
         gateway: gateway || '',
         logIndex: String(meta?.log_index ?? ''),
         profileIndex: String(meta?.profile_index ?? ''),
+        sqlTrace: Array.isArray(meta?.sql_trace) ? meta.sql_trace : undefined,
         durationMs: typeof meta?.duration_ms === 'number' ? meta.duration_ms : undefined,
         isError: false,
       });
@@ -371,6 +374,7 @@ export function HcmApiTester() {
           gateway: target,
           logIndex: String(p.log_index ?? ''),
           profileIndex: String(p.profile_index ?? ''),
+          sqlTrace: Array.isArray(p.sql_trace) ? p.sql_trace : undefined,
           isError: true,
           errorCode: p.error_code != null && p.error_code !== ''
             ? String(p.error_code)
@@ -417,7 +421,7 @@ export function HcmApiTester() {
 
     let sock: WebSocket;
     try {
-      sock = new WebSocket(hcmWsProxyUrl(apiName.trim(), target));
+      sock = new WebSocket(hcmWsProxyUrl(apiName.trim(), target, '', { sqlDebug, profileDebug }));
     } catch (e: any) {
       setWs({ phase: 'error', messages: [], error: e?.message || String(e) });
       return;
@@ -599,7 +603,7 @@ export function HcmApiTester() {
           <label className="hcm-api-field hcm-api-field--gw">
             <span className="hcm-api-label">{t('hcm.apiGateway')}</span>
             <select
-              className="input"
+              className="sel"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
               title={t('hcm.apiGatewayHint')}
@@ -839,6 +843,33 @@ export function HcmApiTester() {
                 <span className="hcm-api-traceback-tag">{t('hcm.apiTraceback')}</span>
                 {display.traceback}
               </div>
+            )}
+            {/* SQL 日志（sql_debug=1 时网关在响应里带回 sql_trace） */}
+            {display.sqlTrace && display.sqlTrace.length > 0 && (
+              <details className="hcm-api-sqltrace">
+                <summary>
+                  {t('hcm.apiSqlTrace', { n: display.sqlTrace.length })}
+                </summary>
+                <div className="hcm-api-sqltrace-body">
+                  {display.sqlTrace.map((s, i) => {
+                    const m = /^\[(\d+(?:\.\d+)?)\]\s*([\s\S]*)$/.exec(s);
+                    return (
+                      <div key={i} className="hcm-api-sqltrace-item">
+                        {m ? (
+                          <>
+                            <span className="hcm-api-sqltrace-ms" title={t('hcm.apiSqlTraceMs')}>
+                              [{m[1]}ms]
+                            </span>
+                            <span className="hcm-api-sqltrace-sql">{m[2]}</span>
+                          </>
+                        ) : (
+                          <span className="hcm-api-sqltrace-sql">{s}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </details>
             )}
           </div>
         );

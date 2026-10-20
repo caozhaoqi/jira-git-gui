@@ -1043,7 +1043,7 @@ export function HcmCloudFuncErrorLocator() {
         <div className="hcm-cf-err-gateway">
           <label className="hcm-config-label">
             {t('hcm.cfErrGateway')}
-            <select className="hcm-input" value={gwKey} onChange={(e) => { setGwKey(e.target.value); setGwAutoName(''); setErrKind(''); }}>
+            <select className="sel" value={gwKey} onChange={(e) => { setGwKey(e.target.value); setGwAutoName(''); setErrKind(''); }}>
               {gateways.length === 0 && <option value="hcm_proxy">{t('hcm.cfErrGatewayDefault')}</option>}
               {gateways.map((g) => (
                 <option key={g.key} value={g.key}>
@@ -1308,7 +1308,7 @@ export function HcmCloudFuncErrorLocator() {
           {caseMsg && !caseFile && <div className="hcm-cf-err-learn-msg">{caseMsg}</div>}
 
           <div className="hcm-cf-err-manual">
-            <select className="hcm-input" value={fbResult} onChange={(e) => setFbResult(e.target.value)}>
+            <select className="sel" value={fbResult} onChange={(e) => setFbResult(e.target.value)}>
               <option value="correct">{t('hcm.cfErrFbCorrect')}</option>
               <option value="partially_correct">{t('hcm.cfErrFbPartial')}</option>
               <option value="wrong">{t('hcm.cfErrFbWrong')}</option>
@@ -1472,7 +1472,7 @@ export function HcmCloudFuncErrorLocator() {
             <input type="file" accept=".py,text/x-python" onChange={onRetroFile} />
           </label>
           {retroName && <span className="hcm-cf-err-token-msg">{retroName}</span>}
-          <select className="hcm-input" value={retroMode} onChange={(e) => setRetroMode(e.target.value as any)}>
+          <select className="sel" value={retroMode} onChange={(e) => setRetroMode(e.target.value as any)}>
             <option value="audit">{t('hcm.cfErrRetrofitModeAudit')}</option>
             <option value="diff">{t('hcm.cfErrRetrofitModeDiff')}</option>
             <option value="apply">{t('hcm.cfErrRetrofitModeApply')}</option>

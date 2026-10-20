@@ -176,6 +176,8 @@ export const ja: Dict = {
     apiDuration: '所要時間',
     apiErrorDetail: 'エラー詳細を見る',
     apiTraceback: 'スタックトレース',
+    apiSqlTrace: 'SQL ログ（{{n}} 件）',
+    apiSqlTraceMs: 'この SQL の所要時間（ミリ秒）',
     apiDangerTip: '危険な API：本番データを直接書き換えます。環境とパラメータを確認してください',
     apiSearchPlaceholder: 'API 名または説明を検索…',
     apiListLoading: 'API リストを読み込み中…',

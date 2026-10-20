@@ -979,7 +979,7 @@ export function DiffPanel() {
                 aria-label={t('diff.filterByPath')}
               />
               <select
-                className="select diff-list-filter"
+                className="sel diff-list-filter"
                 value={fileFilter}
                 onChange={(e) => setFileFilter(e.target.value)}
                 aria-label={t('diff.filterFiles')}

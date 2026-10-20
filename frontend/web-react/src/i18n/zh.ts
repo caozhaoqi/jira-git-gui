@@ -179,6 +179,8 @@ export const zh: Dict = {
     apiDuration: '耗时',
     apiErrorDetail: '查看明细错误',
     apiTraceback: '调用堆栈',
+    apiSqlTrace: 'SQL 日志（{{n}} 条）',
+    apiSqlTraceMs: '本条 SQL 耗时（毫秒）',
     apiDangerTip: '危险接口：会直接修改线上数据，请确认网关环境与参数',
     apiSearchPlaceholder: '搜索接口名或描述…',
     apiListLoading: '接口列表加载中…',

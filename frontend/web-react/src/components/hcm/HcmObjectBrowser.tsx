@@ -976,6 +976,7 @@ const loadList = useCallback(async () => {
             <label>
               <span>{t('hcm.serverEnv')}</span>
               <select
+                className="sel"
                 value={selectedEnv}
                 onChange={(e) => setSelectedEnv(e.target.value)}
                 title={envsError || t('hcm.serverEnvHint')}
@@ -1424,7 +1425,7 @@ const loadList = useCallback(async () => {
                             <label className="hcm-sync-item" key={f.key}>
                               <span className="hcm-sync-label">{syncFieldLabel(f)}</span>
                               {f.kind === 'select' && opts.length > 0 ? (
-                                <select value={value} onChange={(e) => setVal(e.target.value)}>
+                                <select className="sel" value={value} onChange={(e) => setVal(e.target.value)}>
                                   <option value="">{t('hcm.metaAll')}</option>
                                   {opts.map((o) => (
                                     <option key={o.value} value={o.value}>
@@ -1594,6 +1595,33 @@ const loadList = useCallback(async () => {
                           </Fragment>
                         ))}
                       </pre>
+                      {/* SQL 日志（勾选「输出 SQL 日志」后网关在 meta 带回 sql_trace） */}
+                      {Array.isArray(dataMeta.sql_trace) && dataMeta.sql_trace.length > 0 && (
+                        <details className="hcm-api-sqltrace">
+                          <summary>
+                            {t('hcm.apiSqlTrace', { n: dataMeta.sql_trace.length })}
+                          </summary>
+                          <div className="hcm-api-sqltrace-body">
+                            {dataMeta.sql_trace.map((s: string, i: number) => {
+                              const m = /^\[(\d+(?:\.\d+)?)\]\s*([\s\S]*)$/.exec(s);
+                              return (
+                                <div key={i} className="hcm-api-sqltrace-item">
+                                  {m ? (
+                                    <>
+                                      <span className="hcm-api-sqltrace-ms" title={t('hcm.apiSqlTraceMs')}>
+                                        [{m[1]}ms]
+                                      </span>
+                                      <span className="hcm-api-sqltrace-sql">{m[2]}</span>
+                                    </>
+                                  ) : (
+                                    <span className="hcm-api-sqltrace-sql">{s}</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      )}
                       {/* 页脚：左侧状态（条数/耗时/接口日志下载），右侧翻页 —— 省掉单独一行元信息 */}
                       <div className="hcm-pager hcm-pager--split">
                         <span className="hcm-data-meta hcm-mono">
@@ -1637,6 +1665,7 @@ const loadList = useCallback(async () => {
                             <span className="hcm-data-export-status">{dataExportStatus}</span>
                           )}
                           <select
+                            className="sel"
                             value={dataExportFormat}
                             onChange={(e) => setDataExportFormat(e.target.value === 'json' ? 'json' : 'csv')}
                             title={t('hcm.exportFormat')}
