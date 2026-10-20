@@ -6,7 +6,6 @@ import { reportLocalApiNetworkError } from '../../api/client';
 import type { HcmFieldMeta, HcmModelMeta } from '../../api/hcm/types';
 import { HcmMetaFileBrowser } from './HcmMetaFileBrowser';
 import { useAppStore } from '../../store/useAppStore';
-import { openHcmWindow } from './hcmWindow';
 
 // 所有连接统一走后端直连 /api/hcm/direct（相对路径），由后端直连 HCM 网关并解密返回明文。
 const DIRECT_ENDPOINT = '/api/hcm/direct';
@@ -281,7 +280,7 @@ export function HcmModelDetail() {
           {t('hcm.refresh')}
         </button>
         <span className="hcm-kind-sep" />
-        <button
+        {/* <button
           className="btn btn-sm"
           onClick={() =>
             openHcmWindow(
@@ -294,7 +293,7 @@ export function HcmModelDetail() {
           title={t('hcm.cfErrLauncherHint')}
         >
           {t('hcm.cfErrLauncher')}
-        </button>
+        </button> */}
       </div>
 
       {savedPath && (

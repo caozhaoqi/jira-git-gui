@@ -19,13 +19,18 @@ import glob
 SPEC_DIR = Path(os.path.dirname(os.path.abspath(SPEC)))
 PROJ = SPEC_DIR.parent
 
+# Keep the frozen backend's static files aligned with api/server.py's lookup order.
+_frontend_dist = PROJ / "frontend" / "web-react" / "dist"
+if _frontend_dist.is_dir():
+    _web_datas = [(str(_frontend_dist), "frontend/web-react/dist")]
+else:
+    _web_datas = [(str(PROJ / "web"), "web")]
+
 a = Analysis(
     [str(PROJ / "build" / "run_backend.py")],
     pathex=[str(PROJ)],
     binaries=[],
-    datas=[
-        (str(PROJ / "web"), "web"),
-    ],
+    datas=_web_datas,
     hiddenimports=[
         # 后端 / 核心包
         "core", "core.client", "core.config", "core.constants", "core.models",

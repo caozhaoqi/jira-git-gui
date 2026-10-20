@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import type { TabKey } from '../store/useAppStore';
 import { useT } from '../i18n';
@@ -81,7 +81,7 @@ export function Tabs() {
   // Electron 原生菜单的 Cmd/Ctrl+Alt+1..4 走 alt 修饰，这里排除 alt 避免冲突；
   // 纯浏览器下浏览器可能保留 Cmd+1（切浏览器标签页），不拦截成功也无副作用。
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKey = (e: WindowEventMap['keydown']) => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       const n = Number(e.key);
       if (!Number.isInteger(n) || n < 1 || n > MAIN_TABS.length) return;
@@ -121,14 +121,46 @@ export function Tabs() {
 
   const toggleTitle = sidebarOpen ? t('app.sidebarCollapse') : t('app.sidebarExpand');
 
+  // 可见的叶子页签（折叠组未展开时其子树不计入方向键循环），用于 ARIA tab 的
+  // ←/→/Home/End 焦点-选择联动。顺序即 DOM 渲染顺序。
+  const visibleTabs = [
+    ...MAIN_TABS,
+    ...groups.flatMap((g) => (expandedOf(g) ? g.tabs : [])),
+  ];
+  const navRef = useRef<HTMLElement>(null);
+
+  // ARIA tab 模式：方向键在叶子页签间移动并切换（焦点与选中同步）
+  const onNavKeyDown = (e: ReactKeyboardEvent) => {
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+    const keys = visibleTabs.map((t) => t.key);
+    const idx = keys.indexOf(activeTab);
+    if (idx < 0) return;
+    let next = idx;
+    if (e.key === 'ArrowRight') next = (idx + 1) % keys.length;
+    else if (e.key === 'ArrowLeft') next = (idx - 1 + keys.length) % keys.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = keys.length - 1;
+    e.preventDefault();
+    const key = keys[next];
+    setTab(key);
+    // 选中后把焦点移到新页签按钮（roving tabindex：仅选中项可 Tab 进入）
+    requestAnimationFrame(() => {
+      navRef.current?.querySelector<HTMLElement>(`#tab-${key}`)?.focus();
+    });
+  };
+
   const renderTab = (tab: TabDef, extraClass = '', hint?: string) => (
     <button
       key={tab.key}
+      id={`tab-${tab.key}`}
+      role="tab"
+      aria-selected={activeTab === tab.key}
+      aria-controls={`panel-${tab.key}`}
+      tabIndex={activeTab === tab.key ? 0 : -1}
       className={`tab ${extraClass} ${activeTab === tab.key ? 'active' : ''}`}
       data-tab={tab.key}
       onClick={() => setTab(tab.key)}
       title={sidebarOpen ? hint : t(tab.labelKey)}
-      aria-current={activeTab === tab.key ? 'page' : undefined}
     >
       <span className="tab-ico" aria-hidden="true"><TabIcon name={tab.icon} /></span>
       <span className="tab-txt">{t(tab.labelKey)}</span>
@@ -163,7 +195,7 @@ export function Tabs() {
 
   return (
     <aside className={`sidebar${sidebarOpen ? '' : ' sidebar-collapsed'}`}>
-      <nav className="tabs" aria-label="主导航">
+      <nav className="tabs" role="tablist" aria-label="主导航" ref={navRef} onKeyDown={onNavKeyDown}>
         {MAIN_TABS.map((tab, i) => renderTab(tab, '', `${modKey}${i + 1}`))}
         {groups.map(renderGroup)}
       </nav>

@@ -13,14 +13,14 @@
 
 /* panel-sub */
 .panel-sub, .hint {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
 /* input */
 .input, .select, .textarea, .spin {
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -32,7 +32,7 @@
 /* tree-search-empty */
 .tree-search-loading, .tree-search-empty, .tree-search-error, .tree-search-more {
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
@@ -98,14 +98,14 @@
 .diff-progress-bar {
   position: relative;
   height: 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: color-mix(in srgb, var(--text) 12%, transparent);
   overflow: hidden;
 }
 .diff-progress-fill {
   height: 100%;
   width: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--accent, #3b82f6);
   transition: width 0.2s ease;
 }
@@ -114,7 +114,7 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 .diff-progress-stage {
@@ -130,7 +130,7 @@
 }
 .diff-progress-detail {
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -138,7 +138,7 @@
 }
 .diff-progress-eta {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text);
   word-break: break-word;
@@ -155,7 +155,7 @@
   margin-top: 10px;
   border: 1px solid var(--danger);
   background: var(--danger);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 8px 10px;
   max-height: 140px;
   overflow: auto;
@@ -176,9 +176,9 @@
 
 /* sel */
 .cf-env-switcher .sel {
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   color: var(--text);
@@ -221,7 +221,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
@@ -230,7 +230,7 @@
 
 /* cf-search-count */
 .cf-search-count {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -253,7 +253,7 @@
   gap: 4px;
 }
 .cf-match-pos {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   min-width: 44px;
   text-align: center;
@@ -279,7 +279,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
@@ -350,11 +350,11 @@
   min-height: 320px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--bg-elevated);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   resize: vertical;
   line-height: 1.5;
 }
@@ -380,13 +380,13 @@
   min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--bg-input);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .k8s-yaml-count {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -404,18 +404,18 @@
   margin: 0;
   padding: 12px 14px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   white-space: pre;
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
-.k8s-yaml-pre .yk-key { color: #61afef; }
-.k8s-yaml-pre .yk-str { color: #98c379; }
-.k8s-yaml-pre .yk-num { color: #d19a66; }
-.k8s-yaml-pre .yk-comment { color: #7f848e; font-style: italic; }
+.k8s-yaml-pre .yk-key { color: var(--code-key); }
+.k8s-yaml-pre .yk-str { color: var(--code-str); }
+.k8s-yaml-pre .yk-num { color: var(--code-num); }
+.k8s-yaml-pre .yk-comment { color: var(--code-comment); font-style: italic; }
 .k8s-yaml-pre mark {
   background: var(--hl-bg);
   color: var(--hl-text);
@@ -431,12 +431,12 @@
 /* k8s-chk-name */
 .k8s-chk-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* k8s-chk-detail */
 .k8s-chk-detail {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
@@ -454,10 +454,13 @@
   transition: width .2s ease-out, max-height .2s ease-out, border-radius .2s ease-out;
 }
 
-/* k8s-env-list */
+/* k8s-env-list：左栏滚动列表（原为纵向堆叠在表单上方，现为左右分栏的左栏） */
 .k8s-env-list {
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
 }
 
 /* k8s-env-item */
@@ -469,14 +472,14 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   margin-bottom: 6px;
-  font-size: 13px;
+  font-size: var(--text-md);
   transition: all .15s ease-out;
 }
 
 /* cur */
 .k8s-env-item .cur {
   color: var(--success);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -500,7 +503,7 @@
 /* ev-obj */
 .k8s-events-table .ev-obj {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -519,7 +522,7 @@
 /* ev-time */
 .k8s-events-table .ev-time {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -548,7 +551,7 @@
   color: #6366f1;
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--text-md);
   flex-shrink: 0;
 }
 
@@ -559,10 +562,10 @@
   background: #0c0f16;
   color: #c8d3e0;
   border: 1px solid #232a36;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 8px 10px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 
 /* k8s-files-breadcrumb */
@@ -589,7 +592,7 @@
 .k8s-files-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 
 /* k8s-files-icon */
@@ -639,7 +642,7 @@
   min-width: 980px;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .k8s-table th,
 .k8s-table td {
@@ -657,7 +660,7 @@
   background: var(--bg-head);
   color: var(--text-dim);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   z-index: 1;
 }
 .k8s-table tbody tr {
@@ -682,7 +685,7 @@
 .k8s-env-item .kc {
   color: var(--text-dim);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -710,7 +713,7 @@
 
 /* 文件搜索状态 */
 .k8s-files-search-status {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
@@ -728,14 +731,14 @@
 /* 树搜索状态 */
 .tree-search-loading {
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
 /* commit diff 代码体 */
 .commit-diff .diff-body {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   max-height: 480px;
   overflow: auto;
@@ -770,7 +773,7 @@
   border-bottom: 1px solid var(--border);
 }
 .k8s-env-kc {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-dim);
   font-family: var(--mono);
   overflow: hidden;
@@ -824,7 +827,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 
@@ -839,14 +842,14 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 .cfg-checks {
   display: flex;
   align-items: center;
   gap: 14px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text);
 }
 .chk {
@@ -855,12 +858,12 @@
   gap: 5px;
   cursor: pointer;
   user-select: none;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text);
 }
 .input-sm {
   padding: 5px 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .k8s-actions {
   display: flex;
@@ -869,7 +872,7 @@
   align-items: center;
 }
 .panel-sub {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
 .action-bar {
@@ -892,7 +895,7 @@
   gap: 12px;
   flex-wrap: wrap;
   padding: 8px 14px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 
@@ -901,7 +904,7 @@
 .k8s-top .k8s-top-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .k8s-events table th,
 .k8s-events table td,
@@ -914,7 +917,7 @@
 
 /* 描述弹窗 */
 .k8s-describe-head {
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 600;
   margin: 14px 0 4px;
 }
@@ -924,9 +927,9 @@
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   min-height: 200px;
   max-height: 42vh;
@@ -987,7 +990,7 @@
 }
 .modal-head h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-lg);
 }
 .modal-foot {
   display: flex;
@@ -1011,7 +1014,7 @@
 }
 .k8s-net-intranet {
   padding: 0 14px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 
@@ -1021,7 +1024,7 @@
   min-height: 0;
   padding: 8px 10px;
   background: #0c0f16;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   margin: 10px 14px;
 }
 .k8s-shell-term .xterm {
@@ -1029,7 +1032,7 @@
 }
 .k8s-shell-tip {
   padding: 6px 14px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-dim);
   border-top: 1px dashed var(--border);
 }
@@ -1043,7 +1046,7 @@
   color: #6366f1;
   font-family: var(--mono);
   font-weight: 700;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   flex-shrink: 0;
 }
 
@@ -1082,7 +1085,7 @@
 .k8s-files-row .k8s-files-time,
 .k8s-files-row .k8s-files-type {
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
   width: 90px;
   text-align: right;
   flex-shrink: 0;
@@ -1091,12 +1094,12 @@
   width: 100%;
   min-height: 46vh;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 10px;
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   resize: vertical;
 }
 /* 文件查看：语法高亮只读视图 */
@@ -1105,25 +1108,25 @@
   min-height: 46vh;
   margin: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   padding: 10px 12px;
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   overflow: auto;
   white-space: pre;
   tab-size: 2;
 }
 .k8s-file-lang {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--text-2);
   background: var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   padding: 1px 6px;
   vertical-align: middle;
 }
@@ -1131,12 +1134,12 @@
 /* ===== highlight.js 轻量主题（适配浅/深主题） ===== */
 .k8s-file-view.hljs { color: var(--code-fg); background: var(--code-bg); }
 .k8s-file-view .hljs-comment,
-.k8s-file-view .hljs-quote { color: #8a8f98; font-style: italic; }
+.k8s-file-view .hljs-quote { color: var(--code-comment); font-style: italic; }
 .k8s-file-view .hljs-keyword,
 .k8s-file-view .hljs-selector-tag,
 .k8s-file-view .hljs-built_in,
 .k8s-file-view .hljs-name,
-.k8s-file-view .hljs-tag { color: #c678dd; }
+.k8s-file-view .hljs-tag { color: var(--code-kw); }
 .k8s-file-view .hljs-string,
 .k8s-file-view .hljs-title,
 .k8s-file-view .hljs-section,
@@ -1145,40 +1148,40 @@
 .k8s-file-view .hljs-template-tag,
 .k8s-file-view .hljs-template-variable,
 .k8s-file-view .hljs-type,
-.k8s-file-view .hljs-addition { color: #98c379; }
+.k8s-file-view .hljs-addition { color: var(--code-str); }
 .k8s-file-view .hljs-number,
 .k8s-file-view .hljs-symbol,
 .k8s-file-view .hljs-bullet,
 .k8s-file-view .hljs-link,
 .k8s-file-view .hljs-meta,
 .k8s-file-view .hljs-selector-id,
-.k8s-file-view .hljs-selector-class { color: #d19a66; }
+.k8s-file-view .hljs-selector-class { color: var(--code-num); }
 .k8s-file-view .hljs-attr,
 .k8s-file-view .hljs-variable,
-.k8s-file-view .hljs-property { color: #61afef; }
-.k8s-file-view .hljs-deletion { color: #e06c75; }
+.k8s-file-view .hljs-property { color: var(--code-key); }
+.k8s-file-view .hljs-deletion { color: var(--code-del); }
 .k8s-file-view .hljs-emphasis { font-style: italic; }
 .k8s-file-view .hljs-strong { font-weight: 600; }
 html.dark .k8s-file-view .hljs-comment,
-html.dark .k8s-file-view .hljs-quote { color: #7f848e; }
+html.dark .k8s-file-view .hljs-quote { color: var(--code-comment); }
 html.dark .k8s-file-view .hljs-keyword,
 html.dark .k8s-file-view .hljs-selector-tag,
 html.dark .k8s-file-view .hljs-built_in,
 html.dark .k8s-file-view .hljs-name,
-html.dark .k8s-file-view .hljs-tag { color: #c678dd; }
+html.dark .k8s-file-view .hljs-tag { color: var(--code-kw); }
 html.dark .k8s-file-view .hljs-string,
 html.dark .k8s-file-view .hljs-title,
 html.dark .k8s-file-view .hljs-section,
 html.dark .k8s-file-view .hljs-attribute,
 html.dark .k8s-file-view .hljs-literal,
 html.dark .k8s-file-view .hljs-type,
-html.dark .k8s-file-view .hljs-addition { color: #98c379; }
+html.dark .k8s-file-view .hljs-addition { color: var(--code-str); }
 html.dark .k8s-file-view .hljs-number,
 html.dark .k8s-file-view .hljs-symbol,
-html.dark .k8s-file-view .hljs-meta { color: #d19a66; }
+html.dark .k8s-file-view .hljs-meta { color: var(--code-num); }
 html.dark .k8s-file-view .hljs-attr,
 html.dark .k8s-file-view .hljs-variable,
-html.dark .k8s-file-view .hljs-property { color: #61afef; }
+html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 
 /* 环境管理弹窗（React 版新增类，原生用 .form-rows） */
 .k8s-env-form {
@@ -1187,11 +1190,120 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 10px;
   padding: 12px 0;
 }
+/* ===== 环境管理弹窗 v2：左列表 | 右（模式分段 + 表单）显式分流 ===== */
+/* 宽档弹窗：440px 放不下左右分栏，新增 modal-wide 变体。
+   关键坑：global.css 与 shell.css 都定义了 `.modal { width: ... }`，
+   而 shell.css 在 panels.css 之后加载，同等特异性（0,1,0）会把这里的
+   `.modal-wide` 压掉（弹窗只剩 ~560px，左右分栏挤成竖条）。因此选择器
+   必须提升为 `.modal.modal-wide`（特异性 0,2,0）才能稳赢任何 `.modal`。 */
+.modal.modal-wide {
+  width: 920px;
+  max-width: 96vw;
+  /* 宽弹窗自带高度/滚动策略：弹窗整体不超过 90vh，
+     内部 body 占满剩余高度自行滚动，避免 global 的 60vh 把表单截断。 */
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal.modal-wide .modal-body {
+  max-height: none;
+  flex: 1;
+  overflow: auto;
+}
+/* header/footer 固定不收缩，只有 body 内部滚动 */
+.modal.modal-wide .modal-header,
+.modal.modal-wide .modal-footer {
+  flex-shrink: 0;
+}
+.k8s-env-cols {
+  display: flex;
+  gap: 16px;
+  min-height: 400px;
+}
+/* 左栏：环境列表（加宽到 300px，缓解原 240px 列表拥挤、标签被截断的问题） */
+.k8s-env-side {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+  min-width: 0;
+}
+.k8s-env-side-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+/* 右栏：模式分段 + 说明 + 表单 */
+.k8s-env-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* 分段控件：编辑 / 新建（显式模式开关，取代旧「ID 是否在列表」隐式判定） */
+.k8s-env-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  align-self: flex-start;
+}
+.k8s-env-seg .seg {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--text-base);
+  font-weight: 600;
+  padding: 5px 14px;
+  cursor: pointer;
+  border-radius: var(--radius-card);
+  transition: background-color .15s ease-out, color .15s ease-out;
+}
+.k8s-env-seg .seg:hover:not(:disabled) {
+  color: var(--text);
+}
+.k8s-env-seg .seg.active {
+  background: var(--primary);
+  color: #fff;
+}
+.k8s-env-seg .seg:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+.k8s-env-mode-note {
+  font-size: var(--text-sm);
+  color: var(--text-dim);
+}
+/* 标识锁定提示 / 撞车提示（缩进与表单输入对齐） */
+.k8s-env-id-hint {
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  margin: -4px 0 2px 96px;
+}
+.k8s-env-id-hint.err {
+  color: var(--danger);
+}
+.k8s-env-lock {
+  font-size: var(--text-sm);
+  flex-shrink: 0;
+  cursor: help;
+}
+.k8s-env-form .input:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
 .form-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 .form-row label {
@@ -1203,7 +1315,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   min-width: 0;
 }
 .k8s-env-msg {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   flex: 1;
   min-width: 0;
@@ -1222,12 +1334,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   height: 40px;
   width: 120px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   background: var(--bg-panel);
 }
 .cf-captcha-code {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
 }
 
@@ -1273,7 +1385,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 
@@ -1333,7 +1445,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 /* diff 面板内空态提示收紧：shell 的 .empty-hint padding 32px 过大，
@@ -1363,7 +1475,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .diff-file-title {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   word-break: break-all;
 }
@@ -1376,13 +1488,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   margin-top: 4px;
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--bg);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .diff-dir-item {
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   cursor: pointer;
   font-family: var(--mono);
 }
@@ -1394,7 +1506,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   margin-left: auto;
   color: var(--success);
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--text-sm);
   flex-shrink: 0;
 }
 .badge-merged {
@@ -1415,11 +1527,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   justify-content: space-between;
   margin-bottom: 6px;
 }
-.diff-commits .section-title { font-size: 13px; }
+.diff-commits .section-title { font-size: var(--text-md); }
 .diff-commits-list { display: flex; flex-direction: column; gap: 6px; }
 .commit-item {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 6px 8px;
   background: var(--bg-elevated);
 }
@@ -1429,17 +1541,17 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   justify-content: space-between;
   gap: 10px;
 }
-.commit-msg { font-weight: 600; font-size: 12.5px; word-break: break-all; }
-.commit-meta { color: var(--text-dim); font-size: 11.5px; white-space: nowrap; flex-shrink: 0; }
+.commit-msg { font-weight: 600; font-size: var(--text-base); word-break: break-all; }
+.commit-meta { color: var(--text-dim); font-size: var(--text-2sm); white-space: nowrap; flex-shrink: 0; }
 .commit-files {
   margin-top: 4px;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
-.commit-file { color: var(--text-dim); cursor: pointer; transition: background .12s, color .12s; padding: 1px 4px; border-radius: 4px; }
+.commit-file { color: var(--text-dim); cursor: pointer; transition: background .12s, color .12s; padding: 1px 4px; border-radius: var(--radius-2xs); }
 .commit-file:hover { background: var(--accent-soft); color: var(--accent); }
 .commit-file:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .commit-file.ct-M { color: var(--warn); }
@@ -1449,7 +1561,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .commit-file-more { color: var(--text-dim); }
 
 /* F2：历史版本左右对比的表头 */
-.diff-col-head th { text-align: left; font-size: 11px; color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
+.diff-col-head th { text-align: left; font-size: var(--text-xs); color: var(--text-dim); padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 
 /* ===== F4：合并冲突 3-way 决策面板 ===== */
 /* ⚠️ 这里的弹窗变体一律要写成 `.modal.xxx-modal`（两个类），不能只写 `.xxx-modal`：
@@ -1458,7 +1570,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
    同特异度下后者胜 —— 只写单类的话宽度会被死死按在 560px，作者写的宽度从未生效过。
    （Kibana 日志上下文弹窗「窗口太小」就是这么来的。） */
 .modal.conflict-modal { width: min(960px, 94vw); }
-.conflict-hint { font-size: 12px; color: var(--text-dim); padding: 2px 0 8px; line-height: 1.6; }
+.conflict-hint { font-size: var(--text-sm); color: var(--text-dim); padding: 2px 0 8px; line-height: 1.6; }
 .conflict-list { display: flex; flex-direction: column; gap: 14px; }
 .conflict-item {
   border: 1px solid var(--border);
@@ -1468,7 +1580,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .conflict-path {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text);
   margin-bottom: 6px;
@@ -1477,7 +1589,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .conflict-choices { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
 .conflict-choices .rd {
   display: flex; align-items: center; gap: 5px;
-  font-size: 12.5px; color: var(--text); cursor: pointer;
+  font-size: var(--text-base); color: var(--text); cursor: pointer;
 }
 .conflict-3way { display: flex; flex-direction: column; gap: 6px; }
 .conflict-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -1489,14 +1601,14 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--bg-panel);
 }
 .cpane-h {
-  font-size: 11px; color: var(--text-dim);
+  font-size: var(--text-xs); color: var(--text-dim);
   padding: 4px 8px;
   background: var(--bg-head, var(--surface-2));
   border-bottom: 1px solid var(--border);
 }
 .cpane-pre {
   margin: 0; padding: 8px;
-  font-family: var(--mono); font-size: 11.5px; line-height: 1.5;
+  font-family: var(--mono); font-size: var(--text-2sm); line-height: 1.5;
   max-height: 200px; overflow: auto;
   white-space: pre-wrap; word-break: break-all;
   color: var(--text);
@@ -1504,7 +1616,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .conflict-merged {
   width: 100%; min-height: 170px;
   padding: 8px 10px;
-  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  font-family: var(--mono); font-size: var(--text-sm); line-height: 1.5;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   background: var(--bg-input, var(--bg-panel));
@@ -1523,7 +1635,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 600;
 }
 .k8s-log {
@@ -1532,9 +1644,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--code-bg);
   color: var(--code-fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   min-height: 90px;
   max-height: 220px;
@@ -1545,7 +1657,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 /* K8s YAML 子面板 */
 .k8s-yaml-msg {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   min-height: 16px;
 }
@@ -1554,7 +1666,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-dim);
 }
 
@@ -1592,7 +1704,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-ev-table .ev-obj {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   max-width: 210px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1607,7 +1719,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-ev-table .ev-time {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 .k8s-ev-table .ev-count {
@@ -1618,7 +1730,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 /* 资源 Top 数值 */
 .top-val {
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -1631,7 +1743,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 
 /* 日志面板开关 / 进度条文本（React 版独有类） */
 .log-toggle {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
   margin-left: 8px;
 }
@@ -1656,12 +1768,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-cfg-card .section-title {
   margin-right: auto;
-  font-size: 15px;
+  font-size: var(--text-xl);
 }
 .cf-env-switcher .sel {
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -1702,7 +1814,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   min-width: 140px;
 }
 .cf-cfg-field label {
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-2);
   padding-left: 2px;
@@ -1723,17 +1835,17 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .cf-token-hint {
   display: inline-block;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.3;
 }
-.cf-token-hint.ok { color: #1a7f37; }
-.cf-token-hint.warn { color: #b58105; }
+.cf-token-hint.ok { color: var(--success-strong); }
+.cf-token-hint.warn { color: var(--warn); }
 .cf-token-hint.err { color: var(--danger); }
 .cf-token-retry {
   margin-left: 6px;
   vertical-align: baseline;
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .cf-cfg-field--captcha {
   flex: 0 0 auto;
@@ -1781,7 +1893,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
   transition: opacity 0.2s;
 }
@@ -1827,12 +1939,12 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-cfg-field--time .input {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .cf-time-hint {
   flex: 1 1 240px;
   align-self: center;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   line-height: 1.5;
   color: var(--muted);
 }
@@ -1852,7 +1964,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--success);
   white-space: nowrap;
   padding-bottom: 3px;
@@ -1870,7 +1982,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-query-status {
   margin-top: 10px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-2);
   min-height: 18px;
   line-height: 1.55;
@@ -1880,7 +1992,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .cf-query-status.success {
   color: var(--success);
@@ -1895,7 +2007,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: center;
   gap: 12px;
   margin-bottom: 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 .cf-result-count {
@@ -1914,7 +2026,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .cf-log-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1927,7 +2039,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--surface-3);
   color: var(--text-2);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 10px 14px;
@@ -1952,7 +2064,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-log-type {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--primary);
   font-weight: 600;
   max-width: 150px;
@@ -1967,7 +2079,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--text-lg);
   line-height: 1;
 }
 .cf-open-log:hover,
@@ -1992,13 +2104,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-log-time {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--muted);
   white-space: nowrap;
 }
 .cf-log-content {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
   max-width: 600px;
   overflow: hidden;
@@ -2007,7 +2119,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-log-content-full {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text);
   white-space: pre-wrap;
   word-break: break-all;
@@ -2025,7 +2137,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--surface-2);
 }
 .cf-log-meta {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
   font-family: var(--mono);
   padding: 2px 0 8px;
@@ -2057,7 +2169,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 8px;
 }
 .k8s-files .panel-sub {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* 工具栏卡片：连接 / 搜索行 + 路径 / 操作行 */
@@ -2086,7 +2198,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   min-width: 200px;
 }
 .k8s-files-search-status {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -2106,7 +2218,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   min-width: 0;
 }
 .k8s-files-bc-label {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   flex-shrink: 0;
 }
@@ -2117,7 +2229,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: center;
   gap: 2px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -2129,7 +2241,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-files-crumb {
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease;
@@ -2179,7 +2291,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .k8s-files-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   min-width: 560px;
 }
 .k8s-files-table th,
@@ -2195,7 +2307,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--surface-3);
   color: var(--text-2);
   font-weight: 600;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   z-index: 1;
@@ -2210,7 +2322,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-files-table th .k8s-sort-ind {
   color: var(--primary);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding-left: 3px;
 }
 .k8s-files-table tbody tr {
@@ -2254,7 +2366,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .k8s-files-dl-btn {
   padding: 2px 8px;
   line-height: 1.4;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* ===== 分片下载进度条（断点续传） ===== */
@@ -2297,7 +2409,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .k8s-dl-name {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   max-width: 38%;
   overflow: hidden;
@@ -2305,27 +2417,27 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   white-space: nowrap;
 }
 .k8s-dl-status {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .k8s-dl-retry {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--warn, #b7791f);
   font-family: var(--mono);
 }
 .k8s-dl-track {
   position: relative;
   height: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-3);
   overflow: hidden;
 }
 .k8s-dl-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary);
   transition: width 0.18s ease-out;
 }
@@ -2353,7 +2465,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--muted);
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -2410,7 +2522,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding: 2px 0;
   cursor: pointer;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .clash-collapser:hover .section-title {
   color: var(--primary);
@@ -2425,11 +2537,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--danger-bg);
   color: var(--danger);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .clash-hint {
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   line-height: 1.6;
 }
@@ -2463,18 +2575,18 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .clash-iface-dev {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .clash-iface-kind {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--primary-050);
   color: var(--primary);
 }
 .clash-iface-port {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--muted);
   flex: 1;
   min-width: 60px;
@@ -2486,7 +2598,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   font-size: 10.5px;
   font-weight: 600;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--warning-bg);
   color: var(--warning);
 }
@@ -2495,7 +2607,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   justify-content: space-between;
   gap: 8px;
   margin: 6px 0 8px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-dim);
 }
 .clash-iface-meta .mono {
@@ -2505,7 +2617,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 .clash-iface-radio label {
@@ -2544,10 +2656,10 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 8px;
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   transition: all 0.18s var(--ease-out);
 }
 .clash-ip-tag:hover {
@@ -2563,9 +2675,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .clash-ip-check {
   font-family: var(--font);
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .clash-ip-check.ok {
   background: var(--success-bg);
@@ -2580,7 +2692,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 15px;
+  font-size: var(--text-xl);
   line-height: 1;
   /* 命中区从 12×14 提到 24×24：删除按钮过小既难点中，也容易误触相邻项 */
   width: 24px;
@@ -2607,9 +2719,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: inline-block;
   margin-left: 8px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
 }
 .clash-proxy-port.open {
   background: var(--success-bg);
@@ -2640,7 +2752,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding: 8px 12px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .clash-code {
   margin: 0;
@@ -2650,7 +2762,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   color: var(--code-fg);
   border: none;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
@@ -2676,7 +2788,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 .clash-cfg-cands {
@@ -2689,13 +2801,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-2);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   /* 同一组胶囊此前出现 24px / 36px 两种高度（受内容行高影响），统一固定高度 */
   min-height: var(--ctl-xs);
   display: inline-flex;
   align-items: center;
   padding: 0 10px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   line-height: 1.2;
   font-family: var(--mono);
   cursor: pointer;
@@ -2734,7 +2846,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   flex-wrap: wrap;
 }
 .clash-patch-msg {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 
@@ -2747,7 +2859,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   flex-wrap: wrap;
 }
 .clash-diag-summary {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 .clash-diag {
@@ -2762,7 +2874,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: baseline;
   gap: 10px;
   padding: 7px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -2790,7 +2902,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .clash-diag-detail {
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   word-break: break-all;
 }
 
@@ -2801,7 +2913,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   border-top: 1px dashed var(--border);
 }
 .clash-svc-label {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--muted);
   margin-bottom: 6px;
 }
@@ -2811,9 +2923,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 6px;
 }
 .clash-svc-item {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-2);
@@ -2833,7 +2945,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--warning-bg);
   border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
   color: var(--warning);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   line-height: 1.7;
   display: flex;
   flex-direction: column;
@@ -2842,7 +2954,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .clash-svc-fixmsg {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-2);
 }
 .clash-apply-log {
@@ -2856,7 +2968,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 10px;
 }
 .clash-apply-part {
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-2);
   display: flex;
   flex-direction: column;
@@ -2871,9 +2983,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   font-family: var(--mono);
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   padding: 0 4px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
 }
 
 /* ============================================================
@@ -2895,7 +3007,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .settings-sub {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-2);
 }
 .settings-section {
@@ -2913,11 +3025,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .settings-section-head h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-xl);
   font-weight: 600;
 }
 .settings-meta {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
   text-align: right;
 }
@@ -2925,7 +3037,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .settings-error,
 .settings-empty {
   padding: 24px 8px;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text-2);
   text-align: center;
 }
@@ -2935,7 +3047,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .settings-search {
   width: 100%;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
@@ -2971,22 +3083,22 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   font-size: 13.5px;
 }
 .apidoc-group-desc {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
   flex: 1;
 }
 .apidoc-group-count {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-2);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 1px 8px;
 }
 .apidoc-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .apidoc-table tr {
   border-bottom: 1px solid var(--border);
@@ -3002,11 +3114,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .apidoc-badge {
   display: inline-block;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.3px;
   border: 1px solid;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   padding: 2px 6px;
   background: transparent;
 }
@@ -3017,18 +3129,18 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .apidoc-path code {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text);
   word-break: break-all;
 }
 .apidoc-summary {
   margin-top: 3px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 .apidoc-params {
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--text-2);
   display: flex;
   flex-wrap: wrap;
@@ -3040,10 +3152,10 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .apidoc-param {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   padding: 0 4px;
 }
 .apidoc-actions {
@@ -3054,7 +3166,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .apidoc-btn {
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--primary);
   background: transparent;
   border: 1px solid var(--border);
@@ -3072,7 +3184,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   text-align: right;
 }
 .apidoc-raw {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--primary);
   text-decoration: none;
 }
@@ -3111,7 +3223,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
   border-bottom: 2px solid transparent;
 }
 .kibana-subtab:hover { color: var(--text); }
@@ -3145,10 +3257,10 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
 }
-.field-inline .sel, .field-inline .input { font-size: 12px; }
+.field-inline .sel, .field-inline .input { font-size: var(--text-sm); }
 .kb-time-input { width: 150px; min-width: 130px; font-family: var(--mono); }
 .kb-time-sep { color: var(--text-dim); }
 .kb-keyword { flex: 1; min-width: 160px; }
@@ -3163,14 +3275,14 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: var(--bg-panel);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-family: var(--mono);
 }
 .kb-level.on.kb-level-error { background: var(--danger); border-color: var(--danger); color: #fff; }
 .kb-level.on.kb-level-warn { background: var(--warn); border-color: var(--warn); color: #fff; }
 .kb-level.on.kb-level-info { background: var(--primary); border-color: var(--primary); color: #fff; }
 .kb-level.on.kb-level-debug { background: var(--text-dim); border-color: var(--text-dim); color: #fff; }
-.kb-err { color: var(--danger); font-size: 12px; }
+.kb-err { color: var(--danger); font-size: var(--text-sm); }
 
 /* 容器视角：左右分栏 */
 .kb-explorer { display: flex; flex: 1; min-height: 0; }
@@ -3190,15 +3302,15 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .kb-tree-total {
   font-family: var(--mono);
   color: var(--text-dim);
   background: var(--bg-panel);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 0 7px;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 .kb-tree-body { flex: 1; min-height: 0; overflow: auto; padding: 4px; }
 .kb-tree-group { margin-bottom: 6px; }
@@ -3207,7 +3319,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.4px;
@@ -3228,7 +3340,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   cursor: pointer;
   border-radius: var(--radius-xs);
   text-align: left;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .kb-tree-pod:hover { background: var(--row-hover); }
 .kb-tree-pod.sel { background: var(--row-selected); }
@@ -3238,10 +3350,10 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kb-pod-meta { font-family: var(--mono); color: var(--text-dim); font-size: 11px; flex: none; }
+.kb-pod-meta { font-family: var(--mono); color: var(--text-dim); font-size: var(--text-xs); flex: none; }
 .kb-pod-err { color: var(--danger); margin-left: 5px; font-weight: 700; }
 .kb-explorer-log { flex: 1; min-height: 0; display: flex; }
-.kb-cur-pod { font-size: 12px; color: var(--text-dim); font-family: var(--mono); }
+.kb-cur-pod { font-size: var(--text-sm); color: var(--text-dim); font-family: var(--mono); }
 
 /* 日志流 */
 .kb-stream {
@@ -3259,15 +3371,15 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
-.kb-count { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+.kb-count { font-family: var(--mono); font-size: var(--text-sm); color: var(--text-dim); }
 .kb-err-count { color: var(--danger); }
 .kb-tick { color: var(--primary); animation: spin 1s linear infinite; display: inline-block; }
-.kb-chk { font-size: 12px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 3px; }
+.kb-chk { font-size: var(--text-sm); color: var(--text-dim); display: inline-flex; align-items: center; gap: 3px; }
 .kb-stream-err {
   padding: 6px 10px;
   background: rgba(229, 72, 77, 0.12);
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--mono);
 }
 .kb-log {
@@ -3277,7 +3389,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding: 4px 0;
   background: var(--bg-panel);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 .kb-log.wrap { white-space: pre-wrap; word-break: break-all; }
@@ -3309,7 +3421,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-hist { border-bottom: 1px solid var(--border); background: var(--bg-elevated); padding: 6px 10px 20px; }
 .kb-hist-head {
   display: flex; align-items: center; gap: 8px;
-  font-size: 12px; font-weight: 600; color: var(--text-dim); margin-bottom: 4px;
+  font-size: var(--text-sm); font-weight: 600; color: var(--text-dim); margin-bottom: 4px;
 }
 .kb-hist-meta { font-family: var(--mono); font-weight: 400; color: var(--text-dim); }
 .kb-hist-bars {
@@ -3346,7 +3458,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 /* ── Kibana 增强：可点柱条 / 更新时间 / 刷新倒计时 / 未应用标记 ─────────── */
 .kb-zoomout {
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 2px 8px;
 }
 .kb-zoomout:hover { background: var(--surface-2, rgba(99, 102, 241, 0.1)); }
@@ -3369,7 +3481,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-filter-toggle .cfd-caret { font-style: normal; }
 .kb-filter-summary {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   flex: 1 1 220px;
   min-width: 0;
@@ -3395,9 +3507,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 12px;
   padding: 14px 16px;
 }
-.kb-dl-tip { margin: 0; font-size: 12px; color: var(--text-dim); }
+.kb-dl-tip { margin: 0; font-size: var(--text-sm); color: var(--text-dim); }
 .kb-dl-field { display: flex; align-items: center; gap: 10px; }
-.kb-dl-label { flex: 0 0 72px; font-size: 13px; color: var(--text-dim); }
+.kb-dl-label { flex: 0 0 72px; font-size: var(--text-md); color: var(--text-dim); }
 .kb-dl-field .sel, .kb-dl-field .input { flex: 1 1 auto; min-width: 0; }
 .kb-dl-time-inputs {
   display: flex;
@@ -3406,8 +3518,8 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding-left: 82px;
 }
 .kb-dl-rows { max-width: 160px; flex: 0 0 auto; }
-.kb-dl-loading { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
-.kb-dl-progress { font-size: 12px; color: var(--primary); }
+.kb-dl-loading { font-size: var(--text-sm); color: var(--text-dim); white-space: nowrap; }
+.kb-dl-progress { font-size: var(--text-sm); color: var(--primary); }
 
 /* ── Kibana 实时查找条（live filter，同 CF 日志）────────────────────────── */
 .kb-search-bar {
@@ -3424,13 +3536,13 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
 }
-.kb-search-count { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.kb-search-count { font-size: var(--text-sm); color: var(--text-dim); white-space: nowrap; }
 /* 「关键词高亮」来源提示：高亮来自主筛选关键词而非查找框时显示 */
 .kb-hl-src {
   display: inline-flex;
@@ -3438,11 +3550,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 4px;
   max-width: 260px;
   padding: 1px 8px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--primary);
   background: var(--primary-weak);
   border: 1px solid var(--primary);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3451,7 +3563,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-match-nav { display: inline-flex; align-items: center; gap: 4px; }
 .kb-match-nav .btn { padding: 2px 9px; line-height: 1.2; }
 .kb-match-pos {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-dim);
   min-width: 44px;
   text-align: center;
@@ -3472,11 +3584,11 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-bar.clickable:focus-visible { outline: 1px solid var(--primary); outline-offset: 1px; }
 
 .kb-last-update {
-  font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+  font-family: var(--mono); font-size: var(--text-xs); color: var(--text-dim);
   white-space: nowrap;
 }
 .kb-countdown {
-  font-family: var(--mono); font-size: 11px; color: var(--primary);
+  font-family: var(--mono); font-size: var(--text-xs); color: var(--primary);
   white-space: nowrap; min-width: 34px; text-align: center;
 }
 .kb-countdown.run { animation: spin 1s linear infinite; display: inline-block; }
@@ -3521,7 +3633,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-site-modal .modal-header {
   padding: 14px 18px;
-  font-size: 14px;
+  font-size: var(--text-lg);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -3538,7 +3650,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   border-radius: 7px;
   background: var(--primary-100, rgba(99, 102, 241, 0.12));
   color: var(--primary);
-  font-size: 13px;
+  font-size: var(--text-md);
   flex: none;
 }
 .kb-site-modal .modal-header .kb-modal-title-text {
@@ -3546,9 +3658,9 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   flex-direction: column;
   gap: 1px;
 }
-.kb-site-modal .modal-header .kb-modal-title-text strong { font-weight: 600; font-size: 14px; }
+.kb-site-modal .modal-header .kb-modal-title-text strong { font-weight: 600; font-size: var(--text-lg); }
 .kb-site-modal .modal-header .kb-modal-title-text small {
-  font-size: 11px; color: var(--text-dim); font-weight: 400; letter-spacing: 0.2px;
+  font-size: var(--text-xs); color: var(--text-dim); font-weight: 400; letter-spacing: 0.2px;
 }
 .kb-site-modal .modal-header > .btn { margin-left: auto; }
 
@@ -3602,7 +3714,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   opacity: 0.5;
 }
 .kb-site-placeholder-text {
-  font-size: 13px;
+  font-size: var(--text-md);
   letter-spacing: 0.2px;
 }
 
@@ -3624,14 +3736,14 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   gap: 6px;
 }
 .kb-site-list-head .kb-site-list-title {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.6px;
   color: var(--text-dim);
   text-transform: uppercase;
 }
 .kb-site-list-head .btn {
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 3px 10px;
   border: 1px solid var(--primary);
   color: var(--primary);
@@ -3646,7 +3758,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   padding: 32px 14px;
   text-align: center;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .kb-site-empty-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.55; }
 .kb-site-empty-hint { line-height: 1.6; }
@@ -3658,7 +3770,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: stretch;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   margin-bottom: 8px;
   background: var(--bg-panel);
   overflow: hidden;
@@ -3690,7 +3802,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-site-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3713,7 +3825,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   flex: none;
 }
 .kb-site-sub {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
   font-family: var(--mono);
   overflow: hidden;
@@ -3740,7 +3852,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   background: transparent;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1;
   transition: background .12s, color .12s, border-color .12s;
 }
@@ -3771,7 +3883,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-site-section { margin-bottom: 18px; }
 .kb-site-section:last-child { margin-bottom: 0; }
 .kb-site-section-title {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.8px;
   color: var(--text-dim);
@@ -3803,7 +3915,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text-dim);
   letter-spacing: 0.3px;
@@ -3825,7 +3937,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-site-form-grid > label > input.input-sm,
 .kb-site-form-grid > label > input[type="number"] {
   width: 100%;
-  font-size: 12px;
+  font-size: var(--text-sm);
   padding: 6px 9px;
   border-radius: 5px;
   border: 1px solid var(--border);
@@ -3851,7 +3963,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   opacity: 1;
 }
 .kb-site-form-grid .kb-help {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-dim);
   margin-top: 2px;
   text-transform: none;
@@ -3864,7 +3976,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   align-items: center;
   text-transform: none;
   letter-spacing: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text);
   gap: 6px;
   font-weight: 500;
@@ -3894,7 +4006,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .kb-site-form-foot .btn-primary {
   padding: 6px 18px;
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--text-sm);
   border-radius: 5px;
   background: var(--primary);
   color: #fff;
@@ -3906,7 +4018,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .kb-site-form-foot .btn-ghost {
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   border-radius: 5px;
 }
 
@@ -3915,7 +4027,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   margin: 12px 0 0 0;
   padding: 10px 12px;
   border-radius: 7px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--mono);
   border: 1px solid var(--border);
   background: var(--bg-elev-1, var(--bg-panel));
@@ -3937,7 +4049,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
   text-transform: none;
   letter-spacing: 0;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .kb-test-result.ok .kb-test-result-head { color: var(--success); }
 .kb-test-result.bad .kb-test-result-head { color: var(--danger); }
@@ -3995,14 +4107,14 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
    数据源是「当前已加载」的日志行（纯前端聚合），头部会标注「基于 N 条」，避免误读为全量。 */
 .cf-dist-card { margin-top: var(--sp-3); }
 .cf-dist-card .panel-header { gap: var(--sp-2); }
-.cf-dist-meta { margin-left: auto; color: var(--text-dim); font-size: 12px; }
+.cf-dist-meta { margin-left: auto; color: var(--text-dim); font-size: var(--text-sm); }
 .cf-dist-meta-err { color: var(--danger); }
 .cf-dist-clear,
 .cf-dist-zoomout { flex: 0 0 auto; }
 .cf-dist-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-2) 0 0; }
 .cf-dist-section { display: flex; flex-direction: column; gap: var(--sp-2); }
-.cf-dist-subtitle { display: flex; align-items: baseline; gap: var(--sp-3); font-size: 12px; color: var(--text-2); }
-.cf-dist-hint { font-size: 11px; color: var(--text-faint); }
+.cf-dist-subtitle { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--text-sm); color: var(--text-2); }
+.cf-dist-hint { font-size: var(--text-xs); color: var(--text-faint); }
 
 /* —— 时间直方图：点柱按该桶覆盖的时段过滤 ——
    padding-inline 给首尾刻度标签留位（标签是绝对定位 + translateX(-50%)，否则会被卡片边界裁掉） */
@@ -4040,7 +4152,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .cf-dist-bar.clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
 .cf-dist-bar-label {
   position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
-  font-size: 10px; color: var(--text-faint); white-space: nowrap; font-family: var(--mono);
+  font-size: var(--text-2xs); color: var(--text-faint); white-space: nowrap; font-family: var(--mono);
 }
 
 /* —— 类型分布：点条目按类型过滤（再点取消）—— */
@@ -4055,7 +4167,7 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 }
 .cf-dist-type:hover { background: var(--bg-hover); }
 .cf-dist-type.active { border-color: var(--primary); background: var(--primary-weak); }
-.cf-dist-type-name { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.cf-dist-type-name { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
 /* 类型名前的色块 = 该函数在时间直方图里的颜色（同一哈希色，两处互相印证） */
 .cf-dist-type-swatch {
   flex: 0 0 auto; width: 9px; height: 9px; border-radius: 3px;
@@ -4064,8 +4176,8 @@ html.dark .k8s-file-view .hljs-property { color: #61afef; }
 .cf-dist-type-track { height: 8px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
 .cf-dist-type-fill { display: block; height: 100%; border-radius: var(--radius-pill); opacity: 0.85; }
 .cf-dist-type.active .cf-dist-type-fill { opacity: 1; }
-.cf-dist-type-count { font-size: 11px; color: var(--text-dim); text-align: right; font-family: var(--mono); }
-.cf-dist-type-rest { padding: 2px var(--sp-2); font-size: 11px; color: var(--text-faint); }
+.cf-dist-type-count { font-size: var(--text-xs); color: var(--text-dim); text-align: right; font-family: var(--mono); }
+.cf-dist-type-rest { padding: 2px var(--sp-2); font-size: var(--text-xs); color: var(--text-faint); }
 
 /* —— 函数色板（浅色主题）——
    选色标准：中明度（白底/深底都读得清）、相邻编号色相拉开、饱和度高到在 8px
@@ -4136,7 +4248,7 @@ html.dark {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-dim);
 }
@@ -4145,7 +4257,7 @@ html.dark {
   border-radius: var(--radius-pill);
   background: var(--warn-bg);
   color: var(--warn-strong);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 16px;
 }
 .cf-adv-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3); }
@@ -4189,7 +4301,7 @@ html.dark {
 }
 .cfc-label {
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.02em;
 }
@@ -4203,7 +4315,7 @@ html.dark {
   background: var(--bg-input);
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfc-input { width: 220px; max-width: 100%; }
 .cfc-search { width: 100%; }
@@ -4237,7 +4349,7 @@ html.dark {
   background: var(--bg-elevated);
   color: var(--text-faint);
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--text-xs);
   cursor: pointer;
   transition: border-color var(--dur) var(--ease-out),
               background var(--dur) var(--ease-out),
@@ -4276,7 +4388,7 @@ html.dark {
   border-radius: var(--radius-pill);
   background: var(--bg-elevated);
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-style: normal;
   font-weight: 600;
   line-height: 15px;
@@ -4345,7 +4457,7 @@ html.dark {
   background: var(--bg-elevated);
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--text-sm);
   cursor: pointer;
   transition: background var(--dur) var(--ease-out), border-color var(--dur) var(--ease-out);
 }
@@ -4376,7 +4488,7 @@ html.dark {
   flex: 0 0 auto;
   margin-left: auto;
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   white-space: nowrap;
 }
 
@@ -4386,7 +4498,7 @@ html.dark {
   border-radius: var(--radius-xs);
   background: var(--danger-bg);
   color: var(--danger-strong);
-  font-size: 12px;
+  font-size: var(--text-sm);
   word-break: break-word;
 }
 
@@ -4447,7 +4559,7 @@ html.dark {
   overflow: hidden;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4456,7 +4568,7 @@ html.dark {
   min-width: 0;
   overflow: hidden;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4464,7 +4576,7 @@ html.dark {
   padding: 8px 4px 4px;
   border-top: 1px dashed var(--border);
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   text-align: center;
 }
 
@@ -4521,7 +4633,7 @@ html.dark {
   overflow: hidden;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4534,7 +4646,7 @@ html.dark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfc-kv > div {
   display: grid;
@@ -4544,7 +4656,7 @@ html.dark {
 }
 .cfc-kv > div > span {
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
 }
 .cfc-kv > div > em {
   min-width: 0;
@@ -4560,12 +4672,12 @@ html.dark {
 .cfc-kv-warn > em {
   color: var(--warn-strong);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
 }
 .cfc-detail-busy {
   padding: 8px 0;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 /* ---------- 并排 diff ---------- */
@@ -4577,11 +4689,11 @@ html.dark {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border-soft);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfc-diff-stat {
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   white-space: nowrap;
 }
 .cfc-same {
@@ -4589,7 +4701,7 @@ html.dark {
   border-radius: var(--radius-xs);
   background: var(--success-bg);
   color: var(--success-strong);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   text-align: center;
 }
 .cfc-diff {
@@ -4603,7 +4715,7 @@ html.dark {
   border-radius: var(--radius-xs);
   background: var(--bg-elevated);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   line-height: 1.55;
 }
 .cfc-diff-line {
@@ -4645,7 +4757,7 @@ html.dark {
   background: transparent;
   color: var(--text-dim);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   text-align: left;
   cursor: pointer;
@@ -4654,14 +4766,14 @@ html.dark {
 .cfc-ledger-caret {
   width: 12px;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .cfc-ledger-count {
   padding: 1px 7px;
   border-radius: var(--radius-pill);
   background: var(--bg-elevated);
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 .cfc-ledger-root {
@@ -4670,7 +4782,7 @@ html.dark {
   overflow: hidden;
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4685,7 +4797,7 @@ html.dark {
 .cfc-ledger-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfc-ledger-table th {
   position: sticky;
@@ -4695,7 +4807,7 @@ html.dark {
   border-bottom: 1px solid var(--border);
   background: var(--bg-head);
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   font-weight: 600;
   text-align: left;
 }
@@ -4711,7 +4823,7 @@ html.dark {
 .cfc-mono {
   color: var(--text);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   white-space: nowrap;
 }
 .cfc-ok { color: var(--success-strong); font-weight: 600; }

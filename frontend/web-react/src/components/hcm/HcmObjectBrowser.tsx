@@ -10,6 +10,7 @@ import type { HcmObjectItem, HcmFieldMeta, HcmModelMeta } from '../../api/hcm/ty
 import { reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
 import { saveBlob, saveTextFile } from '../../utils/download';
+import { EmptyState } from '../EmptyState';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
@@ -950,7 +951,7 @@ const loadList = useCallback(async () => {
           </button>
           <span className="spacer" />
           {/* 云函数错误定位：常驻入口，避免只能靠拼 URL 打开 */}
-          <button
+          {/* <button
             className="btn btn-sm btn-ghost"
             onClick={() =>
               openHcmWindow('/web/?hcm-cf-err=1', '_blank', 'width=1100,height=900', {
@@ -960,7 +961,7 @@ const loadList = useCallback(async () => {
             title={t('hcm.cfErrLauncherHint')}
           >
             {t('hcm.cfErrLauncher')}
-          </button>
+          </button> */}
         </div>
         {configOpen && (
           <div className="hcm-config hcm-connect-body">
@@ -1158,10 +1159,7 @@ const loadList = useCallback(async () => {
         {/* 右：字段 / JSON 元数据 */}
         <div className="hcm-detail">
           {!selected && (
-            <div className="hcm-empty-state hcm-detail-empty">
-              <div className="hcm-empty-title">{t('hcm.pickHint')}</div>
-              <div className="hcm-empty-hint">{t('hcm.dblToViewNew')}</div>
-            </div>
+            <EmptyState className="hcm-empty-state hcm-detail-empty" title={t('hcm.pickHint')} hint={t('hcm.dblToViewNew')} />
           )}
           {selected && (
             <>
@@ -1768,10 +1766,7 @@ const loadList = useCallback(async () => {
                   )}
 
                   {!dataLoading && !dataError && !dataResult && (
-                    <div className="hcm-empty-state">
-                      <div className="hcm-empty-title">{t('hcm.pickHint')}</div>
-                      <div className="hcm-empty-hint">{t('hcm.dblToViewNew')}</div>
-                    </div>
+                    <EmptyState className="hcm-empty-state" title={t('hcm.pickHint')} hint={t('hcm.dblToViewNew')} />
                   )}
                 </div>
               )}

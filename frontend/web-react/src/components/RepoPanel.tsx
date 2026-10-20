@@ -35,6 +35,8 @@ export function RepoPanel() {
     e.preventDefault();
     draggingRef.current = side;
     setDragging(side);
+    // 拖拽期间禁止选中相邻面板文字（鼠标移太快会误选），并统一光标为 col-resize
+    document.body.classList.add('resizing');
     const startX = e.clientX;
     const startLeft = leftWidth;
     const startRight = rightWidth;
@@ -48,6 +50,7 @@ export function RepoPanel() {
     const onUp = () => {
       draggingRef.current = null;
       setDragging(null);
+      document.body.classList.remove('resizing');
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };

@@ -7,6 +7,7 @@ import { requestConfirm } from '../../utils/confirmStore';
 import type {
   KibanaBucket, KibanaFieldsResp, KibanaSite, KibanaSitesResp,
 } from '../../api/types';
+import { EmptyState } from '../EmptyState';
 
 /** 共享的筛选条：时间范围 + 各维度下拉 + 关键词 + 级别。两个子标签共用。
  *  草稿制：value 是「编辑中草稿」，改动不打后端；点「查询」（onApply）/回车才应用。 */
@@ -307,6 +308,7 @@ function SiteManager() {
     if (!(await requestConfirm({ message: t('kibana.site.confirmDelete', { name }), danger: true }))) return;
     try {
       await apiPost('/api/kibana/sites/delete', { name });
+      addToast(t('kibana.site.deleted', { name }), 'success');
       await reload();
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');
@@ -317,6 +319,7 @@ function SiteManager() {
     try {
       await apiPost('/api/kibana/sites/switch', { name });
       setCurrent(name);
+      addToast(t('kibana.site.switched', { name }), 'success');
       await reload();
     } catch (ex: any) {
       addToast(ex.message || String(ex), 'error');
@@ -352,10 +355,7 @@ function SiteManager() {
       </div>
       <div className="kb-site-list-scroll">
         {sites.length === 0 && (
-          <div className="kb-site-empty">
-            <div className="kb-site-empty-icon">📡</div>
-            <div className="kb-site-empty-hint">{t('kibana.site.none')}</div>
-          </div>
+          <EmptyState className="kb-site-empty" icon="📡" hint={t('kibana.site.none')} />
         )}
         {sites.map((s) => (
           <div key={s.name}
@@ -516,13 +516,14 @@ function SiteManager() {
 
   // 未编辑 / 未新增时的右侧占位：给引导而不是留空白
   const placeholderEl = (
-    <div className="kb-site-placeholder">
-      <div className="kb-site-placeholder-icon" aria-hidden><TabIcon name="clash" size={28} /></div>
-      <div className="kb-site-placeholder-text">{t('kibana.site.pickHint')}</div>
-      <button className="btn btn-primary" onClick={() => startEdit()}>
+    <EmptyState
+      className="kb-site-placeholder"
+      icon={<TabIcon name="clash" size={28} />}
+      hint={t('kibana.site.pickHint')}
+      actions={<button className="btn btn-primary" onClick={() => startEdit()}>
         + {t('kibana.site.add')}
-      </button>
-    </div>
+      </button>}
+    />
   );
 
   return (

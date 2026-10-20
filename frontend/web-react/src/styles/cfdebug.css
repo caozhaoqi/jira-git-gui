@@ -29,15 +29,15 @@
   gap: 8px;
 }
 .cfdebug-env-label {
-  font-size: 12.5px;
+  font-size: var(--text-base);
   color: var(--text-2);
   font-weight: 500;
 }
 .cfdebug-env .sel,
 .cfdebug-root .input {
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -63,10 +63,10 @@
   font-family: var(--mono);
 }
 .cfdebug-status {
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   color: var(--text-2);
   white-space: nowrap;
@@ -74,7 +74,7 @@
 .cfdebug-status.cfd-idle { color: var(--muted); }
 .cfdebug-status.cfd-connecting { color: var(--primary); background: var(--primary-050); }
 .cfdebug-status.cfd-running { color: var(--info); background: var(--primary-050); }
-.cfdebug-status.cfd-paused { color: #b58105; background: var(--warning-bg); }
+.cfdebug-status.cfd-paused { color: var(--warn); background: var(--warning-bg); }
 .cfdebug-status.cfd-finished { color: var(--success); background: var(--success-bg); }
 .cfdebug-status.cfd-error { color: var(--danger); background: var(--danger-bg); }
 
@@ -112,7 +112,7 @@
 }
 .cfdebug-search .input {
   width: 100%;
-  font-size: 12.5px;
+  font-size: var(--text-base);
 }
 .cfdebug-fnlist {
   flex: 1;
@@ -142,7 +142,7 @@
 .cfdebug-fn-name {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text);
   margin-bottom: 4px;
   display: flex;
@@ -169,11 +169,11 @@
   justify-content: center;
   padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--surface);
   color: var(--text-2);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1;
   opacity: 0.75;
   transition: all 0.16s var(--ease-out);
@@ -193,14 +193,14 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .cfd-model {
   font-family: var(--mono);
   font-size: 10.5px;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   border: 1px solid var(--border);
   color: var(--text-2);
 }
@@ -222,7 +222,7 @@
   padding-top: 8px;
 }
 .cfdebug-params .section-title {
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 
 /* 远程模式环境选择器（独立于参数块，始终可点选） */
@@ -240,15 +240,15 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-2);
 }
 .cfdebug-remote-pick .sel {
   width: 100%;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text);
@@ -272,7 +272,7 @@
   padding: 0;
   cursor: pointer;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-md);
   text-align: left;
 }
 .cfdebug-collapser:hover .section-title {
@@ -287,7 +287,7 @@
   width: 16px;
   flex: 0 0 16px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--text-xs);
   transition: transform var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .cfdebug-collapser:hover .cfd-caret,
@@ -303,7 +303,7 @@ button[aria-expanded='true'] .cfd-caret {
   width: 100%;
   min-height: 120px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   padding: 10px;
   background: var(--code-bg);
@@ -318,7 +318,7 @@ button[aria-expanded='true'] .cfd-caret {
 }
 .cfdebug-adv > summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-2);
   padding: 4px 0;
@@ -333,7 +333,7 @@ button[aria-expanded='true'] .cfd-caret {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--text-2);
 }
 .cfdebug-adv-fields .input {
@@ -373,12 +373,12 @@ button[aria-expanded='true'] .cfd-caret {
 .cfdebug-src-name {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--text-md);
   color: var(--text);
 }
 .cfdebug-src-path {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -400,7 +400,7 @@ button[aria-expanded='true'] .cfd-caret {
   margin: 0;
   padding: 6px 0;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   line-height: 1.6;
   background: var(--code-bg);
   color: var(--code-fg);
@@ -471,7 +471,7 @@ button[aria-expanded='true'] .cfd-caret {
   border: none;
   background: none;
   padding: 10px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   color: var(--text-dim);
   cursor: pointer;
@@ -495,7 +495,7 @@ button[aria-expanded='true'] .cfd-caret {
 /* 变量树（仿 PyCharm：name+type 一行，value 换行到下一行全长展示） */
 .cfdebug-vars {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfd-var-node {
   line-height: 1.6;
@@ -506,7 +506,7 @@ button[aria-expanded='true'] .cfd-caret {
   flex-wrap: wrap;
   gap: 4px 6px;
   padding: 3px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
   cursor: default;
 }
 .cfd-var-row:hover {
@@ -526,7 +526,7 @@ button[aria-expanded='true'] .cfd-caret {
 }
 .cfd-var-type {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   flex-shrink: 0;
   background: var(--surface-2);
   padding: 0 5px;
@@ -535,7 +535,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfd-var-value {
   color: var(--text);
   flex-basis: 100%;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   white-space: pre-wrap;
   word-break: break-all;
   padding-left: 18px;
@@ -557,7 +557,7 @@ button[aria-expanded='true'] .cfd-caret {
   flex-direction: column;
   gap: 4px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfdebug-frame {
   display: flex;
@@ -586,20 +586,20 @@ button[aria-expanded='true'] .cfd-caret {
 .cfdebug-frame-loc {
   margin-left: auto;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 /* 断点列表 */
 .cfdebug-bplist {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfdebug-bp-row {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 5px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
 }
 .cfdebug-bp-row:hover {
   background: var(--surface-2);
@@ -628,16 +628,16 @@ button[aria-expanded='true'] .cfd-caret {
   color: var(--muted);
 }
 .cfdebug-bp-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 1px 5px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--surface-2);
   color: var(--muted);
   text-transform: uppercase;
 }
 .cfdebug-bp-opt {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -653,10 +653,10 @@ button[aria-expanded='true'] .cfd-caret {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1;
   padding: 2px 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-2xs);
 }
 .cfd-bp-mini:hover {
   background: var(--surface-2);
@@ -670,13 +670,13 @@ button[aria-expanded='true'] .cfd-caret {
   margin-top: 6px;
   padding: 8px;
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: var(--radius-card);
 }
 .cfd-bp-field {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .cfd-bp-field .input {
@@ -695,12 +695,12 @@ button[aria-expanded='true'] .cfd-caret {
   padding: 8px;
   margin-bottom: 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: var(--radius-card);
+  font-size: var(--text-sm);
 }
 .cfd-hint {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -710,7 +710,7 @@ button[aria-expanded='true'] .cfd-caret {
   flex-direction: column;
   gap: 6px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfdebug-watch-add {
   display: flex;
@@ -728,7 +728,7 @@ button[aria-expanded='true'] .cfd-caret {
   gap: 2px 6px;
   align-items: center;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--surface-2);
 }
 .cfdebug-watch-expr {
@@ -737,7 +737,7 @@ button[aria-expanded='true'] .cfd-caret {
   background: transparent;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   outline: none;
   min-width: 0;
 }
@@ -747,7 +747,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfdebug-watch-val {
   grid-area: val;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   word-break: break-all;
 }
 .cfdebug-watch-val .cfd-eval-val {
@@ -761,7 +761,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfdebug-result {
   margin: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
@@ -788,7 +788,7 @@ button[aria-expanded='true'] .cfd-caret {
   border-bottom: 1px solid var(--border);
 }
 .cfdebug-console-head .section-title {
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 /* 控制台正文：按内容自适应高度（少日志紧凑、多日志到 max-height 后内部滚动） */
 .cfdebug-console-body {
@@ -797,7 +797,7 @@ button[aria-expanded='true'] .cfd-caret {
   overflow: auto;
   padding: 8px 12px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   background: var(--code-bg);
   color: var(--code-fg);
@@ -861,7 +861,7 @@ button[aria-expanded='true'] .cfd-caret {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   padding: 5px 14px;
   cursor: pointer;
@@ -882,7 +882,7 @@ button[aria-expanded='true'] .cfd-caret {
 
 /* 远程模式提示文字 */
 .cfdebug-hint {
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   color: var(--muted);
   line-height: 1.5;
 }
@@ -949,9 +949,9 @@ button[aria-expanded='true'] .cfd-caret {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   background: var(--surface);
   border: 1px solid var(--border);
 }
@@ -964,7 +964,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfd-account-url {
   color: var(--text-2);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -974,7 +974,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfd-account-type {
   font-size: 10.5px;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border);
   color: var(--text-2);
   flex-shrink: 0;
@@ -989,7 +989,7 @@ button[aria-expanded='true'] .cfd-caret {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--text);
 }
@@ -1004,9 +1004,9 @@ button[aria-expanded='true'] .cfd-caret {
 }
 .cfdebug-server-inline .sel {
   max-width: 240px;
-  font-size: 12.5px;
+  font-size: var(--text-base);
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-card);
   background: var(--surface-2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -1021,7 +1021,7 @@ button[aria-expanded='true'] .cfd-caret {
 /* 远程模式数据去向提示条 */
 .cfdebug-remote-banner {
   flex-shrink: 0;
-  font-size: 11.5px;
+  font-size: var(--text-2sm);
   line-height: 1.5;
   color: var(--text-2);
   background: var(--primary-050);
@@ -1045,7 +1045,7 @@ button[aria-expanded='true'] .cfd-caret {
   color: var(--text);
   cursor: pointer;
   padding: 10px 12px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .cfdebug-right-toggle:hover .section-title {
   color: var(--primary);
@@ -1078,7 +1078,7 @@ button[aria-expanded='true'] .cfd-caret {
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-md);
   line-height: 1;
   transition: all 0.18s var(--ease-out);
 }
@@ -1099,7 +1099,7 @@ button[aria-expanded='true'] .cfd-caret {
   background: transparent;
   color: var(--text-2);
   cursor: pointer;
-  font-size: 15px;
+  font-size: var(--text-xl);
   transition: all 0.18s var(--ease-out);
 }
 .cfdebug-left-rail:hover {
@@ -1113,22 +1113,22 @@ button[aria-expanded='true'] .cfd-caret {
 /* ── 源码语法高亮（highlight.js / Python，One Dark 调色板，适配代码底色） ── */
 .cfd-code .hljs-keyword,
 .cfd-code .hljs-built_in,
-.cfd-code .hljs-meta .hljs-keyword { color: #c678dd; }
+.cfd-code .hljs-meta .hljs-keyword { color: var(--code-kw); }
 .cfd-code .hljs-string,
-.cfd-code .hljs-regexp { color: #98c379; }
+.cfd-code .hljs-regexp { color: var(--code-str); }
 .cfd-code .hljs-comment { color: var(--muted); font-style: italic; }
 .cfd-code .hljs-number,
 .cfd-code .hljs-literal,
-.cfd-code .hljs-boolean { color: #d19a66; }
+.cfd-code .hljs-boolean { color: var(--code-num); }
 .cfd-code .hljs-title,
-.cfd-code .hljs-title.function_ { color: #61afef; }
+.cfd-code .hljs-title.function_ { color: var(--code-key); }
 .cfd-code .hljs-attr,
 .cfd-code .hljs-attribute,
-.cfd-code .hljs-property { color: #e06c75; }
+.cfd-code .hljs-property { color: var(--code-del); }
 .cfd-code .hljs-params,
 .cfd-code .hljs-type,
-.cfd-code .hljs-class .hljs-title { color: #e5c07b; }
-.cfd-code .hljs-meta { color: #56b6c2; }
+.cfd-code .hljs-class .hljs-title { color: var(--code-type); }
+.cfd-code .hljs-meta { color: var(--code-meta); }
 
 /* ===== 右键求值（上下文菜单 + 结果弹窗） ===== */
 .cfd-overlay {
@@ -1145,7 +1145,7 @@ button[aria-expanded='true'] .cfd-caret {
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: 4px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .cfd-ctx-expr {
   padding: 4px 8px;
@@ -1177,7 +1177,7 @@ button[aria-expanded='true'] .cfd-caret {
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
   padding: 8px 10px;
-  font-size: 13px;
+  font-size: var(--text-md);
 }
 .cfd-eval-head {
   display: flex;
@@ -1213,7 +1213,7 @@ button[aria-expanded='true'] .cfd-caret {
 .cfd-eval-type {
   margin-left: 8px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfd-eval-error {
   margin-top: 6px;
@@ -1253,9 +1253,9 @@ button[aria-expanded='true'] .cfd-caret {
   color: var(--danger);
   background: var(--surface-2);
   border: 1px solid var(--danger);
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-family: var(--mono);
   white-space: pre-wrap;
   word-break: break-all;
@@ -1267,9 +1267,9 @@ button[aria-expanded='true'] .cfd-caret {
   gap: 6px;
   align-items: center;
   padding: 4px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 .cfdebug-dynlogs-head {
   background: var(--surface-2);
@@ -1301,7 +1301,7 @@ button[aria-expanded='true'] .cfd-caret {
 }
 .cfdebug-dynlogs-row .col-time {
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--text-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

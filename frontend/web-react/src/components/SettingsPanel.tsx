@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { TabIcon } from './icons';
 import { apiGet } from '../api/client';
 import { useT } from '../i18n';
+import { EmptyState } from './EmptyState';
 
 interface ApiDocEndpoint {
   method: string;
@@ -127,7 +128,7 @@ export function SettingsPanel() {
             />
 
             {filtered.length === 0 && (
-              <div className="settings-empty">{t('settings.noResult')}</div>
+              <EmptyState className="settings-empty" hint={t('settings.noResult')} />
             )}
 
             <div className="apidoc-groups">

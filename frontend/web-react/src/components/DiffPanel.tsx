@@ -5,6 +5,7 @@ import { sse } from '../api/events';
 import { useAppStore } from '../store/useAppStore';
 import { EtaTracker, formatEta } from '../utils/eta';
 import { useModalA11y } from '../utils/useModalA11y';
+import { EmptyState } from './EmptyState';
 import { pickDirectory } from '../utils/pickDirectory';
 import type {
   DiffEntry,
@@ -896,7 +897,7 @@ export function DiffPanel() {
                 </div>
               ))}
               {subDirs.length === 0 && (
-                <div className="diff-dir-empty">{t('diff.noSubDirs')}</div>
+                <EmptyState className="diff-dir-empty" hint={t('diff.noSubDirs')} />
               )}
             </div>
           )}

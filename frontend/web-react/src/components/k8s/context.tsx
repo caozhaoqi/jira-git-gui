@@ -18,6 +18,8 @@ export interface K8sContextValue {
   addToast: (msg: string, type?: ToastType) => void;
   /** 打开「资源描述」弹窗（对应原生 openK8sDescribe），由 K8sPanel 统一承载单例弹窗。 */
   openDescribe: (kind: string, name: string, namespace?: string) => void;
+  /** 打开「管理环境」弹窗（K8sEnvModal）：子 tab 内也能新增/切换环境。 */
+  openEnvModal: () => void;
 }
 
 export const K8sContext = createContext<K8sContextValue | null>(null);
