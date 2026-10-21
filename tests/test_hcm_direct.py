@@ -222,7 +222,11 @@ class TestHcmDirect(unittest.TestCase):
         import api.server  # noqa: F401  （注册全部路由）
         fake = _FakeAsyncClient([_FakeResp(500, HTML_500)])
         with mock.patch.object(hc.httpx, "AsyncClient", lambda **kw: fake):
-            with TestClient(api.server.app) as client:
+            from api.auth import API_TOKEN
+            with TestClient(
+                api.server.app,
+                headers={"X-API-Token": API_TOKEN},
+            ) as client:
                 r = client.post("/api/hcm/direct", json={
                     "api_name": "hcm.paas.object.list",
                     "params": {"model": "Employee"},

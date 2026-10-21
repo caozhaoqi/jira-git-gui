@@ -13,9 +13,12 @@ import asyncio
 import logging
 
 import json
+import time
+import uuid
+from collections import deque
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from core import k8s_manager as _k8s_mgr
 from core.k8s import (
@@ -28,9 +31,27 @@ from core.k8s import (
     export_envs as _k8s_export_envs,
     get_env as _k8s_get_env,
 )
+from core.k8s.env import validate_environment_name, validate_kubeconfig_content
+from core.errors import UserError
 
 logger = logging.getLogger("api.routes_k8s_env")
 router = APIRouter()
+_INCOMING_KUBECONFIG_MAX_ITEMS = 5
+_INCOMING_KUBECONFIGS = deque(maxlen=_INCOMING_KUBECONFIG_MAX_ITEMS)
+_INCOMING_KUBECONFIG_MAX_BYTES = 1024 * 1024
+_INCOMING_KUBECONFIG_TTL_SECONDS = 30 * 60
+
+
+class IncomingKubeconfig(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    label: str = Field(default="", max_length=120)
+    context: str = Field(default="", max_length=256)
+    namespace: str = Field(default="default", max_length=256)
+    content: str = Field(min_length=1, max_length=_INCOMING_KUBECONFIG_MAX_BYTES)
+
+
+class AcceptIncomingKubeconfig(BaseModel):
+    confirm_overwrite: bool = False
 
 
 class K8sEnvSave(BaseModel):
@@ -61,6 +82,89 @@ class K8sNetworkReq(BaseModel):
     env: str = ""
     extra_hosts: list = []   # 用户自定义内网探测目标（每行 host[:port]）
     target: str = ""         # 兼容老字段（已废弃，detect_network 不使用）
+
+
+def _prune_incoming_kubeconfigs():
+    expires_before = time.time() - _INCOMING_KUBECONFIG_TTL_SECONDS
+    while _INCOMING_KUBECONFIGS and _INCOMING_KUBECONFIGS[0]["created_at"] < expires_before:
+        _INCOMING_KUBECONFIGS.popleft()
+
+
+@router.post("/api/k8s/env/incoming")
+async def api_k8s_env_receive_kubeconfig(body: IncomingKubeconfig):
+    """Queue a locally pushed kubeconfig for explicit import from the UI."""
+    _prune_incoming_kubeconfigs()
+    try:
+        name = validate_environment_name(body.name)
+        content = validate_kubeconfig_content(body.content)
+    except UserError as ex:
+        raise HTTPException(status_code=400, detail=str(ex)) from ex
+    size = len(content.encode("utf-8"))
+    if size > _INCOMING_KUBECONFIG_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="kubeconfig 超过 1 MiB 限制")
+    if len(_INCOMING_KUBECONFIGS) >= _INCOMING_KUBECONFIG_MAX_ITEMS:
+        raise HTTPException(status_code=429, detail="待导入队列已满，请先在应用中确认或忽略现有项目")
+    draft_id = uuid.uuid4().hex
+    _INCOMING_KUBECONFIGS.append({
+        "id": draft_id,
+        "name": name,
+        "label": body.label.strip(),
+        "context": body.context.strip(),
+        "namespace": body.namespace.strip() or "default",
+        "content": content,
+        "size": size,
+        "created_at": time.time(),
+    })
+    return {"ok": True, "id": draft_id, "queued": len(_INCOMING_KUBECONFIGS)}
+
+
+@router.get("/api/k8s/env/incoming")
+async def api_k8s_env_pending_kubeconfigs():
+    """List metadata only; kubeconfig credentials stay in the backend memory queue."""
+    _prune_incoming_kubeconfigs()
+    env_names = {env["name"] for env in _k8s_list_envs()}
+    return {
+        "pending": [
+            {key: draft[key] for key in ("id", "name", "label", "context", "namespace", "size", "created_at")}
+            | {"overwrite": draft["name"] in env_names}
+            for draft in _INCOMING_KUBECONFIGS
+        ]
+    }
+
+
+@router.post("/api/k8s/env/incoming/{draft_id}/accept")
+async def api_k8s_env_accept_kubeconfig(draft_id: str, body: AcceptIncomingKubeconfig):
+    _prune_incoming_kubeconfigs()
+    draft = next((item for item in _INCOMING_KUBECONFIGS if item["id"] == draft_id), None)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="待导入的 kubeconfig 不存在或已过期")
+    if draft["name"] in {env["name"] for env in _k8s_list_envs()} and not body.confirm_overwrite:
+        raise HTTPException(status_code=409, detail="同标识环境已存在，确认覆盖后再导入")
+    try:
+        path = _k8s_import_kubeconfig(draft["name"], draft["content"])
+        _k8s_add_or_update_env(
+            draft["name"],
+            label=draft["label"] or None,
+            context=draft["context"] or None,
+            namespace=draft["namespace"],
+        )
+    except Exception as ex:
+        raise HTTPException(
+            status_code=400,
+            detail=getattr(ex, "message", None) or str(ex),
+        ) from ex
+    _INCOMING_KUBECONFIGS.remove(draft)
+    return {"ok": True, "name": draft["name"], "path": path}
+
+
+@router.delete("/api/k8s/env/incoming/{draft_id}")
+async def api_k8s_env_dismiss_kubeconfig(draft_id: str):
+    _prune_incoming_kubeconfigs()
+    draft = next((item for item in _INCOMING_KUBECONFIGS if item["id"] == draft_id), None)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="待导入的 kubeconfig 不存在或已过期")
+    _INCOMING_KUBECONFIGS.remove(draft)
+    return {"ok": True}
 
 
 @router.get("/api/k8s/env")

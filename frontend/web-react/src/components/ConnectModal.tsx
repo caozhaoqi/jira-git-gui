@@ -190,10 +190,10 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="modal-footer">
-          <button className="btn btn-ghost" onClick={test} disabled={testing}>
+          <button className={`btn btn-ghost${testing ? ' is-loading' : ''}`} onClick={test} disabled={testing} aria-busy={testing}>
             {testing ? t('common.testing') : t('connect.test')}
           </button>
-          <button className="btn btn-primary" onClick={apply} disabled={saving}>
+          <button className={`btn btn-primary${saving ? ' is-loading' : ''}`} onClick={apply} disabled={saving} aria-busy={saving}>
             {saving ? t('common.saving') : t('connect.apply')}
           </button>
         </div>

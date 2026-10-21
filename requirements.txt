@@ -12,6 +12,7 @@ paramiko>=3.4
 websockets>=12.0
 debugpy>=1.6
 SQLAlchemy>=2.0
+keyring>=25.0
 # fastapi/uvicorn 的传递依赖，但被自身代码直接 import，显式声明防上游变心：
 pydantic>=2.0
 anyio>=4.0

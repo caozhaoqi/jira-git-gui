@@ -4,6 +4,7 @@ import type { K8sPodsResp, K8sYamlResp } from '../../api/types';
 import { useK8s } from './context';
 import { useT } from '../../i18n';
 import { requestConfirm } from '../../utils/confirmStore';
+import { useAppStore } from '../../store/useAppStore';
 
 const KINDS = ['pod', 'deployment', 'service', 'configmap', 'secret', 'ingress', 'statefulset', 'daemonset', 'pvc'];
 
@@ -143,6 +144,8 @@ function YamlView({
 export function K8sYaml() {
   const { target, openDescribe } = useK8s();
   const { t } = useT();
+  const aiDraftToInsert = useAppStore((s) => s.aiDraftToInsert);
+  const clearAiDraft = useAppStore((s) => s.clearAiDraft);
 
   const [kind, setKind] = useState('pod');
   const [name, setName] = useState('');
@@ -171,6 +174,14 @@ export function K8sYaml() {
   useEffect(() => {
     if (target.env) loadPodList();
   }, [target.env, loadPodList]);
+
+  useEffect(() => {
+    if (aiDraftToInsert?.target !== 'k8s_yaml') return;
+    setEditor(aiDraftToInsert.text);
+    setMode('edit');
+    setMsg(t('ai.draftInserted'));
+    clearAiDraft(aiDraftToInsert.id);
+  }, [aiDraftToInsert, clearAiDraft, t]);
 
   const getYaml = useCallback(async (targetName?: string, targetKind?: string) => {
     const n = (targetName ?? name).trim();

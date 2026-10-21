@@ -11,6 +11,7 @@ AI 侧按面板 key 拉取。
   GET  /api/ai/output                列出全部面板摘要（key/标题/更新时间/大小）
   GET  /api/ai/output/{tab_key}      取某面板最新输出（?format=text 拼纯文本）
   GET  /api/ai/output/{tab_key}/history  历史（最近 N 条，默认 10）
+  POST /api/ai/input/{target}        （默认关闭）排队待用户确认插入的草稿
 
 存储：进程内存环形缓冲（每 tab 最多 _MAX_PER_TAB 条、单条 _MAX_ENTRY_BYTES
 截断），重启即清空 —— 这些本来就是可重新拉取的展示数据，不值得落盘。
@@ -19,11 +20,12 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from collections import defaultdict, deque
 from typing import Deque, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/ai")
 
@@ -48,10 +50,17 @@ TAB_DESCRIPTIONS: Dict[str, str] = {
 
 _MAX_PER_TAB = 20
 _MAX_ENTRY_BYTES = 256 * 1024  # 单条 256KB 上限，超长截断（日志流防 OOM）
+_MAX_TOTAL_BYTES = 16 * 1024 * 1024
 _RETENTION_SEC = 2 * 3600      # 2 小时未更新且超容量的条目顺带清理
 
 # tab_key -> deque[{ts, text, size, truncated}]，最新的在队尾
 _STORE: Dict[str, Deque[dict]] = defaultdict(lambda: deque(maxlen=_MAX_PER_TAB))
+_TOTAL_BYTES = 0
+_INPUT_TARGETS = {"k8s_yaml", "hcm_params", "kibana_query"}
+_INPUT_MAX_PER_TARGET = 5
+_INPUT_MAX_BYTES = 256 * 1024
+_INPUT_ENABLED = False
+_INPUT_STORE: Dict[str, Deque[dict]] = defaultdict(lambda: deque(maxlen=_INPUT_MAX_PER_TARGET))
 
 
 class OutputEntry(BaseModel):
@@ -65,34 +74,162 @@ class OutputEntry(BaseModel):
     meta: Optional[dict] = None
 
 
+class InputDraft(BaseModel):
+    text: str = Field(min_length=1, max_length=_INPUT_MAX_BYTES)
+    title: str = Field(default="AI draft", max_length=120)
+
+
+class InputSettings(BaseModel):
+    enabled: bool
+
+
 def _now() -> float:
     return time.time()
 
 
-def _clip(text: str) -> tuple[str, bool]:
-    if len(text.encode("utf-8", "ignore")) <= _MAX_ENTRY_BYTES:
-        return text, False
-    # 按字符截到安全长度（UTF-8 每字符最多 4 字节，取 1/4 上限再留余量）
-    limit = _MAX_ENTRY_BYTES // 4 - 100
-    return text[:limit] + f"\n…[truncated, original {len(text)} chars]", True
+@router.post("/input/settings")
+async def set_input_enabled(settings: InputSettings) -> dict:
+    global _INPUT_ENABLED
+    _INPUT_ENABLED = settings.enabled
+    if not _INPUT_ENABLED:
+        _INPUT_STORE.clear()
+    return {"ok": True, "enabled": _INPUT_ENABLED}
+
+
+@router.get("/input/pending")
+async def get_pending_inputs() -> dict:
+    drafts = [
+        {**draft, "target": target}
+        for target, entries in _INPUT_STORE.items()
+        for draft in entries
+    ]
+    return {"ok": True, "enabled": _INPUT_ENABLED, "drafts": drafts}
+
+
+@router.post("/input/{target}")
+async def post_input(target: str, draft: InputDraft) -> dict:
+    if target not in _INPUT_TARGETS:
+        raise HTTPException(404, f"unknown input target: {target}")
+    if not _INPUT_ENABLED:
+        raise HTTPException(403, "AI input is disabled in the application")
+    size = len(draft.text.encode("utf-8"))
+    if size > _INPUT_MAX_BYTES:
+        raise HTTPException(413, "draft exceeds the 256 KB limit")
+    entries = _INPUT_STORE[target]
+    draft_id = uuid.uuid4().hex
+    if len(entries) >= _INPUT_MAX_PER_TARGET:
+        entries.popleft()
+    entries.append({
+        "id": draft_id,
+        "title": draft.title,
+        "text": draft.text,
+        "created_at": _now(),
+        "size": size,
+    })
+    return {"ok": True, "id": draft_id, "target": target, "queued": len(entries)}
+
+
+@router.delete("/input/{target}/{draft_id}")
+async def remove_pending_input(target: str, draft_id: str) -> dict:
+    if target not in _INPUT_TARGETS:
+        raise HTTPException(404, f"unknown input target: {target}")
+    entries = _INPUT_STORE.get(target)
+    if not entries:
+        raise HTTPException(404, "draft not found")
+    retained = [draft for draft in entries if draft["id"] != draft_id]
+    if len(retained) == len(entries):
+        raise HTTPException(404, "draft not found")
+    entries.clear()
+    entries.extend(retained)
+    return {"ok": True}
+
+
+def _entry_size(text: str, data: Optional[dict], meta: dict) -> int:
+    encoded = json.dumps(
+        {"text": text, "data": data, "meta": meta},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return len(encoded)
+
+
+def _evict_expired(now: float) -> None:
+    global _TOTAL_BYTES
+    cutoff = now - _RETENTION_SEC
+    for entries in _STORE.values():
+        while entries and entries[0]["ts"] < cutoff:
+            _TOTAL_BYTES -= entries.popleft()["size"]
+
+
+def _evict_oldest() -> bool:
+    global _TOTAL_BYTES
+    candidates = [(entries[0]["ts"], key) for key, entries in _STORE.items() if entries]
+    if not candidates:
+        return False
+    _, key = min(candidates)
+    _TOTAL_BYTES -= _STORE[key].popleft()["size"]
+    return True
 
 
 @router.post("/output/{tab_key}")
 async def post_output(tab_key: str, entry: OutputEntry) -> dict:
+    global _TOTAL_BYTES
     if tab_key not in TAB_DESCRIPTIONS:
         raise HTTPException(404, f"unknown tab_key: {tab_key}")
-    text, truncated = _clip(entry.text or "")
+    text = entry.text or ""
+    meta = entry.meta or {}
     if not text and entry.data is None:
         raise HTTPException(400, "empty output (need text or data)")
-    _STORE[tab_key].append({
-        "ts": _now(),
+
+    size = _entry_size(text, entry.data, meta)
+    truncated = False
+    if size > _MAX_ENTRY_BYTES:
+        if not text:
+            raise HTTPException(413, "structured output exceeds the 256 KB per-entry limit")
+        suffix = f"\n…[truncated, original {len(text)} chars]"
+        low, high = 0, len(text)
+        fitted = None
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = text[:mid] + suffix
+            if _entry_size(candidate, entry.data, meta) <= _MAX_ENTRY_BYTES:
+                fitted = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+        if fitted is None:
+            raise HTTPException(
+                413,
+                "structured output leaves no room for text within the 256 KB per-entry limit",
+            )
+        text = fitted
+        size = _entry_size(text, entry.data, meta)
+        truncated = True
+
+    now = _now()
+    _evict_expired(now)
+    entries = _STORE[tab_key]
+    if len(entries) >= _MAX_PER_TAB:
+        _TOTAL_BYTES -= entries.popleft()["size"]
+    while _TOTAL_BYTES + size > _MAX_TOTAL_BYTES:
+        if not _evict_oldest():
+            break
+    entries.append({
+        "ts": now,
         "text": text,
         "data": entry.data,
-        "meta": entry.meta or {},
-        "size": len(text.encode("utf-8", "ignore")),
+        "meta": meta,
+        "size": size,
         "truncated": truncated,
     })
-    return {"ok": True, "tab": tab_key, "kept": len(_STORE[tab_key])}
+    _TOTAL_BYTES += size
+    return {
+        "ok": True,
+        "tab": tab_key,
+        "kept": len(entries),
+        "total_bytes": _TOTAL_BYTES,
+        "truncated": truncated,
+    }
 
 
 @router.get("/output")

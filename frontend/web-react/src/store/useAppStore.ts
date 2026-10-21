@@ -23,6 +23,14 @@ export interface Toast {
   duration: number; // 0 = 不自动消失
 }
 
+export type AiDraftTarget = 'k8s_yaml' | 'hcm_params' | 'kibana_query';
+
+export interface AiDraftToInsert {
+  target: AiDraftTarget;
+  text: string;
+  id: string;
+}
+
 export interface ProgressState {
   visible: boolean;
   mode: ProgressMode;
@@ -97,6 +105,7 @@ interface AppState {
   openConnect: () => void;
   closeConnect: () => void;
   networkWarning: string | null;
+  aiDraftToInsert: AiDraftToInsert | null;
 
   /** 前端↔本地后端连接中断（后端未启动 / 端口被占 / 代理干扰 localhost 等）。
    *  true 时全局横幅提示网络错误并提供诊断步骤。与 SSE 的 networkWarning（后端↔上游）区分开。 */
@@ -136,6 +145,8 @@ interface AppState {
   toggleCheckedPath: (path: string) => void;
   clearCheckedPaths: () => void;
   setNetworkWarning: (msg: string | null) => void;
+  deliverAiDraft: (draft: AiDraftToInsert) => void;
+  clearAiDraft: (id: string) => void;
 }
 
 const THEME_KEY = 'jgg-theme';
@@ -228,6 +239,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   alerts: [],
   connectOpen: false,
   networkWarning: null,
+  aiDraftToInsert: null,
   apiDown: false,
   treeLocalDir: (() => {
     try {
@@ -345,6 +357,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   openConnect: () => set({ connectOpen: true }),
   closeConnect: () => set({ connectOpen: false }),
   setNetworkWarning: (msg) => set({ networkWarning: msg }),
+  deliverAiDraft: (draft) => set({ aiDraftToInsert: draft }),
+  clearAiDraft: (id) =>
+    set((s) => (s.aiDraftToInsert?.id === id ? { aiDraftToInsert: null } : s)),
   setApiDown: (v) => set({ apiDown: v }),
   setTreeLocalDir: (d) => {
     try {

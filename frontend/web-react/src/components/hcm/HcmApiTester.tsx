@@ -3,6 +3,7 @@ import { hcmDirect } from '../../api/hcm/direct';
 import { hcmWsProxyUrl } from '../../api/hcm/ws';
 import { hcmEnvs, HcmApiError, type HcmEnv } from '../../api/hcm/client';
 import { reportLocalApiNetworkError } from '../../api/client';
+import { useAppStore } from '../../store/useAppStore';
 import { saveBlob } from '../../utils/download';
 import { useT } from '../../i18n';
 import { reportPanelOutput } from '../../api/aiBridge';
@@ -105,6 +106,8 @@ interface WsSession {
 
 export function HcmApiTester() {
   const { t } = useT();
+  const aiDraftToInsert = useAppStore((s) => s.aiDraftToInsert);
+  const clearAiDraft = useAppStore((s) => s.clearAiDraft);
 
   const [apiName, setApiName] = useState('hcm.model.list');
   const [paramsText, setParamsText] = useState('{\n  "model": ""\n}');
@@ -113,6 +116,7 @@ export function HcmApiTester() {
   const [sqlDebug, setSqlDebug] = useState(false);
   const [profileDebug, setProfileDebug] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [paramsError, setParamsError] = useState('');
   const [err, setErr] = useState('');
   const [result, setResult] = useState<SendResult | null>(null);
   const [dlBusy, setDlBusy] = useState('');
@@ -124,6 +128,14 @@ export function HcmApiTester() {
   // WS 调试会话（null = 未启动）
   const [ws, setWs] = useState<WsSession | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    if (aiDraftToInsert?.target !== 'hcm_params') return;
+    setParamsText(aiDraftToInsert.text);
+    setParamsError('');
+    setErr('');
+    clearAiDraft(aiDraftToInsert.id);
+  }, [aiDraftToInsert, clearAiDraft]);
 
   // AI 数据桥：接口调试的请求+响应同步给 /api/ai/output/hcmapi（供 AI 拉取）
   useEffect(() => {
@@ -307,15 +319,27 @@ export function HcmApiTester() {
     return null;
   }, [apiName, options, t]);
 
-  const formatParams = useCallback(() => {
+  const parseParams = useCallback((): Record<string, unknown> | null => {
     try {
-      const obj = JSON.parse(paramsText);
-      setParamsText(JSON.stringify(obj, null, 2));
-      setErr('');
+      const parsed: unknown = JSON.parse(paramsText);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setParamsError(t('hcm.payloadMustBeObject'));
+        return null;
+      }
+      setParamsError('');
+      return parsed as Record<string, unknown>;
     } catch (e: any) {
-      setErr(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
+      setParamsError(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
+      return null;
     }
   }, [paramsText, t]);
+
+  const formatParams = useCallback(() => {
+    const obj = parseParams();
+    if (!obj) return;
+    setParamsText(JSON.stringify(obj, null, 2));
+    setErr('');
+  }, [parseParams]);
 
   const pickApi = useCallback((name: string) => {
     setApiName(name);
@@ -325,14 +349,9 @@ export function HcmApiTester() {
 
   const send = useCallback(async () => {
     if (busy) return;
-    let params: Record<string, any>;
-    try {
-      params = JSON.parse(paramsText);
-      setErr('');
-    } catch (e: any) {
-      setErr(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
-      return;
-    }
+    const params = parseParams();
+    if (!params) return;
+    setErr('');
     if (!apiName.trim()) {
       setErr(t('hcm.apiNeedName'));
       return;
@@ -390,7 +409,7 @@ export function HcmApiTester() {
     } finally {
       setBusy(false);
     }
-  }, [busy, paramsText, apiName, target, sqlDebug, profileDebug, t]);
+  }, [busy, parseParams, apiName, target, sqlDebug, profileDebug, t]);
 
   // —— WS 调试通道（对齐调试页 WS 按钮：流式代理 + notify 进度 + 终态）——
   const wsStop = useCallback(() => {
@@ -404,13 +423,8 @@ export function HcmApiTester() {
 
   const wsStart = useCallback(() => {
     if (wsRef.current) return; // 已在会话中
-    let params: Record<string, any>;
-    try {
-      params = JSON.parse(paramsText);
-    } catch (e: any) {
-      setErr(t('hcm.payloadParseFailed', { msg: e?.message || String(e) }));
-      return;
-    }
+    const params = parseParams();
+    if (!params) return;
     if (!apiName.trim()) {
       setErr(t('hcm.apiNeedName'));
       return;
@@ -476,7 +490,7 @@ export function HcmApiTester() {
         return { ...s, phase: 'error', error: s.error || t('hcm.apiWsClosed') };
       });
     };
-  }, [paramsText, apiName, target, t]);
+  }, [parseParams, apiName, target, t]);
 
   // 卸载时关闭在途 WS（切 tab / 关闭面板不留半开连接）
   useEffect(() => () => {
@@ -648,18 +662,24 @@ export function HcmApiTester() {
               </button>
             </span>
             <textarea
-              className="input hcm-mono hcm-api-params"
+              className={`input hcm-mono hcm-api-params${paramsError ? ' is-error' : ''}`}
               value={paramsText}
-              onChange={(e) => setParamsText(e.target.value)}
+              onChange={(e) => {
+                setParamsText(e.target.value);
+                setParamsError('');
+              }}
+              aria-invalid={!!paramsError}
+              aria-describedby={paramsError ? 'hcm-api-params-error' : undefined}
               spellCheck={false}
               placeholder='{ "model": "XXX", "filter_dict": {} }'
             />
+            {paramsError && <div className="field-err is-visible" id="hcm-api-params-error" role="alert">{paramsError}</div>}
           </div>
         </div>
 
         {/* ---- 提交行（对齐参考页：按钮在左，SQL/Profile 勾选在右）---- */}
         <div className="hcm-api-row hcm-api-submit-row">
-          <button className="btn btn-primary btn-sm" onClick={() => void send()} disabled={busy}>
+          <button className={`btn btn-primary btn-sm${busy ? ' is-loading' : ''}`} onClick={() => void send()} disabled={busy} aria-busy={busy}>
             {busy ? t('hcm.loading') : t('hcm.apiSend')}
           </button>
           {ws && ws.phase !== 'done' && ws.phase !== 'error' ? (

@@ -207,7 +207,7 @@ button {
   gap: 10px;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.01em;
 }
 .brand-mark {
@@ -311,7 +311,7 @@ button {
   color: var(--text-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: var(--text-md-plus);
   font-weight: 500;
   text-align: left;
   transition: all 0.18s var(--ease-out);
@@ -738,7 +738,7 @@ button {
 }
 .section-title {
   font-family: var(--font-display);
-  font-size: 16px;
+  font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
@@ -826,7 +826,7 @@ button {
   margin: 0 -3px;
   cursor: col-resize;
   flex-shrink: 0;
-  border-radius: 3px;
+  border-radius: var(--radius-indicator);
   transition: background 0.15s ease;
   z-index: 2;
 }
@@ -1231,7 +1231,7 @@ button {
 }
 .k8s-stat .n {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: var(--text-6xl);
   font-weight: 700;
 }
 
@@ -1313,7 +1313,7 @@ button {
 }
 .modal-header h3 {
   font-family: var(--font-display);
-  font-size: 18px;
+  font-size: var(--text-3xl);
 }
 .modal-body {
   padding: 8px 20px 16px;
@@ -1523,7 +1523,7 @@ button {
 /* ---- 超小屏（手机竖屏） ---- */
 @media (max-width: 560px) {
   .appbar-brand {
-    font-size: 13.5px;
+    font-size: var(--text-md-plus);
   }
   .btn {
     padding: 0 var(--ctl-pad-x-sm);
@@ -1736,7 +1736,7 @@ button {
   text-align: left;
 }
 .error-boundary-icon {
-  font-size: 22px;
+  font-size: var(--text-5xl);
   line-height: 1;
   margin-bottom: 8px;
 }
@@ -1843,6 +1843,19 @@ button {
   font-family: var(--font-mono, monospace);
   color: var(--text);
 }
+.ai-bridge-curl > p {
+  margin: 8px 12px 0;
+  color: var(--text-2);
+  font-size: var(--text-sm);
+}
+.ai-bridge-incoming-error {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
 .ai-bridge-panels {
   display: flex;
   flex-direction: column;
@@ -1930,6 +1943,16 @@ button {
   white-space: pre-wrap;
   word-break: break-all;
   font-family: var(--font-mono, monospace);
+}
+.ai-bridge-row--draft {
+  flex-wrap: wrap;
+}
+.ai-bridge-row--draft .ai-bridge-preview-body {
+  flex: 1 0 100%;
+  max-height: 180px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg-panel);
 }
 
 /* ===== AI 接口悬浮按钮（AiApiFab）===== */

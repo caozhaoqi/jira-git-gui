@@ -3,11 +3,14 @@
 import json
 import os
 import sys
+import uuid
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Tuple
 
 from core.app_paths import get_data_root
 from core.models import ConnectConfig
+from core.secure_storage import load_secret, store_secret
 
 _BASE = get_data_root()
 _SESSION_FILE = _BASE / ".session.json"
@@ -18,13 +21,48 @@ from .merge import load_merge_config
 _CF_ACCOUNTS_CACHE: "Optional[list[dict]]" = None
 
 
+def protect_cf_accounts(data: dict) -> dict:
+    """Move account passwords out of JSON and into the OS credential store."""
+    protected = deepcopy(data)
+    accounts = protected.get("accounts", []) if isinstance(protected, dict) else protected
+    if not isinstance(accounts, list):
+        return protected
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        password = account.get("password") or ""
+        if password:
+            credential_id = account.get("credential_id") or uuid.uuid4().hex
+            account["credential_id"] = credential_id
+            account["password_ref"] = store_secret(f"cf-account:{credential_id}", password)
+        account.pop("password", None)
+    return protected
+
+
+def reveal_cf_accounts(data: dict) -> dict:
+    """Resolve OS credential references for trusted in-process account use."""
+    revealed = deepcopy(data)
+    accounts = revealed.get("accounts", []) if isinstance(revealed, dict) else revealed
+    if not isinstance(accounts, list):
+        return revealed
+    for account in accounts:
+        if not isinstance(account, dict):
+            continue
+        ref = account.get("password_ref")
+        if ref:
+            account["password"] = load_secret(ref)
+        else:
+            account.setdefault("password", "")
+    return revealed
+
+
 def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False) -> "list[dict]":
-    """从 cf_accounts.local.json 读取云函数账号列表（含密码）。
+    """Load cloud-function accounts, resolving passwords from the OS credential store.
 
     该文件必须放在本地且已被 .gitignore 忽略（cf_accounts.local.json），
     绝不能进入版本库。找不到时回退到 cf_accounts.example.json（仅结构占位，
-    无真实密码）。server_url / username / password 允许为空字符串（前端会提示
-    填写，不强制剔除占位项）。
+    无真实密码）。旧文件中的明文密码会自动迁移到系统凭据库，JSON 只保留引用。
+    server_url / username / password 允许为空字符串（前端会提示填写，不强制剔除占位项）。
 
     结果在内存中缓存（force=True 时失效重读），避免自动登录/按需重登时反复读盘。
 
@@ -68,6 +106,18 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
     except Exception:
         _CF_ACCOUNTS_CACHE = []
         return []
+    if src.name.endswith(".local.json"):
+        protected = protect_cf_accounts(data)
+        if protected != data:
+            src.parent.mkdir(parents=True, exist_ok=True)
+            tmp = src.with_suffix(src.suffix + ".tmp")
+            tmp.write_text(json.dumps(protected, ensure_ascii=False, indent=2), encoding="utf-8")
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+            tmp.replace(src)
+        data = reveal_cf_accounts(protected)
     # 顶层 "default": "环境名" —— 与逐账号 default 二选一，顶层优先
     default_name = ""
     if isinstance(data, dict):
@@ -88,7 +138,7 @@ def load_cf_accounts(project_root: "Optional[Path]" = None, force: bool = False)
             "server_url": url,
             "domain": (item.get("domain") or "").strip(),
             "username": (item.get("username") or item.get("mobile") or "").strip(),
-            "password": (item.get("password") or "").strip(),
+            "password": item.get("password") or "",
             "http_proxy": (item.get("http_proxy") or "").strip(),
             "default": is_default,
         })

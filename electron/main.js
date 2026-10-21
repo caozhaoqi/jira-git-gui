@@ -15,6 +15,7 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const net = require('net');
+const crypto = require('crypto');
 
 // 规避 Chromium Fontations(skrifa) 渲染后端在 macOS 上实例化可变 Web 字体时递归
 // 导致渲染进程 OOM 崩溃（FATAL ERROR: Oilpan: Large allocation）。
@@ -30,6 +31,7 @@ let mainWindow = null;
 let applicationMenu = null;
 let BACKEND_PORT = 8787;
 let BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+const API_TOKEN = crypto.randomBytes(32).toString('base64url');
 const isDev = process.argv.includes('--dev');
 const exposeBackendToLan = process.argv.includes('--lan');
 
@@ -721,7 +723,7 @@ function startPythonBackend() {
     cwd: PROJECT_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
     // 把数据目录透传给后端，使前后端日志 / 缓存落在同一可写目录
-    env: { ...process.env, JIRA_GIT_DATA_DIR: DATA_DIR },
+    env: { ...process.env, JIRA_GIT_DATA_DIR: DATA_DIR, JGG_API_TOKEN: API_TOKEN },
   });
 
   log(`Python pid=${pyProc.pid}`);
@@ -756,7 +758,9 @@ function waitForBackend(maxRetries = 30) {
     let retries = 0;
 
     const check = () => {
-      const req = http.get(`${BACKEND_URL}/api/status`, (res) => {
+      const req = http.get(`${BACKEND_URL}/api/status`, {
+        headers: { 'X-API-Token': API_TOKEN },
+      }, (res) => {
         if (res.statusCode === 200) {
           log(`/api/status 200 响应，后端就绪（重试 ${retries} 次）`);
           resolve();

@@ -20,6 +20,17 @@ const ROOT = path.resolve(__dirname, '..');
 const FE = path.join(ROOT, 'frontend', 'web-react');
 const ENTRY = path.join(FE, 'src', 'utils', 'k8sFileDownload.ts');
 
+globalThis.localStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+globalThis.document = {
+  documentElement: { classList: { toggle: () => {} } },
+  body: { classList: { toggle: () => {} } },
+};
+globalThis.location = { origin: 'http://127.0.0.1:8787' };
+
 function build() {
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')), 'k8sFileDownload.cjs');
   const esbuild = path.join(FE, 'node_modules', '.bin', 'esbuild');

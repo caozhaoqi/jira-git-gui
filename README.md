@@ -54,8 +54,7 @@ Install and run. No Python required.
 
 > Desktop entry points are the Electron / Tauri installers; run the web mode from source with `run_web.sh` / `run_web.ps1`.
 > Windows PowerShell: `.\scripts\run_web.ps1 --lan`.
-> LAN mode listens on all network interfaces and exposes the app's API (including configured integrations and operations) to devices that can reach the computer; the app does not provide LAN user authentication.
-> Use it only on a trusted network, allow inbound TCP port 8787 on the **Private** firewall profile if needed, and have other users open `http://<host-LAN-IP>:8787` (find the host IPv4 address with `ipconfig`).
+> LAN mode listens on all network interfaces. Requests from LAN devices require a random token generated at startup. Other users opening `http://<host-LAN-IP>:8787` must enter that token; obtain it on the host with `curl http://127.0.0.1:8787/api/auth/token` and share it only with trusted users over a secure channel. LAN mode is plain HTTP, so use it only on a trusted network (or behind a VPN/HTTPS proxy); an observer on the network could capture the login token. Allow inbound TCP port 8787 on the **Private** firewall profile if needed.
 > Without `--lan`, the server remains accessible only from the local computer.
 > The PyQt6 desktop implementation was moved to the `pyqt-legacy` branch in Oct 2026 and no longer ships on mainline.
 
@@ -77,7 +76,7 @@ If `npm` or the Electron download is blocked, skip it — just start the backend
 
 ### First run: connect to Jira
 
-The app reads `.env` from the project root automatically, so you normally configure this once and never touch the connection dialog again:
+The app reads `.env` from the project root in source mode (or the per-user data directory in packaged builds):
 
 | `.env` key | Meaning | Notes |
 | --- | --- | --- |
@@ -87,7 +86,7 @@ The app reads `.env` from the project root automatically, so you normally config
 | `personal_access_token` | PAT | also tolerates the typo `persoanl_access_token` |
 | `cookie` | Session cookie | `JSESSIONID=...; atlassian.xsrf.token=...` |
 
-`.env` is gitignored — **never commit real credentials**. Real environment variables (e.g. `JIRA_URL`) take priority over `.env`.
+`.env` is gitignored — **never commit real credentials**. Jira PATs and cookies are migrated into the operating-system credential store on first load (macOS Keychain; Windows Credential Manager, backed by Windows credential protection/DPAPI; Linux Secret Service). Real environment variables (e.g. `JIRA_URL`) take priority over `.env`.
 
 **Which mode should I use?**
 
@@ -133,7 +132,7 @@ There's also a **full-screen log page** — open it from the snapshot page (⧉)
 
 ### K8s: shell into a container
 
-**K8s → Shell** → pick environment, Pod, container → connect. It's a real terminal: `vim`, `top` and `less` all work, and `cd` persists between commands. History with ↑/↓.
+**K8s → Shell** → pick environment, Pod, container → connect. It requests a PTY and prefers `bash`, falling back to `sh`; `cd` persists between commands and history works with ↑/↓. Full-screen tools such as `vim`, `top` and `less` also need to be installed in the container and a working PTY. If the connection falls back to line-buffered mode, those tools cannot be used interactively.
 
 ### K8s: move files
 
@@ -150,6 +149,16 @@ Each environment (dev / test / prod) keeps its own kubeconfig, context and defau
 Rather than leaving kubeconfigs scattered around (e.g. in `~/Downloads`), use **Environment management → Import kubeconfig**. It copies the file into a controlled directory, `~/.config/jira-git-gui/kubeconfigs/<env>.kubeconfig`, and sets permissions to `600` so only you can read it.
 
 Environments can also be exported for backup or sharing — but the export contains cluster credentials, so move it over an encrypted channel only.
+
+External tools can push a kubeconfig through the token-protected `POST /api/k8s/env/incoming` endpoint. Payloads stay in backend memory only (up to 5 items, 1 MiB each, expiring after 30 minutes); the pending-list endpoint never returns the credential content. Open **K8s → Environment management** and confirm the import manually. Existing environment IDs require an additional overwrite confirmation.
+
+```bash
+TOKEN=$(curl -fsS http://127.0.0.1:8787/api/auth/token)
+jq -n --arg name "dev" --rawfile content "$HOME/.kube/config" \
+  '{name:$name, content:$content}' |
+  curl -fsS -X POST http://127.0.0.1:8787/api/k8s/env/incoming \
+    -H "X-API-Token: $TOKEN" -H "Content-Type: application/json" --data-binary @-
+```
 
 ### Cloud-function logs
 
@@ -178,21 +187,29 @@ The **AI bridge** exposes each panel's live output as a local HTTP API, so an ex
 - Panel output is reported automatically as it is produced (off by default; flip the switch in the AI bridge tab — the preference is stored under `jgg-ai-bridge`).
 - Each panel keeps its last 20 outputs, capped at 256 KB each (longer entries are truncated).
 - A floating **AI API button** in the bottom-right of every panel copies the curl command for the current panel.
+- Incoming AI drafts have a separate opt-in switch, off by default. They are queued until the user clicks **Insert into editor**; insertion replaces only the selected YAML, HCM parameter, or Kibana search draft. It never saves, runs `kubectl apply`, or starts a query automatically.
 
-Endpoint reference (all GET; `format=text` returns plain text, `at=-n` picks the n-th most recent):
+The local API requires the startup token. Read it on the same machine and send it as `X-API-Token`:
 
 ```bash
+TOKEN=$(curl -fsS http://127.0.0.1:8787/api/auth/token)
+
 # overview of every panel's latest output
-curl http://127.0.0.1:8787/api/ai/output
+curl -H "X-API-Token: $TOKEN" http://127.0.0.1:8787/api/ai/output
 
 # a panel's latest output as text
-curl "http://127.0.0.1:8787/api/ai/output/hcmops?format=text"
+curl -H "X-API-Token: $TOKEN" "http://127.0.0.1:8787/api/ai/output/hcmops?format=text"
 
 # 2nd most recent entry, raw JSON
-curl "http://127.0.0.1:8787/api/ai/output/cf?at=-2"
+curl -H "X-API-Token: $TOKEN" "http://127.0.0.1:8787/api/ai/output/cf?at=-2"
 
 # full history of one panel
-curl http://127.0.0.1:8787/api/ai/output/hcm/history
+curl -H "X-API-Token: $TOKEN" http://127.0.0.1:8787/api/ai/output/hcm/history
+
+# Queue a YAML draft after enabling AI input; insertion is confirmed in the app
+curl -X POST http://127.0.0.1:8787/api/ai/input/k8s_yaml \
+  -H "X-API-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"AI draft","text":"apiVersion: v1\nkind: ConfigMap"}'
 ```
 
 Wired-up sources: cloud-function logs, diff, CF consistency, CF debug, Clash, HCM objects, HCM API, HCM ops, unified diagnosis, K8s snapshot, Kibana logs, app log, repositories.

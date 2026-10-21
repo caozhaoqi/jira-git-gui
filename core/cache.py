@@ -27,7 +27,7 @@ CACHE_DIR = get_data_root() / "cache"
 # 无限增长（10 万文件仓库 = 10 万常驻 Lock，且永不释放）。按 (namespace, key)
 # 哈希分到有限个锁上，内存有界，同一 key 仍互斥。
 _LOCK_POOL_SIZE = 64
-_locks = [threading.Lock() for _ in range(_LOCK_POOL_SIZE)]
+_locks = [threading.RLock() for _ in range(_LOCK_POOL_SIZE)]
 
 
 def _get_lock(namespace: str, key: str) -> threading.Lock:
@@ -53,27 +53,30 @@ def get(namespace: str, key: str, ttl: int = 3600) -> Optional[Any]:
         缓存的数据，未命中或已过期返回 None
     """
     path = _cache_path(namespace, key)
-    if not path.exists():
-        return None
+    lock = _get_lock(namespace, key)
 
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            entry = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        _log.debug("缓存读取失败 %s/%s: %s", namespace, key, e)
-        return None
-
-    # 检查 TTL：过期即删除文件，避免「只增不减」无限堆积
-    if ttl > 0:
-        cached_at = entry.get("_cached_at", 0)
-        if time.time() - cached_at > ttl:
-            try:
-                path.unlink()
-            except OSError:
-                pass
+    with lock:
+        if not path.exists():
             return None
 
-    return entry.get("data")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                entry = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            _log.debug("缓存读取失败 %s/%s: %s", namespace, key, e)
+            return None
+
+        # 检查 TTL：过期即删除文件，避免「只增不减」无限堆积
+        if ttl > 0:
+            cached_at = entry.get("_cached_at", 0)
+            if time.time() - cached_at > ttl:
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                return None
+
+        return entry.get("data")
 
 
 def set(namespace: str, key: str, data: Any) -> bool:
@@ -122,17 +125,16 @@ def get_or_fetch(
     Returns:
         缓存或新获取的数据
     """
-    # 1. 先尝试缓存
-    cached = get(namespace, key, ttl)
-    if cached is not None:
-        return cached
+    # Recheck after acquiring the per-key lock so concurrent misses share one fetch.
+    with _get_lock(namespace, key):
+        cached = get(namespace, key, ttl)
+        if cached is not None:
+            return cached
 
-    # 2. 调用 fetcher 获取
-    data = fetcher()
-    if data is not None:
-        set(namespace, key, data)
-
-    return data
+        data = fetcher()
+        if data is not None:
+            set(namespace, key, data)
+        return data
 
 
 def invalidate(namespace: str, key: str = "") -> int:

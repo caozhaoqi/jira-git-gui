@@ -24,6 +24,8 @@ import os
 import shutil
 import tempfile
 
+import pytest
+
 _TMP_DATA_ROOT = tempfile.mkdtemp(prefix="jgg-tests-data-")
 
 # 用 setdefault 以外的语义：测试必须隔离，不允许继承外部真实数据目录
@@ -33,3 +35,28 @@ os.environ["JIRA_GIT_DATA_DIR"] = _TMP_DATA_ROOT
 os.environ.setdefault("JGG_KEEP_DISCOVER_RAW", "3")
 
 atexit.register(shutil.rmtree, _TMP_DATA_ROOT, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_os_credential_store(monkeypatch, tmp_path):
+    import core.k8s.env as k8s_env
+
+    credentials = {}
+
+    class MemoryKeyring:
+        def set_password(self, service, username, password):
+            credentials[(service, username)] = password
+
+        def get_password(self, service, username):
+            return credentials.get((service, username))
+
+        def delete_password(self, service, username):
+            credentials.pop((service, username), None)
+
+    monkeypatch.setattr(
+        "core.secure_storage._keyring",
+        lambda: MemoryKeyring(),
+    )
+    isolated_config = tmp_path / "k8s_envs.json"
+    monkeypatch.setattr(k8s_env, "ENV_CONFIG_PATH", isolated_config)
+    monkeypatch.setattr(k8s_env, "KUBECONFIG_DIR", tmp_path / "kubeconfigs")

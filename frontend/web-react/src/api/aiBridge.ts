@@ -11,6 +11,8 @@ import type { TabKey } from '../store/useAppStore';
 
 const ENABLE_KEY = 'jgg-ai-bridge';
 const THROTTLE_MS = 800;
+const BUCKET_RATE = 6;
+const BUCKET_CAPACITY = 4;
 
 export function aiBridgeEnabled(): boolean {
   try {
@@ -24,15 +26,60 @@ export function setAiBridgeEnabled(on: boolean): void {
   try {
     localStorage.setItem(ENABLE_KEY, on ? '1' : '0');
   } catch { /* ignore */ }
+  if (!on) {
+    for (const item of pending.values()) {
+      if (item.timer) clearTimeout(item.timer);
+    }
+    pending.clear();
+  }
 }
 
-const lastSent = new Map<string, number>();
-const pending = new Map<string, ReturnType<typeof schedule>>();
+const pending = new Map<string, { payload: Payload; timer: ReturnType<typeof setTimeout> | null }>();
+let tokens = BUCKET_CAPACITY;
+let lastRefill = Date.now();
 
 type Payload = { text?: string; data?: unknown; meta?: Record<string, unknown> };
 
-function schedule(fn: () => void) {
-  return { fn, timer: setTimeout(fn, THROTTLE_MS) };
+function takeToken(): boolean {
+  const now = Date.now();
+  tokens = Math.min(BUCKET_CAPACITY, tokens + ((now - lastRefill) / 1000) * BUCKET_RATE);
+  lastRefill = now;
+  if (tokens < 1) return false;
+  tokens -= 1;
+  return true;
+}
+
+function schedule(tab: TabKey): void {
+  const item = pending.get(tab);
+  if (!item || item.timer) return;
+  const elapsed = (Date.now() - lastRefill) / 1000;
+  const available = Math.min(BUCKET_CAPACITY, tokens + elapsed * BUCKET_RATE);
+  const delay = Math.max(THROTTLE_MS, Math.ceil(Math.max(0, 1 - available) / BUCKET_RATE * 1000));
+  item.timer = setTimeout(() => {
+    const current = pending.get(tab);
+    if (!current) return;
+    current.timer = null;
+    if (!aiBridgeEnabled()) {
+      pending.delete(tab);
+      return;
+    }
+    if (!takeToken()) {
+      schedule(tab);
+      return;
+    }
+    pending.delete(tab);
+    const payload = current.payload;
+    const body = JSON.stringify({
+      text: payload.text ?? '',
+      data: payload.data ?? null,
+      meta: { ...(payload.meta || {}), reported_at: new Date().toISOString() },
+    });
+    fetch(`/api/ai/output/${tab}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).catch(() => { /* 静默：AI 桥失败不影响面板 */ });
+  }, delay);
 }
 
 /**
@@ -41,20 +88,11 @@ function schedule(fn: () => void) {
  */
 export function reportPanelOutput(tab: TabKey, payload: Payload): void {
   if (!aiBridgeEnabled()) return;
-  pending.set(tab, schedule(() => {
-    pending.delete(tab);
-    const now = Date.now();
-    if (now - (lastSent.get(tab) || 0) < THROTTLE_MS) return;
-    lastSent.set(tab, now);
-    const body = JSON.stringify({
-      text: payload.text ?? '',
-      data: (payload.data ?? null) as Record<string, unknown> | null,
-      meta: { ...(payload.meta || {}), reported_at: new Date().toISOString() },
-    });
-    fetch(`/api/ai/output/${tab}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    }).catch(() => { /* 静默：AI 桥失败不影响面板 */ });
-  }));
+  const existing = pending.get(tab);
+  if (existing) {
+    existing.payload = payload;
+  } else {
+    pending.set(tab, { payload, timer: null });
+  }
+  schedule(tab);
 }

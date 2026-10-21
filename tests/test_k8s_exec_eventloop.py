@@ -44,6 +44,7 @@ def test_k8s_exec_does_not_block_event_loop(monkeypatch):
     """POST /api/k8s/exec 跑 2s 慢命令时，GET /api/status 必须 < 0.6s 返回。"""
     import api.server  # noqa: F401  注册所有路由
     from api.common import app
+    from api.auth import API_TOKEN
     import api.k8s.routes_k8s_exec as _rt
     import core  # noqa: F401  用于定位 _k8s_mgr 引用的真实模块
     # k8s_manager 是 core.k8s.__init__ 通过 re-export 暴露给 core 的属性。
@@ -69,7 +70,11 @@ def test_k8s_exec_does_not_block_event_loop(monkeypatch):
         from httpx import ASGITransport
 
         transport = ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={"X-API-Token": API_TOKEN},
+        ) as c:
             t0 = time.monotonic()
 
             async def _slow_call():

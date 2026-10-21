@@ -16,6 +16,7 @@ export function K8sShell() {
   const [pods, setPods] = useState<PodInfo[]>([]);
   const [containers, setContainers] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
+  const [ttyReady, setTtyReady] = useState(false);
   const [cwd, setCwd] = useState('/');
 
   const termRef = useRef<HTMLDivElement | null>(null);
@@ -163,6 +164,7 @@ export function K8sShell() {
         cwdRef.current = m.cwd || '/';
         setCwd(cwdRef.current);
         setConnected(true);
+        setTtyReady(Boolean(m.tty));
         const obj = termObj.current;
         if (m.tty) {
           // TTY 模式：清掉连接日志，让本地屏幕与远端 pty 完全对齐，然后交给远端
@@ -193,6 +195,7 @@ export function K8sShell() {
     };
     ws.onclose = () => {
       setConnected(false);
+      setTtyReady(false);
       if (wsRef.current === ws) wsRef.current = null;
       termObj.current?.term.write(`\r\n— ${t('k8s.shell.closed')} —\r\n`);
     };
@@ -228,7 +231,7 @@ export function K8sShell() {
       </div>
       <div className="k8s-shell-term" ref={termRef} />
       <div className="k8s-shell-tip">
-        {connected ? t('k8s.shell.tipTty') : t('k8s.shell.tipIdle')}
+        {connected ? (ttyReady ? t('k8s.shell.tipTty') : t('k8s.shell.tipFallback')) : t('k8s.shell.tipIdle')}
       </div>
     </div>
   );

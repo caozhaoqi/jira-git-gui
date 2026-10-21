@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """K8s 运维子模块（由 core/k8s_manager.py 拆分，保持 import 兼容）。"""
 import base64
+import copy
 import json
 import os
 import re
@@ -14,9 +15,10 @@ from pathlib import Path
 
 import yaml
 from core.errors import UserError
+from core.secure_storage import delete_secret, load_secret, store_secret
 from .kubectl import run_kubectl
 
-# 环境配置存储位置（用户级，不随项目提交）
+# 环境配置存储位置（用户级，不随项目提交）；SSH 密码单独存入系统凭据库。
 ENV_CONFIG_PATH = Path.home() / ".config" / "jira-git-gui" / "k8s_envs.json"
 
 # 三套默认环境；开发环境预填 ~/Downloads/kubeconfig.txt 作为示例
@@ -66,14 +68,66 @@ def load_envs():
             cur = data.get("current")
             if cur not in data["environments"]:
                 data["current"] = next(iter(data["environments"]))
-            return data
+            protected = _protect_env_passwords(data)
+            if protected != data:
+                _write_env_file(protected)
+            return _reveal_env_passwords(protected)
     return _seed_defaults()
 
 
-def save_envs(data):
+def _protect_env_passwords(data):
+    protected = copy.deepcopy(data)
+    environments = protected.get("environments", {})
+    for name, env in environments.items():
+        if not isinstance(env, dict):
+            continue
+        password = env.pop("ssh_password", "") or ""
+        if password:
+            env["ssh_password_ref"] = store_secret(f"k8s-ssh:{name}", password)
+    return protected
+
+
+def _reveal_env_passwords(data):
+    revealed = copy.deepcopy(data)
+    for env in revealed.get("environments", {}).values():
+        if isinstance(env, dict) and env.get("ssh_password_ref"):
+            env["ssh_password"] = load_secret(env["ssh_password_ref"])
+        elif isinstance(env, dict):
+            env.setdefault("ssh_password", "")
+    return revealed
+
+
+def _write_env_file(data):
     ENV_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    ENV_CONFIG_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    previous_refs = set()
+    if ENV_CONFIG_PATH.exists():
+        try:
+            old = json.loads(ENV_CONFIG_PATH.read_text(encoding="utf-8"))
+            previous_refs = {
+                env.get("ssh_password_ref")
+                for env in old.get("environments", {}).values()
+                if isinstance(env, dict) and env.get("ssh_password_ref")
+            }
+        except (OSError, ValueError):
+            pass
+    tmp = ENV_CONFIG_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(ENV_CONFIG_PATH)
+    current_refs = {
+        env.get("ssh_password_ref")
+        for env in data.get("environments", {}).values()
+        if isinstance(env, dict) and env.get("ssh_password_ref")
+    }
+    for ref in previous_refs - current_refs:
+        delete_secret(ref)
+
+
+def save_envs(data):
+    _write_env_file(_protect_env_passwords(data))
 
 
 def list_envs():
@@ -167,17 +221,8 @@ def import_kubeconfig(env: str, content: str) -> str:
     校验 YAML 合法性，拒绝空内容；导入后自动更新 env.kubeconfig 指向新路径。
     """
     env = env.strip()
-    if not env:
-        raise UserError("环境名不能为空")
-    content = (content or "").strip()
-    if not content:
-        raise UserError("kubeconfig 内容为空")
-    try:
-        parsed = yaml.safe_load(content)
-        if not isinstance(parsed, dict) or "clusters" not in parsed:
-            raise UserError("内容不是有效的 kubeconfig（缺少 clusters 字段）")
-    except yaml.YAMLError as e:
-        raise UserError(f"kubeconfig 不是合法 YAML：{e}")
+    validate_environment_name(env)
+    content = validate_kubeconfig_content(content)
 
     KUBECONFIG_DIR.mkdir(parents=True, exist_ok=True)
     target = KUBECONFIG_DIR / f"{env}.kubeconfig"
@@ -188,6 +233,27 @@ def import_kubeconfig(env: str, content: str) -> str:
         pass
     add_or_update_env(env, kubeconfig=str(target))
     return str(target)
+
+
+def validate_kubeconfig_content(content: str) -> str:
+    """Validate and normalize kubeconfig YAML without writing it to disk."""
+    content = (content or "").strip()
+    if not content:
+        raise UserError("kubeconfig 内容为空")
+    try:
+        parsed = yaml.safe_load(content)
+        if not isinstance(parsed, dict) or "clusters" not in parsed:
+            raise UserError("内容不是有效的 kubeconfig（缺少 clusters 字段）")
+    except yaml.YAMLError as e:
+        raise UserError(f"kubeconfig 不是合法 YAML：{e}")
+    return content
+
+
+def validate_environment_name(name: str) -> str:
+    name = (name or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", name):
+        raise UserError("环境标识须为 1-64 位字母、数字、点、下划线或连字符")
+    return name
 
 
 def export_envs(with_content: bool = True) -> dict:
@@ -220,6 +286,3 @@ def delete_env(name):
             data["current"] = next(iter(data["environments"]), None)
         save_envs(data)
     return data
-
-
-

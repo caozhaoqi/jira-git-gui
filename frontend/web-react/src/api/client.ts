@@ -206,3 +206,7 @@ export async function apiPost<T = any>(
 ): Promise<T> {
   return api<T>(path, { ...opts, method: 'POST', body: JSON.stringify(body) });
 }
+
+export async function apiDelete<T = any>(path: string): Promise<T> {
+  return api<T>(path, { method: 'DELETE' });
+}

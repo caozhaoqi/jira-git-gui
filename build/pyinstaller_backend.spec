@@ -38,9 +38,9 @@ a = Analysis(
     hiddenimports=[
         # 后端 / 核心包
         "core", "core.client", "core.config", "core.constants", "core.models",
-        "core.differ", "core.cache", "core.logger", "core.errors", "core.safe",
-        "core.sync_history", "core.throttle", "core.worker", "core.app_paths",
-        "api", "api.server",
+        "core.cache", "core.logger", "core.errors",
+        "core.throttle", "core.app_paths", "core.secure_storage",
+        "api", "api.server", "api.auth",
         # Web 框架（uvicorn 会按运行配置动态 import 这些子模块，需显式声明）
         "fastapi", "fastapi.applications", "fastapi.routing", "fastapi.responses",
         "starlette", "starlette.applications", "starlette.routing",
@@ -50,7 +50,7 @@ a = Analysis(
         "uvicorn.protocols", "uvicorn.protocols.http", "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets", "uvicorn.protocols.websockets.auto",
         "uvicorn.lifespan", "uvicorn.lifespan.on",
-        "httpx", "pydantic", "pydantic_core", "email_validator",
+        "httpx", "pydantic", "pydantic_core",
         # 懒加载（函数内 import）的运行时依赖——静态分析看不见，必须显式声明，
         # 否则冻结产物在用户点到对应功能时才 ModuleNotFoundError。
         # yaml：core/k8s/env.py 顶层其实就有 import，这里再声明一次双保险；
@@ -61,6 +61,10 @@ a = Analysis(
         "websockets",
         "debugpy",
         "sqlalchemy", "sqlalchemy.orm", "sqlalchemy.engine", "sqlalchemy.pool",
+        # OS credential stores: macOS Keychain, Windows Credential Manager/DPAPI,
+        # and Secret Service on Linux.
+        "keyring", "keyring.backends.macOS", "keyring.backends.Windows",
+        "keyring.backends.SecretService", "keyring.backends.fail",
     ],
     excludes=[
         "PyQt6", "PyQt6.QtCore", "PyQt6.QtWidgets", "PyQt6.QtGui", "PyQt6.QtNetwork",
@@ -69,14 +73,8 @@ a = Analysis(
     noarchive=False,
 )
 
-# .env 通常被 gitignore，CI checkout 后不存在；仅当本机确有 .env 时才打进包，
-# 避免 PyInstaller 因找不到源文件而报错退出（缺失 .env 时运行时回退到连接设置 UI）。
-_env_file = PROJ / ".env"
-if _env_file.exists():
-    # a.datas 是 TOC（要求 3 元组 (dest_name, src_name, typecode)）；直接 append 的 2 元组
-    # (src, dest_dir) 只适用于 Analysis(datas=[...]) 内，否则 EXE 阶段 normalize_toc
-    # 解包会报 "not enough values to unpack (expected 3, got 2)"。
-    a.datas.append((_env_file.name, str(_env_file), "DATA"))
+# Never ship a developer's .env. User credentials belong in the OS credential store
+# and non-secret connection settings are configured at runtime.
 
 # 打包 config/ 下的示例模板（*.example.json）；含真实 IP 的 .local.json 绝不进包。
 # 同理：extend 进 a.datas（TOC）必须是 3 元组 (dest_name, src_name, "DATA")，

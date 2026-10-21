@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import api.server  # noqa: E402  —— 必须 import 才注册全部路由
+from api.auth import API_TOKEN  # noqa: E402
 from api.common import app  # noqa: E402
 
 
@@ -34,7 +35,11 @@ def client(monkeypatch):
     async def _no_autologin(*a, **kw):
         return []
     monkeypatch.setattr("api.server.cf_autologin_all", _no_autologin)
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with TestClient(
+        app,
+        headers={"X-API-Token": API_TOKEN},
+        raise_server_exceptions=False,
+    ) as c:
         yield c
 
 

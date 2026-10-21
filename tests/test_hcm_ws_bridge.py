@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 import websockets
+from api.auth import API_TOKEN
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -255,7 +256,7 @@ def test_route_ws_call(gw_factory, monkeypatch):
     from api.hcm import ws_bridge
     monkeypatch.setattr(ws_bridge, "_HCM_PRESET_TOKEN", "tok-preset")
     gw = gw_factory([{"status": "success", "data": {"count": 7}}])
-    with TestClient(api.server.app) as client:
+    with TestClient(api.server.app, headers={"X-API-Token": API_TOKEN}) as client:
         r = client.post("/api/hcm/ws-call", json={
             "api_name": "hcm.model.count",
             "params": {"model": "Employee"},
@@ -269,7 +270,7 @@ def test_route_ws_call(gw_factory, monkeypatch):
 def test_route_ws_call_missing_api(monkeypatch):
     from fastapi.testclient import TestClient
     import api.server  # noqa: F401
-    with TestClient(api.server.app) as client:
+    with TestClient(api.server.app, headers={"X-API-Token": API_TOKEN}) as client:
         r = client.post("/api/hcm/ws-call", json={"api_name": ""})
     assert r.status_code == 200
     assert r.json()["ok"] is False and "api_name" in r.json()["error"]
@@ -287,7 +288,7 @@ def test_route_ws_proxy(gw_factory, monkeypatch):
         {"status": "notify", "data": "working"},
         {"status": "success", "data": {"list": []}},
     ])
-    with TestClient(api.server.app) as client:
+    with TestClient(api.server.app, headers={"X-API-Token": API_TOKEN}) as client:
         with client.websocket_connect(
                 f"/api/hcm/ws?api=hcm.paas.object.list&target={gw.target}") as ws:
             ws.send_text(json.dumps({"page_index": 1}))
@@ -334,7 +335,7 @@ def test_route_ws_proxy_login_error_rebuild(gw_factory, monkeypatch):
             return "new-tok"
 
         monkeypatch.setattr(ws_bridge, "_auto_relogin_token", fake_relogin)
-        with TestClient(api.server.app) as client:
+        with TestClient(api.server.app, headers={"X-API-Token": API_TOKEN}) as client:
             with client.websocket_connect(
                     f"/api/hcm/ws?api=hcm.paas.object.list&target={gw.target}") as ws:
                 ws.send_text(json.dumps({"page_index": 1}))
@@ -360,7 +361,7 @@ def test_route_ws_proxy_login_error_no_relogin(gw_factory, monkeypatch):
 
     monkeypatch.setattr(ws_bridge, "_auto_relogin_token", fake_relogin)
     gw = gw_factory([{"status": "error", "data": "请先登录"}])
-    with TestClient(api.server.app) as client:
+    with TestClient(api.server.app, headers={"X-API-Token": API_TOKEN}) as client:
         with client.websocket_connect(
                 f"/api/hcm/ws?api=x.y&target={gw.target}") as ws:
             ws.send_text(json.dumps({}))

@@ -1,7 +1,7 @@
 # CHANGELOG
 
 
-## v0.0.10
+## v0.0.9
 
 - **HCM 接口调试面板补齐 WS 通道与响应树**（对齐网关自带调试页）：
   - 新增 `api/hcm/ws_bridge.py`：逆向网关 `static/api/api.js` 的 `callHcmOpenWebSocket` 协议（`ws(s)://<host><前缀>/ws/<api>`，握手 Cookie token，首帧**明文业务参数**（无 REST 加密信封），回包 `{status: notify|success|error, data}`；notify 可多条、`data=="pong"` 为心跳，success/error 为终态）。两个入口：`ws_call`（一次性调用，`POST /api/hcm/ws-call`）与 `ws_proxy`（流式双向桥接，`WS /api/hcm/ws`）；两个 connect 均显式 `proxy=None`（禁环境代理，与 hcm_direct「不走代理」约定一致）。
@@ -34,9 +34,6 @@
 - 文档：README / README.zh-CN 补充 HCM 运维、AI 数据桥、新侧栏结构与快捷键说明；ARCHITECTURE.md 补 `api/ai_bridge.py` 与 HCM 运维模块说明。
 - Electron：`ALL_TABS` 补齐 cfsync / hcmapi / hcmops / aibridge。
 
-
-## v0.0.9
-
 - 修复 GitHub CI/CD 打出来的安装包「后端起不来」：现场 `Failed to load Python DLL
   '...\python311.dll'` → `LoadLibrary: ?????` → 退出码 -1，四次重启后 Electron 放弃。
   三层原因、都已修：
@@ -62,10 +59,6 @@
 - 启动失败弹窗新增「打开日志目录」按钮：后端启动失败 / 端口不可用 / 后端持续崩溃时，
   原来只有「确定」，日志路径看得见点不着；现在一颗按钮直接在资源管理器/访达定位并选中
   日志文件（`shell.showItemInFolder`），Windows 现场不用再手抄路径。
-
-- UI 更新
-- kibana、hcm object 功能更新
-
 
 ## v0.0.8
 

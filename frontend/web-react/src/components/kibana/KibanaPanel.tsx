@@ -53,6 +53,8 @@ export function KibanaPanel() {
   const { t } = useT();
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const aiDraftToInsert = useAppStore((s) => s.aiDraftToInsert);
+  const clearAiDraft = useAppStore((s) => s.clearAiDraft);
 
   const prefs = useMemo(loadPrefs, []);
   const [sites, setSites] = useState<{ name: string; label?: string }[]>([]);
@@ -124,6 +126,12 @@ export function KibanaPanel() {
   const changeDraft = useCallback((patch: Partial<KibanaQuery>) => {
     setDraft((q) => ({ ...q, ...patch }));
   }, []);
+
+  useEffect(() => {
+    if (aiDraftToInsert?.target !== 'kibana_query') return;
+    changeDraft({ keyword: aiDraftToInsert.text });
+    clearAiDraft(aiDraftToInsert.id);
+  }, [aiDraftToInsert, changeDraft, clearAiDraft]);
 
   // 始终指向最新值，供 apply 比较（避免闭包 stale）
   const draftRef = useRef(draft);
