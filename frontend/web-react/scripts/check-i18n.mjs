@@ -19,13 +19,38 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
 
-const { zh } = await import(join(SRC, 'i18n/zh.ts'));
-const { en } = await import(join(SRC, 'i18n/en.ts'));
-const { ja } = await import(join(SRC, 'i18n/ja.ts'));
+async function loadLocale(name) {
+  const sourcePath = join(SRC, `i18n/${name}.ts`);
+  const source = readFileSync(sourcePath, 'utf8');
+  const { outputText, diagnostics } = ts.transpileModule(source, {
+    fileName: sourcePath,
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+    reportDiagnostics: true,
+  });
+  const errors = (diagnostics || []).filter((diagnostic) =>
+    diagnostic.category === ts.DiagnosticCategory.Error);
+  if (errors.length) {
+    const detail = errors.map((diagnostic) =>
+      ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('\n');
+    throw new Error(`Failed to compile ${name}.ts:\n${detail}`);
+  }
+  const moduleUrl = `data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`;
+  return import(moduleUrl);
+}
+
+const [{ zh }, { en }, { ja }] = await Promise.all([
+  loadLocale('zh'),
+  loadLocale('en'),
+  loadLocale('ja'),
+]);
 
 const LOCALES = { zh, en, ja };
 
