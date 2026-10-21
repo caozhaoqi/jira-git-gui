@@ -104,8 +104,33 @@ button {
 }
 .appbar--desktop .appbar-brand,
 .appbar--desktop .appbar-actions,
+.appbar--desktop .app-menu-bar,
 .appbar--desktop .window-controls {
   -webkit-app-region: no-drag;
+}
+.app-menu-bar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  margin-left: 10px;
+}
+.app-menu-bar button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.app-menu-bar button:hover,
+.app-menu-bar button:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text);
+  outline: none;
 }
 .appbar-drag-region {
   flex: 1 1 auto;

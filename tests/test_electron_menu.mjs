@@ -76,6 +76,7 @@ const showItemInFolderCalls = [];
 let msgBoxResponse = { response: 0 };
 const ipcHandlers = new Map();
 const windowControlCalls = [];
+const menuPopupCalls = [];
 let controlledWindowMaximized = false;
 const controlledWindow = {
   minimize: () => windowControlCalls.push('minimize'),
@@ -126,6 +127,7 @@ const electronStub = {
   app: new Proxy(
     {
       name: 'Jira Git GUI',
+      getVersion: () => '0.7.0-test',
       commandLine: { appendSwitch: () => {} },
       dock: { hide: () => {}, show: () => {} },
       isPackaged: false,
@@ -171,7 +173,7 @@ const electronStub = {
   Menu: {
     buildFromTemplate: (tpl) => {
       capturedTemplate = tpl;
-      return { __fakeMenu: true, template: tpl };
+      return { __fakeMenu: true, template: tpl, items: tpl };
     },
     setApplicationMenu: () => {},
   },
@@ -247,6 +249,21 @@ await ipcHandlers.get('window:toggle-maximize')(controlEvent);
 check('窗口最大化时可还原', windowControlCalls.at(-1) === 'unmaximize');
 await ipcHandlers.get('window:close')(controlEvent);
 check('关闭控制调用 BrowserWindow.close()', windowControlCalls.at(-1) === 'close');
+const debugSubmenu = capturedTemplate.find((item) => item.id === 'debug').submenu;
+debugSubmenu.popup = (options) => menuPopupCalls.push(options);
+await ipcHandlers.get('menu:popup')(controlEvent, { menuId: 'debug', x: 120, y: 56 });
+check(
+  'custom titlebar opens the requested native submenu at the button position',
+  menuPopupCalls.length === 1 && menuPopupCalls[0].window === controlledWindow &&
+    menuPopupCalls[0].x === 120 && menuPopupCalls[0].y === 56,
+);
+let rejectedUnknownMenu = false;
+try {
+  await ipcHandlers.get('menu:popup')(controlEvent, { menuId: 'unknown', x: 0, y: 0 });
+} catch {
+  rejectedUnknownMenu = true;
+}
+check('unknown native menu requests are rejected', rejectedUnknownMenu);
 
 const topLabels = capturedTemplate.map((m) => m.label || `[${m.role || m.type}]`);
 console.log(`  顶层菜单：${topLabels.join(' / ')}`);
@@ -255,6 +272,11 @@ for (const need of ['设置', '新窗口', '编辑', '视图', '调试', '帮助
 }
 
 const debugMenu = capturedTemplate.find((m) => m.label === '调试');
+const helpMenu = capturedTemplate.find((m) => m.id === 'help');
+check(
+  '帮助菜单显示 Electron 应用版本',
+  helpMenu?.submenu?.some((item) => item.label === '版本 0.7.0-test' && item.enabled === false),
+);
 check('调试菜单有子项', Array.isArray(debugMenu?.submenu) && debugMenu.submenu.length > 0);
 const devToolsItem = debugMenu?.submenu?.find((i) => typeof i.label === 'string' && i.label.includes('开发者工具'));
 check('调试菜单里有「开发者工具」项', Boolean(devToolsItem));
