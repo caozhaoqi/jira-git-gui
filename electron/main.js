@@ -27,6 +27,7 @@ app.commandLine.appendSwitch('disable-features', 'Fontations,FontationsFontBacke
 
 let pyProc = null;
 let mainWindow = null;
+let applicationMenu = null;
 let BACKEND_PORT = 8787;
 let BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const isDev = process.argv.includes('--dev');
@@ -362,6 +363,7 @@ function buildAppMenu() {
 
   if (isMac) {
     template.push({
+      id: 'app',
       label: app.name || 'Jira Git GUI',
       submenu: [
         { label: '关于 Jira Git GUI', role: 'about' },
@@ -384,13 +386,14 @@ function buildAppMenu() {
   if (!isMac) prefItem.accelerator = 'Ctrl+,';
   // const hcmItem = { label: 'HCM 元数据…', click: openHcmMeta };
   // if (!isMac) hcmItem.accelerator = 'Ctrl+Shift+M';
-  template.push({ label: '设置', submenu: [prefItem, { type: 'separator' }, ...SYS_MENU_ITEMS] });
+  template.push({ id: 'settings', label: '设置', submenu: [prefItem, { type: 'separator' }, ...SYS_MENU_ITEMS] });
 
   // 「新窗口」：把每个功能都做成可多开的独立窗口。
   //  - 第一项「新窗口打开当前功能」按主窗口当前所在页签开独立窗口（currentMainTab 实时值）；
   //  - 其下逐项列出全部功能，点击即开对应功能的 embed 独立窗口；
   //  - 独立窗口共享同源 localStorage（主题 / 语言自动一致），互不设 parent，可各自最小化 / 关闭。
   template.push({
+    id: 'new-window',
     label: '新窗口',
     submenu: [
       {
@@ -411,6 +414,7 @@ function buildAppMenu() {
 
   // 编辑（标准角色，保证复制 / 粘贴等可用）
   template.push({
+    id: 'edit',
     label: '编辑',
     submenu: [
       { role: 'undo' }, { role: 'redo' },
@@ -421,6 +425,7 @@ function buildAppMenu() {
 
   // 视图（开发者工具已挪到下面的「调试」菜单，避免同名入口两处重复）
   template.push({
+    id: 'view',
     label: '视图',
     submenu: [
       { role: 'reload' },
@@ -434,6 +439,7 @@ function buildAppMenu() {
   // 调试：开发者工具（F12 同款）+ 强制重载，现场排查前端问题用。
   // 快捷键按平台习惯：macOS 用 Cmd+Opt+I（Chrome for Mac 的做法），其余平台用 F12。
   template.push({
+    id: 'debug',
     label: '调试',
     submenu: [
       {
@@ -453,15 +459,18 @@ function buildAppMenu() {
 
   // 帮助
   template.push({
+    id: 'help',
     label: '帮助',
     submenu: [
       { label: '打开日志文件', click: () => { try { shell.openPath(LOG_FILE); } catch (_) {} } },
       { type: 'separator' },
       { label: '关于 Jira Git GUI', role: 'about' },
+      { label: `版本 ${app.getVersion()}`, enabled: false },
     ],
   });
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  applicationMenu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(applicationMenu);
 }
 
 // ---- IPC Handlers (registered in app.whenReady) ----
@@ -494,6 +503,21 @@ function registerIpcHandlers() {
     const win = BrowserWindow.fromWebContents(ev.sender);
     if (!win) throw new Error('Cannot find the window to close');
     win.close();
+  });
+  ipcMain.handle('menu:popup', (ev, payload) => {
+    const menuId = String(payload?.menuId || '');
+    const x = Number(payload?.x);
+    const y = Number(payload?.y);
+    if (!['settings', 'new-window', 'edit', 'view', 'debug', 'help'].includes(menuId)) {
+      throw new Error(`Unknown application menu: ${menuId}`);
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      throw new Error('Application menu position must be finite');
+    }
+    const win = BrowserWindow.fromWebContents(ev.sender);
+    const item = applicationMenu?.items.find((entry) => entry.id === menuId);
+    if (!win || !item?.submenu) throw new Error(`Application menu is unavailable: ${menuId}`);
+    item.submenu.popup({ window: win, x, y });
   });
 
   // 原生目录选择对话框（Diff 面板 localDir 等）。取消/关闭返回 null。

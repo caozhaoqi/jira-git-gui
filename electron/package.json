@@ -1,6 +1,6 @@
 {
   "name": "jira-git-gui",
-  "version": "0.7.0",
+  "version": "0.7.0.rc1",
   "description": "Jira Git GUI",
   "main": "main.js",
   "homepage": "https://caozhaoqi.github.io",

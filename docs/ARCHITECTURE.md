@@ -31,7 +31,7 @@ jira-git-gui/
 
 > 说明：`frontend/web-react/dist`（React 构建产物）优先挂载于 `/web`；仅当 dist
 > 不存在时回退到 `web/` 下的旧版静态文件。
-> Electron 与 Tauri 主窗口共用 React 顶部栏作为自定义标题栏；Electron 通过 preload IPC、Tauri 通过 Window API 提供窗口控制，Web 浏览器与辅助窗口仍使用原生标题栏。
+> Electron 与 Tauri 主窗口共用 React 顶部栏作为自定义标题栏；Electron 通过 preload IPC、Tauri 通过 Window API 提供窗口控制。Windows Electron 在标题栏中显示应用菜单入口，并弹出原有原生菜单；Web 浏览器与辅助窗口仍使用原生标题栏。
 
 **分层依赖方向（单向，避免环）：**
 

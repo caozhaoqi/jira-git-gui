@@ -53,6 +53,40 @@ function WindowControls({ mac = false }: { mac?: boolean }) {
   );
 }
 
+const WINDOWS_MENUS = [
+  ['settings', 'app.menuSettings'],
+  ['new-window', 'app.menuNewWindow'],
+  ['edit', 'app.menuEdit'],
+  ['view', 'app.menuView'],
+  ['debug', 'app.menuDebug'],
+  ['help', 'app.menuHelp'],
+] as const;
+
+function WindowsMenuBar() {
+  const { t } = useT();
+
+  const openMenu = (menuId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    const showAppMenu = window.electronAPI?.showAppMenu;
+    if (!showAppMenu) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    void showAppMenu(menuId, Math.round(rect.left), Math.round(rect.bottom)).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Application menu failed (${menuId}): ${message}`);
+      window.electronAPI?.log?.('error', `Application menu failed (${menuId}): ${message}`);
+    });
+  };
+
+  return (
+    <nav className="app-menu-bar" aria-label={t('app.menuBar')}>
+      {WINDOWS_MENUS.map(([id, label]) => (
+        <button key={id} type="button" onClick={(event) => openMenu(id, event)}>
+          {t(label)}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const status = useAppStore((s) => s.status);
   const theme = useAppStore((s) => s.theme);
@@ -62,6 +96,7 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
   const { t } = useT();
   const desktop = isDesktopApp();
   const macDesktop = desktop && isMacDesktopApp();
+  const windowsElectron = window.electronAPI?.isElectron && window.electronAPI.platform === 'win32';
 
   const credOk = !!(status?.cookie_set || status?.pat_set);
 
@@ -90,6 +125,7 @@ export function TopBar({ onOpenConnect }: { onOpenConnect: () => void }) {
           Jira&nbsp;Git <b>GUI</b>
         </span>
       </div>
+      {windowsElectron && <WindowsMenuBar />}
       {desktop && (
         <div
           className="appbar-drag-region"

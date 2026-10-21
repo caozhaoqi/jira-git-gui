@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return ipcRenderer.invoke('window:close');
   },
 
+  showAppMenu(menuId, x, y) {
+    return ipcRenderer.invoke('menu:popup', {
+      menuId: String(menuId || ''),
+      x: Number(x),
+      y: Number(y),
+    });
+  },
+
   openExternal(url) {
     return ipcRenderer.invoke('shell:open-external', String(url || ''));
   },

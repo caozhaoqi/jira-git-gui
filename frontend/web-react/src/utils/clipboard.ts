@@ -11,6 +11,7 @@ interface ElectronAPI {
   minimizeWindow?: () => Promise<void>;
   toggleMaximizeWindow?: () => Promise<void>;
   closeWindow?: () => Promise<void>;
+  showAppMenu?: (menuId: string, x: number, y: number) => Promise<void>;
   openBuiltinBrowser?: (
     url: string,
     cookies?: Array<{ name: string; value: string; url?: string }>
