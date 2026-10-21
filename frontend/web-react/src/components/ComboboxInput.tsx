@@ -51,7 +51,7 @@ export function ComboboxInput({
   onEnter,
 }: ComboboxInputProps) {
   const [open, setOpen] = useState(false);
-  const [hi, setHi] = useState(-1);
+  const [hiIdx, setHiIdx] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const opts = useMemo(() => normOptions(options), [options]);
   const q = value.trim().toLowerCase();
@@ -77,7 +77,7 @@ export function ComboboxInput({
   const pick = (v: string) => {
     onChange(v);
     setOpen(false);
-    setHi(-1);
+    setHiIdx(-1);
   };
 
   return (
@@ -90,7 +90,7 @@ export function ComboboxInput({
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
-          setHi(-1);
+          setHiIdx(-1);
         }}
         onFocus={() => setOpen(true)}
         onBlur={onBlur}
@@ -98,14 +98,14 @@ export function ComboboxInput({
           if (!open || filtered.length === 0) return;
           if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setHi((i) => Math.min(i + 1, filtered.length - 1));
+            setHiIdx((i) => Math.min(i + 1, filtered.length - 1));
           } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setHi((i) => Math.max(i - 1, 0));
+            setHiIdx((i) => Math.max(i - 1, 0));
           } else if (e.key === 'Enter') {
-            if (hi >= 0 && filtered[hi]) {
+            if (hiIdx >= 0 && filtered[hiIdx]) {
               e.preventDefault();
-              pick(filtered[hi].value);
+              pick(filtered[hiIdx].value);
             } else if (onEnter) {
               onEnter();
             }
@@ -128,14 +128,14 @@ export function ComboboxInput({
               type="button"
               key={o.value}
               role="option"
-              aria-selected={i === hi}
-              className={`cb-item${i === hi ? ' active' : ''}`}
+              aria-selected={i === hiIdx}
+              className={`cb-item${i === hiIdx ? ' active' : ''}`}
               onMouseDown={(e) => {
                 // preventDefault：避免 input 先失焦把弹层关掉、click 落空
                 e.preventDefault();
                 pick(o.value);
               }}
-              onMouseEnter={() => setHi(i)}
+              onMouseEnter={() => setHiIdx(i)}
             >
               <span className="cb-key">{o.value}</span>
               {o.label && o.label !== o.value && (

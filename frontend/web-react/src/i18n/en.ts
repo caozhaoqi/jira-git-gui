@@ -107,8 +107,9 @@ export const en: Dict = {
     noText: '(no text content in this entry)',
     previewTitle: 'Latest output · {{tab}}',
     copied: 'AI endpoint copied',
+    copiedWithToken: 'AI endpoint copied (with local token)',
     fabLabel: 'AI API',
-    fabTitle: 'Copy this panel\'s AI data endpoint (paste to your AI so it can read this panel\'s output)',
+    fabTitle: 'Copy this panel\'s AI data endpoint (local token attached automatically; paste to your AI so it can read this panel\'s output)',
   },
   hcm: {
     cfErrRiskLevel: 'Risk level',
@@ -1184,6 +1185,7 @@ export const en: Dict = {
     distClearType: 'Clear type filter',
     distZoomOut: 'Back to previous range',
     distMoreTypes: '{{n}} more types · {{c}} logs',
+    distUnknownOnly: 'None of the loaded rows carries a type field (log_type / name / title all missing). If you just queried by log_type, this record model did not return the type column this time — check whether the "log_type" box really has a value (blank = all), or switch the record model in Advanced options.',
     // —— advanced options (collapsed by default) ——
     advOptions: 'Advanced',
     advHint: 'Show advanced options: query parameters / export & live refresh / manual time',

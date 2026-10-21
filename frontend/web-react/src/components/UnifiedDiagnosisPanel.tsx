@@ -225,16 +225,16 @@ export function UnifiedDiagnosisPanel() {
   const k8s = result?.k8s_diagnosis;
 
   const infraStatusColor = (s?: string) => {
-    if (!s || s === 'healthy') return '#4caf50';
-    if (s === 'unknown') return '#9e9e9e';
-    return '#f44336';
+    if (!s || s === 'healthy') return 'var(--success)';
+    if (s === 'unknown') return 'var(--text-faint)';
+    return 'var(--danger)';
   };
 
   const confidenceColor = (c?: number) => {
-    if (!c) return '#9e9e9e';
-    if (c >= 0.8) return '#f44336';
-    if (c >= 0.6) return '#ff9800';
-    return '#9e9e9e';
+    if (!c) return 'var(--text-faint)';
+    if (c >= 0.8) return 'var(--danger)';
+    if (c >= 0.6) return 'var(--warn-strong)';
+    return 'var(--text-faint)';
   };
 
   return (
@@ -242,7 +242,7 @@ export function UnifiedDiagnosisPanel() {
       {/* 输入区 */}
       <div className="card-soft" style={{ marginBottom: '12px', padding: '16px' }}>
         <h3 style={{ margin: '0 0 12px 0' }}>CF + K8s 统一诊断</h3>
-        <p style={{ color: '#666', fontSize: '13px', margin: '0 0 12px 0' }}>
+        <p style={{ color: 'var(--text-dim)', fontSize: 'var(--text-md)', margin: '0 0 12px 0' }}>
           粘贴云函数错误文本，选择 K8s 环境，一键获取应用层 + 基础设施层联合诊断。
           AI 可同时看到 CF 错误解析和 K8s Pod/事件/日志证据，快速判断是代码问题还是环境问题。
         </p>
@@ -334,27 +334,27 @@ export function UnifiedDiagnosisPanel() {
           {activeSection === 'summary' && summary && (
             <div className="diag-summary">
               <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                <div style={{ background: '#f5f5f5', padding: '8px 16px', borderRadius: '6px' }}>
-                  <div style={{ fontSize: '12px', color: '#999' }}>候选根因</div>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', color: confidenceColor(summary.confidence) }}>
+                <div style={{ background: 'var(--bg-elevated)', padding: '8px 16px', borderRadius: 'var(--radius-xs)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>候选根因</div>
+                  <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'bold', color: confidenceColor(summary.confidence) }}>
                     {summary.root_cause || 'UNKNOWN'}
                   </div>
                 </div>
-                <div style={{ background: '#f5f5f5', padding: '8px 16px', borderRadius: '6px' }}>
-                  <div style={{ fontSize: '12px', color: '#999' }}>置信度</div>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', color: confidenceColor(summary.confidence) }}>
+                <div style={{ background: 'var(--bg-elevated)', padding: '8px 16px', borderRadius: 'var(--radius-xs)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>置信度</div>
+                  <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'bold', color: confidenceColor(summary.confidence) }}>
                     {((summary.confidence || 0) * 100).toFixed(0)}%
                   </div>
                 </div>
-                <div style={{ background: '#f5f5f5', padding: '8px 16px', borderRadius: '6px' }}>
-                  <div style={{ fontSize: '12px', color: '#999' }}>基础设施状态</div>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', color: infraStatusColor(summary.infrastructure_status) }}>
+                <div style={{ background: 'var(--bg-elevated)', padding: '8px 16px', borderRadius: 'var(--radius-xs)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>基础设施状态</div>
+                  <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'bold', color: infraStatusColor(summary.infrastructure_status) }}>
                     {summary.infrastructure_status || 'unknown'}
                   </div>
                 </div>
-                <div style={{ background: '#f5f5f5', padding: '8px 16px', borderRadius: '6px' }}>
-                  <div style={{ fontSize: '12px', color: '#999' }}>K8s 异常</div>
-                  <div style={{ fontSize: '16px', fontWeight: 'bold', color: (summary.k8s_abnormal_count || 0) > 0 ? '#f44336' : '#4caf50' }}>
+                <div style={{ background: 'var(--bg-elevated)', padding: '8px 16px', borderRadius: 'var(--radius-xs)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>K8s 异常</div>
+                  <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'bold', color: (summary.k8s_abnormal_count || 0) > 0 ? 'var(--danger)' : 'var(--success)' }}>
                     {summary.k8s_abnormal_count || 0} Pod / {summary.k8s_warning_count || 0} 事件
                   </div>
                 </div>
@@ -362,8 +362,8 @@ export function UnifiedDiagnosisPanel() {
 
               {summary.cross_reference && (
                 <div style={{
-                  background: 'var(--warn-bg, #fff3cd)', border: '1px solid #ffc107',
-                  borderRadius: '6px', padding: '10px 14px', marginBottom: '12px',
+                  background: 'var(--warn-bg)', border: '1px solid var(--warn)',
+                  borderRadius: 'var(--radius-xs)', padding: '10px 14px', marginBottom: '12px',
                 }}>
                   <strong>交叉参考：</strong> {summary.cross_reference}
                 </div>
@@ -411,12 +411,12 @@ export function UnifiedDiagnosisPanel() {
               {cf.parsed && Object.keys(cf.parsed).filter(k => cf.parsed![k]).length > 0 && (
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>解析信息</h4>
-                  <table style={{ borderCollapse: 'collapse', fontSize: '13px' }}>
+                  <table style={{ borderCollapse: 'collapse', fontSize: 'var(--text-md)' }}>
                     <tbody>
                       {Object.entries(cf.parsed).filter(([, v]) => v !== null && v !== undefined && v !== '')
                         .map(([k, v]) => (
                           <tr key={k}>
-                            <td style={{ padding: '2px 12px 2px 0', color: '#999' }}>{k}</td>
+                            <td style={{ padding: '2px 12px 2px 0', color: 'var(--text-faint)' }}>{k}</td>
                             <td style={{ padding: '2px 0', fontFamily: 'monospace' }}>{String(v)}</td>
                           </tr>
                         ))}
@@ -428,10 +428,10 @@ export function UnifiedDiagnosisPanel() {
               {cf.errDict && (
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>错误码词典</h4>
-                  <div style={{ background: '#f5f5f5', padding: '8px 12px', borderRadius: '4px' }}>
+                  <div style={{ background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: 'var(--radius-2xs)' }}>
                     <div><strong>{cf.errDict.name}</strong></div>
-                    <div style={{ color: '#666' }}>{cf.errDict.meaning}</div>
-                    <div style={{ color: '#1565c0' }}>修复: {cf.errDict.fix}</div>
+                    <div style={{ color: 'var(--text-dim)' }}>{cf.errDict.meaning}</div>
+                    <div style={{ color: 'var(--primary)' }}>修复: {cf.errDict.fix}</div>
                   </div>
                 </div>
               )}
@@ -439,7 +439,7 @@ export function UnifiedDiagnosisPanel() {
               {cf.tokenHealth && cf.tokenHealth.age_hours !== null && cf.tokenHealth.age_hours !== undefined && (
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>Token 健康度</h4>
-                  <div style={{ color: cf.tokenHealth.expired ? '#f44336' : '#4caf50' }}>
+                  <div style={{ color: cf.tokenHealth.expired ? 'var(--danger)' : 'var(--success)' }}>
                     {cf.tokenHealth.hint}
                   </div>
                 </div>
@@ -449,10 +449,10 @@ export function UnifiedDiagnosisPanel() {
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>源码证据 ({cf.sourceEvidence.hits.length} 个文件)</h4>
                   {cf.sourceEvidence.hits.slice(0, 3).map((hit, i) => (
-                    <div key={i} style={{ background: '#f5f5f5', padding: '6px 10px', borderRadius: '4px', marginBottom: '4px' }}>
-                      <div style={{ fontFamily: 'monospace', fontSize: '12px' }}>{hit.file} (score: {hit.score})</div>
+                    <div key={i} style={{ background: 'var(--bg-elevated)', padding: '6px 10px', borderRadius: 'var(--radius-2xs)', marginBottom: '4px' }}>
+                      <div style={{ fontFamily: 'monospace', fontSize: 'var(--text-sm)' }}>{hit.file} (score: {hit.score})</div>
                       {hit.hits && hit.hits.slice(0, 2).map((h, j) => (
-                        <div key={j} style={{ fontSize: '12px', color: '#666', marginLeft: '12px' }}>
+                        <div key={j} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-dim)', marginLeft: '12px' }}>
                           L{h.line}: {h.matched?.join(', ')}
                         </div>
                       ))}
@@ -465,7 +465,7 @@ export function UnifiedDiagnosisPanel() {
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>日志关联 ({cf.logMatches.matches.length} 条)</h4>
                   {cf.logMatches.matches.slice(0, 5).map((m, i) => (
-                    <div key={i} style={{ fontSize: '12px', color: '#666', marginBottom: '2px' }}>
+                    <div key={i} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-dim)', marginBottom: '2px' }}>
                       {m.file} id={m.id} time={m.create_time} score={m.score}: {m.message?.slice(0, 100)}
                     </div>
                   ))}
@@ -476,7 +476,7 @@ export function UnifiedDiagnosisPanel() {
                 <div style={{ marginBottom: '12px' }}>
                   <h4 style={{ margin: '0 0 6px 0' }}>相似案例 ({cf.similarCases.length} 条)</h4>
                   {cf.similarCases.map((c, i) => (
-                    <div key={i} style={{ fontSize: '12px', color: '#666' }}>
+                    <div key={i} style={{ fontSize: 'var(--text-sm)', color: 'var(--text-dim)' }}>
                       {c.file} (score: {c.score})
                     </div>
                   ))}
@@ -487,7 +487,7 @@ export function UnifiedDiagnosisPanel() {
                 <div>
                   <h4 style={{ margin: '0 0 6px 0' }}>证据包 ({cf.evidenceBundle.references.length} 条引用)</h4>
                   {cf.evidenceBundle.hints && cf.evidenceBundle.hints.length > 0 && (
-                    <ul style={{ fontSize: '13px', color: '#1565c0' }}>
+                    <ul style={{ fontSize: 'var(--text-md)', color: 'var(--primary)' }}>
                       {cf.evidenceBundle.hints.map((h, i) => <li key={i}>{h}</li>)}
                     </ul>
                   )}
@@ -500,7 +500,7 @@ export function UnifiedDiagnosisPanel() {
           {activeSection === 'k8s' && k8s && (
             <div className="diag-k8s-detail">
               {!k8s.available ? (
-                <div style={{ color: '#999', padding: '12px' }}>
+                <div style={{ color: 'var(--text-faint)', padding: '12px' }}>
                   K8s 诊断不可用: {k8s.error || '未指定环境'}
                 </div>
               ) : (
@@ -510,18 +510,18 @@ export function UnifiedDiagnosisPanel() {
                     <div style={{ marginBottom: '12px' }}>
                       <h4 style={{ margin: '0 0 6px 0' }}>异常 Pod ({k8s.abnormal_pods.length})</h4>
                       {k8s.abnormal_pods.map((pod, i) => (
-                        <div key={i} style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: '4px', padding: '8px 12px', marginBottom: '6px' }}>
+                        <div key={i} style={{ background: 'var(--warn-bg)', border: '1px solid var(--warn)', borderRadius: 'var(--radius-2xs)', padding: '8px 12px', marginBottom: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <strong style={{ fontFamily: 'monospace' }}>{pod.name}</strong>
-                            <span style={{ color: pod.phase !== 'Running' ? '#f44336' : '#ff9800' }}>
+                            <span style={{ color: pod.phase !== 'Running' ? 'var(--danger)' : 'var(--warn-strong)' }}>
                               {pod.phase} (restarts: {pod.restarts})
                             </span>
                           </div>
-                          <div style={{ fontSize: '12px', color: '#999' }}>
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>
                             ns={pod.namespace} node={pod.node}
                           </div>
                           {pod.pattern_match && (
-                            <div style={{ marginTop: '4px', fontSize: '13px' }}>
+                            <div style={{ marginTop: '4px', fontSize: 'var(--text-md)' }}>
                               <strong>{pod.pattern_match.name}</strong>: {pod.pattern_match.meaning}
                               {pod.pattern_match.common_causes && pod.pattern_match.common_causes.length > 0 && (
                                 <ul style={{ margin: '4px 0 0 0', paddingLeft: '20px' }}>
@@ -529,7 +529,7 @@ export function UnifiedDiagnosisPanel() {
                                 </ul>
                               )}
                               {pod.pattern_match.diagnose_steps && pod.pattern_match.diagnose_steps.length > 0 && (
-                                <ol style={{ margin: '4px 0 0 0', paddingLeft: '20px', color: '#1565c0' }}>
+                                <ol style={{ margin: '4px 0 0 0', paddingLeft: '20px', color: 'var(--primary)' }}>
                                   {pod.pattern_match.diagnose_steps.slice(0, 3).map((s, j) => <li key={j}>{s}</li>)}
                                 </ol>
                               )}
@@ -539,7 +539,7 @@ export function UnifiedDiagnosisPanel() {
                       ))}
                     </div>
                   ) : (
-                    <div style={{ color: '#4caf50', marginBottom: '12px' }}>
+                    <div style={{ color: 'var(--success)', marginBottom: '12px' }}>
                       ✓ 所有 Pod 状态正常（Running/Succeeded）
                     </div>
                   )}
@@ -549,14 +549,14 @@ export function UnifiedDiagnosisPanel() {
                     <div style={{ marginBottom: '12px' }}>
                       <h4 style={{ margin: '0 0 6px 0' }}>Warning 事件 ({k8s.warning_events.length})</h4>
                       {k8s.warning_events.slice(0, 10).map((ev, i) => (
-                        <div key={i} style={{ fontSize: '12px', marginBottom: '4px', borderBottom: '1px solid #eee', paddingBottom: '4px' }}>
-                          <span style={{ color: '#f44336', fontWeight: 'bold' }}>{ev.reason}</span>
+                        <div key={i} style={{ fontSize: 'var(--text-sm)', marginBottom: '4px', borderBottom: '1px solid var(--border-soft)', paddingBottom: '4px' }}>
+                          <span style={{ color: 'var(--danger)', fontWeight: 'bold' }}>{ev.reason}</span>
                           {' '}
-                          <span style={{ color: '#999' }}>[{ev.last_seen}]</span>
+                          <span style={{ color: 'var(--text-faint)' }}>[{ev.last_seen}]</span>
                           {' '}
                           <span>{ev.object_kind}/{ev.object_name}</span>
                           <div>{ev.message?.slice(0, 200)}</div>
-                          {ev.meaning && <div style={{ color: '#1565c0' }}>→ {ev.meaning}</div>}
+                          {ev.meaning && <div style={{ color: 'var(--primary)' }}>→ {ev.meaning}</div>}
                         </div>
                       ))}
                     </div>
@@ -568,13 +568,13 @@ export function UnifiedDiagnosisPanel() {
                       <h4 style={{ margin: '0 0 6px 0' }}>异常容器日志</h4>
                       {k8s.crash_logs.map((cl, i) => (
                         <div key={i} style={{ marginBottom: '8px' }}>
-                          <div style={{ fontSize: '12px', color: '#999' }}>
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-faint)' }}>
                             Pod <strong style={{ fontFamily: 'monospace' }}>{cl.pod}</strong>
                             {' '}({cl.log_type === 'current' ? '当前日志' : '上一轮日志'}, phase={cl.phase}, restarts={cl.restarts})
                           </div>
                           <pre style={{
                             background: '#1e1e1e', color: '#d4d4d4', padding: '8px 12px',
-                            borderRadius: '4px', fontSize: '11px', overflow: 'auto',
+                            borderRadius: 'var(--radius-2xs)', fontSize: '11px', overflow: 'auto',
                             maxHeight: '200px', whiteSpace: 'pre-wrap',
                           }}>
                             {cl.log}
@@ -588,9 +588,9 @@ export function UnifiedDiagnosisPanel() {
                   {k8s.top_consumers && k8s.top_consumers.length > 0 && (
                     <div>
                       <h4 style={{ margin: '0 0 6px 0' }}>资源占用 Top</h4>
-                      <table style={{ borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <table style={{ borderCollapse: 'collapse', fontSize: 'var(--text-md)' }}>
                         <thead>
-                          <tr style={{ borderBottom: '2px solid #ddd' }}>
+                          <tr style={{ borderBottom: '2px solid var(--border)' }}>
                             <th style={{ padding: '4px 12px 4px 0', textAlign: 'left' }}>Pod</th>
                             <th style={{ padding: '4px 12px 4px 0' }}>CPU</th>
                             <th style={{ padding: '4px' }}>Memory</th>
@@ -598,7 +598,7 @@ export function UnifiedDiagnosisPanel() {
                         </thead>
                         <tbody>
                           {k8s.top_consumers.slice(0, 5).map((r, i) => (
-                            <tr key={i} style={{ borderBottom: '1px solid #eee' }}>
+                            <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}>
                               <td style={{ padding: '4px 12px 4px 0', fontFamily: 'monospace' }}>{r.name}</td>
                               <td style={{ padding: '4px 12px 4px 0' }}>{r.cpu}</td>
                               <td style={{ padding: '4px' }}>{r.memory}</td>
@@ -622,7 +622,7 @@ export function UnifiedDiagnosisPanel() {
               </div>
               <pre style={{
                 background: '#1e1e1e', color: '#d4d4d4', padding: '12px',
-                borderRadius: '6px', fontSize: '12px', overflow: 'auto',
+                borderRadius: 'var(--radius-xs)', fontSize: 'var(--text-sm)', overflow: 'auto',
                 maxHeight: '500px', whiteSpace: 'pre-wrap',
               }}>
                 {result.aiPrompt}

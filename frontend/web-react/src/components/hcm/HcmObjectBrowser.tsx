@@ -1716,7 +1716,13 @@ const loadList = useCallback(async () => {
                         <div className="hcm-struct-row" key={r.id}>
                           <StructFieldInput
                             value={r.field}
-                            onChange={(field) => updateStructRow(r.id, { field })}
+                            onChange={(field) => {
+                              // 文本/名称类字段默认用模糊匹配（contains → {like}），
+                              // 与「人名查询」buildPersonLookupFilter 的 u_source_name like 同口径，
+                              // 避免默认 eq 精确匹配导致「查同一个人，上下结果不一致」。
+                              const cand = filterCandidates.find((c) => c.key === field);
+                              updateStructRow(r.id, { field, operator: cand?.is_text ? 'contains' : 'eq' });
+                            }}
                             options={filterCandidates}
                             placeholder={t('hcm.structFieldPlaceholder')}
                           />

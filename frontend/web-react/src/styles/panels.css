@@ -4161,16 +4161,25 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 .cf-dist-hint { font-size: var(--text-xs); color: var(--text-faint); }
 
 /* —— 时间直方图：点柱按该桶覆盖的时段过滤 ——
+   时间轴整体可横向滑动：桶密到放不下时滚动浏览（竖滚轮转横移 / 鼠标拖拽 / 滚动条），
+   而不是把整段压成几十根。放得下时柱子仍拉伸铺满（flex-grow），与旧观感一致。
    padding-inline 给首尾刻度标签留位（标签是绝对定位 + translateX(-50%)，否则会被卡片边界裁掉） */
+.cf-dist-scroll {
+  overflow-x: auto; overflow-y: hidden;
+  cursor: grab; user-select: none; /* 拖拽平移时不要连文字一起选中 */
+}
 .cf-dist-bars {
   display: flex; align-items: flex-end; gap: 2px; height: 104px; padding: 0 26px 18px;
+  /* 窄内容铺满容器；宽内容（细粒度长跨度）按内容宽溢出，由 .cf-dist-scroll 承接滚动 */
+  width: max-content; min-width: 100%;
   /* 底轴基线：画在柱底（容器 padding-bottom 18px 给刻度标签让位，轴线在其上方 1px），
      否则空桶多时整块区域看不出是图表 */
   background: linear-gradient(var(--border-strong), var(--border-strong)) no-repeat;
   background-size: 100% 1px;
   background-position: 0 calc(100% - 18px);
 }
-.cf-dist-bar { position: relative; flex: 1 1 0; min-width: 2px; height: 100%; }
+/* 柱宽下限 10px：细粒度下也看得清；容器更宽时 flex-grow 均摊拉宽 */
+.cf-dist-bar { position: relative; flex: 1 1 12px; min-width: 10px; height: 100%; }
 .cf-dist-bar.clickable { cursor: pointer; }
 .cf-dist-bar-inner {
   position: relative; width: 100%; height: 100%;
@@ -4222,10 +4231,17 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 .cf-dist-type.active .cf-dist-type-fill { opacity: 1; }
 .cf-dist-type-count { font-size: var(--text-xs); color: var(--text-dim); text-align: right; font-family: var(--mono); }
 .cf-dist-type-rest { padding: 2px var(--sp-2); font-size: var(--text-xs); color: var(--text-faint); }
+/* 全部行都取不到类型时的诊断提示（未知色已是中性灰，这里是文字说明） */
+.cf-dist-unknown-hint {
+  margin-top: 6px; padding: 6px 10px;
+  border: 1px dashed var(--border); border-radius: var(--radius-xs);
+  font-size: var(--text-xs); line-height: 1.5; color: var(--text-faint);
+}
 
 /* —— 函数色板（浅色主题）——
    选色标准：中明度（白底/深底都读得清）、相邻编号色相拉开、饱和度高到在 8px
-   小条上也分辨得开。运行时按函数名哈希取 var(--cfd-cN)（utils/cfDist.ts）。
+   小条上也分辨得开。运行时用 assignTypeColors（utils/cfDist.ts）取 var(--cfd-cN)：
+   同视图内防撞格（线性探测），色板色相已拉开（c8 由 violet 改 green，避免与 c1 indigo 混淆）。
    ⚠️ 改动色值必须同步 tests/test_cf_dist.mjs 里的「10 色互不相同」断言无副作用——
    它只校验变量名不重复，不校验具体色值。 */
 :root {
@@ -4236,7 +4252,8 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   --cfd-c5: #d97706;  /* amber-600 */
   --cfd-c6: #dc2626;  /* red-600 —— 与 --danger 同族，仅作函数色不作错误语义 */
   --cfd-c7: #db2777;  /* pink-600 */
-  --cfd-c8: #7c3aed;  /* violet-600 */
+  --cfd-c8: #16a34a;  /* green-600 —— 原 violet-600 与 c1 indigo 色相仅差 ~17°，小色块无法区分（实测两函数同显紫色）；
+                         green 与现有各色相距 ≥30°，是补位后区分度最高的色相 */
   --cfd-c9: #0891b2;  /* cyan-600 */
   --cfd-c10: #475569; /* slate-600（中性，天然适合「其他」） */
 }
@@ -4249,7 +4266,7 @@ html.dark {
   --cfd-c5: #fbbf24;
   --cfd-c6: #f87171;
   --cfd-c7: #f472b6;
-  --cfd-c8: #a78bfa;
+  --cfd-c8: #4ade80;  /* green-400（对应浅色 c8 green-600，同步提亮） */
   --cfd-c9: #22d3ee;
   --cfd-c10: #94a3b8;
 }
