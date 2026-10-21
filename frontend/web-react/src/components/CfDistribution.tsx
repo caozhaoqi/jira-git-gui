@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { TabIcon } from './icons';
 import type { CfLogsRow } from '../api/types';
 import { useT } from '../i18n';
 import {
+  assignTypeColors,
   buildTimeBuckets, cfRowIsError, cfRowTime, cfTypeColorVar, countByType,
   fmtBucketFull, fmtBucketTick, fmtStep, pickStepMs,
+  UNKNOWN_TYPE_LABEL,
   type CfDistBucket,
 } from '../utils/cfDist';
 
@@ -29,13 +31,14 @@ interface Props {
 
 /** 类型分布条最多直接展示的条数，其余折叠成一行「其他」计数 */
 const MAX_TYPE_BARS = 10;
-/** 目标柱数：桶宽按跨度自适应，保证柱数不超过它 */
-const TARGET_BARS = 48;
+/** 目标柱数：桶宽按跨度自适应的上限。放到 120 而非 48——时间轴是**可横向滑动**的，
+ *  桶密到放不下就滚动浏览，而不是把整段压成几十根、把突发细节抹平。 */
+const TARGET_BARS = 120;
 
 /**
  * 云函数日志「分布」卡片：时间直方图（堆叠柱，点柱钻取时间段）+ 类型分布（点击按类型过滤）。
  *
- * 配色：每个函数一个稳定颜色（`cfTypeColorVar` 按函数名哈希取色），时间柱按函数
+ * 配色：`assignTypeColors` 按函数名稳定取色并**同视图防撞色**，时间柱按函数
  * 堆叠、类型条同色——两个视图互相印证，「哪根柱/哪根条是哪个函数」一眼可查。
  * 错误不抢颜色的戏：柱底一根红色 flag 表示「该时段有疑似错误」，明细在悬停提示里。
  *
@@ -68,6 +71,76 @@ export function CfDistribution({
     return mc || 1;
   }, [buckets]);
 
+  // 防撞色表：当前视图内的函数两两不同色（纯哈希取模在 10 格色板上极易撞色，
+  // 曾实测 emp_information_statistics_req 与 BackfillNavkou 撞成同色）。
+  // 堆叠柱分段与类型条共用同一张表，两个视图颜色互相印证的约定不变。
+  const colorMap = useMemo(() => assignTypeColors(types.map((it) => it.name)), [types]);
+  const typeColor = (name: string) => colorMap.get(name) ?? cfTypeColorVar(name);
+
+  // —— 时间轴横向滑动 ——
+  // 桶密到放不下时（细粒度 + 长跨度）横向滚动浏览，而不是压缩柱宽抹平细节。
+  // 三种平移方式：竖滚轮（转横移）/ 鼠标拖拽 / 原生滚动条；触屏走原生触摸滚动。
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atRightRef = useRef(true); // 是否停在最新端（最新桶在最右）；新数据只在该状态下自动跟随
+  const dragRef = useRef<{ x: number; scroll: number; moved: boolean } | null>(null);
+  const didDragRef = useRef(false);
+
+  // 竖滚轮 → 横向平移（必须 passive:false 才能 preventDefault 掉页面滚动）
+  // ⚠️ 依赖 [open]：卡片默认收起时 .cf-dist-scroll 不在 DOM，挂载时挂不上监听；
+  // 展开后重新执行才能把 wheel 监听 attach 到滚动容器上。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return; // 放得下：不劫持滚轮
+      const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (!d) return;
+      e.preventDefault();
+      el.scrollLeft += d;
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [open]);
+
+  // 新数据到达时若正停在最新端则保持贴右；用户翻去看历史时不打扰。
+  // 同样依赖 [open]：展开瞬间滚动容器才挂载，此时也要贴到最新端。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !atRightRef.current) return;
+    el.scrollLeft = el.scrollWidth;
+  }, [buckets, open]);
+
+  const onAxisScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    atRightRef.current = el.scrollWidth - el.scrollLeft - el.clientWidth < 8;
+  };
+  const onAxisPointerDown = (e: ReactPointerEvent) => {
+    const el = scrollRef.current;
+    if (!el || e.pointerType !== 'mouse' || e.button !== 0) return;
+    didDragRef.current = false;
+    dragRef.current = { x: e.clientX, scroll: el.scrollLeft, moved: false };
+  };
+  const onAxisPointerMove = (e: ReactPointerEvent) => {
+    const d = dragRef.current;
+    const el = scrollRef.current;
+    if (!d || !el) return;
+    const dx = e.clientX - d.x;
+    if (!d.moved && Math.abs(dx) > 4) {
+      d.moved = true;
+      didDragRef.current = true;
+    }
+    if (d.moved) {
+      el.style.cursor = 'grabbing';
+      el.scrollLeft = d.scroll - dx;
+    }
+  };
+  const onAxisPointerUp = () => {
+    const el = scrollRef.current;
+    if (el) el.style.cursor = '';
+    dragRef.current = null;
+  };
+
   // x 轴刻度抽样（最多 8 个）：固定抽首个 + 每隔 step 一个 + **最后一个**，
   // 否则右端（往往是正在写入的最新桶）没有刻度锚定，看起来像柱「溢出」到图外。
   const tickIdx = useMemo(() => {
@@ -92,6 +165,11 @@ export function CfDistribution({
   const total = rows.length;
 
   const pickBucket = (b: CfDistBucket) => {
+    // 拖拽平移结束后浏览器会补一个 click，此时不能触发「按该时段钻取」
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
     if (!onTimeRangePick || !b.count) return;
     onTimeRangePick(b.ts, b.ts + stepMs);
   };
@@ -144,36 +222,46 @@ export function CfDistribution({
                 {buckets.length === 0 ? (
                   <div className="empty-hint">{t('cf.distNoTime')}</div>
                 ) : (
-                  <div className="cf-dist-bars">
-                    {buckets.map((b, i) => (
-                      <div
-                        key={b.ts}
-                        className={`cf-dist-bar${onTimeRangePick && b.count ? ' clickable' : ''}`}
-                        title={bucketTitle(b, stepMs, onTimeRangePick ? t('cf.distClickHint') : '')}
-                        onClick={() => pickBucket(b)}
-                        role={onTimeRangePick && b.count ? 'button' : undefined}
-                        tabIndex={onTimeRangePick && b.count ? 0 : undefined}
-                        onKeyDown={onTimeRangePick && b.count
-                          ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickBucket(b); } }
-                          : undefined}
-                      >
-                        <div className="cf-dist-bar-inner">
-                          {b.segs.map((s) => (
-                            <div
-                              key={s.name}
-                              className="cf-dist-bar-seg"
-                              style={{
-                                // 桶整体高度走对数刻度；桶内各段按真实数量占比分摊
-                                height: `${(s.count / b.count) * barH(b.count) * 100}%`,
-                                background: cfTypeColorVar(s.name),
-                              }}
-                            />
-                          ))}
-                          {b.err > 0 && <div className="cf-dist-bar-flag" />}
+                  <div
+                    className="cf-dist-scroll"
+                    ref={scrollRef}
+                    onScroll={onAxisScroll}
+                    onPointerDown={onAxisPointerDown}
+                    onPointerMove={onAxisPointerMove}
+                    onPointerUp={onAxisPointerUp}
+                    onPointerLeave={onAxisPointerUp}
+                  >
+                    <div className="cf-dist-bars">
+                      {buckets.map((b, i) => (
+                        <div
+                          key={b.ts}
+                          className={`cf-dist-bar${onTimeRangePick && b.count ? ' clickable' : ''}`}
+                          title={bucketTitle(b, stepMs, onTimeRangePick ? t('cf.distClickHint') : '')}
+                          onClick={() => pickBucket(b)}
+                          role={onTimeRangePick && b.count ? 'button' : undefined}
+                          tabIndex={onTimeRangePick && b.count ? 0 : undefined}
+                          onKeyDown={onTimeRangePick && b.count
+                            ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickBucket(b); } }
+                            : undefined}
+                        >
+                          <div className="cf-dist-bar-inner">
+                            {b.segs.map((s) => (
+                              <div
+                                key={s.name}
+                                className="cf-dist-bar-seg"
+                                style={{
+                                  // 桶整体高度走对数刻度；桶内各段按真实数量占比分摊
+                                  height: `${(s.count / b.count) * barH(b.count) * 100}%`,
+                                  background: typeColor(s.name),
+                                }}
+                              />
+                            ))}
+                            {b.err > 0 && <div className="cf-dist-bar-flag" />}
+                          </div>
+                          {tickIdx.has(i) && <div className="cf-dist-bar-label">{fmtBucketTick(b.ts, stepMs)}</div>}
                         </div>
-                        {tickIdx.has(i) && <div className="cf-dist-bar-label">{fmtBucketTick(b.ts, stepMs)}</div>}
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -188,7 +276,7 @@ export function CfDistribution({
                   {shownTypes.map((it) => {
                     const pct = total ? (it.count / total) * 100 : 0;
                     const on = typePick.includes(it.name);
-                    const color = cfTypeColorVar(it.name);
+                    const color = typeColor(it.name);
                     return (
                       <button
                         key={it.name}
@@ -211,6 +299,12 @@ export function CfDistribution({
                   {restLen > 0 && (
                     <div className="cf-dist-type-rest">
                       {t('cf.distMoreTypes', { n: restLen, c: restCount })}
+                    </div>
+                  )}
+                  {/* 全部行都取不到类型：给出诊断提示（未知类型已用中性灰，不再冒充红色） */}
+                  {types.length === 1 && types[0].name === UNKNOWN_TYPE_LABEL && (
+                    <div className="cf-dist-unknown-hint" role="note">
+                      {t('cf.distUnknownOnly')}
                     </div>
                   )}
                 </div>

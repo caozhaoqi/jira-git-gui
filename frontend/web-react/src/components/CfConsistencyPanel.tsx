@@ -5,6 +5,7 @@ import { useAppStore } from '../store/useAppStore';
 import { useT } from '../i18n';
 import { requestConfirm } from '../utils/confirmStore';
 import { pickDirectory } from '../utils/pickDirectory';
+import { ComboboxInput } from './ComboboxInput';
 
 /* ============================================================
    云函数「线上 ↔ 本地」一致性看板
@@ -159,7 +160,8 @@ export function CfConsistencyPanel() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [err, setErr] = useState('');
   /* 网关候选：配置默认值 + 云函数账号里出现过的服务器地址（去重）。
-     输入框挂 datalist，点右侧箭头即可选，也保留手输任意地址的能力。 */
+     用 ComboboxInput 自绘联想弹层（替代原生 datalist，弹层无法 CSS 定制），
+     既可点开选候选，也保留手输任意地址的能力。 */
   const [gwOptions, setGwOptions] = useState<string[]>([]);
   const detailReq = useRef(0);
 
@@ -434,19 +436,14 @@ export function CfConsistencyPanel() {
           <span className="cfc-label">
             {t('cfc.gateway')} <em className="cfc-opt">{t('cfc.optional')}</em>
           </span>
-          <input
-            className="cfc-input"
+          <ComboboxInput
             value={target}
-            onChange={(e) => setTarget(e.target.value)}
+            onChange={(v) => setTarget(v)}
+            options={gwOptions}
             placeholder={t('cfc.gatewayPlaceholder')}
-            spellCheck={false}
-            list="cfc-gw-options"
+            inputClassName="cfc-input"
+            ariaLabel={t('cfc.gateway')}
           />
-          <datalist id="cfc-gw-options">
-            {gwOptions.map((u) => (
-              <option key={u} value={u} />
-            ))}
-          </datalist>
           {/* 留空时把后端实际解析到的网关回显出来，避免"我到底在扫哪台"存疑 */}
           {!target && scan?.target && (
             <span className="cfc-gw-echo">

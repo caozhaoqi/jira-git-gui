@@ -110,8 +110,9 @@ export const zh: Dict = {
     noText: '（该条目无文本内容）',
     previewTitle: '最新输出 · {{tab}}',
     copied: '已复制 AI 接口',
+    copiedWithToken: '已复制 AI 接口（附带本机 token）',
     fabLabel: 'AI 接口',
-    fabTitle: '复制本功能的 AI 数据接口（贴给 AI 即可读取本窗口输出）',
+    fabTitle: '复制本功能的 AI 数据接口（自动附带本机 token，贴给 AI 即可读取本窗口输出）',
   },
   hcm: {
     cfErrRiskLevel: '风险等级',
@@ -1189,6 +1190,7 @@ export const zh: Dict = {
     distClearType: '清除类型过滤',
     distZoomOut: '返回上一级',
     distMoreTypes: '其他 {{n}} 类 · {{c}} 条',
+    distUnknownOnly: '所有已加载行都没有类型字段（log_type / name / title 等均取不到）。若你刚按 log_type 查询，说明该记录模型本次未返回类型列——可检查「log_type」输入框是否真的填了值（留空即查全部），或在高级选项切换记录模型。',
     // —— 高级选项（默认折叠区：查询参数 / 导出与刷新 / 手动时间）——
     advOptions: '高级选项',
     advHint: '展开高级选项：查询参数 / 导出与实时刷新 / 手动时间',

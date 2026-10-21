@@ -94,8 +94,9 @@ const STEP_CANDIDATES = [
   30 * 86_400_000,
 ];
 
-/** 按时间跨度自适应选择桶宽，保证柱数不超过 targetBars。 */
-export function pickStepMs(spanMs: number, targetBars = 48): number {
+/** 按时间跨度自适应选择桶宽，保证柱数不超过 targetBars（默认 120：时间轴可横向滑动，
+ *  桶密到放不下就滚动浏览，而不是把整段压成几十根、把突发细节抹平）。 */
+export function pickStepMs(spanMs: number, targetBars = 120): number {
   if (!(spanMs > 0)) return 60_000;
   for (const s of STEP_CANDIDATES) {
     if (spanMs / s <= targetBars) return s;
@@ -149,7 +150,7 @@ export function buildTimeBuckets(rows: LogRowLike[], stepMs: number): CfDistBuck
     const b = buckets[idx];
     b.count += 1;
     if (cfRowIsError(r)) b.err += 1;
-    const name = cfRowType(r, '') || '(未知)';
+    const name = cfRowType(r, '') || UNKNOWN_TYPE_LABEL;
     const seg = perBucket.get(b.ts)!;
     seg.set(name, (seg.get(name) || 0) + 1);
   }
@@ -165,7 +166,7 @@ export function buildTimeBuckets(rows: LogRowLike[], stepMs: number): CfDistBuck
 export function countByType(rows: LogRowLike[], fallback = ''): CfDistTypeItem[] {
   const map = new Map<string, CfDistTypeItem>();
   for (const r of rows) {
-    const name = cfRowType(r, fallback) || '(未知)';
+    const name = cfRowType(r, fallback) || UNKNOWN_TYPE_LABEL;
     const item = map.get(name) || { name, count: 0, err: 0 };
     item.count += 1;
     if (cfRowIsError(r)) item.err += 1;
@@ -208,6 +209,12 @@ export function fmtBucketFull(ms: number, stepMs: number): string {
 /** 函数色板容量（与 panels.css 的 --cfd-cN 一一对应）。 */
 export const CF_TYPE_PALETTE_SIZE = 10;
 
+/** 「取不到类型」时的统一标签（与 logFields 的兜底链末端一致）。 */
+export const UNKNOWN_TYPE_LABEL = '(未知)';
+
+/** 「其他/未知」用的中性色（灰色，避免和任何真实函数撞色）。 */
+export const CF_TYPE_REST_COLOR = 'var(--text-faint)';
+
 /** djb2 字符串哈希 → 稳定非负整数。 */
 export function cfNameHash(name: string): number {
   let h = 5381;
@@ -215,11 +222,54 @@ export function cfNameHash(name: string): number {
   return Math.abs(h);
 }
 
-/** 函数名 → `var(--cfd-cN)`。同一名字恒定同一色；N ∈ [1, CF_TYPE_PALETTE_SIZE]。 */
+/**
+ * 函数名 → `var(--cfd-cN)`。同一名字恒定同一色；N ∈ [1, CF_TYPE_PALETTE_SIZE]。
+ *
+ * ⚠️ 「(未知)」**不参与哈希取色**：djb2('(未知)') % 10 恰好落在第 6 格 = --cfd-c6 红色，
+ * 而红色在全站语义里是「错误」——实测一次「查询时 log_type 为空 + 行无类型列」的
+ * 查询让整张直方图全红，看着像全线故障。未知类型一律用中性灰（CF_TYPE_REST_COLOR）。
+ */
 export function cfTypeColorVar(name: string): string {
-  const idx = (cfNameHash(name || '(未知)') % CF_TYPE_PALETTE_SIZE) + 1;
+  if (!name || name === UNKNOWN_TYPE_LABEL) return CF_TYPE_REST_COLOR;
+  const idx = (cfNameHash(name) % CF_TYPE_PALETTE_SIZE) + 1;
   return `var(--cfd-c${idx})`;
 }
 
-/** 「其他/未知」用的中性色（灰色，避免和任何真实函数撞色）。 */
-export const CF_TYPE_REST_COLOR = 'var(--text-faint)';
+/**
+ * 给一组函数名分配**互不撞色**的色板颜色（同一名字恒定同一色）。
+ *
+ * 纯 `hash % 10` 取模在 10 格色板上极易撞色（生日悖论：2 个名字撞色概率 ~10%，
+ * 5 个名字 ~70%）——同视图两个函数同色就看不出哪段是谁（实测
+ * emp_information_statistics_req 与 BackfillNavkou 撞成同色）。
+ *
+ * 规则：按名字**字典序**逐个分配，理想位 = hash % N，被占则向后线性探测（环绕）；
+ * 名字数 ≤ 色板容量时保证两两不同色。跨视图稳定性略让位于视图内可辨识性：
+ * 类型集合变化时颜色可能重排，但集合不变时（含刷新/重渲染）完全稳定。
+ * 超过色板容量时退回纯哈希色（撞色不可避免，但此时分布图本就折叠成「其他」）。
+ *
+ * 「(未知)」不占色板格：直接给中性灰，且从理想位计算中剔除（不消耗 palette）。
+ */
+export function assignTypeColors(names: string[]): Map<string, string> {
+  const unique = [...new Set(names.filter(Boolean))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const map = new Map<string, string>();
+  const named = unique.filter((n) => n !== UNKNOWN_TYPE_LABEL);
+  if (named.length > CF_TYPE_PALETTE_SIZE) {
+    for (const n of named) map.set(n, cfTypeColorVar(n));
+  } else {
+    const used = new Set<number>();
+    for (const n of named) {
+      const ideal = cfNameHash(n) % CF_TYPE_PALETTE_SIZE;
+      let idx = ideal;
+      if (used.has(idx)) {
+        for (let k = 1; k < CF_TYPE_PALETTE_SIZE; k++) {
+          const cand = (ideal + k) % CF_TYPE_PALETTE_SIZE;
+          if (!used.has(cand)) { idx = cand; break; }
+        }
+      }
+      used.add(idx);
+      map.set(n, `var(--cfd-c${idx + 1})`);
+    }
+  }
+  if (unique.includes(UNKNOWN_TYPE_LABEL)) map.set(UNKNOWN_TYPE_LABEL, CF_TYPE_REST_COLOR);
+  return map;
+}

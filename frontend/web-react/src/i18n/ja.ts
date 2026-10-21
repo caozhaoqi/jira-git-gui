@@ -107,8 +107,9 @@ export const ja: Dict = {
     noText: '（テキスト内容なし）',
     previewTitle: '最新出力 · {{tab}}',
     copied: 'AI エンドポイントをコピーしました',
+    copiedWithToken: 'AI エンドポイントをコピーしました（ローカルトークン付き）',
     fabLabel: 'AI API',
-    fabTitle: 'このパネルの AI データエンドポイントをコピー（AI に貼り付けると出力を読み取れます）',
+    fabTitle: 'このパネルの AI データエンドポイントをコピー（ローカルトークン自動付与。AI に貼り付けると出力を読み取れます）',
   },
   hcm: {
     cfErrRiskLevel: 'リスクレベル',
@@ -1184,6 +1185,7 @@ export const ja: Dict = {
     distClearType: 'タイプ絞り込み解除',
     distZoomOut: '前の範囲に戻る',
     distMoreTypes: '他 {{n}} タイプ · {{c}} 件',
+    distUnknownOnly: '読み込まれた行にタイプ項目（log_type / name / title 等）が一つもありません。log_type で検索した直後なら、この記録モデルは今回タイプ列を返していません——「log_type」入力欄に値が入っているか（空欄=全件）、または詳細設定で記録モデルを切り替えて確認してください。',
     // —— 詳細設定（既定で折りたたみ）——
     advOptions: '詳細設定',
     advHint: '詳細設定を開く：クエリパラメータ / エクスポートと自動更新 / 手動期間',

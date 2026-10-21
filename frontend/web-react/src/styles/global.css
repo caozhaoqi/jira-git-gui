@@ -2918,6 +2918,52 @@ input[type='radio']:disabled {
   transition: all var(--dur-fast) var(--ease);
 }
 .hcm-struct-del:hover { color: var(--danger); background: var(--danger-bg); border-color: var(--danger); }
+/* 通用「可手输 + 联想」下拉弹层（ComboboxInput）：替代原生 <datalist>（其弹出列表
+   无法被 CSS 定制，会以浏览器默认样式渲染，与全站 .sel 下拉断裂）。弹层复用表单控件
+   token，深浅主题自适应。HCM 结构化筛选行复用同一套 .cb-* 类（仅外层 wrap 用
+   .hcm-struct-field-wrap 指定 220px flex 宽度）。 */
+.cb-wrap { position: relative; flex: 1 1 auto; min-width: 0; width: 100%; }
+.cb-field { width: 100%; }
+/* 结构化筛选行专用：固定 220px 宽度（其它场景由父容器决定宽度，无需此类） */
+.hcm-struct-field-wrap { position: relative; flex: 0 1 220px; min-width: 0; max-width: 100%; }
+.hcm-struct-field-wrap .hcm-struct-field { width: 100%; }
+.cb-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  z-index: var(--z-dropdown);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+}
+.cb-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-family: inherit;
+  cursor: pointer;
+}
+.cb-item:hover,
+.cb-item.active { background: var(--surface-3); }
+.cb-key { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-label { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .hcm-meta-duration { color: var(--muted); white-space: nowrap; }
 /* 页脚内的接口日志/Profile 下载链接：.hcm-data-meta 是 flex+gap，margin 归零避免双倍间距 */
 .hcm-meta-count { white-space: nowrap; }
