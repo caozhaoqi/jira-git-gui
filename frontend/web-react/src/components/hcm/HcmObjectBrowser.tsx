@@ -11,6 +11,7 @@ import { reportLocalApiNetworkError } from '../../api/client';
 import { writeClipboardText } from '../../utils/clipboard';
 import { saveBlob, saveTextFile } from '../../utils/download';
 import { EmptyState } from '../EmptyState';
+import { ComboboxInput } from '../ComboboxInput';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
@@ -65,6 +66,37 @@ function hcmHighlightLine(text: string, q: string): ReactNode {
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes;
+}
+
+// 结构化筛选「字段名」输入：用通用 ComboboxInput（自绘联想弹层）替代原生 <datalist>，
+// 原生 datalist 弹出列表无法 CSS 定制（Chrome 以系统默认黑体大白底渲染，与全站 .sel 下拉风格断裂）。
+// 包一层 .hcm-struct-field-wrap（指定 220px flex 宽度），input 套 .hcm-struct-field。
+function StructFieldInput({
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: HcmFilterCandidate[];
+  placeholder: string;
+}) {
+  const comboOpts = useMemo(
+    () => options.map((o) => ({ value: o.key, label: o.label })),
+    [options]
+  );
+  return (
+    <ComboboxInput
+      value={value}
+      onChange={onChange}
+      options={comboOpts}
+      placeholder={placeholder}
+      wrapperClassName="hcm-struct-field-wrap"
+      inputClassName="hcm-struct-field"
+      ariaLabel={placeholder}
+    />
+  );
 }
 
 export function HcmObjectBrowser() {
@@ -1682,13 +1714,11 @@ const loadList = useCallback(async () => {
                       )}
                       {dataStruct.map((r) => (
                         <div className="hcm-struct-row" key={r.id}>
-                          <input
-                            className="hcm-struct-field"
-                            list="hcm-struct-fields"
+                          <StructFieldInput
                             value={r.field}
-                            onChange={(e) => updateStructRow(r.id, { field: e.target.value })}
+                            onChange={(field) => updateStructRow(r.id, { field })}
+                            options={filterCandidates}
                             placeholder={t('hcm.structFieldPlaceholder')}
-                            spellCheck={false}
                           />
                           <select
                             className="hcm-struct-op"
@@ -1729,15 +1759,7 @@ const loadList = useCallback(async () => {
                       </div>
                     </div>
                   )}
-                  {/* 字段联想数据源：当前对象的 meta.fields（优先 is_filter，回退全部）。
-                      始终挂载，供结构化筛选的字段输入框 list 引用。 */}
-                  <datalist id="hcm-struct-fields">
-                    {filterCandidates.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.label || c.key}
-                      </option>
-                    ))}
-                  </datalist>
+                  {/* 字段联想已改为 StructFieldInput 自绘弹层（datalist 弹出列表无法被 CSS 定制） */}
 
                   {/* 高级请求体体：直接编辑 hcm.model.list 请求 JSON + 调试开关 */}
                   {dataAdvOpen && (

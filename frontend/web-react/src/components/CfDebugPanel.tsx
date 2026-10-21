@@ -10,6 +10,7 @@ import { DapClient } from '../api/cfdebug/dapClient';
 import { requestConfirm } from '../utils/confirmStore';
 import { CfDebugSyncModal } from './CfDebugSyncModal';
 import { EmptyState } from './EmptyState';
+import { ComboboxInput } from './ComboboxInput';
 import hljs from 'highlight.js/lib/core';
 import python from 'highlight.js/lib/languages/python';
 
@@ -1345,22 +1346,16 @@ export function CfDebugPanel() {
             {rightTab === 'logs' && (
               <div className="cfdebug-dynlogs">
                 <div className="cfdebug-dynlogs-toolbar">
-                  <input
-                    className="input input-sm cfdebug-dynlogs-model"
-                    list="cfd-record-models"
-                    placeholder={t('cfdebug.recordModel')}
+                  <ComboboxInput
                     value={dynLogsModel}
-                    onChange={(e) => setDynLogsModel(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void fetchDynLogs(); }}
+                    onChange={(v) => setDynLogsModel(v)}
+                    options={['dynamic_log', 'SyncOuterRecord', 'async_task_log', 'operation_log', 'api_log']}
+                    placeholder={t('cfdebug.recordModel')}
+                    inputClassName="input input-sm cfdebug-dynlogs-model"
+                    ariaLabel={t('cfdebug.recordModel')}
                     title={t('cfdebug.recordModelHint')}
+                    onEnter={() => void fetchDynLogs()}
                   />
-                  <datalist id="cfd-record-models">
-                    <option value="dynamic_log" />
-                    <option value="SyncOuterRecord" />
-                    <option value="async_task_log" />
-                    <option value="operation_log" />
-                    <option value="api_log" />
-                  </datalist>
                   <input
                     className="input input-sm"
                     placeholder={dynLogsModel.trim().toLowerCase() === 'syncouterrecord' ? t('cfdebug.typeFilterOuter') : t('cfdebug.logTypeFilter')}

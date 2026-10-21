@@ -19,6 +19,7 @@ import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
 import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
 import { CfDistribution } from './CfDistribution';
+import { ComboboxInput } from './ComboboxInput';
 
 const CF_CFG_KEY = 'jgg-cf-cfg';
 // 无历史选择时使用的稳定配置入口：映射到本地配置列表的第一项，
@@ -1494,23 +1495,16 @@ export function CfPanel() {
               <div className="cf-adv-fields">
                 <div className="cf-cfg-field cf-cfg-field--main">
                   <label>{t('cf.recordModel')}</label>
-                  <input
-                    className="input"
-                    aria-label={t('cf.recordModel')}
-                    list="cf-record-models"
-                    placeholder="dynamic_log"
+                  <ComboboxInput
                     value={cfg.record_model}
-                    onChange={(e) => setCfg({ ...cfg, record_model: e.target.value })}
+                    onChange={(v) => setCfg({ ...cfg, record_model: v })}
+                    options={['dynamic_log', 'SyncOuterRecord', 'async_task_log', 'operation_log', 'api_log']}
+                    placeholder="dynamic_log"
+                    inputClassName="input"
+                    ariaLabel={t('cf.recordModel')}
                     onBlur={() => saveCfg()}
-                    onKeyDown={(e) => e.key === 'Enter' && queryLogs()}
+                    onEnter={() => queryLogs()}
                   />
-                  <datalist id="cf-record-models">
-                    <option value="dynamic_log" />
-                    <option value="SyncOuterRecord" />
-                    <option value="async_task_log" />
-                    <option value="operation_log" />
-                    <option value="api_log" />
-                  </datalist>
                 </div>
                 <div className="cf-cfg-field cf-cfg-field--w100">
                   <label>{t('cf.pageSize')}</label>
