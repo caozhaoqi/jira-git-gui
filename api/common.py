@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel
+from api.auth import ApiTokenMiddleware
 
 from core.network_proxy import apply_global_http_proxy
 
@@ -44,6 +45,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 #  应用实例与全局单例
 # --------------------------------------------------------------------------- #
 app = FastAPI(title="Jira Git GUI API", version="2.0")
+app.add_middleware(ApiTokenMiddleware)
 logger = get_logger()
 
 # 客户端单例（单用户本地工具）

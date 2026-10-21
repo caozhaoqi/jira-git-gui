@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiGet, apiPost } from '../../api/client';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { ApiError, apiDelete, apiGet, apiPost } from '../../api/client';
 import type { K8sEnvsResp, K8sEnv } from '../../api/types';
 import { useT } from '../../i18n';
 import { useModalA11y } from '../../utils/useModalA11y';
+import { requestConfirm } from '../../utils/confirmStore';
 import { envTagText } from '../../utils/k8sEnv';
 import { useK8s } from './context';
+
+interface IncomingKubeconfig {
+  id: string;
+  name: string;
+  label: string;
+  context: string;
+  namespace: string;
+  size: number;
+  created_at: number;
+  overwrite: boolean;
+}
 
 interface EnvForm {
   name: string;
@@ -33,6 +46,8 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const [list, setList] = useState<K8sEnv[]>([]);
   const [form, setForm] = useState<EnvForm>(EMPTY);
   const [msg, setMsg] = useState('');
+  const [incoming, setIncoming] = useState<IncomingKubeconfig[]>([]);
+  const [incomingError, setIncomingError] = useState('');
   // 显式模式：edit=改已有（ID 锁定防「改 ID 静默变新增」）；new=创建（ID 可填、撞车拦截）。
   // 取代旧版「ID 是否在列表中」的隐式判定——那个设计让同一个保存按钮
   // 有时更新有时创建，用户改一下 ID 就静默多出一个环境。
@@ -43,6 +58,17 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   const [delArmed, setDelArmed] = useState(false);
   // 异步操作（保存 / 删除）进行中的 loading 态：按钮转圈 + 禁用，避免重复点击
   const [busy, setBusy] = useState(false);
+  const onModeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 'edit'
+      : event.key === 'End' ? 'new'
+        : event.key === 'ArrowLeft' ? (mode === 'new' ? 'edit' : 'new')
+          : (mode === 'edit' ? 'new' : 'edit');
+    if (next === 'edit') switchToEdit();
+    else startNew();
+    requestAnimationFrame(() => document.getElementById(`k8s-env-mode-${next}`)?.focus());
+  };
   const idInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -102,6 +128,22 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     loadList(true);
   }, [loadList]);
+
+  const loadIncoming = useCallback(async () => {
+    try {
+      const response = await apiGet<{ pending: IncomingKubeconfig[] }>('/api/k8s/env/incoming');
+      setIncoming(response.pending || []);
+      setIncomingError('');
+    } catch (ex: any) {
+      setIncomingError(t('k8s.env.incomingLoadFail', { msg: ex.message }));
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void loadIncoming();
+    const timer = window.setInterval(() => void loadIncoming(), 2500);
+    return () => window.clearInterval(timer);
+  }, [loadIncoming]);
 
   // 新建模式下标识撞车 → 禁用创建按钮：新建永远不会静默覆盖已有环境
   const idTaken = mode === 'new' && !!form.name.trim() && list.some((e) => e.name === form.name.trim());
@@ -193,6 +235,50 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const acceptIncoming = async (draft: IncomingKubeconfig) => {
+    const confirmOverwriteMessage = t('k8s.env.incomingOverwriteConfirm', { name: draft.name });
+    let confirmOverwrite = false;
+    if (draft.overwrite) {
+      if (!(await requestConfirm({ message: confirmOverwriteMessage, danger: true }))) return;
+      confirmOverwrite = true;
+    }
+    setBusy(true);
+    try {
+      const path = `/api/k8s/env/incoming/${encodeURIComponent(draft.id)}/accept`;
+      try {
+        await apiPost(path, { confirm_overwrite: confirmOverwrite });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409 || confirmOverwrite) throw error;
+        if (!(await requestConfirm({ message: confirmOverwriteMessage, danger: true }))) return;
+        confirmOverwrite = true;
+        await apiPost(path, { confirm_overwrite: true });
+      }
+      setMsg(t('k8s.env.incomingImported', { name: draft.name }));
+      addToast(t('k8s.env.incomingImported', { name: draft.name }), 'success');
+      await loadList();
+      await reloadEnvs();
+      await loadIncoming();
+    } catch (ex: any) {
+      setMsg(t('k8s.env.fail') + ex.message);
+      addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dismissIncoming = async (draft: IncomingKubeconfig) => {
+    setBusy(true);
+    try {
+      await apiDelete(`/api/k8s/env/incoming/${encodeURIComponent(draft.id)}`);
+      await loadIncoming();
+    } catch (ex: any) {
+      setMsg(t('k8s.env.fail') + ex.message);
+      addToast(t('k8s.env.opFail', { msg: ex.message }), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   /** 点「编辑」分段：回到选中项（从新建态切回时重锚到 current/第一项）。 */
   const switchToEdit = () => {
     const e = list.find((x) => x.name === selName) || list.find((x) => x.is_current) || list[0];
@@ -216,6 +302,32 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
           <button className="btn btn-sm btn-ghost" onClick={onClose} aria-label={t('common.close')}>✕</button>
         </div>
         <div className="modal-body">
+          {(incoming.length > 0 || incomingError) && (
+            <section className="k8s-env-incoming" aria-label={t('k8s.env.incomingTitle')}>
+              <div className="k8s-env-incoming-heading">
+                <strong>{t('k8s.env.incomingTitle')}</strong>
+                <span>{t('k8s.env.incomingHint')}</span>
+              </div>
+              {incomingError && <div className="k8s-env-incoming-error" role="status">{incomingError}</div>}
+              {incoming.map((draft) => (
+                <div className="k8s-env-incoming-item" key={draft.id}>
+                  <div className="k8s-env-incoming-info">
+                    <strong>{draft.label || draft.name}</strong>
+                    <span>{draft.name}{draft.context ? ` · ${draft.context}` : ''} · {Math.ceil(draft.size / 1024)} KB</span>
+                    {draft.overwrite && <span className="k8s-env-incoming-warning">{t('k8s.env.incomingOverwrite')}</span>}
+                  </div>
+                  <div className="k8s-env-incoming-actions">
+                    <button className="btn btn-sm btn-primary" onClick={() => void acceptIncoming(draft)} disabled={busy}>
+                      {t('k8s.env.incomingImport')}
+                    </button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => void dismissIncoming(draft)} disabled={busy}>
+                      {t('k8s.env.incomingDismiss')}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
           <div className="k8s-env-cols">
             {/* 左栏：环境列表（点选即回填右侧编辑） */}
             <div className="k8s-env-side">
@@ -248,11 +360,25 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
 
             {/* 右栏：显式模式分段 + 表单。编辑态 ID 锁定，从交互上杜绝
                 「改一下 ID，保存就从更新静默变成新增」。 */}
-            <div className="k8s-env-main">
-              <div className="k8s-env-seg" role="tablist" aria-label={t('k8s.env.modeLabel')}>
+            <div
+              className="k8s-env-main"
+              id="k8s-env-mode-panel"
+              role="tabpanel"
+              aria-labelledby={`k8s-env-mode-${mode}`}
+              tabIndex={0}
+            >
+              <div
+                className="k8s-env-seg"
+                role="tablist"
+                aria-label={t('k8s.env.modeLabel')}
+                onKeyDown={onModeKeyDown}
+              >
                 <button
+                  id="k8s-env-mode-edit"
                   role="tab"
                   aria-selected={mode === 'edit'}
+                  aria-controls="k8s-env-mode-panel"
+                  tabIndex={mode === 'edit' ? 0 : -1}
                   className={'seg' + (mode === 'edit' ? ' active' : '')}
                   onClick={switchToEdit}
                   disabled={list.length === 0}
@@ -260,8 +386,11 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
                   {t('k8s.env.modeEdit')}
                 </button>
                 <button
+                  id="k8s-env-mode-new"
                   role="tab"
                   aria-selected={mode === 'new'}
+                  aria-controls="k8s-env-mode-panel"
+                  tabIndex={mode === 'new' ? 0 : -1}
                   className={'seg' + (mode === 'new' ? ' active' : '')}
                   onClick={startNew}
                 >
@@ -282,6 +411,8 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
                     ref={idInputRef}
                     className={`input${idTaken ? ' is-error' : ''}`}
                     value={form.name}
+                    aria-invalid={idTaken}
+                    aria-describedby={idTaken ? 'k8s-env-id-error' : undefined}
                     disabled={mode === 'edit'}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     placeholder={mode === 'new' ? t('k8s.env.idPh') : undefined}
@@ -290,7 +421,7 @@ export function K8sEnvModal({ onClose }: { onClose: () => void }) {
                 </div>
                 {mode === 'edit'
                   ? <div className="k8s-env-id-hint">{t('k8s.env.idLocked')}</div>
-                  : idTaken && <div className="k8s-env-id-hint err">{t('k8s.env.idExists')}</div>}
+                  : idTaken && <div className="k8s-env-id-hint err" id="k8s-env-id-error" role="alert">{t('k8s.env.idExists')}</div>}
                 <div className="form-row"><label>{t('k8s.env.label')}</label><input className="input" value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></div>
                 <div className="form-row"><label>{t('k8s.env.kubeconfig')}</label><input className="input" value={form.kubeconfig} onChange={(e) => setForm({ ...form, kubeconfig: e.target.value })} /></div>
                 <div className="form-row"><label>{t('k8s.env.context')}</label><input className="input" value={form.context} onChange={(e) => setForm({ ...form, context: e.target.value })} /></div>

@@ -368,7 +368,7 @@
 mark.lv-hl {
   background: var(--hl-log-bg);
   color: var(--hl-text);
-  border-radius: 2px;
+  border-radius: var(--radius-mark);
   padding: 0 1px;
 }
 html.dark mark.lv-hl {

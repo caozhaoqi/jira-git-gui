@@ -31,6 +31,7 @@ const SUBTABS: { key: SubTab; labelKey: string }[] = [
 export function K8sPanel() {
   const pushLog = useAppStore((s) => s.pushLog);
   const addToast = useAppStore((s) => s.addToast);
+  const aiDraftToInsert = useAppStore((s) => s.aiDraftToInsert);
   const { t } = useT();
 
   const [envs, setEnvs] = useState<K8sEnv[]>([]);
@@ -69,6 +70,10 @@ export function K8sPanel() {
   useEffect(() => {
     reloadEnvs();
   }, [reloadEnvs]);
+
+  useEffect(() => {
+    if (aiDraftToInsert?.target === 'k8s_yaml') setSub('yaml');
+  }, [aiDraftToInsert]);
 
   const setTarget = useCallback((t: Partial<K8sTarget>) => {
     setTargetState((prev) => {

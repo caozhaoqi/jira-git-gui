@@ -2,12 +2,14 @@
 """配置加载子模块（由 core/config.py 拆分，保持 import 兼容）。"""
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
 from core.app_paths import get_data_root
 from core.models import ConnectConfig
+from core.secure_storage import load_secret, store_secret
 
 _BASE = get_data_root()
 _SESSION_FILE = _BASE / ".session.json"
@@ -28,7 +30,7 @@ def _parse_env_file(path: Path) -> dict:
         if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
             val = val[1:-1]
         if key:
-            data[key] = val
+            data[key] = load_secret(val) if val.startswith("keyring://") else val
     return data
 
 
@@ -42,6 +44,47 @@ _FIELD_ALIASES = {
     "cookie": ("JIRA_COOKIE", "cookie", "COOKIE"),
     "http_proxy": ("JIRA_HTTP_PROXY", "jira_http_proxy"),
 }
+
+_SECRET_ALIASES = {
+    "personal_access_token": {
+        "JIRA_PAT", "PERSONAL_ACCESS_TOKEN", "personal_access_token",
+        "PAT", "pat", "persoanl_access_token",
+    },
+    "cookie": {"JIRA_COOKIE", "cookie", "COOKIE"},
+}
+
+
+def _migrate_env_secrets(path: Path) -> None:
+    """Move legacy Jira secrets in the user .env into the OS credential store."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    updated = []
+    changed = False
+    for raw in lines:
+        match = re.match(r"^(\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*=\s*)(.*)$", raw)
+        if not match:
+            updated.append(raw)
+            continue
+        leading, key, separator, value = match.groups()
+        value = value.strip()
+        canonical = next((name for name, aliases in _SECRET_ALIASES.items() if key in aliases), None)
+        if canonical and value:
+            quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"')
+            raw_value = value[1:-1] if quoted else value
+            if raw_value.startswith("keyring://"):
+                load_secret(raw_value)
+            else:
+                ref = store_secret(f"jira:{key}", raw_value)
+                value = f"{value[0]}{ref}{value[0]}" if quoted else ref
+                changed = True
+        updated.append(f"{leading}{key}{separator}{value}")
+    if changed:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text("\n".join(updated) + "\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        tmp.replace(path)
 
 
 def build_config(env: dict) -> ConnectConfig:
@@ -65,9 +108,8 @@ def build_config(env: dict) -> ConnectConfig:
 def _env_search_roots(project_root: Optional[Path] = None) -> list:
     """返回查找 .env 的候选根目录列表。
 
-    冻结打包（PyInstaller / electron-builder）后，程序的 .env 会被收集进
-    只读的 ``sys._MEIPASS`` 包内；运行时写入目录则移动到 ``~/.jira-git-gui``。
-    因此优先在包内找 .env（默认配置），找不到再回退数据根。
+    冻结打包（PyInstaller / electron-builder）后，用户配置从数据根目录读取。
+    运行时凭据不会从程序包内加载。
     """
     if project_root is not None:
         return [Path(project_root)]
@@ -85,6 +127,8 @@ def load_config(project_root: Optional[Path] = None) -> Tuple[ConnectConfig, boo
     for root in _env_search_roots(project_root):
         env_path = root / ".env"
         if env_path.exists():
+            if project_root is None and root == _BASE:
+                _migrate_env_secrets(env_path)
             env = _parse_env_file(env_path)
             # 真实环境变量（大写键名）优先覆盖 .env 同名键
             for names in _FIELD_ALIASES.values():

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { hcmDirect } from '../../api/hcm/direct';
 import { hcmEnvs, type HcmEnv } from '../../api/hcm/client';
 import { reportLocalApiNetworkError } from '../../api/client';
@@ -7,6 +8,7 @@ import { copyText } from '../../utils/clipboard';
 import { useT } from '../../i18n';
 import { TabIcon } from '../icons';
 import { reportPanelOutput } from '../../api/aiBridge';
+import { useModalA11y } from '../../utils/useModalA11y';
 
 /**
  * HCM 运维面板 —— 功能取自 hcm-cloud-vue（hcm-core）运维页面，走 /api/hcm/direct 零后端改动：
@@ -38,6 +40,18 @@ export function HcmOps() {
   const [tab, setTab] = useState<OpsTab>('redis');
   const [target, setTarget] = useState('');
   const [envs, setEnvs] = useState<HcmEnv[]>([]);
+  const tabKeys: OpsTab[] = ['redis', 'errors', 'decrypt'];
+  const onTabKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const current = tabKeys.indexOf(tab);
+    const next = event.key === 'ArrowRight' ? (current + 1) % tabKeys.length
+      : event.key === 'ArrowLeft' ? (current - 1 + tabKeys.length) % tabKeys.length
+        : event.key === 'Home' ? 0 : event.key === 'End' ? tabKeys.length - 1 : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    const key = tabKeys[next];
+    setTab(key);
+    requestAnimationFrame(() => document.getElementById(`hcm-ops-tab-${key}`)?.focus());
+  };
 
   useEffect(() => {
     let alive = true;
@@ -56,13 +70,16 @@ export function HcmOps() {
   return (
     <div className="hcm-ops">
       <div className="hcm-ops-head">
-        <div className="hcm-ops-tabs" role="tablist">
+        <div className="hcm-ops-tabs" role="tablist" aria-label={t('hcm.opsTabsLabel')} onKeyDown={onTabKeyDown}>
           {tabs.map((x) => (
             <button
               key={x.key}
+              id={`hcm-ops-tab-${x.key}`}
               type="button"
               role="tab"
               aria-selected={tab === x.key}
+              aria-controls="hcm-ops-panel"
+              tabIndex={tab === x.key ? 0 : -1}
               className={`hcm-ops-tab${tab === x.key ? ' active' : ''}`}
               onClick={() => setTab(x.key)}
             >
@@ -89,9 +106,11 @@ export function HcmOps() {
         </label>
       </div>
 
-      {tab === 'redis' && <RedisPanel target={target} />}
-      {tab === 'errors' && <ErrorPanel target={target} />}
-      {tab === 'decrypt' && <DecryptPanel target={target} />}
+      <div id="hcm-ops-panel" role="tabpanel" aria-labelledby={`hcm-ops-tab-${tab}`} tabIndex={0}>
+        {tab === 'redis' && <RedisPanel target={target} />}
+        {tab === 'errors' && <ErrorPanel target={target} />}
+        {tab === 'decrypt' && <DecryptPanel target={target} />}
+      </div>
     </div>
   );
 }
@@ -154,6 +173,9 @@ function RedisPanel({ target }: { target: string }) {
   const [batchTarget, setBatchTarget] = useState<null | 'all'>(null);
   // —— 常用 Key ——
   const [cid, setCid] = useState('');
+  const detailDialogRef = useModalA11y<HTMLDivElement>(() => setDetail(null));
+  const deleteDialogRef = useModalA11y<HTMLDivElement>(() => setDelTarget(null));
+  const batchDialogRef = useModalA11y<HTMLDivElement>(() => setBatchTarget(null));
 
   // 切网关即清空旧结果：运维场景下把 A 环境的 key/值误当 B 环境是高危误判
   useEffect(() => {
@@ -195,12 +217,6 @@ function RedisPanel({ target }: { target: string }) {
     setHistory([]);
     try { localStorage.removeItem('hcmRedisSearchHistory'); } catch { /* 忽略 */ }
   }, []);
-
-  // 删除确认弹层出现时聚焦「删除」按钮（Enter 直达，Esc 取消）
-  const delBtnRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (delTarget) delBtnRef.current?.focus();
-  }, [delTarget]);
 
   const doSearch = useCallback(async (raw?: string, possibleOverride?: boolean) => {
     const key = (raw ?? search).trim();
@@ -462,9 +478,17 @@ function RedisPanel({ target }: { target: string }) {
       {/* value 详情弹层 */}
       {detail && (
         <div className="hcm-ops-mask" onClick={() => setDetail(null)}>
-          <div className="hcm-ops-dialog" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="hcm-ops-dialog"
+            ref={detailDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hcm-ops-detail-title"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="hcm-ops-dialog-head">
-              <code className="hcm-mono">{detail.key}</code>
+              <code id="hcm-ops-detail-title" className="hcm-mono">{detail.key}</code>
               <span className="hcm-ops-dialog-actions">
                 <button
                   type="button"
@@ -484,14 +508,22 @@ function RedisPanel({ target }: { target: string }) {
       {/* 删除确认弹层（对齐参考页 .confirm） */}
       {delTarget && (
         <div className="hcm-ops-mask" onClick={() => setDelTarget(null)}>
-          <div className="hcm-ops-dialog hcm-ops-dialog--confirm" onClick={(e) => e.stopPropagation()}>
-            <div className="hcm-ops-dialog-msg">{t('hcm.opsRedisDelConfirm', { key: delTarget })}</div>
+          <div
+            className="hcm-ops-dialog hcm-ops-dialog--confirm"
+            ref={deleteDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hcm-ops-delete-title"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="hcm-ops-delete-title" className="hcm-ops-dialog-msg">{t('hcm.opsRedisDelConfirm', { key: delTarget })}</div>
             <div className="hcm-ops-dialog-btns">
               <button type="button" className="btn btn-sm" onClick={() => setDelTarget(null)}>
                 {t('hcm.opsCancel')}
               </button>
               <button
-                type="button" ref={delBtnRef}
+                type="button"
                 className="btn btn-sm btn-danger" onClick={() => void doDelete()} disabled={delBusy}
               >
                 {delBusy ? t('hcm.loading') : t('hcm.opsRedisDelete')}
@@ -504,8 +536,16 @@ function RedisPanel({ target }: { target: string }) {
       {/* 批量删除确认弹层 */}
       {batchTarget && (
         <div className="hcm-ops-mask" onClick={() => setBatchTarget(null)}>
-          <div className="hcm-ops-dialog hcm-ops-dialog--confirm" onClick={(e) => e.stopPropagation()}>
-            <div className="hcm-ops-dialog-msg">
+          <div
+            className="hcm-ops-dialog hcm-ops-dialog--confirm"
+            ref={batchDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hcm-ops-batch-delete-title"
+            tabIndex={-1}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="hcm-ops-batch-delete-title" className="hcm-ops-dialog-msg">
               {t('hcm.opsRedisBatchConfirm', { n: selected.size })}
               <div className="hcm-ops-batchkeys hcm-mono">
                 {[...selected].map((k) => <div key={k}>{k}</div>)}

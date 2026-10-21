@@ -40,7 +40,7 @@ jobs:
           node-version: "20"
       - name: Build React frontend
         working-directory: frontend/web-react
-        run: npm ci && npm run build
+        run: npm ci && npm test && npm run build
       - name: Upload shared frontend
         uses: actions/upload-artifact@v4
         with:
@@ -64,10 +64,61 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Configure Apple code signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set +x
+          if [ -z "$APPLE_CERTIFICATE" ] && [ -z "$APPLE_CERTIFICATE_PASSWORD" ] && [ -z "$KEYCHAIN_PASSWORD" ] && [ -z "$APPLE_SIGNING_IDENTITY" ] && [ -z "$APPLE_ID" ] && [ -z "$APPLE_PASSWORD" ] && [ -z "$APPLE_TEAM_ID" ]; then
+            echo "Apple signing secrets are not configured; macOS artifacts will be unsigned."
+            exit 0
+          fi
+          if [ -z "$APPLE_CERTIFICATE" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ] || [ -z "$KEYCHAIN_PASSWORD" ] || [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "::error::Set APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, KEYCHAIN_PASSWORD, and APPLE_SIGNING_IDENTITY together."
+            exit 1
+          fi
+          if { [ -n "$APPLE_ID" ] || [ -n "$APPLE_PASSWORD" ] || [ -n "$APPLE_TEAM_ID" ]; } && { [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; }; then
+            echo "::error::Set APPLE_ID, APPLE_PASSWORD, and APPLE_TEAM_ID together to enable notarization."
+            exit 1
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/jgg-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/jgg-signing.p12"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep -Fq "\"$APPLE_SIGNING_IDENTITY\""; then
+            echo "::error::APPLE_SIGNING_IDENTITY was not found in the imported signing certificate."
+            exit 1
+          fi
+          {
+            echo "CSC_LINK=$CERTIFICATE_PATH"
+            echo "CSC_KEY_PASSWORD=$APPLE_CERTIFICATE_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY"
+            if [ -n "$APPLE_ID" ]; then
+              echo "APPLE_ID=$APPLE_ID"
+              echo "APPLE_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_PASSWORD"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+            fi
+          } >> "$GITHUB_ENV"
       - name: Install Python deps
         # pyinstaller 版本必须固定：云端 CI 现场问题（Windows 上 LoadLibrary 失败）
         # 不允许「装到哪个版本算哪个版本」，保证构建可复现。
         run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
+      - name: Validate frozen backend imports
+        run: python tests/test_pyinstaller_hiddenimports.py
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
       - name: Smoke test backend (launch + probe /api/status)
@@ -77,7 +128,8 @@ jobs:
           BACKEND_PID=$!
           ok=0
           for i in $(seq 1 40); do
-            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            API_TOKEN=$(curl -fsS --max-time 3 http://127.0.0.1:8791/api/auth/token 2>/dev/null) || API_TOKEN=""
+            if [ -n "$API_TOKEN" ] && curl -fsS --max-time 3 -H "X-API-Token: $API_TOKEN" http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
             if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
             sleep 1
           done
@@ -145,8 +197,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Configure Windows code signing
+        shell: pwsh
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+          WINDOWS_CERT_THUMBPRINT: ${{ secrets.WINDOWS_CERT_THUMBPRINT }}
+        run: |
+          $provided = @($env:WINDOWS_PFX_BASE64, $env:WINDOWS_PFX_PASSWORD, $env:WINDOWS_CERT_THUMBPRINT) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+          if ($provided.Count -eq 0) {
+            Write-Host "Windows signing secrets are not configured; Windows artifacts will be unsigned."
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_PFX_PASSWORD) -or
+              [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_THUMBPRINT)) {
+            throw "Set WINDOWS_PFX_BASE64, WINDOWS_PFX_PASSWORD, and WINDOWS_CERT_THUMBPRINT together."
+          }
+          $pfxPath = Join-Path $env:RUNNER_TEMP "jgg-signing.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_PFX_BASE64))
+          $securePassword = ConvertTo-SecureString $env:WINDOWS_PFX_PASSWORD -AsPlainText -Force
+          Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $securePassword | Out-Null
+          $thumbprint = $env:WINDOWS_CERT_THUMBPRINT.Replace(' ', '')
+          $certificate = Get-ChildItem Cert:\CurrentUser\My |
+            Where-Object { $_.Thumbprint -eq $thumbprint } |
+            Select-Object -First 1
+          if (-not $certificate -or -not $certificate.HasPrivateKey) {
+            throw "WINDOWS_CERT_THUMBPRINT does not identify a private-key certificate in the imported PFX."
+          }
+          "CSC_LINK=$pfxPath" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=$env:WINDOWS_PFX_PASSWORD" >> $env:GITHUB_ENV
+          "WINDOWS_CERT_THUMBPRINT=$thumbprint" >> $env:GITHUB_ENV
       - name: Install Python deps
         run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
+      - name: Validate frozen backend imports
+        run: python tests/test_pyinstaller_hiddenimports.py
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
       - name: Smoke test backend (launch + probe /api/status)
@@ -156,7 +242,8 @@ jobs:
           BACKEND_PID=$!
           ok=0
           for i in $(seq 1 40); do
-            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            API_TOKEN=$(curl -fsS --max-time 3 http://127.0.0.1:8791/api/auth/token 2>/dev/null) || API_TOKEN=""
+            if [ -n "$API_TOKEN" ] && curl -fsS --max-time 3 -H "X-API-Token: $API_TOKEN" http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
             if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
             sleep 1
           done
@@ -189,7 +276,22 @@ jobs:
         run: npm install -g @tauri-apps/cli@^2
       - name: Build Tauri (msi + nsis)
         working-directory: tauri
-        run: tauri build
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_THUMBPRINT)) {
+            tauri build
+          } else {
+            $config = @{
+              bundle = @{
+                windows = @{
+                  certificateThumbprint = $env:WINDOWS_CERT_THUMBPRINT
+                  digestAlgorithm = "sha256"
+                  timestampUrl = "http://timestamp.digicert.com"
+                }
+              }
+            } | ConvertTo-Json -Compress -Depth 5
+            tauri build --config $config
+          }
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -226,6 +328,8 @@ jobs:
             librsvg2-dev libxdo-dev libssl-dev patchelf
       - name: Install Python deps
         run: python -m pip install --upgrade pip && pip install -r requirements.txt "pyinstaller==6.22.0"
+      - name: Validate frozen backend imports
+        run: python tests/test_pyinstaller_hiddenimports.py
       - name: Build backend (onefile)
         run: pyinstaller build/pyinstaller_backend.spec --noconfirm
       - name: Smoke test backend (launch + probe /api/status)
@@ -235,7 +339,8 @@ jobs:
           BACKEND_PID=$!
           ok=0
           for i in $(seq 1 40); do
-            if curl -fsS --max-time 3 http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
+            API_TOKEN=$(curl -fsS --max-time 3 http://127.0.0.1:8791/api/auth/token 2>/dev/null) || API_TOKEN=""
+            if [ -n "$API_TOKEN" ] && curl -fsS --max-time 3 -H "X-API-Token: $API_TOKEN" http://127.0.0.1:8791/api/status > backend-status.json 2>/dev/null; then ok=1; break; fi
             if ! kill -0 "$BACKEND_PID" 2>/dev/null; then break; fi
             sleep 1
           done

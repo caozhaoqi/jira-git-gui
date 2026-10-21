@@ -47,8 +47,11 @@
 
 ```bash
 ./scripts/run_web.sh              # 起后端并打开浏览器
+./scripts/run_web.sh --lan        # 允许局域网设备连接（需要启动令牌）
 ./scripts/run_web.sh --electron   # 改为启动 Electron 桌面应用
 ```
+
+局域网模式会监听所有网卡，来自局域网设备的 API 请求需要每次启动时随机生成的令牌。其他设备打开 `http://<本机局域网IP>:8787` 后输入令牌即可；在运行服务的电脑上执行 `curl http://127.0.0.1:8787/api/auth/token` 获取令牌，只通过可信渠道分享。该模式使用明文 HTTP，只应在可信网络中使用（或放在 VPN/HTTPS 代理后）；同网段监听者可能截获登录令牌。
 
 > 桌面端入口是 Electron / Tauri 安装包；从源码跑 Web 模式用 `run_web.sh` / `run_web.ps1`。
 > PyQt6 桌面实现已于 2026-10 移至 `pyqt-legacy` 分支存档，主干不再包含。
@@ -65,7 +68,7 @@ PYTHONPATH=. ./venv/bin/python -m api.server      # 然后打开 http://127.0.0.
 
 ### 第一次使用：连上 Jira
 
-应用启动时会自动读项目根目录的 `.env`，所以一般配一次就够，之后不用再填「连接设置」：
+源码运行时会自动读取项目根目录的 `.env`（打包版读取用户数据目录）：
 
 | `.env` 键 | 含义 | 备注 |
 | --- | --- | --- |
@@ -75,7 +78,7 @@ PYTHONPATH=. ./venv/bin/python -m api.server      # 然后打开 http://127.0.0.
 | `personal_access_token` | PAT | 也容忍旧拼写 `persoanl_access_token` |
 | `cookie` | 会话 Cookie | 格式：`JSESSIONID=...; atlassian.xsrf.token=...` |
 
-`.env` 已被 gitignore —— **请勿提交真实凭据**。真实环境变量（如 `JIRA_URL`）优先于 `.env`。
+`.env` 已被 gitignore —— **请勿提交真实凭据**。PAT 和 Cookie 首次读取时会迁移到操作系统凭据存储（macOS 钥匙串、Windows 凭据管理器/DPAPI、Linux Secret Service）；真实环境变量（如 `JIRA_URL`）优先于 `.env`。
 
 **两种模式怎么选？**
 
@@ -121,7 +124,7 @@ PYTHONPATH=. ./venv/bin/python -m api.server      # 然后打开 http://127.0.0.
 
 ### K8s：进容器敲命令
 
-**K8s → Shell** → 选环境、Pod、容器 → 连接。这是真终端：`vim`、`top`、`less` 都能正常用，`cd` 之后目录会保持，↑/↓ 翻命令历史。
+**K8s → Shell** → 选环境、Pod、容器 → 连接。应用会申请 PTY，优先使用 `bash`、没有时回退到 `sh`；`cd` 和 ↑/↓ 命令历史可保持。`vim`、`top`、`less` 等全屏工具还要求容器内已安装该程序且 PTY 可用；若连接降级为行缓冲模式，则无法交互使用这些工具。
 
 ### K8s：传文件
 
@@ -138,6 +141,16 @@ PYTHONPATH=. ./venv/bin/python -m api.server      # 然后打开 http://127.0.0.
 与其让 kubeconfig 散落在 `~/Downloads` 之类的地方，建议用**环境管理 → 导入 kubeconfig**：它会把文件收进受控目录 `~/.config/jira-git-gui/kubeconfigs/<env>.kubeconfig`，并自动设为 `600` 权限，只有你能读。
 
 环境配置也支持导出，用于备份或共享 —— 但导出内容包含集群凭据，请只通过加密通道传递。
+
+外部工具也可通过受本机 API token 保护的 `POST /api/k8s/env/incoming` 推送 kubeconfig。内容只暂存在后端内存中（最多 5 份、每份 1 MiB、30 分钟过期）；待导入列表不会返回凭据正文。打开 **K8s → 环境管理** 后，用户必须手动确认导入；若环境标识已存在，还会再次确认覆盖。取消或过期不会写入环境配置。
+
+```bash
+TOKEN=$(curl -fsS http://127.0.0.1:8787/api/auth/token)
+jq -n --arg name "dev" --rawfile content "$HOME/.kube/config" \
+  '{name:$name, content:$content}' |
+  curl -fsS -X POST http://127.0.0.1:8787/api/k8s/env/incoming \
+    -H "X-API-Token: $TOKEN" -H "Content-Type: application/json" --data-binary @-
+```
 
 ### 云函数日志
 
@@ -166,21 +179,29 @@ PYTHONPATH=. ./venv/bin/python -m api.server      # 然后打开 http://127.0.0.
 - 面板输出在产生时自动上报（默认关闭，在 AI 数据桥页打开开关；偏好存于 `jgg-ai-bridge`）。
 - 每个面板保留最近 20 条输出、单条最大 256KB（超长截断）。
 - 在任意面板右下角有 **AI API 悬浮按钮**，一键复制当前面板的 curl 命令。
+- AI 输入是独立的默认关闭开关；开启后，外部 AI 只能把内容排队为草稿。用户点击“插入编辑器”后才会覆盖对应的 YAML、HCM 参数或 Kibana 搜索编辑框，不会自动保存、执行 `kubectl apply` 或发起查询。
 
-接口清单（全部 GET，`format=text` 返回纯文本、`at=-n` 取倒数第 n 条）：
+本地 API 需要启动令牌。先在本机读取令牌，并在后续请求带上 `X-API-Token`：
 
 ```bash
+TOKEN=$(curl -fsS http://127.0.0.1:8787/api/auth/token)
+
 # 所有面板的最新输出概览
-curl http://127.0.0.1:8787/api/ai/output
+curl -H "X-API-Token: $TOKEN" http://127.0.0.1:8787/api/ai/output
 
 # 某个面板的最新输出（text 格式）
-curl "http://127.0.0.1:8787/api/ai/output/hcmops?format=text"
+curl -H "X-API-Token: $TOKEN" "http://127.0.0.1:8787/api/ai/output/hcmops?format=text"
 
 # 取倒数第 2 条、原始 JSON
-curl "http://127.0.0.1:8787/api/ai/output/cf?at=-2"
+curl -H "X-API-Token: $TOKEN" "http://127.0.0.1:8787/api/ai/output/cf?at=-2"
 
 # 某面板的完整历史
-curl http://127.0.0.1:8787/api/ai/output/hcm/history
+curl -H "X-API-Token: $TOKEN" http://127.0.0.1:8787/api/ai/output/hcm/history
+
+# 开启 AI 输入后，把 YAML 草稿排队；用户需在应用中确认插入
+curl -X POST http://127.0.0.1:8787/api/ai/input/k8s_yaml \
+  -H "X-API-Token: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"title":"AI 草稿","text":"apiVersion: v1\nkind: ConfigMap"}'
 ```
 
 已接入的数据源：云函数日志、差异对比、云函数一致性、云函数调试、Clash、HCM 对象、HCM 接口、HCM 运维、统一诊断、K8s 快照、Kibana 日志、日志、仓库。

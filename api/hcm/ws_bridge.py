@@ -33,6 +33,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 
 import websockets
+from fastapi import WebSocketDisconnect
 
 from api.common import logger
 from api.hcm.hcm_core import _HCM_PROXY_TARGET, _HCM_PRESET_TOKEN, _auto_relogin_token
@@ -116,6 +117,8 @@ async def _ws_call_once(url: str, params, token: str, open_timeout: float,
         url,
         additional_headers={"Cookie": f"token={token}"},
         open_timeout=open_timeout,
+        ping_interval=20,
+        ping_timeout=20,
         ssl=ssl_ctx,
         proxy=None,  # 与 hcm_direct 一致：直连网关，绝不走环境代理
     ) as ws:
@@ -187,6 +190,8 @@ async def _proxy_bridge(local_ws, url: str, tok: str, first: str, ssl_ctx):
             url,
             additional_headers={"Cookie": f"token={tok}"} if tok else {},
             open_timeout=15,
+            ping_interval=20,
+            ping_timeout=20,
             ssl=ssl_ctx,
             proxy=None,  # 与 hcm_direct 一致：直连网关，绝不走环境代理
         ) as gw:
@@ -204,21 +209,30 @@ async def _proxy_bridge(local_ws, url: str, tok: str, first: str, ssl_ctx):
                             login_frame = msg
                             return
                         await local_ws.send_text(msg)
+                except asyncio.CancelledError:
+                    raise
+                except (websockets.ConnectionClosed, WebSocketDisconnect):
+                    return
                 except Exception:
-                    pass  # 网关关闭（终态后正常）→ 结束本地连接
+                    logger.exception("[HCM-WS][proxy] 网关到本地的数据泵失败")
 
             async def pump_local_to_gw():
                 try:
                     while True:
                         await gw.send(await local_ws.receive_text())
+                except asyncio.CancelledError:
+                    raise
+                except (websockets.ConnectionClosed, WebSocketDisconnect):
+                    return
                 except Exception:
-                    pass  # 本地断开 → 关闭网关连接
+                    logger.exception("[HCM-WS][proxy] 本地到网关的数据泵失败")
 
             tasks = [asyncio.create_task(pump_gw_to_local()),
                      asyncio.create_task(pump_local_to_gw())]
             await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in tasks:
                 t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             if login_frame is not None:
                 return "login_error", login_frame
             return "ok", None
@@ -279,3 +293,8 @@ async def ws_proxy(local_ws, target: str, api_name: str, token: str = "",
                 await local_ws.close()
             except Exception:
                 pass
+    if outcome == "ok":
+        try:
+            await local_ws.close(code=1000)
+        except (RuntimeError, WebSocketDisconnect):
+            pass

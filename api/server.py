@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
 from api.common import app, logger, broadcast, capture_loop, _PROJECT_ROOT
+from api.auth import router as auth_router
 from api.cf.cf_core import cf_autologin_all
 from core.errors import UserError
 
@@ -193,6 +194,7 @@ for _r in (
     jira_issue_router,
     # 统一诊断（CF + K8s 联合诊断）
     unified_diagnose_router,
+    auth_router,
     # AI 数据桥（面板输出 → 本地接口，供 AI 助手拉取）
     ai_bridge_router,
 ):
@@ -228,7 +230,14 @@ def main():
     logger.info("=" * 60)
 
     import uvicorn
-    uvicorn.run(app, host=host, port=args.port, log_level="info")
+    uvicorn.run(
+        app,
+        host=host,
+        port=args.port,
+        log_level="info",
+        ws_ping_interval=20.0,
+        ws_ping_timeout=20.0,
+    )
 
 
 if __name__ == "__main__":

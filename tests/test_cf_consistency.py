@@ -539,6 +539,7 @@ def test_routes_registered():
 def test_scan_route_maps_gateway_failure_to_502(ledger, monkeypatch):
     """路由层把「网关不可达」翻成 502（上游故障），而不是 500（本程序 bug）。"""
     from fastapi.testclient import TestClient
+    from api.auth import API_TOKEN
 
     import api.server
     from api.common import app
@@ -550,13 +551,14 @@ def test_scan_route_maps_gateway_failure_to_502(ledger, monkeypatch):
     monkeypatch.setattr(C, "default_target", lambda: GW)
     monkeypatch.setattr(C, "default_local_roots", lambda: ["/tmp"])
 
-    with TestClient(app, raise_server_exceptions=False) as c:
+    headers = {"X-API-Token": API_TOKEN}
+    with TestClient(app, headers=headers, raise_server_exceptions=False) as c:
         r = c.post("/api/cf-consistency/scan", json={})
     assert r.status_code == 502, r.text
     assert "connect refused" in r.text
 
     # 未给 id 的写接口应被参数校验拦下（422），不会真的去连网关
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with TestClient(app, headers=headers, raise_server_exceptions=False) as c:
         assert c.post("/api/cf-consistency/push", json={}).status_code == 422
         assert c.post("/api/cf-consistency/diff", json={}).status_code == 422
     _ = api.server  # 保持 import 显式，便于阅读

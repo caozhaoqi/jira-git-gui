@@ -459,15 +459,19 @@ export function FileTree() {
               aria-label={t('file.searchLabel')}
               type="search"
             />
-            <div className="tree-scope-toggle" role="tablist">
+            <div className="tree-scope-toggle" role="group" aria-label={t('file.searchLabel')}>
               <button
+                type="button"
                 className={`tree-scope-btn ${searchScope === 'filename' ? 'active' : ''}`}
+                aria-pressed={searchScope === 'filename'}
                 onClick={() => setSearchScope('filename')}
               >
                 {t('file.searchName')}
               </button>
               <button
+                type="button"
                 className={`tree-scope-btn ${searchScope === 'content' ? 'active' : ''}`}
+                aria-pressed={searchScope === 'content'}
                 onClick={() => setSearchScope('content')}
               >
                 {t('file.searchContent')}

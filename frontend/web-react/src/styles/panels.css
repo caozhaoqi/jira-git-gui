@@ -196,7 +196,7 @@
 /* btn-xs */
 .btn-xs {
   padding: 4px 8px !important;
-  font-size: 12px !important;
+  font-size: var(--text-sm) !important;
   line-height: 1.5;
 }
 
@@ -239,7 +239,7 @@
 .cf-hl {
   background: var(--hl-bg);
   color: inherit;
-  border-radius: 2px;
+  border-radius: var(--radius-mark);
   padding: 0 1px;
 }
 .cf-hl.active {
@@ -324,7 +324,7 @@
   background: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: var(--text-md-plus);
   font-weight: 600;
   border-bottom: 2px solid transparent;
   transition: color var(--dur-fast) var(--ease-out),
@@ -419,7 +419,7 @@
 .k8s-yaml-pre mark {
   background: var(--hl-bg);
   color: var(--hl-text);
-  border-radius: 2px;
+  border-radius: var(--radius-mark);
   padding: 0 1px;
 }
 .k8s-yaml-pre mark.active {
@@ -1215,6 +1215,50 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 .modal.modal-wide .modal-footer {
   flex-shrink: 0;
 }
+.k8s-env-incoming {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+}
+.k8s-env-incoming-heading,
+.k8s-env-incoming-item,
+.k8s-env-incoming-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.k8s-env-incoming-heading {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.k8s-env-incoming-heading > span,
+.k8s-env-incoming-info > span {
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+.k8s-env-incoming-error,
+.k8s-env-incoming-warning {
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+.k8s-env-incoming-item {
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.k8s-env-incoming-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.k8s-env-incoming-info > span {
+  overflow-wrap: anywhere;
+}
+.k8s-env-incoming-actions {
+  flex-shrink: 0;
+}
 .k8s-env-cols {
   display: flex;
   gap: 16px;
@@ -1908,7 +1952,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 }
 .btn-xs {
   padding: 4px 8px !important;
-  font-size: 12px !important;
+  font-size: var(--text-sm) !important;
   line-height: 1.5;
 }
 
@@ -2595,7 +2639,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   white-space: nowrap;
 }
 .clash-tag {
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   font-weight: 600;
   padding: 1px 7px;
   border-radius: var(--radius-pill);
@@ -3002,7 +3046,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 }
 .settings-head h2 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--text-3xl);
   font-weight: 600;
 }
 .settings-sub {
@@ -3080,7 +3124,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 }
 .apidoc-group-title {
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: var(--text-md-plus);
 }
 .apidoc-group-desc {
   font-size: var(--text-sm);
@@ -3442,14 +3486,14 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   position: relative;
 }
 .kb-bar-inner { position: relative; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }
-.kb-bar-fill { background: var(--primary); border-radius: 1px 1px 0 0; min-height: 1px; }
+.kb-bar-fill { background: var(--primary); border-radius: var(--radius-hairline) var(--radius-hairline) 0 0; min-height: 1px; }
 .kb-bar-err {
   position: absolute; bottom: 0; left: 0; right: 0;
-  background: var(--danger); opacity: 0.85; border-radius: 1px 1px 0 0; min-height: 1px;
+  background: var(--danger); opacity: 0.85; border-radius: var(--radius-hairline) var(--radius-hairline) 0 0; min-height: 1px;
 }
 .kb-bar-label {
   position: absolute; bottom: -16px; left: 0; right: 0;
-  font-size: 9px; color: var(--text-dim); text-align: center;
+  font-size: var(--text-3xs); color: var(--text-dim); text-align: center;
   font-family: var(--mono);
   overflow: hidden; white-space: nowrap;
 }
@@ -3570,7 +3614,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   user-select: none;
 }
 /* 命中高亮：普通命中 / 当前命中 / 当前命中所在行（与 CF 一致的视觉） */
-.kb-hl { background: var(--hl-bg); color: var(--hl-text); border-radius: 2px; padding: 0 1px; }
+.kb-hl { background: var(--hl-bg); color: var(--hl-text); border-radius: var(--radius-mark); padding: 0 1px; }
 .kb-hl.active {
   background: var(--hl-cf-active);
   color: var(--hl-text);
@@ -3647,7 +3691,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   justify-content: center;
   width: 24px;
   height: 24px;
-  border-radius: 7px;
+  border-radius: var(--radius-xs-plus);
   background: var(--primary-100, rgba(99, 102, 241, 0.12));
   color: var(--primary);
   font-size: var(--text-md);
@@ -3710,7 +3754,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   background: var(--bg-elev-1, var(--bg-panel));
 }
 .kb-site-placeholder-icon {
-  font-size: 34px;
+  font-size: var(--text-8xl);
   opacity: 0.5;
 }
 .kb-site-placeholder-text {
@@ -3748,7 +3792,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   border: 1px solid var(--primary);
   color: var(--primary);
   background: transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-xs-compact);
 }
 .kb-site-list-head .btn:hover { background: var(--primary-100, rgba(99, 102, 241, 0.12)); }
 .kb-site-list-scroll { flex: 1; overflow: auto; padding: 10px; }
@@ -3760,7 +3804,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   color: var(--text-dim);
   font-size: var(--text-sm);
 }
-.kb-site-empty-icon { font-size: 28px; margin-bottom: 8px; opacity: 0.55; }
+.kb-site-empty-icon { font-size: var(--text-7xl); margin-bottom: 8px; opacity: 0.55; }
 .kb-site-empty-hint { line-height: 1.6; }
 
 /* 站点条目 */
@@ -3815,10 +3859,10 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   min-width: 0;
 }
 .kb-cur-tag {
-  font-size: 9px;
+  font-size: var(--text-3xs);
   font-weight: 700;
   padding: 2px 6px;
-  border-radius: 9px;
+  border-radius: var(--radius-card-plus);
   background: var(--primary-100, rgba(99, 102, 241, 0.14));
   color: var(--primary);
   letter-spacing: 0.3px;
@@ -3847,7 +3891,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 5px;
+  border-radius: var(--radius-xs-compact);
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-dim);
@@ -3900,7 +3944,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   width: 3px;
   height: 11px;
   background: var(--primary);
-  border-radius: 2px;
+  border-radius: var(--radius-mark);
   flex: none;
 }
 
@@ -3939,7 +3983,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   width: 100%;
   font-size: var(--text-sm);
   padding: 6px 9px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs-compact);
   border: 1px solid var(--border);
   background: var(--bg-elev-1, var(--bg-panel));
   color: var(--text);
@@ -4007,7 +4051,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   padding: 6px 18px;
   font-weight: 600;
   font-size: var(--text-sm);
-  border-radius: 5px;
+  border-radius: var(--radius-xs-compact);
   background: var(--primary);
   color: #fff;
   border: 1px solid var(--primary);
@@ -4019,14 +4063,14 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 .kb-site-form-foot .btn-ghost {
   padding: 6px 12px;
   font-size: var(--text-sm);
-  border-radius: 5px;
+  border-radius: var(--radius-xs-compact);
 }
 
 /* 测试结果 */
 .kb-test-result {
   margin: 12px 0 0 0;
   padding: 10px 12px;
-  border-radius: 7px;
+  border-radius: var(--radius-xs-plus);
   font-size: var(--text-sm);
   font-family: var(--mono);
   border: 1px solid var(--border);
@@ -4142,11 +4186,11 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -1px 0 rgb(0 0 0 / 0.1);
 }
 /* 顶段（column-reverse 下的最后一个子元素）收圆角，和旧版单色柱外观一致 */
-.cf-dist-bar-seg:last-child { border-radius: 3px 3px 0 0; }
+.cf-dist-bar-seg:last-child { border-radius: var(--radius-indicator) var(--radius-indicator) 0 0; }
 /* 桶内有疑似错误：柱底一根红色 flag（不抢函数色，错误明细看悬停） */
 .cf-dist-bar-flag {
   position: absolute; left: 0; right: 0; bottom: 0; height: 3px;
-  border-radius: 2px; background: var(--danger); z-index: 2;
+  border-radius: var(--radius-mark); background: var(--danger); z-index: 2;
 }
 .cf-dist-bar.clickable:hover .cf-dist-bar-seg { filter: brightness(1.14) saturate(1.05); }
 .cf-dist-bar.clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-xs); }
@@ -4170,7 +4214,7 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 .cf-dist-type-name { display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
 /* 类型名前的色块 = 该函数在时间直方图里的颜色（同一哈希色，两处互相印证） */
 .cf-dist-type-swatch {
-  flex: 0 0 auto; width: 9px; height: 9px; border-radius: 3px;
+  flex: 0 0 auto; width: 9px; height: 9px; border-radius: var(--radius-indicator);
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.12);
 }
 .cf-dist-type-track { height: 8px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
@@ -4369,10 +4413,10 @@ html.dark {
   width: 13px;
   height: 13px;
   border: 1px solid var(--border-strong);
-  border-radius: 3px;
+  border-radius: var(--radius-indicator);
   background: var(--bg-input);
   color: transparent;
-  font-size: 9px;
+  font-size: var(--text-3xs);
   line-height: 1;
 }
 .cfc-root-chip.on .cfc-root-check {
@@ -4397,7 +4441,7 @@ html.dark {
 .cfc-roots-count {
   margin-left: 6px;
   color: var(--text-faint);
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -4408,7 +4452,7 @@ html.dark {
   background: none;
   color: var(--primary);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   cursor: pointer;
 }
 .cfc-roots-add {
@@ -4419,7 +4463,7 @@ html.dark {
   background: var(--bg-elevated);
   color: var(--primary);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   cursor: pointer;
 }
 .cfc-roots-add:hover { border-color: var(--primary); }
@@ -4435,7 +4479,7 @@ html.dark {
   margin-top: 3px;
   color: var(--text-faint);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   word-break: break-all;
 }
 
@@ -4589,7 +4633,7 @@ html.dark {
   border-radius: var(--radius-xs);
   background: var(--bg-elevated);
   color: var(--text-dim);
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   font-weight: 600;
   line-height: 1;
   white-space: nowrap;

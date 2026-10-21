@@ -5,9 +5,12 @@ import { FileTree } from './FileTree';
 import { Preview } from './Preview';
 import { useT } from '../i18n';
 
+const DEFAULT_LEFT_WIDTH = 280;
+const DEFAULT_RIGHT_WIDTH = 500;
+
 export function RepoPanel() {
-  const [leftWidth, setLeftWidth] = useState(280);
-  const [rightWidth, setRightWidth] = useState(500);
+  const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const [dragging, setDragging] = useState<null | 'left' | 'right'>(null);
   const draggingRef = useRef<null | 'left' | 'right'>(null);
   const { t } = useT();
@@ -67,6 +70,7 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'left' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('left')}
+          onDoubleClick={() => setLeftWidth(DEFAULT_LEFT_WIDTH)}
           onKeyDown={onKeyDown('left')}
           role="separator"
           aria-orientation="vertical"
@@ -81,6 +85,7 @@ export function RepoPanel() {
         <div
           className={`repo-resizer${dragging === 'right' ? ' dragging' : ''}`}
           onMouseDown={onMouseDown('right')}
+          onDoubleClick={() => setRightWidth(DEFAULT_RIGHT_WIDTH)}
           onKeyDown={onKeyDown('right')}
           role="separator"
           aria-orientation="vertical"

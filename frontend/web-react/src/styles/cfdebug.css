@@ -198,7 +198,7 @@
 }
 .cfd-model {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   padding: 1px 6px;
   border-radius: var(--radius-2xs);
   border: 1px solid var(--border);
@@ -530,7 +530,7 @@ button[aria-expanded='true'] .cfd-caret {
   flex-shrink: 0;
   background: var(--surface-2);
   padding: 0 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-indicator);
 }
 .cfd-var-value {
   color: var(--text);
@@ -972,7 +972,7 @@ button[aria-expanded='true'] .cfd-caret {
   min-width: 0;
 }
 .cfd-account-type {
-  font-size: 10.5px;
+  font-size: var(--text-xs-plus);
   padding: 1px 7px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border);
@@ -1195,7 +1195,7 @@ button[aria-expanded='true'] .cfd-caret {
   background: none;
   cursor: pointer;
   color: var(--text-2);
-  font-size: 16px;
+  font-size: var(--text-2xl);
   line-height: 1;
   padding: 0 2px;
 }

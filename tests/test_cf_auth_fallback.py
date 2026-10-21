@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 from fastapi.testclient import TestClient
+from api.auth import API_TOKEN
 
 import api.server as srv
 from api.common import _cf_token_stale, _cf_is_session_err
@@ -104,7 +105,7 @@ class TestIsSessionErr(unittest.TestCase):
 
 
 def _client():
-    return TestClient(srv.app)
+    return TestClient(srv.app, headers={"X-API-Token": API_TOKEN})
 
 
 class TestCfLogsFallback(unittest.TestCase):

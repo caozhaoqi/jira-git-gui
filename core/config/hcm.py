@@ -3,16 +3,47 @@
 import json
 import os
 import sys
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional, Tuple
 
 from core.app_paths import get_data_root
 from core.models import ConnectConfig
+from core.secure_storage import load_secret, store_secret
 
 _BASE = get_data_root()
 _SESSION_FILE = _BASE / ".session.json"
 
 from .connect import _env_search_roots
+
+
+def protect_hcm_config(data: dict) -> dict:
+    protected = deepcopy(data)
+    token = protected.get("token") or ""
+    if token:
+        protected["token_ref"] = store_secret("hcm:preset-token", token)
+    protected.pop("token", None)
+    return protected
+
+
+def reveal_hcm_config(data: dict) -> dict:
+    revealed = deepcopy(data)
+    if revealed.get("token_ref"):
+        revealed["token"] = load_secret(revealed["token_ref"])
+    else:
+        revealed.setdefault("token", "")
+    return revealed
+
+
+def _write_private_json(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(path)
+
 
 def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
     """读取 平台连接业务白名单。
@@ -59,6 +90,11 @@ def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
                     continue
                 if not isinstance(data, dict):
                     continue
+                if p.name == "hcm_whitelist.local.json":
+                    protected = protect_hcm_config(data)
+                    if protected != data:
+                        _write_private_json(p, protected)
+                    data = reveal_hcm_config(protected)
                 for k, v in data.items():
                     if k in merged and isinstance(v, dict) and isinstance(merged[k], dict):
                         merged[k].update(v)
@@ -74,4 +110,3 @@ def load_hcm_whitelist(project_root: "Optional[Path]" = None) -> "dict":
             h.strip() for h in env_hosts.split(",") if h.strip()
         ]
     return merged
-

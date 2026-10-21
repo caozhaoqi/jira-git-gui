@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from fastapi.testclient import TestClient  # noqa: E402
+from api.auth import API_TOKEN  # noqa: E402
 import api.server  # noqa: E402  —— 必须 import server 才有全部路由
 from api.common import app  # noqa: E402
 from core.errors import UserError  # noqa: E402
@@ -135,7 +136,11 @@ def client(monkeypatch):
     # 服务配置写操作：本地 JSON 会被真实改写 —— 只测 GET，POST/PUT/DELETE 走 SKIP 集
     # 统一诊断：避免内部真执行（CF 已禁 + kubectl 已禁，应能自然失败，不额外 patch）
 
-    with TestClient(app, raise_server_exceptions=False) as c:
+    with TestClient(
+        app,
+        headers={"X-API-Token": API_TOKEN},
+        raise_server_exceptions=False,
+    ) as c:
         yield c
 
 

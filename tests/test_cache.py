@@ -9,6 +9,7 @@
 import json
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from core import cache as _cache
 
@@ -69,7 +70,29 @@ def test_locks_pool_is_bounded(tmp_path, monkeypatch):
     l2 = _cache._get_lock("ns", "a")
     l3 = _cache._get_lock("ns", "b")
     assert l1 is l2
-    assert isinstance(l1, threading.Lock)
+    assert isinstance(l1, type(threading.RLock()))
+
+
+def test_get_or_fetch_deduplicates_concurrent_misses(tmp_path, monkeypatch):
+    monkeypatch.setattr(_cache, "CACHE_DIR", tmp_path)
+    calls = 0
+    calls_lock = threading.Lock()
+
+    def fetch():
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+        time.sleep(0.05)
+        return {"result": "upstream"}
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(
+            lambda _: _cache.get_or_fetch("ns", "shared", fetch, ttl=60),
+            range(8),
+        ))
+
+    assert calls == 1
+    assert results == [{"result": "upstream"}] * 8
 
 
 def test_evict_expired_removes_stale_and_tmp(tmp_path, monkeypatch):

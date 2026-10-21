@@ -349,7 +349,8 @@ def test_http_roundtrip_via_testclient(monkeypatch, tmp_path):
     blob = os.urandom(4 * 1024 * 1024 + 999)
     src.write_bytes(blob)
 
-    client = TestClient(app)
+    from api.auth import API_TOKEN
+    client = TestClient(app, headers={"X-API-Token": API_TOKEN})
     r = client.post("/api/k8s/file/stat",
                     json={"env": "dev", "pod": "p1", "path": str(src)})
     assert r.status_code == 200, r.text[:200]

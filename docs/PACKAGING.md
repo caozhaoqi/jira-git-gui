@@ -145,7 +145,7 @@ pyinstaller build/pyinstaller_backend.spec --noconfirm
 # 浏览器打开 http://127.0.0.1:8787 即可验证
 ```
 
-前端静态资源与 `.env` 已被收集进包内（`sys._MEIPASS`），后端自动从包内加载。
+仅前端静态资源与无敏感信息的示例 JSON 会被打进包。`.env`、账号密码和 Cookie 均不会打包；用户凭据保存在操作系统凭据存储中（macOS Keychain、Windows Credential Manager/DPAPI、Linux Secret Service）。
 
 ---
 
@@ -206,15 +206,43 @@ runner 打进各自的后端和桌面包；平台 runner 随后分别构建 **�
 | windows-latest | `jira-git-backend.exe` | `*-setup.exe` (nsis) | `*.msi` |
 | ubuntu-latest | `jira-git-backend` | `*.AppImage` / `*.deb` | `*.AppImage` / `*.deb` |
 
+### CI 代码签名
+
+在 GitHub 仓库 **Settings → Secrets and variables → Actions** 中配置下列 secrets。证书只在对应 runner 的临时目录和证书存储中使用，不要提交到仓库。
+
+**macOS（Electron + Tauri）**
+
+| Secret | 内容 |
+|--------|------|
+| `APPLE_CERTIFICATE` | Developer ID Application `.p12` 证书的单行 Base64 |
+| `APPLE_CERTIFICATE_PASSWORD` | 导出 `.p12` 时设置的密码 |
+| `KEYCHAIN_PASSWORD` | CI 临时 keychain 的自定义密码 |
+| `APPLE_SIGNING_IDENTITY` | 证书完整身份名，可用 `security find-identity -v -p codesigning` 查询 |
+
+签名所需四项齐全后，macOS job 会导入证书并签署 Electron 与 Tauri 包。公证是可选的；若配置则必须同时设置 `APPLE_ID`、`APPLE_PASSWORD`（Apple app-specific password）和 `APPLE_TEAM_ID`。workflow 会把 `APPLE_PASSWORD` 映射到 Electron Builder 所需的 `APPLE_APP_SPECIFIC_PASSWORD`。
+
+导出 Developer ID Application 证书为 `.p12` 后，可用 `base64 -i certificate.p12 | tr -d '\n'` 生成 `APPLE_CERTIFICATE` 的单行值；不要把导出的证书或密码写入仓库文件。
+
+**Windows（Electron + Tauri）**
+
+| Secret | 内容 |
+|--------|------|
+| `WINDOWS_PFX_BASE64` | Windows 代码签名 `.pfx` 文件的单行 Base64 |
+| `WINDOWS_PFX_PASSWORD` | `.pfx` 密码 |
+| `WINDOWS_CERT_THUMBPRINT` | 证书 thumbprint（不含空格） |
+
+三项齐全后，Windows job 会把 PFX 导入当前用户证书存储；Electron Builder 使用 PFX，Tauri 使用 thumbprint、SHA-256 和 DigiCert 时间戳服务签名。任一平台的签名 secrets 完全未配置时，该平台仍构建未签名产物；只配置了部分必需项则 job 会明确失败，避免产生误认为已签名的包。
+
+在 PowerShell 中可用 `[Convert]::ToBase64String([IO.File]::ReadAllBytes("certificate.pfx"))` 生成 `WINDOWS_PFX_BASE64`；thumbprint 可在 Windows 证书管理器中查看。
+
 ---
 
 ## 六、已知限制 / 注意
 
-- **代码签名**：CI 未配置证书，macOS/Windows 产物为「ad-hoc / 未签名」，首次打开会被
-  Gatekeeper / SmartScreen 拦截，需用户手动允许。正式发布请配置 `codesign` / 证书。
+- **代码签名**：CI 签名取决于是否配置上述证书 secrets；未配置时 macOS/Windows 产物未签名，系统可能显示 Gatekeeper / SmartScreen 警告。只在确认下载来源可信、校验发布校验和后手动放行：macOS 可在「系统设置 → 隐私与安全性」中对该应用选择“仍要打开”；Windows 在 SmartScreen 页面选择“更多信息 → 仍要运行”。不要为此关闭系统级安全保护。
 - **Linux 系统库**：Electron 需 `libnss3` 等；Tauri 需系统 WebView 开发库（如
   `libwebkit2gtk-4.1-dev`）。CI 已 `apt-get install`，终端用户若缺库会启动失败。
 - **不动原始字节**：无论哪种形态，合并时的写入内容永远来自**原始远程字节**，格式化/规范化
   仅用于 diff 展示，不会污染远端仓库风格。
-- **`.env` 含敏感信息**：虽被收集进包，但建议正式发布时改用「连接设置」UI 录入，避免硬编码密钥。
+- **凭据存储**：首次读取旧版明文配置时，PAT、Cookie、云函数密码、HCM 预设令牌和 K8s SSH 密码会迁移到系统凭据存储；源配置文件仅保留凭据引用。若系统凭据存储不可用，迁移会明确失败，不会悄悄继续写明文。
 - **PyQt6 桌面版已剥离**：2026-10 起移至 `pyqt-legacy` 分支存档，CI/CD 仅出 Electron + Tauri 双端产物。

@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 # 只导入 api.common 拿到的 app 上没有任何路由（请求会全部 404）。
 import api.server  # noqa: F401
 from api.common import app
+from api.auth import API_TOKEN
 import api.routes_repos as _rr
 
 # 一条 5 层的深路径，与真实使用场景一致
@@ -102,7 +103,7 @@ def client_fixture(monkeypatch):
     """安装替身客户端，返回 (TestClient, fake) 。"""
     fake = _FakeClient(_deep_tree())
     monkeypatch.setattr(_rr, "client", fake, raising=True)
-    return TestClient(app), fake
+    return TestClient(app, headers={"X-API-Token": API_TOKEN}), fake
 
 
 def test_resolve_returns_all_levels(client_fixture):
@@ -127,7 +128,7 @@ def test_resolve_fetches_levels_concurrently(client_fixture):
     rr_client_backup = rr.client
     rr.client = fake
     try:
-        c = TestClient(app)
+        c = TestClient(app, headers={"X-API-Token": API_TOKEN})
         t0 = time.time()
         r = c.get("/api/tree/resolve", params={"path": DEEP})
         elapsed = time.time() - t0

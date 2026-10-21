@@ -20,6 +20,7 @@
     api.hcm.hcm_core 的模块级代理变量，使配置无需重启即时生效。
 """
 import json
+import os
 import re
 from pathlib import Path
 from typing import List, Optional
@@ -29,12 +30,19 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 
 from api.common import app, logger, _PROJECT_ROOT
-from core.config.cf import _env_search_roots, clear_cf_accounts_cache
-from core.config.connect import _BASE as _ENV_BASE, load_config as _load_connect_config
+from core.config.cf import (
+    _env_search_roots, clear_cf_accounts_cache, protect_cf_accounts,
+    reveal_cf_accounts,
+)
+from core.config.hcm import protect_hcm_config, reveal_hcm_config
+from core.config.connect import (
+    _BASE as _ENV_BASE, _SECRET_ALIASES, load_config as _load_connect_config,
+)
 from core.network_proxy import (
     get_global_http_proxy, normalize_http_proxy, set_global_http_proxy,
 )
 from core.errors import UserError
+from core.secure_storage import delete_secret, store_secret
 
 router = APIRouter()
 
@@ -68,14 +76,79 @@ def _read_json(path: Path, default):
     except Exception as e:
         logger.error("[服务配置] 读取 %s 失败: %s", path, e)
         return default
-    return data if isinstance(data, (dict, list)) else default
+    if not isinstance(data, (dict, list)):
+        return default
+    if path.name == "cf_accounts.local.json":
+        protected = protect_cf_accounts(data)
+        if protected != data:
+            _write_json_file(path, protected)
+        return reveal_cf_accounts(protected)
+    if path.name == "hcm_whitelist.local.json":
+        protected = protect_hcm_config(data)
+        if protected != data:
+            _write_json_file(path, protected)
+        return reveal_hcm_config(protected)
+    return data
 
 
-def _write_json(path: Path, data) -> None:
+def _write_json_file(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     tmp.replace(path)  # 原子替换，避免半写文件
+
+
+def _write_json(path: Path, data) -> None:
+    previous_refs = set()
+    if path.name in {"cf_accounts.local.json", "hcm_whitelist.local.json"} and path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if path.name == "cf_accounts.local.json":
+                old_accounts = existing.get("accounts", []) if isinstance(existing, dict) else existing
+                previous_refs = {
+                    account.get("password_ref")
+                    for account in old_accounts
+                    if isinstance(account, dict) and account.get("password_ref")
+                }
+            elif isinstance(existing, dict) and existing.get("token_ref"):
+                previous_refs.add(existing["token_ref"])
+        except (OSError, ValueError):
+            previous_refs = set()
+    if path.name == "cf_accounts.local.json":
+        data = protect_cf_accounts(data)
+    elif path.name == "hcm_whitelist.local.json":
+        data = protect_hcm_config(data)
+    _write_json_file(path, data)
+    if path.name in {"cf_accounts.local.json", "hcm_whitelist.local.json"}:
+        if path.name == "cf_accounts.local.json":
+            accounts = data.get("accounts", []) if isinstance(data, dict) else data
+            current_refs = {
+                account.get("password_ref")
+                for account in accounts
+                if isinstance(account, dict) and account.get("password_ref")
+            }
+        else:
+            current_refs = {data["token_ref"]} if data.get("token_ref") else set()
+        for ref in previous_refs - current_refs:
+            delete_secret(ref)
+
+
+def _env_keyring_refs(lines: list[str]) -> set[str]:
+    refs = set()
+    for raw in lines:
+        match = re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*\s*=(.*)$", raw)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if value.startswith("keyring://"):
+            refs.add(value)
+    return refs
 
 
 # --------------------------------------------------------------------------- #
@@ -318,6 +391,8 @@ async def copy_cloud_function(req: CopyAccountReq):
     src = accounts[req.index]
     clone = dict(src)
     clone["name"] = f"{src.get('name', '账号')} 副本"
+    clone.pop("credential_id", None)
+    clone.pop("password_ref", None)
     accounts.append(clone)
     _write_json(_cf_path(), {"accounts": accounts})
     clear_cf_accounts_cache()
@@ -431,28 +506,49 @@ async def save_jira_config(req: JiraConfigReq):
         "JIRA_MODE": (req.mode.strip() or "pat").lower(),
         "JIRA_HTTP_PROXY": http_proxy,
     }
+    secret_updates = {}
     if req.pat:
-        desired["personal_access_token"] = req.pat
+        secret_updates["personal_access_token"] = store_secret("jira:JIRA_PAT", req.pat)
     if req.cookie:
-        desired["cookie"] = req.cookie
+        secret_updates["cookie"] = store_secret("jira:JIRA_COOKIE", req.cookie)
+    secret_aliases = {
+        alias: canonical
+        for canonical, aliases in _SECRET_ALIASES.items()
+        for alias in aliases
+    }
 
+    original_lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    old_refs = _env_keyring_refs(original_lines)
     out_lines = []
     seen = set()
-    if env_path.exists():
-        for raw in env_path.read_text(encoding="utf-8").splitlines():
-            m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$", raw)
-            if m and m.group(1) in desired and m.group(1) not in seen:
-                out_lines.append(f"{m.group(1)}={desired[m.group(1)]}")
-                seen.add(m.group(1))
-            else:
-                out_lines.append(raw)
+    seen_secrets = set()
+    for raw in original_lines:
+        m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$", raw)
+        if m and secret_aliases.get(m.group(1)) in secret_updates:
+            canonical = secret_aliases[m.group(1)]
+            out_lines.append(f"{m.group(1)}={secret_updates[canonical]}")
+            seen_secrets.add(canonical)
+        elif m and m.group(1) in desired and m.group(1) not in seen:
+            out_lines.append(f"{m.group(1)}={desired[m.group(1)]}")
+            seen.add(m.group(1))
+        else:
+            out_lines.append(raw)
     for k, v in desired.items():
         if k not in seen:
             out_lines.append(f"{k}={v}")
+    for canonical, ref in secret_updates.items():
+        if canonical not in seen_secrets:
+            out_lines.append(f"{canonical}={ref}")
 
     tmp = env_path.with_name(".env.tmp")
     tmp.write_text("\n".join(out_lines).rstrip("\n") + "\n", encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     tmp.replace(env_path)
+    for ref in old_refs - _env_keyring_refs(out_lines):
+        delete_secret(ref)
 
     try:
         from api.common import client as jira_client
