@@ -4905,3 +4905,299 @@ html.dark {
   .cfc-list-col { flex: 0 0 auto; min-width: 0; max-height: 38vh; }
   .cfc-elapsed { margin-left: 0; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   云函数运行状态监控（CfMonitorPanel）
+   设计：状态可辨优于装饰 —— 颜色只表达「出错 / 告警 / 正常」，
+   选中/展开用主色弱底（不用橙色，见 .impeccable.md 反例）。
+   ═══════════════════════════════════════════════════════════════════ */
+.cfmon-panel { background: var(--bg-panel); }
+.cfmon-toolbar { gap: 8px; }
+
+/* 规模切换：三档分段控件（与其它面板的 seg 控件视觉一致） */
+.cfmon-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+}
+.cfmon-seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  height: var(--ctl-sm);
+  padding: 0 10px;
+  font-size: var(--text-2sm);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.cfmon-seg-btn + .cfmon-seg-btn { border-left: 1px solid var(--border); }
+.cfmon-seg-btn:hover { background: var(--bg-hover); color: var(--text); }
+.cfmon-seg-btn.active {
+  background: var(--accent-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.cfmon-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--ctl-sm);
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.cfmon-toggle input { width: 14px; height: 14px; accent-color: var(--primary); cursor: pointer; }
+
+.cfmon-at { font-size: var(--text-2sm); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+/* 提示条：环境未登录 / 取数失败。区别在于「能否操作」——都给出下一步 */
+.cfmon-note,
+.cfmon-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: var(--text-2sm);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.cfmon-note { background: var(--warn-bg); color: var(--warn-strong); }
+.cfmon-error { background: var(--danger-bg); color: var(--danger-strong); }
+.cfmon-note-detail {
+  font-family: var(--mono);
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-xs);
+  padding: 1px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 总览 KPI 条 */
+.cfmon-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+}
+.cfmon-kpi { display: flex; align-items: baseline; gap: 6px; }
+.cfmon-kpi-num {
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.cfmon-kpi-label { font-size: var(--text-2sm); color: var(--text-faint); }
+/* 有错误函数时，那个 KPI 才用红色（没有错误就不该有红色） */
+.cfmon-kpi--error.is-bad .cfmon-kpi-num { color: var(--danger-strong); }
+.cfmon-meta { font-size: var(--text-2sm); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+
+.cfmon-body { padding: 0; }
+
+/* 表格：等宽数字 + 行悬停；错误行左侧用状态色条而不是整行铺色 */
+.cfmon-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-2sm);
+  /* ⚠️ 必须 fixed：自动布局会**忽略单元格的 max-width**，导致「最近一条」列
+     无限变宽把表格撑出容器、右列表头被裁（实测 1784px 窗口下 "Latest …" 被切）。
+     固定布局后列宽由下面的百分比决定，超长文本按 ellipsis 正确省略。 */
+  table-layout: fixed;
+}
+.cfmon-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  background: var(--bg-head);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cfmon-table tbody td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  vertical-align: middle;
+}
+.cfmon-row:hover { background: var(--row-hover); }
+.cfmon-row.is-clickable { cursor: pointer; }
+.cfmon-row.is-open { background: var(--row-selected); }
+.cfmon-row--error td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.cfmon-row--warn td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.cfmon-row--ok td:first-child { box-shadow: inset 3px 0 0 transparent; }
+
+/* fixed 布局下列宽 = 百分比总和 100%，不会溢出容器 */
+.cfmon-col-name { width: 22%; }
+.cfmon-col-num { width: 7%; text-align: right; font-variant-numeric: tabular-nums; }
+.cfmon-col-rate { width: 9%; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+.cfmon-col-health { width: 10%; }
+.cfmon-col-time { width: 16%; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cfmon-col-msg {
+  width: 36%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+/* fixed 布局下单元格内容会溢出到相邻列，统一裁掉 */
+.cfmon-table tbody td { overflow: hidden; text-overflow: ellipsis; }
+.cfmon-fn { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+
+.cfmon-fn { font-family: var(--mono); font-size: var(--text-2sm); }
+.cfmon-caret {
+  display: inline-block;
+  margin-right: 5px;
+  color: var(--text-faint);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.cfmon-caret.is-open { transform: rotate(90deg); }
+.cfmon-err-cell { font-weight: 600; }
+.cfmon-row--error .cfmon-err-cell { color: var(--danger-strong); }
+.cfmon-row--warn .cfmon-err-cell { color: var(--warn-strong); }
+.cfmon-zero { color: var(--text-faint); font-weight: 400; }
+
+/* 健康度徽标：色块语义严格（error/warn/ok） */
+.cfmon-health {
+  display: inline-block;
+  min-width: 58px;
+  text-align: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.cfmon-health--error { background: var(--danger-bg); color: var(--danger-strong); }
+.cfmon-health--warn { background: var(--warn-bg); color: var(--warn-strong); }
+.cfmon-health--ok { background: var(--success-bg); color: var(--success-strong); }
+.cfmon-health--unknown { background: var(--bg-elevated); color: var(--text-faint); }
+
+/* 展开的错误明细 */
+.cfmon-detail-row > td { background: var(--bg-elevated); padding: 0 !important; }
+.cfmon-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  padding: 10px 14px 12px 20px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cfmon-detail-item { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cfmon-detail-item--full { flex-basis: 100%; }
+.cfmon-detail-label {
+  font-size: var(--text-2sm);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.cfmon-detail-value { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+/* 完整错误正文：保留换行（traceback 靠缩进表达调用栈），限高可滚动 */
+.cfmon-detail-error-block { flex: 1 1 100%; min-width: 0; }
+.cfmon-detail-error-time {
+  color: var(--text-faint);
+  font-size: var(--text-2sm);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.cfmon-detail-error {
+  margin: 0;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: var(--text-2sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-xs);
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.cfmon-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-head);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cfmon-chip b { color: var(--text-faint); font-weight: 600; }
+.cfmon-chip--err { background: var(--danger-bg); border-color: transparent; color: var(--danger-strong); }
+.cfmon-chip--err b { color: var(--danger-strong); opacity: 0.7; }
+
+/* 工具栏在窄屏：允许换行但让「更新于」独占一行靠右，避免和控件抢位 */
+@media (max-width: 1100px) {
+  .cfmon-toolbar { row-gap: 6px; }
+  .cfmon-toolbar .spacer { flex-basis: 100%; height: 0; }
+  .cfmon-at { margin-left: auto; }
+}
+
+/* 窄窗口：消息列优先让位，避免把函数名压没。
+   注意 th/td 都要收，只藏 td 会留下一个空表头（实测呈现为一格破开的省略号）。 */
+@media (max-width: 1200px) {
+  .cfmon-col-msg,
+  .cfmon-table thead th.cfmon-col-msg {
+    display: none;
+  }
+  /* 消息列隐掉后需重新分配百分比，否则剩下 64% 铺不满、右侧留白 */
+  .cfmon-col-name { width: 34%; }
+  .cfmon-col-time { width: 24%; }
+}
+
+/* 错误样本列表：同一函数的多条不同错误，逐条可展开看全文 */
+.cfmon-samples { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.cfmon-sample { display: flex; flex-direction: column; gap: 4px; }
+.cfmon-sample-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  border-radius: var(--radius-xs);
+}
+.cfmon-sample-head:hover { background: var(--bg-hover); }
+.cfmon-sample-head .cfmon-caret { flex: 0 0 auto; }
+.cfmon-sample-time {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: var(--text-2sm);
+  font-variant-numeric: tabular-nums;
+}
+.cfmon-sample-short {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: var(--text-2sm);
+}
+.cfmon-sample-head.is-open .cfmon-sample-short { color: var(--text); }

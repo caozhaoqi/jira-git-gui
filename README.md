@@ -164,6 +164,19 @@ jq -n --arg name "dev" --rawfile content "$HOME/.kube/config" \
 
 The **Cloud functions** tab queries, filters, sorts and exports cloud-function logs, and can copy results straight to a file.
 
+### CF Monitor
+
+**CF Monitor** (inside the Cloud Functions group in the sidebar) aggregates those logs into a per-function health board, so you can see which function is failing without reading logs line by line:
+
+- KPI strip: function count / failing / errors / healthy, plus the sampled volume and the model that answered;
+- One row per function: total, errors, error rate, health, last activity, latest message;
+- Status stripe and health badge carry semantics only (red = broken, yellow = warn, green = healthy) — never a fully tinted row;
+- Click a failing row to expand error-code distribution (e.g. `80002 × 56`), stage distribution, and **distinct error samples** (deduped by message with RID/timestamp prefixes stripped; click one to see the full traceback with line breaks preserved);
+- "Problems only" filters instantly; fetch scope has Quick / Standard / Deep (default Standard = 1000 rows × 3 pages, ~2-3s);
+- Auto-refresh (15/30/60/300s) pauses while the panel is hidden and catches up when you return.
+
+The environment dropdown only lists real addresses (test leftovers like `http://x` are filtered out) and prefers an environment that has a token and no previous error. An expired token produces a re-sign-in hint rather than a bare error. The backend endpoint `POST /api/cf/monitor` shares its aggregation rules with the CLI tool.
+
 ### CF consistency
 
 **CF consistency** scans your local cloud-function directory against the deployed online version and flags drift — so "fixed locally but never deployed" (or the reverse) can't happen silently.

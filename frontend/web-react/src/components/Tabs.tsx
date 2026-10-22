@@ -23,6 +23,7 @@ const MAIN_TABS: TabDef[] = [
 const CF_GROUP = {
   key: 'group-cf', icon: 'groupCF', labelKey: 'tab.groupCF',
   tabs: [
+    { key: 'cfmonitor', labelKey: 'tab.cfmonitor', icon: 'cfmonitor' },
     { key: 'cfsync', labelKey: 'tab.cfsync', icon: 'cfsync' },
     { key: 'cfdebug', labelKey: 'tab.cfdebug', icon: 'cfdebug' },
   ] as TabDef[],
