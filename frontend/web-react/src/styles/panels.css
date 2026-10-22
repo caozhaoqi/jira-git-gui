@@ -4148,11 +4148,20 @@ html.dark .k8s-file-view .hljs-property { color: var(--code-key); }
 @keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
 
 /* ===== 云函数日志：分布可视化（时间直方图 + 类型分布）=====
-   数据源是「当前已加载」的日志行（纯前端聚合），头部会标注「基于 N 条」，避免误读为全量。 */
+   数据源是「当前已加载」的日志行（纯前端聚合），头部会标注「基于 N 条」，避免误读为全量。
+   主查询带类型过滤时，父级会补发不带类型过滤的「伴生查询」，分布图看全类型行集。 */
 .cf-dist-card { margin-top: var(--sp-3); }
 .cf-dist-card .panel-header { gap: var(--sp-2); }
 .cf-dist-meta { margin-left: auto; color: var(--text-dim); font-size: var(--text-sm); }
 .cf-dist-meta-err { color: var(--danger); }
+/* 分布图头「加载条数」：.sel 的紧凑行内变体——跟着 meta 文字走，不把 header 撑高 */
+.cf-dist-page-size {
+  min-height: 22px;
+  width: 76px;
+  padding: 0 6px;
+  font-size: var(--text-sm);
+  border-radius: var(--radius-xs);
+}
 .cf-dist-clear,
 .cf-dist-zoomout { flex: 0 0 auto; }
 .cf-dist-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-2) 0 0; }
