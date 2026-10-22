@@ -15,6 +15,14 @@ interface Props {
   rows: CfLogsRow[];
   /** 查询时填的类型过滤值，作为类型兜底（与列表口径一致） */
   typeFallback?: string;
+  /** 分布图数据源说明：'ready'=伴生查询拉回的全类型集已到位；
+   *  'partial'=全类型但只是最新样本（翻页触顶，未覆盖列表全部时段）；
+   *  'loading'=伴生查询进行中（先按已加载行展示）；'none'=主结果本就是全类型 */
+  allTypes?: 'none' | 'loading' | 'ready' | 'partial';
+  /** 当前每页加载条数（父级 cfg.page_size） */
+  pageSize?: number;
+  /** 改加载条数：父级改 cfg 并重查（服务端分页，必须重查才生效） */
+  onPageSizeChange?: (n: number) => void;
   /** 点时间柱：按该柱覆盖的绝对时间段过滤（毫秒） */
   onTimeRangePick?: (startMs: number, endMs: number) => void;
   /** 时间范围钻取栈深度（>0 时显示「返回上一级」） */
@@ -27,6 +35,8 @@ interface Props {
   onToggleType: (name: string) => void;
   /** 清空类型过滤 */
   onClearTypes: () => void;
+  /** 点类型=切换服务端类型过滤（伴生全类型视图下）而非前端多选 */
+  switchOnTypeClick?: boolean;
 }
 
 /** 类型分布条最多直接展示的条数，其余折叠成一行「其他」计数 */
@@ -38,6 +48,11 @@ const TARGET_BARS = 120;
 /**
  * 云函数日志「分布」卡片：时间直方图（堆叠柱，点柱钻取时间段）+ 类型分布（点击按类型过滤）。
  *
+ * 数据源由父级决定：主查询**带了类型过滤**时，父级会另发一次不带类型过滤的「伴生查询」，
+ * 把全类型行集传给本组件——否则分布图只能看到服务端过滤后的那一个类型
+ * （「同期还有什么别的函数在写日志」看不出来）。此时点某个类型 = 切换服务端类型过滤
+ * （switchOnTypeClick），再点一次当前类型则清除过滤看全量。
+ *
  * 配色：`assignTypeColors` 按函数名稳定取色并**同视图防撞色**，时间柱按函数
  * 堆叠、类型条同色——两个视图互相印证，「哪根柱/哪根条是哪个函数」一眼可查。
  * 错误不抢颜色的戏：柱底一根红色 flag 表示「该时段有疑似错误」，明细在悬停提示里。
@@ -46,8 +61,8 @@ const TARGET_BARS = 120;
  * 因此头部显式标注「基于 N 条」，避免被误读成全量统计。
  */
 export function CfDistribution({
-  rows, typeFallback = '', onTimeRangePick, rangeStackLen = 0, onPopRange,
-  typePick, onToggleType, onClearTypes,
+  rows, typeFallback = '', allTypes = 'none', pageSize, onPageSizeChange, onTimeRangePick, rangeStackLen = 0, onPopRange,
+  typePick, onToggleType, onClearTypes, switchOnTypeClick = false,
 }: Props) {
   const { t } = useT();
   // 默认收起：面板信息密度已较高，需要看分布时点标题展开（与「高级选项」同一策略）
@@ -162,6 +177,13 @@ export function CfDistribution({
   const restCount = types.slice(MAX_TYPE_BARS).reduce((s, x) => s + x.count, 0);
   const restLen = Math.max(0, types.length - MAX_TYPE_BARS);
 
+  // 「加载条数」下拉：常用档位 + 当前值（历史遗留的自定义值也补一个选项，避免 select 空选）
+  const PAGE_SIZE_PRESETS = [100, 200, 500, 1000];
+  const pageSizeValue = Number.isFinite(pageSize) ? Math.min(1000, Math.max(1, Math.trunc(pageSize as number))) : 200;
+  const pageSizeOptions = PAGE_SIZE_PRESETS.includes(pageSizeValue)
+    ? PAGE_SIZE_PRESETS
+    : [...PAGE_SIZE_PRESETS, pageSizeValue].sort((a, b) => a - b);
+
   const total = rows.length;
 
   const pickBucket = (b: CfDistBucket) => {
@@ -188,6 +210,25 @@ export function CfDistribution({
         </button>
         <span className="cf-dist-meta">
           {t('cf.distBasedOn', { n: total })}
+          {onPageSizeChange && (
+            <>
+              {' · '}
+              {t('cf.distPageSize')}
+              {' '}
+              <select
+                className="sel cf-dist-page-size"
+                value={pageSizeValue}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                title={t('cf.distPageSizeHint')}
+                aria-label={t('cf.distPageSize')}
+              >
+                {pageSizeOptions.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </>
+          )}
+          {allTypes === 'ready' && ` · ${t('cf.distAllTypes')}`}
+          {allTypes === 'partial' && ` · ${t('cf.distAllTypesPartial')}`}
+          {allTypes === 'loading' && ` · ${t('cf.distAllTypesLoading')}`}
           {buckets.length > 0 && ` · ${t('cf.distBucket')} ${fmtStep(stepMs)}`}
           {errTotal > 0 && <span className="cf-dist-meta-err"> · {t('cf.distErrCount', { n: errTotal })}</span>}
         </span>
@@ -270,7 +311,7 @@ export function CfDistribution({
               <div className="cf-dist-section">
                 <div className="cf-dist-subtitle">
                   <span><TabIcon name="tag" size={13} /> {t('cf.distType')}</span>
-                  <span className="cf-dist-hint">{t('cf.distTypesHint')}</span>
+                  <span className="cf-dist-hint">{switchOnTypeClick ? t('cf.distTypesSwitchHint') : t('cf.distTypesHint')}</span>
                 </div>
                 <div className="cf-dist-types">
                   {shownTypes.map((it) => {

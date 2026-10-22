@@ -55,6 +55,10 @@ interface CfLastResult {
   rows: CfLogsRow[];
   raw: any;
   localPage: number;
+  /** 分布图伴生查询拉回的「全类型」行集——主查询带了 log_type 过滤时才有。
+   *  没有它，分布图只能看到服务端过滤后的那一个类型，「同期还有什么别的函数在写日志」看不出来。
+   *  covered=false：翻页触顶仍未覆盖主查询最早行，图表只是最新样本（头部会标注）。 */
+  distRows?: { rows: CfLogsRow[]; covered: boolean } | null;
 }
 
 // 时间范围预设（下拉）。labelKey 指向 i18n 文案。
@@ -153,6 +157,16 @@ function cfContentCopyText(row: CfLogsRow): string {
  */
 function cfLogType(row: CfLogsRow, fallback: string): string {
   return logRowType(row, fallback);
+}
+
+/** 行集里最早的可解析时间戳（毫秒）；无有效时间戳时返回 -Infinity。 */
+function oldestRowMs(rows: CfLogsRow[]): number {
+  let oldest = Number.POSITIVE_INFINITY;
+  for (const r of rows) {
+    const ms = parseLogTime(cfTime(r));
+    if (!isNaN(ms) && ms < oldest) oldest = ms;
+  }
+  return Number.isFinite(oldest) ? oldest : -Infinity;
 }
 
 /** 实时刷新的行去重 key：id 优先，缺 id 用「时间+内容」哈希兜底（与后端 _row_key 同口径）。 */
@@ -289,6 +303,9 @@ export function CfPanel() {
   const [needBaseline, setNeedBaseline] = useState(false);   // 恢复了后台流但缺基线：等 cfg 就绪补查一次
   // —— 日志分布图（CfDistribution）相关 ——
   const [typePick, setTypePick] = useState<string[]>([]);    // 类型分布里勾选的类型（前端过滤，多选）
+  const [distLoading, setDistLoading] = useState(false);    // 分布图伴生查询（全类型行集）进行中
+  // 查询序号：伴生查询在后台翻页，到达时若已发过新查询则丢弃，避免旧数据盖掉新结果
+  const querySeqRef = useRef(0);
   // 时间范围钻取栈（点分布柱进一层；「返回上一级」弹一层）。存的是进入前的完整时间配置。
   const [rangeStack, setRangeStack] = useState<Array<{ preset: TimePreset; start: string; end: string }>>([]);
   // 「高级选项」折叠区（查询参数 / 导出与实时刷新 / 手动起止）：默认收起，展开状态持久化。
@@ -300,10 +317,10 @@ export function CfPanel() {
     try { localStorage.setItem('jgg-cf-adv-open', next ? '1' : '0'); } catch { /* ignore */ }
     setAdvOpen(next);
   };
-  // 高级区里有非默认值时给开关加红点（避免「改过参数却忘了」，收起时也能察觉）
+  // 高级区里有非默认值时给开关加红点（避免「改过参数却忘了」，收起时也能察觉）。
+  // page_size 已提为分布图头的常驻控件，不再计入「藏住的改动」。
   const advDirty =
     (cfg.record_model.trim() !== '' && cfg.record_model.trim().toLowerCase() !== 'dynamic_log') ||
-    (Number.isFinite(cfg.page_size) && cfg.page_size !== 200) ||
     (Number.isFinite(cfg.page_index) && cfg.page_index !== 1);
 
   // 实时刷新开启时自动展开高级区——「停止 / 间隔」控件都在里面，藏起来会让人找不到。
@@ -730,8 +747,20 @@ export function CfPanel() {
     if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
   };
 
-  /** 切换类型分布里的某个类型（多选 toggle）。 */
+  /** 切换类型分布里的某个类型（多选 toggle）。
+   *  分布图看的是伴生全类型集时（主查询带了类型过滤）：点某个类型 = 把服务端类型过滤切到它并重查
+   *  ——伴生数据里该类型的行主查询根本没拉回来，前端多选只会得到空列表；
+   *  再点一次当前类型则清除过滤看全量。 */
   const toggleTypePick = (name: string) => {
+    if (resultRef.current?.distRows && cfgRef.current.log_type.trim()) {
+      const next = cfgRef.current.log_type.trim() === name ? '' : name;
+      const patch = { log_type: next };
+      setCfg((c) => ({ ...c, ...patch }));
+      saveCfg(patch);
+      setTypePick([]);
+      void queryLogs({ log_type: next });
+      return;
+    }
     setTypePick((p) => (p.includes(name) ? p.filter((x) => x !== name) : [...p, name]));
     if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
   };
@@ -739,6 +768,15 @@ export function CfPanel() {
   const clearTypePick = () => {
     setTypePick([]);
     if (resultRef.current) setResult({ ...resultRef.current, localPage: 1 });
+  };
+
+  /** 分布图头「加载条数」：改的是服务端分页大小，必须重查才生效（把新值直接传给 queryLogs，
+   *  避开 setCfg 后闭包里还是旧值的坑）。 */
+  const onDistPageSizeChange = (n: number) => {
+    const patch = { page_size: n };
+    setCfg((c) => ({ ...c, ...patch }));
+    saveCfg(patch);
+    void queryLogs({ page_size: n });
   };
 
   // 实时刷新中：查询过滤条件（server_url / log_type / record_model）变了就按新条件重启后端流。
@@ -772,12 +810,15 @@ export function CfPanel() {
     }
   };
 
-  const queryLogs = async () => {
+  /** 查询日志。override 供「分布图里点某个类型 / 改加载条数」用：直接把对应查询条件切过去重查，
+   *  省得先 setCfg 再等下一次渲染的闭包（否则读到的是旧 cfg，改了等于没改）。
+   *  注意：作为 onClick 直接传入时第一个参数会是 MouseEvent，调用方都已包一层无参箭头。 */
+  const queryLogs = async (override?: { log_type?: string; page_size?: number }) => {
     const serverUrl = cfg.server_url.trim();
     const token = cfg.token.trim();
-    const logType = cfg.log_type.trim();
+    const logType = (override?.log_type ?? cfg.log_type).trim();
     const recordModel = cfg.record_model.trim() || 'dynamic_log';
-    const pageSize = cfg.page_size || 200;
+    const pageSize = override?.page_size ?? (cfg.page_size || 200);
     const pageIndex = cfg.page_index || 1;
     const proxy = cfg.proxy.trim();
     const cached = tokenMap[cfg.server_url.trim()];
@@ -785,6 +826,8 @@ export function CfPanel() {
       setStatus({ text: t('cf.tokenFirst'), cls: 'error' });
       return;
     }
+    querySeqRef.current += 1;      // 新查询：在飞的伴生查询到达时按序号丢弃
+    setDistLoading(false);         // 重置伴生查询态（本查询若带类型过滤，下面会再置 true）
     setBusy('query', true);
     setStatus({ text: proxy ? `正在查询（代理：${proxy}）…` : '正在查询（直连）…', cls: '' });
     try {
@@ -835,6 +878,13 @@ export function CfPanel() {
       }
       // 不再自动全量拉取（原 ensureAllLogs 会按 total 分页拉到 500 页 × 1000 条 ≈ 50 万行，
       // 直接撑爆渲染进程内存并诱发字体/布局 OOM）。排序/过滤一律只作用于本次已加载的页。
+      // 分布图伴生查询（仅当带了类型过滤）：主查询被服务端 filter_dict 收成单类型后，
+      // 分布图永远只剩那一个函数——「同期还有什么别的函数在写日志」看不出来（用户实测反馈）。
+      // 平台 filter_dict 只支持 eq/like、没有时间范围，服务端只能给「最新 N 条」，
+      // 因此按页并发补拉直到覆盖主查询最早行或触顶；失败不打扰主结果（图表回退为已加载行）。
+      if (logType) {
+        void loadDistRows(serverUrl, token, recordModel, pageSize, proxy, oldestRowMs(rows));
+      }
       // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
       await syncStreamFilter(serverUrl, logType, recordModel, pageSize);
     } catch (ex: any) {
@@ -855,6 +905,46 @@ export function CfPanel() {
       setBusy('query', false);
     }
   };
+
+  /** 分布图伴生查询：补拉一份**不带类型过滤**的同环境日志专供分布图聚合（详见 queryLogs 内注释）。
+   *  翻页策略：每轮并发 2 页、最多 3 轮（6 页）——任一批次不足页说明模型已到底（covered）；
+   *  已覆盖主查询最早行也停（covered）。轮次用完还没覆盖上 → covered=false，图表标注「最新样本」。
+   *  主查询行没有可解析时间戳时只拉 1 轮（再多也判断不了覆盖，白烧请求）。 */
+  const DIST_PAGE_ROUNDS = 3;
+  const loadDistRows = useCallback(async (
+    serverUrl: string, token: string, recordModel: string, pageSize: number, proxy: string, oldestMs: number,
+  ) => {
+    const mySeq = querySeqRef.current;
+    const pageN = Math.max(1, Math.min(1000, Math.trunc(pageSize) || 200));
+    const rounds = Number.isFinite(oldestMs) ? DIST_PAGE_ROUNDS : 1;
+    const collected: CfLogsRow[] = [];
+    let covered = false;
+    setDistLoading(true);
+    try {
+      for (let round = 0; round < rounds; round++) {
+        const batches = await Promise.all([round * 2 + 1, round * 2 + 2].map((p) =>
+          apiPost<any>('/api/cf/logs', {
+            server_url: serverUrl, token, log_type: '',
+            record_model: recordModel, page_index: p, page_size: pageN, proxy,
+          }).then((r) => {
+            const pl = r?.data || r?.result || r;
+            return (pl?.list || pl?.data || pl?.items || r?.list || r?.data || []) as CfLogsRow[];
+          }).catch(() => [] as CfLogsRow[]),
+        ));
+        for (const b of batches) collected.push(...b);
+        if (batches.some((b) => b.length < pageN)) { covered = true; break; } // 拉不满 → 模型已到底
+        if (oldestRowMs(collected) <= oldestMs) { covered = true; break; }   // 已覆盖主查询最早行
+      }
+    } catch {
+      /* 伴生查询整体失败：不打扰主结果，图表回退为已加载行 */
+    } finally {
+      if (querySeqRef.current !== mySeq) return; // 期间又发了新查询：结果丢弃（加载态由新查询管）
+      setDistLoading(false);
+      if (collected.length > 0) {
+        setResult((prev) => (prev ? { ...prev, distRows: { rows: collected, covered } } : prev));
+      }
+    }
+  }, []);
 
   // 一次性补基线：等 loadCfg 恢复出的 server_url 到位后再查（挂载 effect 里 cfg 还是旧值，直接查会拿到空 server_url）。
   // 面板在 App 中「访问过即常驻挂载」，故此 effect 每次程序运行至多触发一次。
@@ -1135,6 +1225,37 @@ export function CfPanel() {
     }
     return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows, filtered };
   }, [result, sortDir, search, caseSensitive, filterOn, cfg.time_preset, cfg.time_start, cfg.time_end, typePick]);
+
+  // 分布图数据源：主查询带了类型过滤时，用伴生查询拉回的全类型集——否则分布图只剩单类型，
+  // 「这段时间还有什么别的函数在写日志」看不出来（用户实测反馈：14-18 点明明有别的类型）。
+  // 过滤链与列表口径一致（时间窗口 → 类型多选 → 关键词），仅不过服务端类型过滤那一层。
+  const distView = useMemo(() => {
+    if (!result) return [] as CfLogsRow[];
+    const companion = !!result.distRows;
+    const fallback = companion ? '' : result.log_type;
+    const src = companion ? result.distRows!.rows : result.rows;
+    const win = effectiveWindowMs(cfg.time_preset, cfg.time_start, cfg.time_end);
+    let rows = win
+      ? src.filter((r) => {
+          const tv = parseLogTime(cfTime(r));
+          return !isNaN(tv) && tv >= win[0] && tv <= win[1];
+        })
+      : src.slice();
+    if (typePick.length > 0) {
+      rows = rows.filter((r) => typePick.includes(cfLogType(r, fallback)));
+    }
+    const q = search.trim();
+    if (q && filterOn) {
+      const needle = caseSensitive ? q : q.toLowerCase();
+      rows = rows.filter((r) => {
+        const content = caseSensitive ? cfContent(r) : cfContent(r).toLowerCase();
+        const time = caseSensitive ? cfTime(r) : cfTime(r).toLowerCase();
+        const type = caseSensitive ? cfLogType(r, fallback) : cfLogType(r, fallback).toLowerCase();
+        return content.includes(needle) || time.includes(needle) || type.includes(needle);
+      });
+    }
+    return rows;
+  }, [result, cfg.time_preset, cfg.time_start, cfg.time_end, typePick, search, filterOn, caseSensitive]);
 
   const goLocalPage = (p: number) => {
     if (result) setResult({ ...result, localPage: p });
@@ -1445,7 +1566,7 @@ export function CfPanel() {
           </div>
           <button
             className="btn btn-primary cf-query-btn"
-            onClick={queryLogs}
+            onClick={() => void queryLogs()}
             disabled={loading.query}
           >
             {loading.query ? t('cf.querying') : t('cf.query')}
@@ -1610,14 +1731,18 @@ export function CfPanel() {
       {/* ===== 日志分布可视化（时间直方图 + 类型分布；点柱钻取时段，点类型加前端过滤）===== */}
       {result && (
         <CfDistribution
-          rows={view.filtered}
-          typeFallback={result.log_type}
+          rows={distView}
+          typeFallback={result.distRows ? '' : result.log_type}
+          allTypes={result.distRows ? (result.distRows.covered ? 'ready' : 'partial') : (distLoading ? 'loading' : 'none')}
+          pageSize={cfg.page_size}
+          onPageSizeChange={onDistPageSizeChange}
           onTimeRangePick={onDistTimePick}
           rangeStackLen={rangeStack.length}
           onPopRange={popDistRange}
           typePick={typePick}
           onToggleType={toggleTypePick}
           onClearTypes={clearTypePick}
+          switchOnTypeClick={!!result.distRows || distLoading}
         />
       )}
 
