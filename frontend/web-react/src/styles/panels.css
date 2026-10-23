@@ -4955,6 +4955,49 @@ html.dark {
 
 .cfmon-at { font-size: var(--text-2sm); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 
+/* 日志模型下拉：固定宽度，避免长模型名把工具条撑变形 */
+.cfmon-model { max-width: 180px; }
+
+/* 时间窗口：起止两个 datetime-local + 清空按钮。
+   窄面板里必须能收缩（min-width:0），否则按内容宽度撑出容器横向溢出。 */
+.cfmon-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: var(--ctl-sm);
+}
+.cfmon-time-label {
+  font-size: var(--text-2sm);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.cfmon-time-input {
+  width: 152px;
+  min-width: 0;
+  height: var(--ctl-sm);
+  padding: 0 6px;
+  font-size: var(--text-2sm);
+  color: var(--text);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.cfmon-time-input:hover { border-color: var(--border-strong); }
+.cfmon-time-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+/* 清空按钮：只在选了窗口时出现，做得很小，不抢「刷新监控」的视觉权重 */
+.cfmon-time-clear {
+  padding: 0 6px;
+  font-size: var(--text-2sm);
+  color: var(--text-faint);
+  line-height: 1;
+}
+.cfmon-time-clear:hover { color: var(--danger-strong); }
+
 /* 提示条：环境未登录 / 取数失败。区别在于「能否操作」——都给出下一步 */
 .cfmon-note,
 .cfmon-error {
@@ -5003,6 +5046,8 @@ html.dark {
 /* 有错误函数时，那个 KPI 才用红色（没有错误就不该有红色） */
 .cfmon-kpi--error.is-bad .cfmon-kpi-num { color: var(--danger-strong); }
 .cfmon-meta { font-size: var(--text-2sm); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+/* 自动探测时把实际解析出的模型名补在后面，字号/颜色都弱化（信息补充，不是重点） */
+.cfmon-meta-model { color: var(--text-dim); }
 
 .cfmon-body { padding: 0; }
 
@@ -5151,6 +5196,15 @@ html.dark {
   .cfmon-toolbar { row-gap: 6px; }
   .cfmon-toolbar .spacer { flex-basis: 100%; height: 0; }
   .cfmon-at { margin-left: auto; }
+  /* 时间窗口的两个输入框优先压缩（固定 152px 撑不下），模型下拉随后 */
+  .cfmon-time-input { width: 130px; }
+  .cfmon-model { max-width: 150px; }
+}
+
+/* 更窄：时间窗口整组换行并占满，输入框平分剩余空间 */
+@media (max-width: 900px) {
+  .cfmon-time { flex-wrap: wrap; flex: 1 1 100%; }
+  .cfmon-time-input { flex: 1 1 130px; width: auto; }
 }
 
 /* 窄窗口：消息列优先让位，避免把函数名压没。

@@ -48,7 +48,10 @@ type MonitorResp = {
   record_model?: string;
   models_tried?: string[];
   rows_fetched?: number;
+  /** 过滤前实际抓到的行数（与 rows_fetched 的差就是被时间窗口剔除的）。 */
+  rows_queried?: number;
   platform_total?: number;
+  time_range?: TimeRange;
   summary?: {
     functions: number;
     total_rows: number;
@@ -71,6 +74,27 @@ type ServerInfo = {
   last_error: string;
 };
 
+/** 后端 /api/cf/monitor/models 返回的一条记录模型。 */
+type RecordModelInfo = {
+  name: string;
+  label: string;
+  /** 该模型下「只看某函数」用的字段名（dynamic_log→log_type，其余→name）。 */
+  type_field: string;
+};
+
+/** 后端 time_range 字段（成功/失败路径都会给全，前端不用判存在性）。 */
+type TimeRange = {
+  start: string;
+  end: string;
+  /** 本轮采样实际覆盖到的时间跨度（过滤前的原始行集）。 */
+  sampled_from: string;
+  sampled_to: string;
+  /** 采样条数中落在窗口外被剔除的条数。 */
+  out_of_window: number;
+  /** 翻页没翻完 + 窗口起点比采样最早一行还早 → 采样不完整。 */
+  truncated: boolean;
+};
+
 /** 抓取规模：单页 200 条会被高频函数独占（UI 给 3 档，默认「标准」=1000×3）。 */
 const SCALES = [
   { key: 'quick', pageSize: 1000, pages: 1 },
@@ -82,7 +106,10 @@ type ScaleKey = (typeof SCALES)[number]['key'];
 const REFRESH_OPTS = [0, 15, 30, 60, 300];
 const PREFS_KEY = 'jgg-cf-monitor';
 
-function loadPrefs(): { server: string; scale: ScaleKey; refreshSec: number } {
+function loadPrefs(): {
+  server: string; scale: ScaleKey; refreshSec: number;
+  recordModel: string; timeStart: string; timeEnd: string;
+} {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) {
@@ -91,10 +118,13 @@ function loadPrefs(): { server: string; scale: ScaleKey; refreshSec: number } {
         server: typeof p.server === 'string' ? p.server : '',
         scale: SCALES.some((s) => s.key === p.scale) ? p.scale : 'normal',
         refreshSec: REFRESH_OPTS.includes(p.refreshSec) ? p.refreshSec : 0,
+        recordModel: typeof p.recordModel === 'string' ? p.recordModel : 'auto',
+        timeStart: typeof p.timeStart === 'string' ? p.timeStart : '',
+        timeEnd: typeof p.timeEnd === 'string' ? p.timeEnd : '',
       };
     }
   } catch { /* ignore */ }
-  return { server: '', scale: 'normal', refreshSec: 0 };
+  return { server: '', scale: 'normal', refreshSec: 0, recordModel: 'auto', timeStart: '', timeEnd: '' };
 }
 
 function pct(ratio: number): string {
@@ -117,6 +147,13 @@ export function CfMonitorPanel() {
   const [server, setServer] = useState(prefs.server);
   const [scale, setScale] = useState<ScaleKey>(prefs.scale);
   const [refreshSec, setRefreshSec] = useState(prefs.refreshSec);
+  // 记录模型：'auto'（默认）按 dynamic_log → SyncOuterRecord → SysLogRecord 探测。
+  // 选具体模型后**不**降级 —— 用户明确指定了，猜另一个模型只会把错误藏起来。
+  const [recordModel, setRecordModel] = useState(prefs.recordModel);
+  const [models, setModels] = useState<RecordModelInfo[]>([]);
+  // 时间窗口（datetime-local 值，本地时区）。起止都空 = 不限。
+  const [timeStart, setTimeStart] = useState(prefs.timeStart);
+  const [timeEnd, setTimeEnd] = useState(prefs.timeEnd);
   const [data, setData] = useState<MonitorResp | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -134,9 +171,27 @@ export function CfMonitorPanel() {
   // 偏好持久化
   useEffect(() => {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ server, scale, refreshSec }));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({
+        server, scale, refreshSec, recordModel, timeStart, timeEnd,
+      }));
     } catch { /* ignore */ }
-  }, [server, scale, refreshSec]);
+  }, [server, scale, refreshSec, recordModel, timeStart, timeEnd]);
+
+  // 记录模型清单：加载失败不影响主流程（下拉退化成只有「自动」）
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await apiGet<{ ok: boolean; models: RecordModelInfo[] }>(
+          '/api/cf/monitor/models',
+        );
+        if (alive) setModels(r.models || []);
+      } catch {
+        if (alive) setModels([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const loadServers = useCallback(async (): Promise<ServerInfo[]> => {
     try {
@@ -187,7 +242,9 @@ export function CfMonitorPanel() {
         server_url: target,
         page_size: sc.pageSize,
         pages: sc.pages,
-        record_model: 'auto',
+        record_model: (recordModel || 'auto').trim() || 'auto',
+        time_start: (timeStart || '').trim(),
+        time_end: (timeEnd || '').trim(),
       });
       if (!alive.current) return;
       setData(r);
@@ -203,7 +260,7 @@ export function CfMonitorPanel() {
     } finally {
       if (alive.current && !silent) setBusy(false);
     }
-  }, [server, scale, t, pushLog]);
+  }, [server, scale, t, pushLog, recordModel, timeStart, timeEnd]);
 
   // 首次进入面板（且已选好环境）自动跑一轮，避免用户对着空白页。
   // 注意：环境列表还没加载完 / 加载失败 / 列表为空 / 当前环境没 token 时都不跑 ——
@@ -242,6 +299,23 @@ export function CfMonitorPanel() {
 
   const curServer = servers?.find((s) => s.server_url === server);
 
+  // ── 时间窗口 / 记录模型的展示派生值 ──
+  const tr = data?.time_range;
+  const curModel = models.find((m) => m.name === recordModel);
+  const typeField = curModel?.type_field || 'log_type';
+  /** 当前选的是「自动」还是具体模型（供工具条 select 旁的状态提示用）。 */
+  const isAutoModel = recordModel === 'auto';
+  /** 时间窗口的人类可读形式（供 tooltip 与提示条）。 */
+  const winText = [
+    (timeStart || '').trim() || t('cfmon.timeAll'),
+    '~',
+    (timeEnd || '').trim() || t('cfmon.timeAll'),
+  ].join(' ');
+  const hasWindow = Boolean((timeStart || '').trim() || (timeEnd || '').trim());
+  // 起止写反的判定（后端会自动交换，这里给个提示，别让用户以为是数据丢了）
+  const swapped = Boolean((timeStart || '').trim() && (timeEnd || '').trim()
+    && timeStart > timeEnd);
+
   return (
     <div className="panel cfmon-panel">
       <div className="panel-toolbar cfmon-toolbar">
@@ -275,6 +349,56 @@ export function CfMonitorPanel() {
               {t(`cfmon.scaleLabel.${s.key}`)}
             </button>
           ))}
+        </div>
+
+        {/* 日志模型：默认「自动探测」。选具体模型后不降级 —— 用户明确指定了，
+            猜另一个模型只会把「该租户没有这个模型」的真实错误藏起来。 */}
+        <select
+          className="sel cfmon-model"
+          value={recordModel}
+          onChange={(e) => { setRecordModel(e.target.value); setData(null); }}
+          title={recordModel === 'auto' ? t('cfmon.modelAutoHint')
+            : t('cfmon.modelTypeFieldHint', { field: typeField })}
+          aria-label={t('cfmon.modelLabel')}
+        >
+          <option value="auto">{t('cfmon.modelAuto')}</option>
+          {models.map((m) => (
+            <option key={m.name} value={m.name}>{m.name}</option>
+          ))}
+        </select>
+
+        {/* 时间窗口：起止都是 datetime-local（本地时区，与「云函数日志」面板一致）。
+            都空 = 不限。窗口在**取回之后**过滤 —— 见 api/cf/cf_monitor.py 模块 docstring
+            里 SyncOuterRecord.parse_filter_dict 会把 update_time 二次包裹成 {gte:{...}} 的坑。 */}
+        <div className="cfmon-time" role="group" aria-label={t('cfmon.timeLabel')}>
+          <span className="cfmon-time-label">{t('cfmon.timeFrom')}</span>
+          <input
+            className="cfmon-time-input"
+            type="datetime-local"
+            value={timeStart}
+            onChange={(e) => { setTimeStart(e.target.value); setData(null); }}
+            title={t('cfmon.timeHint')}
+            aria-label={t('cfmon.timeFrom')}
+          />
+          <span className="cfmon-time-label">{t('cfmon.timeTo')}</span>
+          <input
+            className="cfmon-time-input"
+            type="datetime-local"
+            value={timeEnd}
+            onChange={(e) => { setTimeEnd(e.target.value); setData(null); }}
+            title={t('cfmon.timeHint')}
+            aria-label={t('cfmon.timeTo')}
+          />
+          {hasWindow && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm cfmon-time-clear"
+              onClick={() => { setTimeStart(''); setTimeEnd(''); setData(null); }}
+              title={t('cfmon.timeAll')}
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         <button className="btn btn-primary btn-sm" onClick={() => run()} disabled={busy || !server}>
@@ -317,6 +441,42 @@ export function CfMonitorPanel() {
         </div>
       )}
 
+      {/* 起止写反：后端会自动交换，但要让用户知道（否则会以为数据被吞了） */}
+      {swapped && (
+        <div className="cfmon-note" role="status">
+          <TabIcon name="alert" size={14} />
+          <span>{t('cfmon.timeRangeInvalid')}</span>
+        </div>
+      )}
+
+      {/* 采样没覆盖到窗口起点：这是「安静给出 0 个错误」的主要来源，必须显式提示 */}
+      {data?.ok && tr?.truncated && (
+        <div className="cfmon-note" role="status">
+          <TabIcon name="alert" size={14} />
+          <span>
+            <b>{t('cfmon.truncatedTitle')}</b>
+            {' — '}
+            {t('cfmon.truncatedHint', {
+              sampled: tr.sampled_from || '-', start: tr.start || '-',
+            })}
+          </span>
+        </div>
+      )}
+
+      {/* 时间窗口命中情况：让「命中 N / 采样 M」可见，用户才知道窗口确实生效了 */}
+      {data?.ok && hasWindow && tr && (tr.out_of_window > 0) && (
+        <div className="cfmon-note" role="status">
+          <TabIcon name="chart" size={14} />
+          <span>
+            {t('cfmon.timeRangeApplied', {
+              range: winText, kept: data.rows_fetched ?? 0, queried: tr.out_of_window + (data.rows_fetched ?? 0),
+            })}
+            {' · '}
+            {t('cfmon.outOfWindowHint', { dropped: tr.out_of_window, queried: tr.out_of_window + (data.rows_fetched ?? 0) })}
+          </span>
+        </div>
+      )}
+
       {/* 错误条：只在已有数据时作为「本轮刷新失败」的提示条；
           还没数据时由下方空态承担说明职责，避免同一句话出现两次 */}
       {error && data?.ok && (
@@ -352,6 +512,12 @@ export function CfMonitorPanel() {
               total: data.platform_total ?? 0,
               model: data.record_model || '-',
             })}
+            {/* 自动探测时把实际解析出的模型显式说出来 —— 否则用户不知道自己
+                看的到底是 dynamic_log 还是 SyncOuterRecord，无从判断口径 */}
+            {isAutoModel && data.record_model && (
+              <span className="cfmon-meta-model"> ({data.record_model})</span>
+            )}
+            {hasWindow && <> · {t('cfmon.timeWinShort', { range: winText })}</>}
           </span>
         </div>
       )}

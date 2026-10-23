@@ -23,6 +23,29 @@
   但保留真信号（❌ / traceback / errcode≠0 / 显式 ERROR 标签）。
 - **页大小**：单页 200 条常被单个高频函数独占，其它函数根本进不了样本。
   默认 1000 条/页 × 3 页，实测可覆盖全部约 10 个云函数。
+
+时间范围过滤为什么放在「取回之后」而不是 filter_dict
+---------------------------------------------------
+看起来最省事的做法是把起止塞进 ``hcm.model.list`` 的 ``filter_dict``，让服务端
+分页时就跳过窗口外的行 —— 但这条路对 ``SyncOuterRecord`` 是**坏的**（实测踩坑点）：
+
+    # core/extend/sync_outer/models.py :: SyncOuterRecord.parse_filter_dict
+    if filter_dict.get('update_time'):
+        limit_date = filter_dict.pop('update_time')
+        filter_dict['update_time'] = {"gte": limit_date}
+
+该模型重写了 ``parse_filter_dict``，把传入的 ``update_time`` **无条件再包一层
+``gte``**。于是我们传进去的 ``{"gte": 起, "lte": 止}`` 会变成
+``{"gte": {"gte": 起, "lte": 止}}`` —— 值成了字典，比较必然失配，结果是「静默查不到
+任何行」而不是报错，最难排查的那种失败。
+
+所以这里改成：**取回后在 ``collect`` 里按行时间过滤**（对 dynamic_log 的
+``create_time`` 与 SyncOuterRecord 的 ``update_time`` 口径一致），不依赖各模型
+自定义的 ``parse_filter_dict``。
+
+代价是「翻页可能够不到很早的窗口」（分页始终从最新一页往后翻）。这个代价必须
+**对用户可见**，否则会安静地给出「所选时间段内 0 个错误」这种危险结论 ——
+因此返回体带 ``window_truncated`` / ``sampled_range``，前端据此提示调大抓取规模。
 """
 from __future__ import annotations
 
@@ -91,6 +114,107 @@ def _row_time(row: dict) -> str:
         if v not in (None, "", 0):
             return str(v)
     return ""
+
+
+# ─────────────────────── 时间窗口过滤（取回之后做，见模块 docstring）───────────────────────
+# 允许的入参格式：
+#   "2026-10-20 14:00" / "2026-10-20 14:00:00" / "2026-10-20T14:00[:00]"
+#   "2026-10-20"（当天00:00） / unix 秒 / unix 毫秒
+# 空串 = 不限；无法解析 = 不限（宁可不过滤，也不要静默把用户的窗口吞掉）。
+_TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
+
+
+def parse_ts(value: Any) -> "float | None":
+    """把日志时间/用户输入解析成 unix 秒；无法解析返回 None。"""
+    if value in (None, "", 0):
+        return None
+    # unix 秒 / 毫秒
+    if isinstance(value, (int, float)) or (isinstance(value, str) and value.strip().isdigit()):
+        n = float(value)
+        return n / 1000.0 if n >= 1e11 else n
+    s = str(value).strip()
+    if not s:
+        return None
+    text = s.replace("T", " ").replace("/", "-")
+    if text.endswith("Z"):
+        text = text[:-1].strip()
+    for fmt in _TIME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt).timestamp()
+        except ValueError:
+            continue
+    # 带毫秒/时区的 ISO 串兜底交给 fromisoformat（Python 3.11+ 能吃 'Z'）
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def filter_rows_by_time(rows: "List[dict]", start: str = "", end: str = "") -> "Tuple[List[dict], int]":
+    """按时间窗口过滤行，返回 (命中行, 因时间被剔除的行数)。
+
+    时间取不到的行**保留**（无法判断就在窗口内），避免因为某模型缺时间字段
+    导致整块看板空掉；被剔除的条数一并返回，供 UI 说明「采样 N 条中 M 条不在窗口内」。
+    """
+    lo = parse_ts(start) if (start or "").strip() else None
+    hi = parse_ts(end) if (end or "").strip() else None
+    if lo is None and hi is None:
+        return list(rows or []), 0
+    if lo is not None and hi is not None and lo > hi:
+        # 起止写反了：交换，别让用户拿到一个永远为空的窗口
+        lo, hi = hi, lo
+    out: "List[dict]" = []
+    dropped = 0
+    for row in rows or []:
+        ts = parse_ts(_row_time(row))
+        if ts is None:
+            out.append(row)
+            continue
+        if (lo is not None and ts < lo) or (hi is not None and ts > hi):
+            dropped += 1
+            continue
+        out.append(row)
+    return out, dropped
+
+
+def sampled_time_range(rows: "List[dict]") -> "Tuple[str, str]":
+    """本轮实际抓到的行的时间跨度 (最早, 最晚)，都取不到则返回 ('', '')。"""
+    lo = hi = None
+    for row in rows or []:
+        ts = parse_ts(_row_time(row))
+        if ts is None:
+            continue
+        if lo is None or ts < lo:
+            lo = ts
+        if hi is None or ts > hi:
+            hi = ts
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return (datetime.fromtimestamp(lo).strftime(fmt) if lo is not None else "",
+            datetime.fromtimestamp(hi).strftime(fmt) if hi is not None else "")
+
+
+def window_truncated(rows: "List[dict]", start: str = "", exhausted: bool = True) -> bool:
+    """采样是否没覆盖到用户要的窗口（分页翻到底也够不着窗口起点）。
+
+    判据（两个条件都要满足才提示，避免误报）：
+      1. **翻页没翻完**（exhausted=False）：已经按上限取满了，还有更早的行没拿到；
+      2. 抓到的最早一行**比用户要的起点还新**。
+    任一条不成立都不提示：
+      - 若已经取尽（全平台就这么多），那窗口里确实没数据，不该说「采样不全」；
+      - 若最早一行已早于起点，窗口左侧是覆盖到的。
+    """
+    if exhausted:
+        return False
+    lo = parse_ts(start) if (start or "").strip() else None
+    if lo is None:
+        return False
+    earliest = None
+    for row in rows or []:
+        ts = parse_ts(_row_time(row))
+        if ts is not None and (earliest is None or ts < earliest):
+            earliest = ts
+    # 一行时间都取不到 → 无法判断，不提示（别制造假警报）
+    return earliest is not None and earliest > lo
 
 
 # 纯文本日志里的 errcode / stage 兜底提取（共享解析器只认字典型 content）。
@@ -247,8 +371,19 @@ def _err_sample_key(full: str) -> str:
     return t[:300]
 
 
-def aggregate(rows: "List[dict]") -> "Dict[str, dict]":
-    """把原始日志行聚合成「按云函数名」的运行状态看板。"""
+def _empty_time_range() -> dict:
+    """无数据时的 time_range 骨架（字段与成功路径保持一致，前端不用判存在性）。"""
+    return {"start": "", "end": "", "sampled_from": "", "sampled_to": "",
+            "out_of_window": 0, "truncated": False}
+
+
+def aggregate(rows: "List[dict]", only_errors: bool = False) -> "Dict[str, dict]":
+    """把原始日志行聚合成「按云函数名」的运行状态看板。
+
+    only_errors=True 时只统计错误行（info/warn 行不进桶）：错误率会变成 100%，
+    但函数总数/总数也会跟着变，所以这个开关只给「排障时只看错误」用，
+    默认关闭。
+    """
     buckets: Dict[str, Dict[str, Any]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -258,23 +393,35 @@ def aggregate(rows: "List[dict]") -> "Dict[str, dict]":
         parsed = parse_cf_log_content(raw, row.get("log_type", ""))
         is_err = bool(parsed.get("is_error")) and not is_false_positive(raw, parsed)
 
-        b = buckets.setdefault(name, {
-            "name": name,
-            "total": 0,
-            "error": 0,
-            "warn": 0,
-            "info": 0,
-            "last_time": "",
-            "last_message": "",
-            "last_error": "",
-            "last_error_full": "",
-            "last_error_time": "",
-            "errcodes": {},
-            "stages": {},
-            # 错误样本：同一函数 56 条错误往往不是同一个原因，只给「最近一条」
-            # 会让用户以为只有一个问题。这里按正文去重保留最近几条（新→旧）。
-            "_err_samples": [],
-        })
+        b = buckets.get(name)
+        is_new_bucket = b is None
+        if b is None:
+            b = buckets[name] = {
+                "name": name,
+                "total": 0,
+                "error": 0,
+                "warn": 0,
+                "info": 0,
+                "last_time": "",
+                "last_message": "",
+                "last_error": "",
+                "last_error_full": "",
+                "last_error_time": "",
+                "errcodes": {},
+                "stages": {},
+                # 错误样本：同一函数 56 条错误往往不是同一个原因，只给「最近一条」
+                # 会让用户以为只有一个问题。这里按正文去重保留最近几条（新→旧）。
+                "_err_samples": [],
+            }
+        # 只看错误：非错误行不计数，但仍要更新「最近一条」（否则会让人误以为
+        # 最后一条错误之后就没有成功日志了）。桶照建 —— 只有成功行的函数也得
+        # 出现在列表里，否则「哪些函数在跑」就看不见了。
+        if only_errors and not is_err:
+            ts0 = _row_time(row)
+            if ts0 and ts0 >= b["last_time"]:
+                b["last_time"] = ts0
+                b["last_message"] = _row_message(row, parsed)
+            continue
         b["total"] += 1
         level = (parsed.get("level") or "").upper()
         if is_err:
@@ -433,7 +580,9 @@ async def _query_page(server_url: str, token: str, proxy: str, record_model: str
 async def collect(server_url: str, token: str = "", proxy: str = "",
                   record_model: str = "auto", log_type: str = "",
                   page_size: int = DEFAULT_PAGE_SIZE,
-                  pages: int = DEFAULT_PAGES) -> dict:
+                  pages: int = DEFAULT_PAGES,
+                  time_start: str = "", time_end: str = "",
+                  only_errors: bool = False) -> dict:
     """抓取并聚合一轮监控数据（供 UI 轮询调用）。
 
     参数：
@@ -444,9 +593,12 @@ async def collect(server_url: str, token: str = "", proxy: str = "",
       log_type     只看某个云函数（按模型映射到 log_type / name 字段）
       page_size    每页条数（上限 1000）
       pages        抓几页（上限 20）
+      time_start   时间窗口起点（含），空 = 不限
+      time_end     时间窗口终点（含），空 = 不限
+      only_errors  只要错误行（跳过 info/warn 聚合，省内存、响应更小）
 
     返回：``{ok, server_url, at, record_model, models_tried, rows_fetched,
-             platform_total, summary, functions[], error}``
+             platform_total, summary, functions[], time_range, error}``
     """
     server_url = (server_url or "").strip().rstrip("/")
     if not server_url:
@@ -478,18 +630,26 @@ async def collect(server_url: str, token: str = "", proxy: str = "",
         used_model = model
         break
 
-    # 多页抓取：首屏已拿到就继续翻页，直到取尽或到达上限
+    # 多页抓取：首屏已拿到就继续翻页，直到取尽或到达上限。
+    # exhausted = True 表示「已经把平台上能拿的都拿完了」，这是时间窗口能否
+    # 判定为完整的依据（见 window_truncated）：没翻完就不能说「窗口里就这些」。
+    exhausted = True
     if used_model and rows:
         for page in range(2, pages + 1):
             more, page_total, page_err, _missing = await _query_page(
                 server_url, token, proxy, used_model, log_type, page, page_size
             )
             if page_err is not None and not more:
+                # 这一页取不到：可能还有更早的行没拿到 → 不能算取尽
+                exhausted = False
                 break
             total = page_total or total
             rows.extend(more)
             if len(more) < page_size or (total and len(rows) >= total):
                 break
+            # 翻到上限还没取尽 → 后面还有更早的行
+            if page == pages:
+                exhausted = False
 
     if not used_model:
         # 全部模型都失败：明确暴露真实错误，不要假装「成功但没数据」
@@ -505,10 +665,20 @@ async def collect(server_url: str, token: str = "", proxy: str = "",
             "models_tried": models_tried,
             "rows_fetched": 0,
             "platform_total": 0,
+            "time_range": _empty_time_range(),
             "error": msg,
         }
 
-    buckets = aggregate(rows)
+    # 时间窗口：取回之后过滤（原因见模块 docstring 里SyncOuterRecord 的坑）
+    fetch_rows = list(rows)          # 过滤前的原始行集（判断采样是否完整要用它）
+    fetched = len(rows)
+    range_lo, range_hi = sampled_time_range(rows)
+    rows, out_of_window = filter_rows_by_time(rows, time_start, time_end)
+    # 用**过滤前**的行集判断是否够不着窗口起点：过滤后剩下的行时间必然落在窗口内，
+    # 拿它判断会永远得出「没覆盖到起点」的错误结论。
+    truncated = window_truncated(fetch_rows, time_start, exhausted=exhausted)
+
+    buckets = aggregate(rows, only_errors=only_errors)
     stats = summarize(buckets)
     stats["platform_total"] = total
     stats["rows_fetched"] = len(rows)
@@ -530,6 +700,16 @@ async def collect(server_url: str, token: str = "", proxy: str = "",
         "record_model": used_model,
         "models_tried": models_tried,
         "rows_fetched": len(rows),
+        "rows_queried": fetched,
         "platform_total": total,
+        "time_range": {
+            "start": (time_start or "").strip(),
+            "end": (time_end or "").strip(),
+            "sampled_from": range_lo,
+            "sampled_to": range_hi,
+            "out_of_window": out_of_window,
+            # 采样没覆盖到窗口起点 → 前端必须提示「调大抓取规模」
+            "truncated": truncated,
+        },
         "error": "",
     }
