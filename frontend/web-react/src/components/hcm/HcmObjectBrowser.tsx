@@ -15,6 +15,7 @@ import { ComboboxInput } from '../ComboboxInput';
 import { useAppStore } from '../../store/useAppStore';
 import { useHcmToken } from '../../hooks/useHcmToken';
 import { isTokenLikelyExpired } from '../../api/hcm/errDict';
+import { HcmDataTable } from './HcmDataTable';
 import { openHcmWindow } from './hcmWindow';
 import {
   buildHcmFilterDict,
@@ -208,6 +209,13 @@ export function HcmObjectBrowser() {
 
   // 选中对象「数据」查询：调用 hcm.model.list 拉取该对象的记录，以 JSON 展示并可保存
   const [dataResult, setDataResult] = useState<any>(null);
+  // 数据视图模式：表格（默认，便于横向对比）/ JSON（看完整嵌套结构）。
+  // 表格是「解决记录多、字段多时读不动 JSON」的主视图，故默认走表格。
+  const [dataViewMode, setDataViewMode] = useState<'table' | 'json'>('table');
+  // 全屏表格模态（列多 + 行多时需要更大视野）
+  const [tableFullscreen, setTableFullscreen] = useState(false);
+  // 面板内表格的每页行数（小屏/记录多时避免一条无尽长表）
+  const [panelPageSize, setPanelPageSize] = useState(50);
 
   // AI 数据桥：对象浏览数据同步给 /api/ai/output/hcm
   useEffect(() => {
@@ -1041,6 +1049,77 @@ const loadList = useCallback(async () => {
     return { lines, matched };
   }, [dataResult, dataJsonQuery]);
 
+  // 表格视图的数据源：优先 data.list；兼容平台把记录直出为 data 本身是数组的情况
+  const dataRows: Record<string, any>[] = useMemo(() => {
+    if (!dataResult) return [];
+    const list = Array.isArray(dataResult)
+      ? dataResult
+      : Array.isArray(dataResult.list)
+        ? dataResult.list
+        : Array.isArray(dataResult.data?.list)
+          ? dataResult.data.list
+          : [];
+    return list.filter((x: any) => x && typeof x === 'object');
+  }, [dataResult]);
+
+  // 列数 = 所有记录字段的并集（后端不同记录字段可能不齐）
+  const dataColCount = useMemo(() => {
+    const seen = new Set<string>();
+    for (const r of dataRows) for (const k of Object.keys(r)) seen.add(k);
+    return seen.size;
+  }, [dataRows]);
+
+  // 新窗口打开表格：把当前数据与模型名塞进 URL 来源，独立窗口自行渲染。
+  // 不走 localStorage（跨窗口不可靠），改为传参 + 独立窗口内重新取数太浪费，
+  // 因此用 sessionStorage 暂存当前数据（同源窗口共享），key 由时间戳区分。
+  const openDataTableWindow = useCallback(() => {
+    const modelId = selected?.id || '';
+    if (!modelId) return;
+    // 新窗口必须带 model + target：这样即使快照写不进去（配额/隐私模式），
+    // 窗口也能自己打接口查数据，而不是打开就是「0 rows」（实测故障）。
+    const params = `hcm-model=${encodeURIComponent(modelId)}`;
+    if (dataRows.length) {
+      const key = `hcm-dt-${Date.now()}`;
+      try {
+        // 连同**模型列表**一起传：独立窗口自己调 hcm.paas.object.list 未必可用
+        //（实测该接口在部分环境只回 HTML 错误页），主面板已经拿到的列表更可靠。
+        sessionStorage.setItem(key, JSON.stringify({
+          model: modelId,
+          rows: dataRows,
+          at: new Date().toLocaleString(),
+          target: targetUrl,
+          models: items.map((it) => ({ id: it.id, description: it.description || '' })),
+        }));
+        openHcmWindow(`/web/?hcm-table=1&hcm-table-key=${key}&${params}`,
+          '_blank', 'width=1500,height=900', { 'hcm-target': targetUrl });
+        return;
+      } catch {
+        // 数据过大（QuotaExceededError）：仍然开窗，让窗口自己按需查第一页，
+        // 比直接拒绝有用；给个提示说明「大结果集请用全屏」。
+        addToast(t('hcm.dataNewWindowTooBig'), 'warn');
+      }
+    }
+    openHcmWindow(`/web/?hcm-table=1&${params}`,
+      '_blank', 'width=1500,height=900', { 'hcm-target': targetUrl });
+  }, [dataRows, selected, targetUrl, items, addToast, t]);
+
+  // 表格复制为 TSV：Excel / 飞书 / Numbers 都能直接粘贴成表格
+  const copyTableAsTsv = useCallback(() => {
+    if (!dataRows.length) return;
+    const cols: string[] = [];
+    const seen = new Set<string>();
+    for (const r of dataRows) for (const k of Object.keys(r)) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+    const esc = (v: any) => {
+      if (v === null || v === undefined) return '';
+      const t0 = typeof v === 'object' ? JSON.stringify(v) : String(v);
+      return /[\t\n"]/.test(t0) ? `"${t0.replace(/"/g, '""')}"` : t0;
+    };
+    const lines = [cols.join('\t')];
+    for (const r of dataRows) lines.push(cols.map((c) => esc(r[c])).join('\t'));
+    writeClipboardText(lines.join('\n'));
+    addToast(t('hcm.dataCopyTsvDone', { n: dataRows.length }), 'success');
+  }, [dataRows, addToast, t]);
+
   // 复制 JSON
   const copyJson = useCallback(async () => {
     if (!meta) return;
@@ -1809,32 +1888,108 @@ const loadList = useCallback(async () => {
 
                   {!dataLoading && !dataError && dataResult && (
                     <>
-                      {/* 视图内查找：只作用于下面这段已加载的 JSON（高亮 + 命中数）。
-                          与上方「字段 + 关键字 + 查询」的服务端查询是两回事，
-                          贴着内容放，避免两个搜索框在相邻两行里分不清 */}
-                      <div className="hcm-json-find">
-                        <input
-                          className="hcm-search hcm-json-search"
-                          value={dataJsonQuery}
-                          onChange={(e) => setDataJsonQuery(e.target.value)}
-                          placeholder={t('hcm.dataJsonSearch')}
-                          spellCheck={false}
-                        />
-                        {dataJsonQuery.trim() && (
-                          <span className="hcm-count">
-                            {t('hcm.dataMatch')}: {dataView.matched}
-                          </span>
+                      {/* 视图切换 + 视图内查找 + 全屏/新窗口。
+                          JSON 适合看单条完整结构，表格适合横向对比多字段；
+                          记录一多（实测 983 条）读 JSON 找值非常费劲，故提供表格视图。
+                          「全屏/新窗口」为解决列多 + 行多时的视野问题。 */}
+                      <div className="hcm-data-viewbar">
+                        <div className="hcm-seg" role="group" aria-label={t('hcm.dataView')}>
+                          <button
+                            type="button"
+                            className={`hcm-seg-btn${dataViewMode === 'table' ? ' active' : ''}`}
+                            onClick={() => setDataViewMode('table')}
+                            title={t('hcm.dataViewTableHint')}
+                          >
+                            {t('hcm.dataViewTable')}
+                          </button>
+                          <button
+                            type="button"
+                            className={`hcm-seg-btn${dataViewMode === 'json' ? ' active' : ''}`}
+                            onClick={() => setDataViewMode('json')}
+                            title={t('hcm.dataViewJsonHint')}
+                          >
+                            JSON
+                          </button>
+                        </div>
+                        {dataViewMode === 'json' && (
+                          <>
+                            <input
+                              className="hcm-search hcm-json-search"
+                              value={dataJsonQuery}
+                              onChange={(e) => setDataJsonQuery(e.target.value)}
+                              placeholder={t('hcm.dataJsonSearch')}
+                              spellCheck={false}
+                            />
+                            {dataJsonQuery.trim() && (
+                              <span className="hcm-count">
+                                {t('hcm.dataMatch')}: {dataView.matched}
+                              </span>
+                            )}
+                          </>
+                        )}
+                        {dataViewMode === 'table' && (
+                          <>
+                            <span className="hcm-count">
+                              {t('hcm.dataTableMeta', { rows: dataRows.length, cols: dataColCount })}
+                            </span>
+                            <label className="hcm-dt-pagesize">
+                              {t('hcm.dt.perPage')}
+                              <select
+                                className="sel"
+                                value={panelPageSize}
+                                onChange={(e) => setPanelPageSize(Number(e.target.value))}
+                                aria-label={t('hcm.dt.perPage')}
+                              >
+                                {[20, 50, 100, 200].map((n) => (
+                                  <option key={n} value={n}>{n}</option>
+                                ))}
+                              </select>
+                            </label>
+                          </>
+                        )}
+                        <span className="spacer" />
+                        {dataViewMode === 'table' && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              onClick={() => setTableFullscreen(true)}
+                              title={t('hcm.dataFullscreenHint')}
+                            >
+                              {t('hcm.dataFullscreen')}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              onClick={openDataTableWindow}
+                              title={t('hcm.dataNewWindowHint')}
+                            >
+                              {t('hcm.dataNewWindow')}
+                            </button>
+                          </>
                         )}
                       </div>
                       {/* 数据正文：flex:1 + 滚动，占满工具条/筛选条/页脚之外的全部高度 */}
-                      <pre className="hcm-json">
-                        {dataView.lines.map((ln, i) => (
-                          <Fragment key={i}>
-                            {hcmHighlightLine(ln, dataJsonQuery)}
-                            {'\n'}
-                          </Fragment>
-                        ))}
-                      </pre>
+                      {dataViewMode === 'json' && (
+                        <pre className="hcm-json">
+                          {dataView.lines.map((ln, i) => (
+                            <Fragment key={i}>
+                              {hcmHighlightLine(ln, dataJsonQuery)}
+                              {'\n'}
+                            </Fragment>
+                          ))}
+                        </pre>
+                      )}
+                      {dataViewMode === 'table' && (
+                        <div className="hcm-data-table-host">
+                          <HcmDataTable
+                            rows={dataRows}
+                            emptyText={t('hcm.dataTableEmpty')}
+                            searchable
+                            clientPageSize={panelPageSize}
+                          />
+                        </div>
+                      )}
                       {/* SQL 日志（勾选「输出 SQL 日志」后网关在 meta 带回 sql_trace） */}
                       {Array.isArray(dataMeta.sql_trace) && dataMeta.sql_trace.length > 0 && (
                         <details className="hcm-api-sqltrace">
@@ -2016,6 +2171,64 @@ const loadList = useCallback(async () => {
           )}
         </div>
       </div>
+
+      {/* 表格全屏查看：列多（实测几十列）+ 行多时，面板内视野不够。
+          用模态而不是新窗口：无需跨窗口传数据，且能直接复用当前筛选结果。 */}
+      {tableFullscreen && (
+        <div
+          className="modal-mask hcm-dt-fs-mask"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('hcm.dataFullscreen')}
+          onClick={(e) => { if (e.target === e.currentTarget) setTableFullscreen(false); }}
+        >
+          <div className="hcm-dt-fs">
+            <div className="hcm-dt-fs-head">
+              <span className="hcm-dt-fs-title">
+                {selected?.id || '-'}
+                <span className="hcm-dt-fs-meta hcm-mono">
+                  {t('hcm.dataTableMeta', { rows: dataRows.length, cols: dataColCount })}
+                </span>
+              </span>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => { copyTableAsTsv(); }}
+                title={t('hcm.dataCopyTsvHint')}
+              >
+                {t('hcm.dataCopyTsv')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => setTableFullscreen(false)}
+              >
+                {t('common.close')}
+              </button>
+            </div>
+            <div className="hcm-dt-fs-body">
+              <HcmDataTable
+                rows={dataRows}
+                showIndex
+                searchable
+                clientPageSize={panelPageSize}
+                emptyText={t('hcm.dataTableEmpty')}
+                toolbarExtra={
+                  <button
+                    type="button"
+                    className="btn btn-sm hcm-dt-act"
+                    onClick={() => { copyTableAsTsv(); }}
+                    title={t('hcm.dataCopyTsvHint')}
+                  >
+                    {t('hcm.dataCopyTsv')}
+                  </button>
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

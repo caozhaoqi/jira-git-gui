@@ -185,6 +185,21 @@ The environment dropdown only lists real addresses (test leftovers like `http://
 
 **HCM API** is a general-purpose debugger for HCM platform endpoints: pick an API, fill in parameters, call it and inspect the raw response. Handy for one-off checks of platform API behaviour.
 
+### HCM Objects
+
+**HCM Objects** lists every object model in the current environment; select one to inspect its fields and JSON metadata, then query records from the **Data** subtab.
+
+The Data subtab offers **two views**:
+
+- **Table** (default) — records aligned by field, which makes side-by-side comparison practical when there are many rows and columns; click a header to sort; the index column stays pinned while scrolling horizontally; nested values collapse to `{n}` / `[n]` with the full JSON on click; empty values render as `—`; "Copy table" pastes straight into Excel / Sheets.
+- **JSON** — the raw nested structure, best for walking a single record layer by layer.
+
+When results outgrow the panel, the toolbar also offers:
+
+- **Fullscreen** — a modal table view, the most practical option for many columns and rows; it has "Copy table" too.
+- **New window** — a separate window you can maximize or move to another display. If the payload is too large for session storage it prompts you to use Fullscreen instead.
+
+
 ### HCM ops
 
 **HCM ops** covers day-to-day HCM platform operations, currently in three parts:
