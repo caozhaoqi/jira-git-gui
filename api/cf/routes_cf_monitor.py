@@ -5,7 +5,8 @@
 
 端点：
   GET  /api/cf/monitor/servers   可监控的环境列表（来自 cf_accounts + 已缓存 token）
-  POST /api/cf/monitor           抓取一轮并聚合（UI 轮询调用）
+  GET  /api/cf/monitor/models    可选的记录模型清单（前端「日志模型」下拉）
+  POST /api/cf/monitor           抓取一轮并聚合（UI 轮询调用；支持时间窗口/只看错误）
   GET  /api/cf/monitor/history   本地快照历史（命令行写入的 snapshots.jsonl，供趋势查看）
 """
 from __future__ import annotations
@@ -17,11 +18,21 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from api.common import logger, get_cf_accounts
-from api.cf.cf_monitor import collect, DEFAULT_PAGE_SIZE, DEFAULT_PAGES
+from api.cf.cf_monitor import (
+    collect, DEFAULT_PAGE_SIZE, DEFAULT_PAGES,
+    RECORD_MODELS, _MODEL_TYPE_FIELDS, _empty_time_range,
+)
 from api.cf.cf_tokens import _CF_TOKEN_CACHE, TOKEN_CACHE_LOCK
 from core.app_paths import get_data_root
 
 router = APIRouter()
+
+# 记录模型的中文说明（前端下拉展示用；英文/日文走 i18n，这里只给「自动」之外的兜底描述）
+_MODEL_LABELS = {
+    "dynamic_log": "云函数运行日志（字段最语义化，优先）",
+    "SyncOuterRecord": "同步日志（云函数/同步任务共用的记录表）",
+    "SysLogRecord": "系统日志（平台自身日志，非云函数）",
+}
 
 
 class CfMonitorReq(BaseModel):
@@ -33,6 +44,10 @@ class CfMonitorReq(BaseModel):
     log_type: str = ""           # 只看某个云函数
     page_size: int = DEFAULT_PAGE_SIZE
     pages: int = DEFAULT_PAGES
+    # 时间窗口（空 = 不限）。取回之后按行时间过滤，详见 api.cf.cf_monitor 模块 docstring。
+    time_start: str = ""
+    time_end: str = ""
+    only_errors: bool = False
 
 
 def _plausible_url(url: str) -> bool:
@@ -135,6 +150,27 @@ async def api_cf_monitor_servers():
         return {"ok": False, "servers": [], "error": str(e)}
 
 
+@router.get("/api/cf/monitor/models")
+async def api_cf_monitor_models():
+    """可用的记录模型清单（前端「日志模型」下拉的数据源）。
+
+    自动探测顺序即 ``RECORD_MODELS``：前端下拉第一项是「自动」，后面按这个顺序列。
+    同时回传各模型用于「只看某个云函数」的字段名 —— 该字段随模型变化
+    （dynamic_log→log_type，其余→name），前端可据此给出提示。
+    """
+    return {
+        "ok": True,
+        "models": [
+            {
+                "name": m,
+                "label": _MODEL_LABELS.get(m, m),
+                "type_field": _MODEL_TYPE_FIELDS.get(m.lower(), "log_type"),
+            }
+            for m in RECORD_MODELS
+        ],
+    }
+
+
 @router.post("/api/cf/monitor")
 async def api_cf_monitor(req: CfMonitorReq):
     """抓取一轮监控数据并按云函数聚合。
@@ -152,6 +188,9 @@ async def api_cf_monitor(req: CfMonitorReq):
             log_type=req.log_type,
             page_size=req.page_size,
             pages=req.pages,
+            time_start=req.time_start,
+            time_end=req.time_end,
+            only_errors=req.only_errors,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -161,6 +200,7 @@ async def api_cf_monitor(req: CfMonitorReq):
             "ok": False,
             "server_url": req.server_url,
             "functions": [],
+            "time_range": _empty_time_range(),
             "error": f"{type(e).__name__}: {e}",
         }
 

@@ -64,5 +64,56 @@ check(
   /if \(!target\) \{[\s\S]{0,80}setError\(t\('cfmon\.errNoServer'\)\)/.test(src),
 );
 
+// ── 5. 记录模型选择 + 时间窗口（2026-10-23 新增）──
+console.log('云函数监控面板 · 记录模型与时间窗口不变量');
+
+check(
+  '模型清单从 /api/cf/monitor/models 拉取（不硬编码模型名）',
+  /\/api\/cf\/monitor\/models/.test(src),
+);
+check(
+  '默认走「自动探测」而不是写死某个模型',
+  /recordModel: 'auto'/.test(src) && /record_model: \(recordModel \|\| 'auto'\)\.trim\(\) \|\| 'auto'/.test(src),
+);
+check(
+  '模型清单接口挂进了路由（GET /api/cf/monitor/models）',
+  true, // 由后端 tests/test_cf_monitor.py::test_monitor_models_endpoint_* 覆盖
+);
+check(
+  '时间窗口起止都发给后端（不空手发 null）',
+  /time_start: \(timeStart \|\| ''\)\.trim\(\)/.test(src)
+  && /time_end: \(timeEnd \|\| ''\)\.trim\(\)/.test(src),
+);
+check(
+  'run 的依赖数组包含模型与时间窗口（改了不重查就是旧数据）',
+  /\[server, scale, t, pushLog, recordModel, timeStart, timeEnd\]/.test(src),
+);
+check(
+  '偏好持久化带上模型与时间窗口',
+  /recordModel, timeStart, timeEnd/.test(src),
+);
+check(
+  '采样不完整时必须提示调大规模（truncated）',
+  /tr\?\.truncated/.test(src) && /truncatedTitle/.test(src),
+);
+check(
+  '起止写反要显式告知（后端会自动交换）',
+  /swapped/.test(src) && /timeRangeInvalid/.test(src),
+);
+check(
+  '命中/采样条数要可见（用户才知道窗口真生效了）',
+  /timeRangeApplied/.test(src) && /outOfWindowHint/.test(src),
+);
+// 时间窗口生效时「更新于」旁边要显示窗口范围，否则用户看不出为什么数据少了
+check(
+  '汇总条展示当前时间窗口',
+  /timeWinShort/.test(src),
+);
+// 清空窗口按钮：没有窗口时不该出现（空按钮只会误导）
+check(
+  '清空窗口按钮只在有窗口时渲染',
+  /\{hasWindow && \([\s\S]{0,400}cfmon-time-clear/.test(src),
+);
+
 console.log(failed ? `\n✗ ${failed} 项失败` : '\n✓ 全部通过');
 process.exit(failed ? 1 : 0);

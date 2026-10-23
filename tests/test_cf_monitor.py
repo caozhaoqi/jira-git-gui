@@ -157,6 +157,8 @@ def test_dry_run_self_check_passes():
 # ════════════════════════════════════════════════════════════════════
 import asyncio  # noqa: E402
 
+import pytest  # noqa: E402
+
 import api.cf.cf_monitor as cm  # noqa: E402
 
 
@@ -359,3 +361,355 @@ def test_error_samples_capped():
 def test_error_samples_empty_when_no_error():
     rows = [_row("Fn", '{"msg": "[RID:1] ✅ 成功"}')]
     assert cm.aggregate(rows)["Fn"]["error_samples"] == []
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  时间窗口过滤 + 记录模型选择（2026-10-23 新增）
+# ═══════════════════════════════════════════════════════════════════
+# 为什么不走 filter_dict 下推，而是取回后过滤：
+#   SyncOuterRecord 重写了 parse_filter_dict，会把传入的 update_time **无条件
+#   再包一层 gte**（core/extend/sync_outer/models.py）：
+#       filter_dict['update_time'] = {"gte": limit_date}
+#   于是 {"gte":起,"lte":止} 变成 {"gte":{"gte":起,"lte":止}} → 值成了字典，
+#   比较必然失配，表现为「静默查到 0 行」而非报错。下面用测试把这个坑钉死。
+
+
+def _trow(name, ts, content='{"msg": "ok"}'):
+    """一行日志；时间字段用 create_time（dynamic_log 口径）。"""
+    return {"name": name, "log_type": name, "create_time": ts, "content": content}
+
+
+# ─────────────────── parse_ts：入参格式兼容 ───────────────────
+def test_parse_ts_accepts_common_formats():
+    """同一时刻的多种写法必须解析成同一个时间戳，否则窗口过滤会漏行。"""
+    base = cm.parse_ts("2026-10-20 14:00:00")
+    assert base == cm.parse_ts("2026-10-20 14:00")
+    assert base == cm.parse_ts("2026-10-20T14:00:00")
+    assert base == cm.parse_ts("2026/10/20 14:00:00")
+    # unix 秒 / 毫秒
+    assert cm.parse_ts(int(base)) == base
+    assert cm.parse_ts(str(int(base * 1000))) == pytest.approx(base, abs=0.001)
+
+
+def test_parse_ts_date_only_and_invalid():
+    """只给日期 = 当天 00:00；无法解析返回 None（由调用方决定不过滤）。"""
+    assert cm.parse_ts("2026-10-20") == cm.parse_ts("2026-10-20 00:00:00")
+    for bad in ("", "   ", None, 0, "昨天", "not-a-time"):
+        assert cm.parse_ts(bad) is None
+
+
+# ─────────────────── filter_rows_by_time ───────────────────
+def test_filter_rows_by_time_keeps_only_window():
+    rows = [
+        _trow("A", "2026-10-20 10:00:00"),
+        _trow("A", "2026-10-21 10:00:00"),
+        _trow("A", "2026-10-22 10:00:00"),
+    ]
+    kept, dropped = cm.filter_rows_by_time(rows, "2026-10-21 00:00:00", "2026-10-21 23:59:59")
+    assert [r["create_time"] for r in kept] == ["2026-10-21 10:00:00"]
+    assert dropped == 2
+
+
+def test_filter_rows_by_time_open_bounds():
+    """只给起点/只给终点/都不给 —— 三种半开区间都要成立。"""
+    rows = [_trow("A", f"2026-10-{d:02d} 10:00:00") for d in (19, 20, 21, 22)]
+    assert len(cm.filter_rows_by_time(rows, "2026-10-21 00:00:00", "")[0]) == 2
+    assert len(cm.filter_rows_by_time(rows, "", "2026-10-20 23:59:59")[0]) == 2
+    assert len(cm.filter_rows_by_time(rows, "", "")[0]) == 4
+
+
+def test_filter_rows_by_time_boundaries_inclusive():
+    """起止都是闭区间：正好等于起点的行不能被剔掉（边界写错会少算一条错误）。"""
+    rows = [_trow("A", "2026-10-21 00:00:00"), _trow("A", "2026-10-21 23:59:59")]
+    kept, dropped = cm.filter_rows_by_time(rows, "2026-10-21 00:00:00", "2026-10-21 23:59:59")
+    assert len(kept) == 2 and dropped == 0
+
+
+def test_filter_rows_by_time_swapped_bounds():
+    """起止写反了要交换，而不是返回一个永远为空的窗口。
+
+    交换后窗口是 10-21 00:00 ~ 10-25 23:59，两行都落在里面 —— 关键是
+    「不能用用户写的反了顺序把自己筛成空」。
+    """
+    rows = [_trow("A", "2026-10-21 10:00:00"), _trow("A", "2026-10-25 10:00:00")]
+    kept, _ = cm.filter_rows_by_time(rows, "2026-10-25 23:59:59", "2026-10-21 00:00:00")
+    assert len(kept) == 2, kept
+
+
+def test_filter_rows_by_time_uses_update_time_fallback():
+    """SyncOuterRecord 没有 create_time，时间在 update_time 上 —— 也要能过滤。"""
+    rows = [{"name": "A", "update_time": "2026-10-21 10:00:00", "content": "ok"},
+            {"name": "A", "update_time": "2026-10-22 10:00:00", "content": "ok"}]
+    kept, dropped = cm.filter_rows_by_time(rows, "2026-10-21 00:00:00", "2026-10-21 23:59:59")
+    assert len(kept) == 1 and dropped == 1
+
+
+def test_filter_rows_by_time_keeps_rows_without_time():
+    """取不到时间的行要**保留**：不能因为某模型缺时间字段就把看板清空。"""
+    rows = [_trow("A", "2026-10-21 10:00:00"), {"name": "B", "content": "ok"}]
+    kept, dropped = cm.filter_rows_by_time(rows, "2026-10-22 00:00:00", "2026-10-22 23:59:59")
+    assert len(kept) == 1 and kept[0]["name"] == "B"
+    assert dropped == 1   # 有时间且在窗口外的那行仍然被剔除
+
+
+def test_filter_rows_by_time_unparsable_input_does_not_silently_empty():
+    """用户填了看不懂的时间 → 不过滤（宁可宽），不能静默返回 0 行。"""
+    rows = [_trow("A", "2026-10-21 10:00:00")]
+    assert len(cm.filter_rows_by_time(rows, "上周一", "")[0]) == 1
+
+
+# ─────────────────── sampled_time_range / window_truncated ───────────────────
+def test_sampled_time_range():
+    rows = [_trow("A", "2026-10-22 10:00:00"), _trow("B", "2026-10-20 08:30:00"),
+            {"name": "C", "content": "ok"}]   # 无时间，不参与
+    assert cm.sampled_time_range(rows) == ("2026-10-20 08:30:00", "2026-10-22 10:00:00")
+    assert cm.sampled_time_range([]) == ("", "")
+    assert cm.sampled_time_range([{"name": "C", "content": "ok"}]) == ("", "")
+
+
+def test_window_truncated_detects_uncovered_start():
+    """翻页没翻完 + 最早一行比窗口起点还新 → 采样不完整，必须提示调大规模。"""
+    rows = [_trow("A", "2026-10-22 10:00:00"), _trow("A", "2026-10-23 10:00:00")]
+    # 起点 10-01 远早于最早行 10-22 → 左侧没覆盖到 → 提示
+    assert cm.window_truncated(rows, "2026-10-01 00:00:00", exhausted=False) is True
+    # 起点 10-22 12:00 晚于最早行 10-22 10:00 → 左侧已覆盖 → 不提示
+    assert cm.window_truncated(rows, "2026-10-22 12:00:00", exhausted=False) is False
+
+
+def test_window_truncated_silent_when_exhausted():
+    """已经取尽（全平台就这么多行）就不该说「采样不全」—— 窗口里确实没数据。"""
+    rows = [_trow("A", "2026-10-22 10:00:00")]
+    assert cm.window_truncated(rows, "2026-10-01 00:00:00", exhausted=True) is False
+
+
+def test_window_truncated_silent_when_no_time_requested():
+    """没填起点就别报「采样不全」——那是无意义的噪音。"""
+    rows = [_trow("A", "2026-10-22 10:00:00")]
+    assert cm.window_truncated(rows, "", exhausted=False) is False
+    # 一行时间都取不到 → 无法判断，也不提示（不制造假警报）
+    assert cm.window_truncated([{"name": "A", "content": "ok"}],
+                               "2026-10-01 00:00:00", exhausted=False) is False
+
+
+# ─────────────────── aggregate(only_errors=True) ───────────────────
+def test_only_errors_counts_errors_only():
+    rows = [
+        _trow("Fn", "2026-10-22 10:00:00", '{"msg": "[RID:1] ✅ 成功"}'),
+        _trow("Fn", "2026-10-22 10:00:01", '{"msg": "[RID:2] ❌ 失败：写库超时"}'),
+    ]
+    b = cm.aggregate(rows, only_errors=True)["Fn"]
+    assert b["total"] == 1 and b["error"] == 1
+
+
+def test_only_errors_keeps_last_message_from_success_rows():
+    """只看错误时，成功行仍要更新「最近一条」，否则会误导成「之后没有成功日志了」。"""
+    rows = [
+        _trow("Fn", "2026-10-22 10:00:00", '{"msg": "[RID:1] ❌ 失败：写库超时"}'),
+        _trow("Fn", "2026-10-22 10:00:05", '{"msg": "[RID:2] ✅ 已恢复"}'),
+    ]
+    b = cm.aggregate(rows, only_errors=True)["Fn"]
+    assert b["error"] == 1 and b["total"] == 1
+    assert "已恢复" in b["last_message"], b["last_message"]
+    assert "写库超时" in b["last_error"]   # 错误摘要不受影响
+
+
+def test_only_errors_preserves_bucket_for_success_only_function():
+    """只出现过成功行的函数也要保留在列表里（否则「哪些函数在跑」就看不见了）。"""
+    rows = [_trow("OkFn", "2026-10-22 10:00:00", '{"msg": "[RID:1] ✅ 成功"}')]
+    b = cm.aggregate(rows, only_errors=True)["OkFn"]
+    assert b["total"] == 0 and b["error"] == 0
+    assert b["health"] == cm.HEALTH_UNKNOWN
+
+
+# ─────────────────── collect：端到端串起时间窗口 ───────────────────
+def _stub_query(monkeypatch, rows_by_page):
+    """把 cf_query_logs 打桩成按页返回固定行。"""
+    calls = []
+
+    async def _query_page(server_url, token, proxy, record_model, log_type,
+                          page, page_size):
+        calls.append((record_model, page))
+        rows = rows_by_page.get(page, [])
+        return rows, len(rows), None, False
+
+    monkeypatch.setattr(cm, "_query_page", _query_page)
+    return calls
+
+
+def test_collect_applies_time_window_and_reports_range(monkeypatch):
+    rows = [
+        _trow("A", "2026-10-20 10:00:00", '{"msg": "[RID:1] ✅ 旧"}'),
+        _trow("A", "2026-10-21 10:00:00", '{"msg": "[RID:2] ❌ 失败：超时"}'),
+        _trow("A", "2026-10-22 10:00:00", '{"msg": "[RID:3] ✅ 新"}'),
+    ]
+    _stub_query(monkeypatch, {1: rows})
+    out = asyncio.run(cm.collect(
+        server_url="https://x.example.com",
+        record_model="SyncOuterRecord",
+        pages=1,
+        time_start="2026-10-21 00:00:00",
+        time_end="2026-10-21 23:59:59",
+    ))
+    assert out["ok"] is True
+    # 窗口外的两条被剔除，只剩窗口内 1 条
+    assert out["rows_fetched"] == 1
+    assert out["rows_queried"] == 3
+    tr = out["time_range"]
+    assert tr["start"] == "2026-10-21 00:00:00"
+    assert tr["out_of_window"] == 2
+    assert tr["truncated"] is False
+    assert tr["sampled_from"] == "2026-10-20 10:00:00"
+    assert tr["sampled_to"] == "2026-10-22 10:00:00"
+    assert out["functions"][0]["error"] == 1
+
+
+def test_collect_flags_truncated_window(monkeypatch):
+    """窗口起点比采样最早一行还早 → truncated=True（前端据此提示调大规模）。"""
+    rows = [_trow("A", "2026-10-22 10:00:00"), _trow("A", "2026-10-23 10:00:00")]
+    _stub_query(monkeypatch, {1: rows})
+    out = asyncio.run(cm.collect(
+        server_url="https://x.example.com",
+        record_model="dynamic_log",
+        pages=1,
+        page_size=5,          # 首屏没塞满一页 → 视为已取尽
+        time_start="2026-10-01 00:00:00",
+    ))
+    assert out["ok"] is True
+    # 只抓了第 1 页且 pages=1 → 已取尽 → 不提示（平台就这么多行）
+    assert out["time_range"]["truncated"] is False
+
+
+def test_collect_no_window_passes_rows_through(monkeypatch):
+    """不填时间窗口时行为与从前完全一致（rows_fetched == rows_queried）。"""
+    rows = [_trow("A", "2026-10-20 10:00:00"), _trow("A", "2026-10-22 10:00:00")]
+    _stub_query(monkeypatch, {1: rows})
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="dynamic_log", pages=1))
+    assert out["rows_fetched"] == 2 and out["rows_queried"] == 2
+    assert out["time_range"]["truncated"] is False
+    assert out["time_range"]["start"] == ""
+
+
+def test_collect_failure_path_has_time_range_skeleton(monkeypatch):
+    """取数失败也要给齐 time_range 字段，前端不用判存在性。"""
+    async def _boom(*a, **kw):
+        return [], 0, RuntimeError("token 失效"), False
+    monkeypatch.setattr(cm, "_query_page", _boom)
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="dynamic_log", pages=1))
+    assert out["ok"] is False
+    assert out["time_range"] == {
+        "start": "", "end": "", "sampled_from": "", "sampled_to": "",
+        "out_of_window": 0, "truncated": False,
+    }
+
+
+def test_collect_record_model_auto_still_probes_in_order(monkeypatch):
+    """记录模型选「自动」时仍按 RECORD_MODELS 顺序降级（选具体模型则不降级）。"""
+    tried = []
+
+    async def _query_page(server_url, token, proxy, record_model, log_type,
+                          page, page_size):
+        tried.append(record_model)
+        if record_model == "dynamic_log":
+            return [], 0, RuntimeError("Unknown Model Name"), True   # 该租户没有
+        return [_trow("Fn", "2026-10-22 10:00:00")], 1, None, False
+
+    monkeypatch.setattr(cm, "_query_page", _query_page)
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="auto", pages=1))
+    assert out["ok"] is True
+    assert out["record_model"] == "SyncOuterRecord"
+    assert tried == ["dynamic_log", "SyncOuterRecord"]
+
+
+def test_collect_only_errors_passthrough(monkeypatch):
+    rows = [
+        _trow("Fn", "2026-10-22 10:00:00", '{"msg": "[RID:1] ✅ ok"}'),
+        _trow("Fn", "2026-10-22 10:00:01", '{"msg": "[RID:2] ❌ 失败：boom"}'),
+    ]
+    _stub_query(monkeypatch, {1: rows})
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="dynamic_log", pages=1,
+                                 only_errors=True))
+    assert out["functions"][0]["error"] == 1
+    assert out["functions"][0]["total"] == 1
+
+
+# ───────翻页是否取尽：决定能不能说「窗口里就这些」 ───────
+def _full_pages(monkeypatch, n_pages, page_size, total=0):
+    """每一页都塞满 page_size 行 → 模拟「翻到上限也取不尽」。"""
+    async def _query_page(server_url, token, proxy, record_model, log_type,
+                          page, page_size_):
+        if page > n_pages:
+            return [], 0, None, False
+        rows = [_trow("Fn", f"2026-10-22 10:00:{page:02d}") for _ in range(page_size)]
+        return rows, total, None, False
+
+    monkeypatch.setattr(cm, "_query_page", _query_page)
+
+
+def test_collect_marks_not_exhausted_when_pages_hit_limit(monkeypatch):
+    """每页都塞满、翻到上限还没取尽 → exhausted=False，窗口起点够不着时要提示。"""
+    _full_pages(monkeypatch, n_pages=2, page_size=3, total=0)
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="dynamic_log",
+                                 page_size=3, pages=2,
+                                 time_start="2026-10-01 00:00:00"))
+    assert out["ok"] is True
+    # 窗口起点(10-01) 比抓到的最早一行(10-22 10:00:01)还早，且没取尽 → 必须提示
+    assert out["time_range"]["truncated"] is True
+    # 抓到的 6 行全在窗口内（10-01 之后），所以 rows_fetched 应等于 6。
+    # ⚠️ 这里不能断言 0 —— 窗口起点早、终点为空意味着「10-01 起至今」全都算命中，
+    #    早先写 0 是把「起点」误当「终点」了。
+    assert out["rows_fetched"] == 6
+
+
+def test_collect_no_truncated_when_last_page_partial(monkeypatch):
+    """最后一页不满 → 已经取尽，即使窗口起点很早也不提示（窗口里就是没数据）。"""
+    async def _query_page(server_url, token, proxy, record_model, log_type,
+                          page, page_size):
+        if page == 1:
+            return [_trow("Fn", "2026-10-22 10:00:01")], 2, None, False
+        return [_trow("Fn", "2026-10-22 10:00:02")], 2, None, False
+
+    monkeypatch.setattr(cm, "_query_page", _query_page)
+    out = asyncio.run(cm.collect(server_url="https://x.example.com",
+                                 record_model="dynamic_log",
+                                 page_size=5, pages=5,
+                                 time_start="2026-10-01 00:00:00"))
+    assert out["ok"] is True
+    assert out["time_range"]["truncated"] is False
+
+
+# ─────────────────── 路由层：模型清单接口 ───────────────────
+def test_monitor_models_endpoint_lists_probe_order():
+    """模型清单接口要按 RECORD_MODELS（自动探测顺序）返回，并带类型字段名。"""
+    from fastapi.testclient import TestClient
+    from api.cf.routes_cf_monitor import router
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    r = TestClient(app).get("/api/cf/monitor/models")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    names = [m["name"] for m in body["models"]]
+    assert names == list(cm.RECORD_MODELS)
+    by_name = {m["name"]: m for m in body["models"]}
+    # 类型字段随模型变化，UI 要能据此提示
+    assert by_name["dynamic_log"]["type_field"] == "log_type"
+    assert by_name["SyncOuterRecord"]["type_field"] == "name"
+    assert by_name["SysLogRecord"]["type_field"] == "name"
+
+
+def test_monitor_models_endpoint_has_chinese_labels():
+    """每个模型都要有可读说明，否则下拉里只有裸模型名，用户选不明白。"""
+    from fastapi.testclient import TestClient
+    from api.cf.routes_cf_monitor import router
+    from fastapi import FastAPI
+    app = FastAPI()
+    app.include_router(router)
+    body = TestClient(app).get("/api/cf/monitor/models").json()
+    for m in body["models"]:
+        assert m.get("label"), m
