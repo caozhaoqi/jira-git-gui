@@ -17,6 +17,12 @@ import { TabIcon } from './icons';
 import { readClipboardText, writeClipboardText, copyText } from '../utils/clipboard';
 import { openBuiltinBrowser, hcmCookiesForTarget } from '../utils/browser';
 import { logRowType, logRowTime, buildHcmLogUrl, logRowMatchesType } from '../utils/logFields';
+import {
+  findMatches,
+  sliceLocalPage,
+  rowMatchCount,
+  countMatchesBefore,
+} from '../utils/cfLogPaging';
 import type { CfAccount, CfLogsRow, SSECFLogUpdate } from '../api/types';
 import { CfDistribution } from './CfDistribution';
 import { ComboboxInput } from './ComboboxInput';
@@ -55,6 +61,10 @@ interface CfLastResult {
   rows: CfLogsRow[];
   raw: any;
   localPage: number;
+  /** true = ``rows`` 是「客户端累积集」（实时刷新经 SSE 合并进来的），不再是单纯的服务端某一页。
+   *  服务端翻页（page_index）会把整个累积集冲掉，所以这种情况必须走本地分页——
+   *  否则累积行会一直堆到 5000 条上限全量渲染，既拖慢又看不出来有新行进来。 */
+  merged?: boolean;
   /** 分布图伴生查询拉回的「全类型」行集——主查询带了 log_type 过滤时才有。
    *  没有它，分布图只能看到服务端过滤后的那一个类型，「同期还有什么别的函数在写日志」看不出来。
    *  covered=false：翻页触顶仍未覆盖主查询最早行，图表只是最新样本（头部会标注）。 */
@@ -202,19 +212,7 @@ async function openCloudFunctionLogs(serverUrl: string, logType: string, recordM
 }
 
 // —— 全局搜索高亮：定位匹配区间 + 渲染 <mark> ——
-function findMatches(text: string, q: string, caseSensitive: boolean): Array<[number, number]> {
-  if (!q) return [];
-  const hay = caseSensitive ? text : text.toLowerCase();
-  const needle = caseSensitive ? q : q.toLowerCase();
-  const out: Array<[number, number]> = [];
-  let idx = hay.indexOf(needle);
-  while (idx !== -1) {
-    out.push([idx, idx + needle.length]);
-    idx = hay.indexOf(needle, idx + needle.length);
-  }
-  return out;
-}
-
+// （findMatches 已移至 utils/cfLogPaging，与分页/匹配序号计算同源，便于离线回归）
 function highlightNodes(
   text: string,
   matches: Array<[number, number]>,
@@ -524,11 +522,14 @@ export function CfPanel() {
       const seen = new Set(r.rows.map(cfRowKey));
       const fresh = matched.filter((row) => !seen.has(cfRowKey(row)));
       if (!fresh.length) return; // 无新日志，不打扰
+      // 合并时不强制 localPage=1：用户翻到旧页看历史时，每来一条新日志就被踢回第 1 页，
+      // 表现为「我要看的不见了」。保留当前页，新行仍在第 1 页（最新），状态栏会提示新增条数。
+      // merged=true：此后 rows 是客户端累积集，view 必须走本地分页（见 view 内 localPaged）。
       setResult({
         ...r,
         rows: [...fresh, ...r.rows].slice(0, 5000),
         total: d.total ?? r.total,
-        localPage: 1,
+        merged: true,
       });
       const latest = d.latest_time || cfTime(fresh[0]);
       setStatus({ text: `实时刷新：新增 ${fresh.length} 条（最新 ${latest}）`, cls: 'success' });
@@ -812,8 +813,9 @@ export function CfPanel() {
 
   /** 查询日志。override 供「分布图里点某个类型 / 改加载条数」用：直接把对应查询条件切过去重查，
    *  省得先 setCfg 再等下一次渲染的闭包（否则读到的是旧 cfg，改了等于没改）。
-   *  注意：作为 onClick 直接传入时第一个参数会是 MouseEvent，调用方都已包一层无参箭头。 */
-  const queryLogs = async (override?: { log_type?: string; page_size?: number }) => {
+   *  注意：作为 onClick 直接传入时第一个参数会是 MouseEvent，调用方都已包一层无参箭头。
+   *  返回本次查询的基线结果（失败/无 token 返回 null），供开启实时刷新时播种行 key。 */
+  const queryLogs = async (override?: { log_type?: string; page_size?: number }): Promise<CfLastResult | null> => {
     const serverUrl = cfg.server_url.trim();
     const token = cfg.token.trim();
     const logType = (override?.log_type ?? cfg.log_type).trim();
@@ -824,7 +826,7 @@ export function CfPanel() {
     const cached = tokenMap[cfg.server_url.trim()];
     if (!token && !(cached && cached.has_token)) {
       setStatus({ text: t('cf.tokenFirst'), cls: 'error' });
-      return;
+      return null;
     }
     querySeqRef.current += 1;      // 新查询：在飞的伴生查询到达时按序号丢弃
     setDistLoading(false);         // 重置伴生查询态（本查询若带类型过滤，下面会再置 true）
@@ -857,6 +859,7 @@ export function CfPanel() {
         rows,
         raw: res,
         localPage: 1,
+        merged: false,
       };
       setResult(base);
       setExpanded(null);
@@ -887,6 +890,8 @@ export function CfPanel() {
       }
       // 若实时刷新开着，按本次查询的过滤条件同步重启流（条件未变则不动）
       await syncStreamFilter(serverUrl, logType, recordModel, pageSize);
+      // 返回本次基线，供「开启实时刷新」把行 key 播种给后端流（首轮即可判定新行）
+      return base;
     } catch (ex: any) {
       const msg = ex?.message || String(ex);
       // P2-⑧：手填 Token 失败时给出明确引导。识别会话失效 / 格式异常类错误，
@@ -896,11 +901,12 @@ export function CfPanel() {
         if (sessionLike) {
           setStatus({ text: `查询失败：${msg}\n${t('cf.tokenHandFillGuide')}`, cls: 'error' });
           setResult(null);
-          return;
+          return null;
         }
       }
       setStatus({ text: `查询失败：${msg}`, cls: 'error' });
       setResult(null);
+      return null;
     } finally {
       setBusy('query', false);
     }
@@ -989,8 +995,14 @@ export function CfPanel() {
     }
     setBusy('stream', true);
     try {
-      // 先查一次基线：流首轮只做静默种子，之后只推送新增日志
-      await queryLogs();
+      // 先查一次基线：把它的行 key 播种给后端流，第一轮轮询就能判定新行，
+      // 不必等「静默种子 + 一个周期」才推第一条新日志（旧实现 ≈10~12s 才见首条更新）。
+      const baseline = await queryLogs();
+      // 只有「第 1 页 + 查询成功」才播种：多页查询的基线与流轮询的第 1 页不是同一批行，
+      // 贸然播种会把已在列表里的旧行当新行推送（前端虽会去重，但会误报「新增 N 条」）。
+      const seedKeys = baseline && (baseline.page_index || 1) === 1
+        ? baseline.rows.map(cfRowKey)
+        : [];
       await apiPost('/api/cf/logs/stream', {
         action: 'start',
         server_url: serverUrl,
@@ -1000,6 +1012,7 @@ export function CfPanel() {
         record_model: cfg.record_model.trim() || 'dynamic_log',
         page_size: Math.min(cfg.page_size || 100, 300),
         interval: streamInterval,
+        seen_keys: seedKeys,
       });
       // 记录本轮流生效的过滤条件，供 syncStreamFilter 比对（条件变了才重启）
       streamParamsRef.current = {
@@ -1162,9 +1175,15 @@ export function CfPanel() {
 
   // 排序 + 客户端实时过滤 + 本地分页 + 匹配计数
   const view = useMemo(() => {
-    if (!result) return { rows: [] as CfLogsRow[], isFull: false, all: 0, total: 0, totalPages: 1, localPage: 1, matchTotal: 0, matchRows: 0, filtered: [] as CfLogsRow[] };
+    if (!result) return { rows: [] as CfLogsRow[], isFull: false, localPaged: false, pageStart: 0, matchOrdBefore: 0, all: 0, total: 0, totalPages: 1, localPage: 1, matchTotal: 0, matchRows: 0, filtered: [] as CfLogsRow[] };
     const all = result.rows.slice();
     const isFull = (result.total || 0) > 0 && result.rows.length >= result.total;
+    // 本地分页门槛 = isFull（服务端结果已全部取回）或 merged（实时刷新累积集）。
+    // ⚠️ 只判 isFull 会在实时刷新期间恒为 false：total 是平台总行数（如 786）而 rows 只有
+    // 一页（如 100），累积行于是堆到 5000 条上限全量渲染——既拖慢渲染，新行混在长列表里
+    // 也看不出来。注意别把 isFull 本身改成 true：它同时决定「已加载全部日志」徽标，
+    // 流开着时平台还有几百条没取回，不能对用户谎报全量。
+    const localPaged = isFull || !!result.merged;
     all.sort((a, b) => {
       const ta = cfTime(a);
       const tb = cfTime(b);
@@ -1206,24 +1225,21 @@ export function CfPanel() {
     if (q) {
       const lt = result.log_type;
       for (const r of filtered) {
-        const c =
-          findMatches(cfContent(r), q, caseSensitive).length +
-          findMatches(cfTime(r), q, caseSensitive).length +
-          findMatches(cfLogType(r, lt), q, caseSensitive).length;
+        const c = rowMatchCount(r, q, caseSensitive, lt);
         if (c > 0) matchRows += 1;
         matchTotal += c;
       }
     }
     const pageSize = result.page_size || 200;
-    let display = filtered;
-    let localPage = result.localPage || 1;
-    let totalPages = 1;
-    if (isFull && filtered.length > pageSize) {
-      totalPages = Math.ceil(filtered.length / pageSize);
-      if (localPage > totalPages) localPage = totalPages;
-      display = filtered.slice((localPage - 1) * pageSize, localPage * pageSize);
-    }
-    return { rows: display, isFull, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows, filtered };
+    const page = sliceLocalPage(filtered, pageSize, localPaged, result.localPage || 1);
+    const display = page.display;
+    const localPage = page.localPage;
+    const totalPages = page.totalPages;
+    const pageStart = page.pageStart;
+    // 当前页首行之前累计的匹配数。rowOrd 从它起算，
+    // 「第 N 处匹配」的高亮才能落在正确的行上（原先从 0 起算，一翻页就全错位）。
+    const matchOrdBefore = countMatchesBefore(filtered, pageStart, q, caseSensitive, result.log_type);
+    return { rows: display, pageStart, matchOrdBefore, isFull, localPaged, all: filtered.length, total: result.total, totalPages, localPage, matchTotal, matchRows, filtered };
   }, [result, sortDir, search, caseSensitive, filterOn, cfg.time_preset, cfg.time_start, cfg.time_end, typePick]);
 
   // 分布图数据源：主查询带了类型过滤时，用伴生查询拉回的全类型集——否则分布图只剩单类型，
@@ -1272,13 +1288,12 @@ export function CfPanel() {
       const q2 = search.trim();
       let ord = 0;
       let targetDisplay = -1;
-      for (let i = 0; i < view.rows.length; i++) {
-        const r = view.rows[i];
-        const cnt = q2
-          ? findMatches(cfContent(r), q2, caseSensitive).length +
-            findMatches(cfTime(r), q2, caseSensitive).length +
-            findMatches(cfLogType(r, result.log_type), q2, caseSensitive).length
-          : 0;
+      // 必须在**全量过滤集**里定位匹配：view.rows 只是当前本地页的一页，
+      // 拿它遍历会找不到别的页上的匹配（本地分页一生效就成了「按上下键没反应」）。
+      // localPaged 为 false 时 display === filtered，两种来源等价。
+      for (let i = 0; i < view.filtered.length; i++) {
+        // ord/next 都是「全量匹配序号」，所以必须从 filtered 头部数起
+        const cnt = rowMatchCount(view.filtered[i], q2, caseSensitive, result.log_type);
         if (next > ord && next <= ord + cnt) {
           targetDisplay = i;
           break;
@@ -1292,7 +1307,7 @@ export function CfPanel() {
       }
     }
     setActiveMatch(next);
-  }, [view.matchTotal, view.rows, view.totalPages, activeMatch, result, search, caseSensitive]);
+  }, [view.matchTotal, view.filtered, view.totalPages, activeMatch, result, search, caseSensitive]);
 
   // 搜索词变化时，重置/收敛选中匹配
   useEffect(() => {
@@ -1309,16 +1324,14 @@ export function CfPanel() {
     if (!activeMatch || !result) return;
     const q2 = search.trim();
     if (!q2) return;
-    let ord = 0;
+    let ord = view.matchOrdBefore;
     let target = -1;
-    for (let i = 0; i < view.rows.length; i++) {
-      const r = view.rows[i];
-      const cnt =
-        findMatches(cfContent(r), q2, caseSensitive).length +
-        findMatches(cfTime(r), q2, caseSensitive).length +
-        findMatches(cfLogType(r, result.log_type), q2, caseSensitive).length;
+    // 同样要在全量过滤集里定位，再折算成「当前页内的显示下标」——
+    // 只遍历 view.rows 的话，匹配在别的页上就永远滚不到。
+    for (let i = view.pageStart; i < view.filtered.length; i++) {
+      const cnt = rowMatchCount(view.filtered[i], q2, caseSensitive, result.log_type);
       if (activeMatch > ord && activeMatch <= ord + cnt) {
-        target = i;
+        target = i - view.pageStart;
         break;
       }
       ord += cnt;
@@ -1331,7 +1344,9 @@ export function CfPanel() {
 
   // 当前搜索词（组件作用域，供结果表渲染高亮使用）
   const q = search.trim();
-  let rowOrd = 0;
+  // 从「当前页首行之前的匹配数」起算：本地分页下 rowOrd 是全量匹配序号，
+  // 不是页内序号，否则翻页后高亮位置整体错位。
+  let rowOrd = view.matchOrdBefore;
 
   return (
     <div className="cf-panel">
@@ -1794,7 +1809,7 @@ export function CfPanel() {
           <span className="cf-search-count">
             {search
               ? filterOn
-                ? `匹配 ${view.all} / ${view.isFull ? '全部' : '本页'} ${result.rows.length}`
+                ? `匹配 ${view.all} / ${view.localPaged ? '全部' : '本页'} ${result.rows.length}`
                 : `高亮 ${view.matchTotal} 处 · ${view.matchRows} 行（未过滤）`
               : view.isFull
               ? `共 ${view.all} 条`
@@ -1852,6 +1867,8 @@ export function CfPanel() {
                   : `高亮 ${view.matchTotal} 处 · ${view.matchRows} 行（未过滤）`
                 : view.isFull
                 ? `共 ${view.all} 条`
+                : view.localPaged
+                ? `已加载 ${view.all} / 共 ${result.total} 条`
                 : `本页 ${view.all} / 共 ${result.total} 条`}
             </span>
             {view.isFull && <span>{t('cf.fullLoaded')}</span>}
@@ -1873,7 +1890,10 @@ export function CfPanel() {
                   const contentFull = cfContentFull(row);
                   const contentCopy = cfContentCopyText(row);
                   const logTypeVal = cfLogType(row, result.log_type);
-                  const globalIdx = result.rows.length - view.rows.length + i;
+                  // 全量下标（跨页唯一）：React key、展开态、滚动定位都以它为准。
+                  // 旧写法 `result.rows.length - view.rows.length + i` 只在「显示的是末页」时
+                  // 成立，一翻到第 2 页就和第 1 页撞 key。
+                  const globalIdx = view.pageStart + i;
                   const mContent = q ? findMatches(content, q, caseSensitive) : [];
                   const mTime = q ? findMatches(createTime, q, caseSensitive) : [];
                   const mType = q ? findMatches(logTypeVal, q, caseSensitive) : [];
@@ -1884,8 +1904,8 @@ export function CfPanel() {
                   return (
                     <FragmentRow
                       key={globalIdx}
-                      displayIndex={i}
-                      idx={i + 1}
+                      displayIndex={view.pageStart + i}
+                      idx={view.pageStart + i + 1}
                       type={logTypeVal}
                       time={createTime}
                       content={content}
@@ -1917,7 +1937,7 @@ export function CfPanel() {
               </tbody>
             </table>
           </div>
-          {view.isFull && view.totalPages > 1 && (
+          {view.localPaged && view.totalPages > 1 && (
             <div className="cf-pagination">
               {view.localPage > 1 && (
                 <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage - 1)}>
@@ -1925,7 +1945,7 @@ export function CfPanel() {
                 </button>
               )}
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {view.localPage} / {view.totalPages}（本地，第 1 页为最新）
+                {view.localPage} / {view.totalPages}（本地，第 1 页为{sortDir === 'asc' ? '最早' : '最新'}）
               </span>
               {view.localPage < view.totalPages && (
                 <button className="btn btn-sm" onClick={() => goLocalPage(view.localPage + 1)}>

@@ -10,7 +10,11 @@ HCM ``hcm.model.list`` 是纯请求-响应接口，没有服务端流式通道�
 生命周期：``POST /api/cf/logs/stream``（action = start / stop / status）。
 - **按 server_url 多实例**：每个环境各一条流可并行（多开窗口同时看多个环境），
   同一环境重复 start 会先取消该环境的旧流；stop 带 server_url 只停该环境，不带则停全部；
-- 首轮轮询只做「静默种子」（记录已见行、不推送），避免把整页旧日志当新日志刷屏；
+- 无客户端基线时，首轮轮询只做「静默种子」（记录已见行、不推送），避免把整页旧日志当新日志刷屏；
+  客户端开启流前已查过基线时，可把基线行 key 随 start 传入（``seen_keys``），
+  首轮即可直接判定新行，不必白等一个完整周期；
+- 轮询按**截止时间**调度（只睡剩余时间），实际周期稳定在 ``interval``，
+  不会把单次查询耗时（实测 0.3~2.2s）累加进周期；
 - token 失效（PermissionError）时先清空 token 改走缓存/自动重登再试，仍失败才停流；
 - 连续 5 次其它错误也停流，避免无意义空转。
 """
@@ -102,10 +106,20 @@ def _extract_rows(res: Any) -> tuple:
     return [], 0
 
 
-async def _stream_loop(cfg: dict, interval: int, key: str = "") -> None:
+async def _stream_loop(cfg: dict, interval: int, key: str = "",
+                       seen_keys: list | None = None) -> None:
     seen: dict[str, None] = {}  # 有序去重：插入序≈时间序，超限时从最旧开始丢
     errs = 0
-    first = True
+    # 客户端基线播种：前端开启流前已手动查过一次（同 server_url/过滤条件/page 1），
+    # 把那些行 key 传进来，第一轮轮询就能判定「哪些是新出现的」，
+    # 不必像旧实现那样先静默种子、再等一个完整周期才推第一条新日志。
+    # 没有基线 key（旧客户端 / 基线查询失败 / 多页查询）时退回静默种子语义。
+    for k in (seen_keys or []):
+        if isinstance(k, str) and k:
+            seen[k] = None
+    seeded = bool(seen)
+    loop = asyncio.get_running_loop()
+    next_at = loop.time() + interval
     try:
         while True:
             try:
@@ -113,11 +127,11 @@ async def _stream_loop(cfg: dict, interval: int, key: str = "") -> None:
                 res = await cf_query_logs(req)
                 rows, total = _extract_rows(res)
                 errs = 0
-                if first:
+                if not seeded:
                     for r in rows:
                         seen[_row_key(r)] = None
-                    first = False
-                    # 首轮种子：只记录基线，不推送（前端开启流之前已手动查过一次）
+                    seeded = True
+                    # 无客户端基线时的兜底：首轮只记录基线，不推送
                     broadcast("cf_log_update", {
                         "ok": True, "seeded": True, "rows": [], "new_count": 0,
                         "total": total, "ts": _now(), **_meta(cfg),
@@ -170,18 +184,29 @@ async def _stream_loop(cfg: dict, interval: int, key: str = "") -> None:
                     })
                     _streams.pop(key, None)
                     return
-            await asyncio.sleep(interval)
+            # 按截止时间调度：只睡「剩余时间」，实际周期稳定在 interval。
+            # 旧实现是无条件 sleep(interval)，周期变成「查询耗时 + interval」
+            # （实测单次查询 0.3~2.2s，5s 间隔被撑到 5.3~7.2s，且查询越慢漂移越明显）。
+            delay = next_at - loop.time()
+            next_at += interval  # 固定步进，避免耗时波动导致周期越睡越长的漂移累积
+            # 兜底 0.05s：查询比间隔还慢（追不上）时也让出事件循环，
+            # 否则 SSE/其它路由会被这条流饿死。
+            await asyncio.sleep(max(0.05, min(delay, interval)))
     except asyncio.CancelledError:
         raise
 
 
 async def start_stream(server_url: str, token: str = "", proxy: str = "",
                        log_type: str = "", record_model: str = "dynamic_log",
-                       page_size: int = 100, interval: int = 5) -> dict:
+                       page_size: int = 100, interval: int = 5,
+                       seen_keys: list | None = None) -> dict:
     """启动（或重启）指定环境的日志实时流。
 
     按 ``server_url`` 多实例：每个环境各一条流可并行（多开窗口同时看多个环境）；
     同一环境重复 start 会先取消该环境的旧流，其它环境不受影响。
+
+    ``seen_keys``：客户端开启流前那次基线查询的行 key。传入后首轮轮询即可
+    判定新行（不浪费一个周期做静默种子）；不传则退回静默种子语义。
     """
     async with _lock:
         key = (server_url or "").strip().rstrip("/")
@@ -211,7 +236,9 @@ async def start_stream(server_url: str, token: str = "", proxy: str = "",
         }
         interval = max(3, min(int(interval or 5), 120))
         entry_cfg = {**cfg, "interval": interval, "streaming": True}
-        task = asyncio.create_task(_stream_loop(cfg, interval, key))
+        # 只收字符串 key，且限量防护（前端一次查询上限 300 行，此处留足余量）
+        seed = [k for k in (seen_keys or []) if isinstance(k, str) and k][:2000]
+        task = asyncio.create_task(_stream_loop(cfg, interval, key, seed))
         _streams[key] = {"task": task, "cfg": entry_cfg}
         logger.info(f"[CF-STREAM] 已启动: {key or '(默认)'} model={cfg['record_model']} "
                     f"log_type={cfg['log_type'] or '-'} interval={interval}s "

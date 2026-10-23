@@ -226,6 +226,7 @@ async def api_cf_log_stream(req: CfLogStreamReq):
             record_model=req.record_model,
             page_size=req.page_size,
             interval=req.interval,
+            seen_keys=req.seen_keys,
         )
     except (ValueError, UserError, PermissionError, ConnectionError, TimeoutError, RuntimeError) as e:
         raise _http_error(e)
