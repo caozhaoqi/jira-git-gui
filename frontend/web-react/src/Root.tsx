@@ -3,6 +3,7 @@ import App from './App';
 import { HcmModelDetail } from './components/hcm/HcmModelDetail';
 import { HcmCloudFuncErrorLocator } from './components/hcm/HcmCloudFuncErrorLocator';
 import { HcmTableWindow } from './components/hcm/HcmTableWindow';
+import { HcmRecordWindow } from './components/hcm/HcmRecordWindow';
 import { applyStandaloneTheme } from './utils/standaloneTheme';
 
 // 三种「独立轻窗口」根组件：双击对象打开的模型详情 / 元数据窗口、云函数错误定位窗口。
@@ -33,6 +34,18 @@ function TableWindow() {
   );
 }
 
+function RecordWindow() {
+  return (
+    <div className="app-shell app-shell--detail">
+      <main className="workspace">
+        <div className="workspace-body">
+          <HcmRecordWindow />
+        </div>
+      </main>
+    </div>
+  );
+}
+
 function CfErrWindow() {
   return (
     <div className="app-shell app-shell--detail">
@@ -52,7 +65,7 @@ export default function Root() {
   // 否则暗色主题下这些窗口会是白底（与主窗口割裂）。
   const standalone =
     qs.has('hcm-detail') || qs.has('hcm-meta') ||
-    qs.has('hcm-table') || qs.has('hcm-cf-err');
+    qs.has('hcm-table') || qs.has('hcm-cf-err') || qs.has('hcm-record');
   useEffect(() => {
     if (standalone) applyStandaloneTheme();
   }, [standalone]);
@@ -60,6 +73,7 @@ export default function Root() {
   // Root 自身不依赖条件 Hook，条件 return 安全（useEffect 已在 return 之前无条件调用）。
   if (qs.has('hcm-detail') || qs.has('hcm-meta')) return <DetailWindow />;
   if (qs.has('hcm-table')) return <TableWindow />;
+  if (qs.has('hcm-record')) return <RecordWindow />;
   if (qs.has('hcm-cf-err')) return <CfErrWindow />;
   return <App />;
 }
