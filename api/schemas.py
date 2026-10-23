@@ -201,6 +201,8 @@ class CfLogStreamReq(BaseModel):
     record_model: str = "dynamic_log"
     page_size: int = 100   # 每次轮询拉取的第一页条数（10~500）
     interval: int = 5      # 轮询间隔（秒，3~120）
+    seen_keys: list[str] = []  # 客户端基线行 key（开启流前那次查询的结果，口径同前端 cfRowKey）：
+                               # 传入后首轮轮询即可判定新行，省掉「静默种子」白等的一个周期
 
 
 class CfLoginReq(BaseModel):
