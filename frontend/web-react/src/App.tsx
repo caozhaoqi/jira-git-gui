@@ -32,6 +32,7 @@ const DiffPanel = lazyNamed<Record<string, never>>(() => import('./components/Di
 const K8sPanel = lazyNamed<Record<string, never>>(() => import('./components/k8s/K8sPanel'), 'K8sPanel');
 const KibanaPanel = lazyNamed<Record<string, never>>(() => import('./components/kibana/KibanaPanel'), 'KibanaPanel');
 const CfPanel = lazyNamed<Record<string, never>>(() => import('./components/CfPanel'), 'CfPanel');
+const CfMonitorPanel = lazyNamed<Record<string, never>>(() => import('./components/CfMonitorPanel'), 'CfMonitorPanel');
 const CfConsistencyPanel = lazyNamed<Record<string, never>>(() => import('./components/CfConsistencyPanel'), 'CfConsistencyPanel');
 const CfDebugPanel = lazyNamed<Record<string, never>>(() => import('./components/CfDebugPanel'), 'CfDebugPanel');
 const ClashPanel = lazyNamed<Record<string, never>>(() => import('./components/ClashPanel'), 'ClashPanel');
@@ -67,6 +68,7 @@ const PANELS: { key: TabKey; labelKey: string; el: ReactNode }[] = [
   { key: 'k8s', labelKey: 'tab.k8s', el: <K8sPanel /> },
   { key: 'kibana', labelKey: 'tab.kibana', el: <KibanaPanel /> },
   { key: 'cf', labelKey: 'tab.cf', el: <CfPanel /> },
+  { key: 'cfmonitor', labelKey: 'tab.cfmonitor', el: <CfMonitorPanel /> },
   { key: 'cfsync', labelKey: 'tab.cfsync', el: <CfConsistencyPanel /> },
   { key: 'cfdebug', labelKey: 'tab.cfdebug', el: <CfDebugPanel /> },
   { key: 'clash', labelKey: 'tab.clash', el: <ClashPanel /> },

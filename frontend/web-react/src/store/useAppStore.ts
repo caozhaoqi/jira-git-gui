@@ -7,7 +7,7 @@ import { apiPost } from '../api/client';
 import { reportPanelOutput } from '../api/aiBridge';
 
 export type Theme = 'light' | 'dark';
-export type TabKey = 'repo' | 'diff' | 'logs' | 'k8s' | 'kibana' | 'cf' | 'cfsync' | 'clash' | 'hcm' | 'hcmapi' | 'hcmops' | 'cfdebug' | 'settings' | 'diagnose' | 'aibridge';
+export type TabKey = 'repo' | 'diff' | 'logs' | 'k8s' | 'kibana' | 'cf' | 'cfmonitor' | 'cfsync' | 'clash' | 'hcm' | 'hcmapi' | 'hcmops' | 'cfdebug' | 'settings' | 'diagnose' | 'aibridge';
 export type ToastType = 'success' | 'warn' | 'error' | 'info';
 export type ProgressMode =
   | 'indeterminate'

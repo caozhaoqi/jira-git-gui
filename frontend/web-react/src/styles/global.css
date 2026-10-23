@@ -3699,3 +3699,363 @@ input.hcm-ops-keyinput { flex: 1 1 320px; font-size: var(--text-sm); }
 textarea.hcm-ops-decinput { height: 140px; resize: vertical; font-size: var(--text-sm); line-height: 1.5; }
 .hcm-ops-decresult { display: flex; flex-direction: column; gap: 4px; }
 .hcm-ops-s3h { width: 320px; font-size: var(--text-xs); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   HCM 查询结果表格视图（HcmDataTable / 全屏 / 独立窗口）
+   背景：原先只有 JSON 视图，记录近千条 × 几十列时读不动。
+   设计：首列吸附 + 横向滚动；空值弱色；嵌套折叠成 {…}/[n] 不铺开；
+        搜索/分页贴边常驻；按钮统一 32px（触控设备 40px，见文末媒体查询）。
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 视图切换栏（主面板 Data 子页签顶部） */
+.hcm-data-viewbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+}
+.hcm-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+  flex: 0 0 auto;
+}
+.hcm-seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  min-height: var(--ctl-md);
+  padding: 0 14px;
+  font-size: var(--text-2sm);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.hcm-seg-btn + .hcm-seg-btn { border-left: 1px solid var(--border); }
+.hcm-seg-btn:hover { background: var(--bg-hover); color: var(--text); }
+.hcm-seg-btn.active { background: var(--accent-soft); color: var(--primary); font-weight: 600; }
+
+/* ── 表格外壳：工具条 + 表体 + 分页条，纵向 flex ── */
+.hcm-data-table-host {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.hcm-dt-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+}
+
+/* 工具条：搜索 + 统计 + 动作。窄屏换行但不压扁输入框 */
+.hcm-dt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+.hcm-dt-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 320px;
+  min-width: 180px;
+}
+.hcm-dt-search-ico {
+  position: absolute;
+  left: 9px;
+  color: var(--text-faint);
+  font-size: 13px;
+  pointer-events: none;
+}
+.hcm-dt-search-input {
+  width: 100%;
+  min-height: var(--ctl-md);
+  padding-left: 26px !important;
+  padding-right: 26px !important;
+}
+.hcm-dt-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.hcm-dt-search-clear:hover { background: var(--border-strong); color: var(--text); }
+.hcm-dt-meta { font-size: var(--text-2sm); color: var(--text-faint); white-space: nowrap; }
+
+/* 表格本体 */
+.hcm-dt-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-panel);
+  /* 键盘可达时给个焦点提示（表格可 Tab 聚焦后方向键滚动） */
+  outline: none;
+}
+.hcm-dt-wrap:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+
+.hcm-dt {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-2sm);
+  width: max-content;
+  min-width: 100%;
+}
+.hcm-dt.is-dense th, .hcm-dt.is-dense td,
+.hcm-dt-shell.is-dense .hcm-dt th,
+.hcm-dt-shell.is-dense .hcm-dt td { padding: 3px 8px; font-size: 11px; }
+
+.hcm-dt thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-align: left;
+  padding: 7px 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--bg-head);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+.hcm-dt thead th:hover { color: var(--text); background: var(--bg-hover); }
+.hcm-dt thead th.is-sorted { color: var(--primary); }
+.hcm-dt-th { position: relative; }
+.hcm-dt-th-name { display: inline-block; }
+.hcm-dt-sort { display: inline-block; margin-left: 4px; font-size: 9px; }
+
+.hcm-dt tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  color: var(--text);
+}
+.hcm-dt tbody tr:hover td { background: var(--row-hover); }
+
+.hcm-dt-idx {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 52px;
+  min-width: 52px;
+  text-align: right;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-soft);
+}
+.hcm-dt thead th.hcm-dt-idx { z-index: 3; background: var(--bg-head); }
+.hcm-dt tbody tr:hover .hcm-dt-idx { background: var(--row-hover); }
+
+.hcm-dt-td--empty { color: var(--text-faint); }
+.hcm-dt-td--complex { color: var(--primary); cursor: pointer; font-family: var(--mono); }
+.hcm-dt-td--complex:hover { text-decoration: underline; }
+.hcm-dt-td.is-peek {
+  white-space: normal;
+  min-width: 320px;
+  max-width: 520px;
+  background: var(--accent-soft);
+}
+.hcm-dt-peek {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--text);
+  cursor: auto;
+}
+
+/* 空状态 */
+.hcm-dt-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 20px;
+  color: var(--text-dim);
+  font-size: var(--text-2sm);
+  text-align: center;
+}
+.hcm-dt-empty-icon { font-size: 26px; color: var(--text-faint); line-height: 1; }
+.hcm-dt-empty-hint { color: var(--text-faint); max-width: 460px; line-height: 1.6; }
+
+/* ── 分页条：常驻底部，按钮等距、可连点 ── */
+.hcm-dt-pager {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+.hcm-dt-page-btn {
+  min-width: 34px;
+  min-height: var(--ctl-md);
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
+}
+.hcm-dt-page-total {
+  font-size: var(--text-2sm);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.hcm-dt-page-info {
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+.hcm-dt-pagesize {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-2sm);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.hcm-dt-pagesize .sel { min-height: var(--ctl-sm); padding: 0 6px; }
+
+/* ── 独立窗口 / 全屏共用：头部动作按钮 ── */
+.hcm-dt-act {
+  min-height: var(--ctl-md);
+  padding: 0 12px;
+  flex: 0 0 auto;
+}
+.hcm-dt-act:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* 全屏模态 */
+.hcm-dt-fs-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--overlay);
+  padding: 24px;
+}
+.hcm-dt-fs {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.hcm-dt-fs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+.hcm-dt-fs-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  font-size: var(--text-md);
+  color: var(--text);
+  min-width: 0;
+}
+.hcm-dt-fs-meta { font-weight: 400; font-size: var(--text-2sm); color: var(--text-faint); }
+.hcm-dt-fs-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+
+/* 独立窗口 */
+.hcm-dt-window {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-panel);
+}
+.hcm-dt-window-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+}
+.hcm-dt-window-title { font-weight: 600; font-size: var(--text-md); color: var(--text); flex: 0 0 auto; }
+.hcm-dt-window-meta { font-size: var(--text-2sm); color: var(--text-faint); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcm-dt-window-body { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.hcm-dt-window-error { flex: 0 0 auto; margin: 0; border-radius: 0; }
+
+.hcm-dt-model { display: inline-flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 0; }
+.hcm-dt-field-lbl { font-size: var(--text-2sm); color: var(--text-faint); white-space: nowrap; }
+.hcm-dt-model-sel { min-height: var(--ctl-md); max-width: 320px; }
+
+/* ─────────────────────────────────────────────────────────────────
+   多平台适配
+   1) 触控设备（无精确 hover）：按 40px 目标尺寸放大可点区域。
+      用户实测「按钮点不到」多半是 28px 的 btn-sm + 密集排布导致的。
+   2) 窄窗口：头部/工具条换行后不被压缩，统计文字允许换行。
+   ───────────────────────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  .hcm-dt-act,
+  .hcm-dt-page-btn,
+  .hcm-dt-pagesize .sel,
+  .hcm-seg-btn,
+  .hcm-dt-search-input {
+    min-height: 40px;
+  }
+  .hcm-dt-page-btn { min-width: 44px; }
+  .hcm-dt thead th { padding: 10px; }
+  .hcm-dt tbody td { padding: 9px 10px; }
+}
+
+@media (max-width: 900px) {
+  .hcm-dt-toolbar { row-gap: 6px; }
+  .hcm-dt-search { flex: 1 1 100%; }
+  .hcm-dt-window-head { row-gap: 6px; }
+  .hcm-dt-model { flex: 1 1 100%; }
+  .hcm-dt-model-sel { max-width: none; flex: 1; }
+  .hcm-dt-fs-mask { padding: 0; }
+  .hcm-dt-fs { border-radius: 0; }
+  .hcm-dt-fs-head { row-gap: 6px; }
+}
