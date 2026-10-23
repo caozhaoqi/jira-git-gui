@@ -4059,3 +4059,6 @@ textarea.hcm-ops-decinput { height: 140px; resize: vertical; font-size: var(--te
   .hcm-dt-fs { border-radius: 0; }
   .hcm-dt-fs-head { row-gap: 6px; }
 }
+
+/* 服务端分页条（独立窗口）：与客户端分页条共用基础样式 */
+.hcm-dt-pager--server { flex-wrap: wrap; }
