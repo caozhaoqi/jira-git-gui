@@ -21,6 +21,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../i18n';
+import { openHcmWindow } from './hcmWindow';
 
 type Row = Record<string, unknown>;
 
@@ -38,6 +39,8 @@ export type HcmDataTableProps = {
   clientPageSize?: number;
   /** 顶部工具条右侧的附加动作（如「复制表格」「全屏」） */
   toolbarExtra?: React.ReactNode;
+  /** 双击行时的回调；默认打开独立记录详情窗口 */
+  onRowDoubleClick?: (row: Row, index: number) => void;
   /** 显示「行 × 列」统计（默认 true） */
   showMeta?: boolean;
 };
@@ -101,6 +104,7 @@ export function HcmDataTable({
   clientPageSize = 0,
   toolbarExtra,
   showMeta = true,
+  onRowDoubleClick,
 }: HcmDataTableProps) {
   const { t } = useT();
   const [sortKey, setSortKey] = useState('');
@@ -160,6 +164,18 @@ export function HcmDataTable({
   }
 
   const resetPage = useCallback(() => setPage(1), []);
+
+  const handleRowDoubleClick = useCallback((row: Row, absIdx: number) => {
+    if (onRowDoubleClick) { onRowDoubleClick(row, absIdx); return; }
+    const key = `hcm-rec-${Date.now()}`;
+    try {
+      sessionStorage.setItem(key, JSON.stringify({ row, index: absIdx }));
+      openHcmWindow(`/web/?hcm-record=1&hcm-record-key=${key}`, '_blank', 'width=900,height=700');
+    } catch {
+      // 配额失败时退化为 alert 显示 JSON
+      try { window.alert(JSON.stringify(row, null, 2)); } catch { /* ignore */ }
+    }
+  }, [onRowDoubleClick]);
 
   const visibleColumns = columns;
   const offset = clientPageSize ? (Math.min(page, totalPages) - 1) * pageSize : 0;
@@ -249,7 +265,7 @@ export function HcmDataTable({
               {paged.map((row, i) => {
                 const absIdx = offset + i;
                 return (
-                  <tr key={absIdx}>
+                  <tr key={absIdx} onDoubleClick={() => handleRowDoubleClick(row, absIdx)} style={{ cursor: 'pointer' }}>
                     {showIndex && <td className="hcm-dt-idx">{absIdx + 1}</td>}
                     {visibleColumns.map((c) => {
                       const v = row?.[c];
